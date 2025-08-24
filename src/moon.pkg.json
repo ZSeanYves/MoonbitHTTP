@@ -1,0 +1,5 @@
+{
+  "import": [
+    "ZSeanYves/MoonbitHTTP/lib"
+  ]
+}
