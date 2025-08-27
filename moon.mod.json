@@ -2,7 +2,8 @@
   "name": "ZSeanYves/MoonbitHTTP",
   "version": "0.1.0",
   "deps": {
-    "moonbitlang/x": "0.4.32"
+    "moonbitlang/x": "0.4.32",
+    "ZSeanYves/bufferutils": "0.2.4"
   },
   "readme": "README.md",
   "repository": "",
