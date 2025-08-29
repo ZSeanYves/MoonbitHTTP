@@ -9,7 +9,7 @@ pub fn buf_new() -> BufCursor {
   bufcursor
 }
 
-// 追加一段新到达的数据（例如来自 Transport.read() 的片段）
+// 追加一段新到达的数据
 pub fn buf_push(self : BufCursor, chunk : Array[Byte]) -> Unit {
   for b in chunk {
     self.buf.push(b)
@@ -27,7 +27,6 @@ pub fn buf_is_empty(self : BufCursor) -> Bool {
 }
 
 // 内部：查找首次出现的 CRLF，返回 '\n' 的索引（即 CR 的下一个位置）
-// 例如 buf = "... \r\n x", 若返回 i，则 line 为 [0 .. i-1)（不含 CRLF）
 fn find_crlf(self : BufCursor) -> Int? {
   let mut i = 1
   let a = 0x0D

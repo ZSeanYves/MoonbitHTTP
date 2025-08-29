@@ -24,7 +24,7 @@ pub fn write(
   Ok(self.tx.length())
 }
 
-// flush：内存后端相当于 no-op，这里保持语义一致
+// flush：相当于 no-op
 pub fn flush(self : Transport) -> Result[Unit, IoError] {
   if self.is_closed {
     return Err(IoError::Closed)
@@ -100,7 +100,6 @@ pub fn write_all(self : Transport, src : Array[Byte]) -> Result[Unit, IoError] r
   if self.is_closed { return Err(IoError::Closed) }
   let mut off = 0
   while off < src.length() {
-    // 这里只是演示循环写；当前内存后端一次能写完
     let chunk : Array[Byte] = []
     let mut i = off
     while i < src.length() { chunk.push(src[i]); i += 1 }
