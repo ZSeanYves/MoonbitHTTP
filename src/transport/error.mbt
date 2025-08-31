@@ -19,3 +19,16 @@ pub fn io_is_fatal(e : IoError) -> Bool {
     _ => true
   }
 }
+
+///|
+impl Show for BufError with to_string(self : BufError) -> String {
+  match self {
+    NeedMore(msg)   => "NeedMore(" + msg + ")"
+    LineTooLong(msg) => "LineTooLong(" + msg + ")"
+  }
+}
+
+///|
+impl Show for BufError with output(self, logger) {
+  logger.write_object(Show::to_string(self))
+}

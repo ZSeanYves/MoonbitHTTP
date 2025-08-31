@@ -1,0 +1,13 @@
+{
+    "import": [
+        {
+            "path": "ZSeanYves/bufferutils",
+            "alias": "buf"
+        },
+
+        {
+            "path": "ZSeanYves/MoonbitHTTP/transport",
+            "alias": "tsp"
+        }
+    ]
+}
