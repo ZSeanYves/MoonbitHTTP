@@ -95,7 +95,7 @@ pub fn close(self : Transport) -> Result[Unit, IoError] {
   Ok(())
 }
 
-// 写完整个 src（为将来“部分写”的真实后端预留循环）
+// TODO
 pub fn write_all(self : Transport, src : Array[Byte]) -> Result[Unit, IoError] raise @buf.BufferError {
   if self.is_closed { return Err(IoError::Closed) }
   let mut off = 0

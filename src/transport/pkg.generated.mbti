@@ -1,0 +1,67 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/transport"
+
+import(
+  "ZSeanYves/bufferutils"
+)
+
+// Values
+fn buf_new() -> BufCursor
+
+fn default_limits() -> IoLimits
+
+fn from_inmemory(Array[Byte]) -> Transport raise @bufferutils.BufferError
+
+fn io_is_fatal(IoError) -> Bool
+
+// Errors
+pub suberror BufError {
+  NeedMore(String)
+  LineTooLong(String)
+}
+
+pub suberror IoError {
+  Eof
+  Closed
+  WouldBlock
+}
+
+// Types and methods
+pub struct BufCursor {
+  mut buf : Array[Byte]
+}
+fn BufCursor::buf_drain(Self, Int) -> Int
+fn BufCursor::buf_is_empty(Self) -> Bool
+fn BufCursor::buf_len(Self) -> Int
+fn BufCursor::buf_peek(Self, Int) -> Array[Byte]
+fn BufCursor::buf_push(Self, Array[Byte]) -> Unit
+fn BufCursor::buf_read_line_crlf(Self, Int) -> Result[Array[Byte], BufError]
+fn BufCursor::buf_take(Self, Int) -> Array[Byte]
+
+pub struct IoLimits {
+  read_window_max : Int
+  write_buffer_max : Int
+  read_timeout_ms : Int
+  write_timeout_ms : Int
+}
+
+pub struct Transport {
+  mut rx : Array[Byte]
+  mut tx : Array[Byte]
+  txw : @bufferutils.BufferWriter
+  mut is_closed : Bool
+}
+fn Transport::close(Self) -> Result[Unit, IoError]
+fn Transport::flush(Self) -> Result[Unit, IoError]
+fn Transport::push_rx(Self, Array[Byte]) -> Unit
+fn Transport::read(Self, Array[Byte]) -> Result[Int, IoError]
+fn Transport::read_exact(Self, Int) -> Result[Array[Byte], IoError]
+fn Transport::rx_len(Self) -> Int
+fn Transport::take_tx(Self) -> Array[Byte]
+fn Transport::write(Self, Array[Byte]) -> Result[Int, IoError] raise @bufferutils.BufferError
+fn Transport::write_all(Self, Array[Byte]) -> Result[Unit, IoError] raise @bufferutils.BufferError
+
+// Type aliases
+
+// Traits
+

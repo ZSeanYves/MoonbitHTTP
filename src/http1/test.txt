@@ -1,0 +1,86 @@
+// 之前已测试通过，不过由于孤儿规则和引用成环，目前结构无法跑，放在此处参考
+impl Show for Method with to_string(self : Method) -> String {
+  match self {
+    Method::GET => "GET"
+    Method::POST => "POST"
+    Method::PUT => "PUT"
+    Method::DELETE => "DELETE"
+    Method::HEAD => "HEAD"
+    Method::OPTIONS => "OPTIONS"
+    Method::PATCH => "PATCH"
+    Method::TRACE => "TRACE"
+    Method::CONNECT => "CONNECT"
+    Method::Other(s) => s // For custom methods
+  }
+}
+
+
+impl Eq for Method with equal(self, other) {
+  match (self, other) {
+    (Method::GET, Method::GET) => true
+    (Method::POST, Method::POST) => true
+    (Method::PUT, Method::PUT) => true
+    (Method::DELETE, Method::DELETE) => true
+    (Method::HEAD, Method::HEAD) => true
+    (Method::OPTIONS, Method::OPTIONS) => true
+    (Method::PATCH, Method::PATCH) => true
+    (Method::TRACE, Method::TRACE) => true
+    (Method::CONNECT, Method::CONNECT) => true
+    (Method::Other(s1), Method::Other(s2)) => s1 == s2
+    _ => false
+  }
+}
+
+
+impl Show for Method with output(self, logger) {
+  match self {
+    Method::GET => logger.write_object("GET")
+    Method::POST => logger.write_object("POST")
+    Method::PUT => logger.write_object("PUT")
+    Method::DELETE => logger.write_object("DELETE")
+    Method::HEAD => logger.write_object("HEAD")
+    Method::OPTIONS => logger.write_object("OPTIONS")
+    Method::PATCH => logger.write_object("PATCH")
+    Method::TRACE => logger.write_object("TRACE")
+    Method::CONNECT => logger.write_object("CONNECT")
+    Method::Other(s) => logger.write_object(s)
+  }
+}
+
+
+// 测试：请求行解析
+test "http1: parse request line (GET)" {
+  let cur = @tsp.buf_new()
+  cur.buf_push(
+    @buf.string_to_utf8_bytes("GET /index.html HTTP/1.1\r\n").to_array(),
+  )
+  let result = parse_request_line(cur)
+  match result {
+    Ok(req_line) => {
+      assert_eq(req_line.http_method, @cor.Method::GET)
+      assert_eq(req_line.target, "/index.html")
+      assert_eq(req_line.version, "HTTP/1.1")
+    }
+    Err(_) => {
+      let a = true
+      assert_eq(a, false)
+    }
+  }
+}
+
+test "http1: parse request line (Other method)" {
+  let cur = @tsp.buf_new()
+  cur.buf_push(@buf.string_to_utf8_bytes("FOO /bar HTTP/1.1\r\n").to_array())
+  let result = parse_request_line(cur)
+  match result {
+    Ok(req_line) => {
+      assert_eq(req_line.http_method, @cor.Method::Other("FOO".to_string()))
+      assert_eq(req_line.target, "/bar")
+      assert_eq(req_line.version, "HTTP/1.1")
+    }
+    Err(_) => {
+      let b = true
+      assert_eq(b, false)
+    }
+  }
+}

@@ -1,0 +1,57 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/http1"
+
+import(
+  "ZSeanYves/MoonbitHTTP/core"
+  "ZSeanYves/MoonbitHTTP/transport"
+)
+
+// Values
+fn chunked_handler(@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool)
+
+fn encode_body(Array[Byte], Int) -> String
+
+fn encode_body_bytes(Array[Byte], Bool, chunk_size? : Int) -> Array[Byte]
+
+fn encode_chunked_bytes(Array[Byte], Int) -> Array[Byte]
+
+fn encode_content_length_prefix(Int) -> String
+
+fn encode_headers(Map[String, String]) -> String
+
+fn encode_response(@core.StatusCode, Map[String, String], Array[Byte], Int) -> String
+
+fn encode_response_bytes(@core.StatusCode, Map[String, String], Array[Byte], Bool, chunk_size? : Int, content_length_override? : Int?) -> Array[Byte]
+
+fn encode_status_line(@core.StatusCode) -> String
+
+fn get(@transport.Transport, String, String, Map[String, String], @core.Limits) -> Result[@core.Response, String]
+
+fn hello_handler(@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool)
+
+fn parse_content_length(Map[String, String]) -> Result[Int, String]
+
+fn parse_headers(@transport.BufCursor, Int, Int) -> Result[Map[String, String], String]
+
+fn parse_request_line(@transport.BufCursor) -> Result[@core.RequestLine, String]
+
+fn post(@transport.Transport, String, String, Array[Byte], String, Map[String, String], @core.Limits) -> Result[@core.Response, String]
+
+fn read_exact_from(@transport.BufCursor, @transport.Transport, Int, Int) -> Result[Array[Byte], String]
+
+fn read_request_full(@transport.Transport, Int, Int, Int, Int) -> Result[@core.Request, String]
+
+fn read_response(@transport.Transport, Int, Int, Int, Int) -> Result[@core.Response, String]
+
+fn serve_loop(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, String]
+
+fn serve_once(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, String]
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
+

@@ -1,0 +1,120 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/core"
+
+import(
+  "ZSeanYves/MoonbitHTTP/transport"
+)
+
+// Values
+fn _hex_to_int(String) -> Result[Int, String]
+
+fn _int_to_hex(Int) -> String
+
+fn body_bytes(Array[Byte]) -> Body
+
+fn body_empty() -> Body
+
+fn body_len(Body) -> Int
+
+fn byte_slice(Array[Byte], Int, Int) -> Array[Byte]
+
+fn copy_first(Array[Byte], Int) -> Array[Byte]
+
+fn err_io(String) -> Error
+
+fn err_proto(String) -> Error
+
+fn err_user(String) -> Error
+
+fn error_to_string(Herror) -> String
+
+fn header_get(Request, String) -> String?
+
+fn push_ascii(Array[Byte], String) -> Array[Byte]
+
+fn req_line(Method, String, String) -> RequestLine
+
+fn request_new(RequestLine, Map[String, String]) -> Request
+
+fn resp_bytes(Int, String, Map[String, String], Array[Byte]) -> Response
+
+fn resp_empty(Int, String, Map[String, String]) -> Response
+
+fn status(Int, String) -> Status
+
+fn str_slice(String, Int, Int) -> String
+
+fn write_ascii(@transport.Transport, String) -> Result[Unit, String]
+
+// Errors
+pub suberror Herror {
+  Io(String)
+  Proto(String)
+  User(String)
+}
+
+// Types and methods
+pub(all) enum Body {
+  Empty
+  Bytes(Array[Byte])
+}
+
+pub(all) struct Limits {
+  max_headers : Int
+  max_line : Int
+  read_win : Int
+  max_body : Int
+}
+
+pub(all) enum Method {
+  GET
+  POST
+  PUT
+  DELETE
+  HEAD
+  OPTIONS
+  PATCH
+  TRACE
+  CONNECT
+  Other(String)
+}
+
+pub(all) struct Request {
+  line : RequestLine
+  headers : Map[String, String]
+  body : Body
+}
+
+pub(all) struct RequestLine {
+  http_method : Method
+  target : String
+  version : String
+}
+
+pub(all) struct Response {
+  status : Status
+  headers : Map[String, String]
+  body : Body
+}
+
+pub(all) struct Status {
+  code : Int
+  reason : String
+}
+
+pub(all) enum StatusCode {
+  OK
+  NotFound
+  InternalServerError
+}
+
+pub(all) struct StatusLine {
+  version : String
+  code : Int
+  reason : String
+}
+
+// Type aliases
+
+// Traits
+
