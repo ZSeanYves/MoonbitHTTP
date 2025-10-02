@@ -1,21 +1,3 @@
-// 按键名大小写不敏感地从 headers 取值
-fn get_header_lc(hs: Map[String, String], key_lc: String) -> String {
-  for k in hs.keys() {
-    // 低配 to-lower：只处理 ASCII 大写
-    let kb = @buf.string_to_utf8_bytes(k).to_array()
-    let out : Array[Byte] = []
-    let mut i = 0
-    while i < kb.length() {
-      let c = kb[i].to_int()
-      out.push(if c >= 65 && c <= 90 { (c + 32).to_byte() } else { kb[i] })
-      i += 1
-    }
-    let k_lc = (try? @buf.utf8_bytes_to_string(Bytes::from_array(out))).unwrap_or(k)
-    if k_lc == key_lc { return hs.get(k).unwrap_or("") }
-  }
-  ""
-}
-
 // 直到读到一整行（不含 CRLF）
 fn read_line_until_ok(
   cur : @tsp.BufCursor,
@@ -53,33 +35,54 @@ fn read_line_until_ok(
 
 
 
-// 从 cur/io 精确读取 need 字节（可多次拉流）
+// 读定长正文：优先消费 cur 中已缓冲的数据，不足再从 io 拉，直到凑够 n
 fn read_exact_bytes(
-  cur:@tsp.BufCursor, io:@tsp.Transport, need:Int, read_win:Int
+  cur : @tsp.BufCursor,
+  io : @tsp.Transport,
+  n : Int,
+  read_win : Int,
 ) -> Result[Array[Byte], String] {
   let out : Array[Byte] = []
-  let mut have = 0
-  let mut rounds = 0
-  while have < need {
-    let chunk = cur.buf_take(need - have)
-    if chunk.length() > 0 {
-      let mut k = 0
-      while k < chunk.length() { out.push(chunk[k]); k += 1 }
-      have += chunk.length()
-      continue
+  let mut left = n
+  // a) 先吃缓冲里的
+  let avail0 = cur.buf_len()
+  if avail0 > 0 {
+    let take0 = if avail0 < left { avail0 } else { left }
+    let chunk0 = cur.buf_take(take0)
+    for b in chunk0 {
+      out.push(b)
     }
-    let n = match read_once_into(cur, io, read_win) {
-      Ok(n) => n
+    left -= take0
+  }
+  // b) 持续拉流补齐
+  let mut rounds = 0
+  while left > 0 {
+    match read_once_into(cur, io, read_win) {
+      Ok(m) => {
+        if m == 0 {
+          // 非阻塞传输下可能返回 0；若仍无数据可取则视为意外 EOF
+          if cur.buf_len() == 0 {
+            return Err("unexpected eof while reading fixed-length body")
+          }
+        }
+        let avail = cur.buf_len()
+        let take = if avail < left { avail } else { left }
+        let chunk = cur.buf_take(take)
+        for b in chunk {
+          out.push(b)
+        }
+        left -= take
+      }
       Err(e) => return Err(e)
     }
-    if n == 0 {
-      // 上层保证 need>0 时必须能读满；读不到则 EOF
-      rounds += 1
-      if rounds > 1024 { return Err("unexpected EOF while reading body") }
+    rounds += 1
+    if rounds > 4096 {
+      return Err("too many read rounds (body)")
     }
   }
   Ok(out)
 }
+
 
 // 解析响应状态行：HTTP/1.1 200 OK
 fn parse_status_line_streaming(
@@ -175,6 +178,50 @@ fn read_chunked_body(
 }
 
 
+
+// 按 EOF 读满（带上限/轮次保护），优先吃缓冲，再从 io 拉 
+fn read_body_to_eof(
+  cur: @tsp.BufCursor,
+  io:  @tsp.Transport,
+  read_win: Int,
+  max_body: Int,
+) -> Result[Array[Byte], String] {
+  let out : Array[Byte] = []
+
+  // 先拿走缓冲里已有的数据
+  let avail0 = cur.buf_len()
+  if avail0 > 0 {
+    let chunk0 = cur.buf_take(avail0)
+    for b in chunk0 { out.push(b) }
+  }
+
+  let mut rounds = 0
+  while out.length() <= max_body {
+    match read_once_into(cur, io, read_win) {
+      Ok(n) => {
+        if n == 0 {
+          if cur.buf_len() == 0 { break } // 视为结束
+        }
+        let avail = cur.buf_len()
+        if avail > 0 {
+          let chunk = cur.buf_take(avail)
+          for b in chunk { out.push(b) }
+        }
+      }
+      Err(e) => {
+        if e == "eof" || e == "Eof" { break }
+        return Err(e)
+      }
+    }
+    rounds += 1
+    if rounds > 4096 { return Err("too many read rounds (eof-body)") }
+  }
+
+  if out.length() > max_body { return Err("response body too large") }
+  Ok(out)
+}
+
+
 // ---------- 主逻辑 ----------
 pub fn read_response(
   io : @tsp.Transport,
@@ -182,6 +229,7 @@ pub fn read_response(
   max_line : Int,
   read_win : Int,
   max_body : Int,
+  enable_eof_fallback? : Bool = false,
 ) -> Result[@cor.Response, String] {
   let cur = @tsp.buf_new()
   let c = match parse_status_line_streaming(cur, io, read_win, max_line) {
@@ -218,8 +266,18 @@ pub fn read_response(
     out
   }
 
-  //    注意：只判断是否为 "chunked"（避免把原始分块文本当正文）
-  let mut te = get_header_lc(headers, "transfer-encoding")
+  // —— 无消息体状态码：1xx / 204 / 304 ——
+  let code = c.code
+  let status_no_body = (code >= 100 && code < 200) || code == 204 || code == 304
+  if status_no_body {
+    let status : @cor.Status = { code: c.code, reason: c.reason }
+    return Ok({ status, headers, body: @cor.Body::Empty })
+  }
+
+  let mut te = match @cor.get_ci(headers, "transfer-encoding") {
+    Some(v) => v
+    None => ""
+  }
   {
     let bs = @buf.string_to_utf8_bytes(te).to_array()
     let out : Array[Byte] = []
@@ -233,14 +291,17 @@ pub fn read_response(
   }
   let mut body = @cor.Body::Empty
   if te == "chunked" || (te.length() > 0 && te.find("chunked") != None) {
-    // chunked：用你现成的 read_chunked_body（内部也会增量拉流）
+    // chunked：用现成的 read_chunked_body（内部也会增量拉流）
     let bs = match read_chunked_body(cur, io, read_win, max_line, max_body) {
       Ok(b) => b
       Err(e) => return Err(e)
     }
     body = @cor.Body::Bytes(bs)
   } else {
-    let len_str = get_header_lc(headers, "content-length")
+    let len_str = match @cor.get_ci(headers, "content-length") {
+      Some(v) => v
+      None => ""
+    }
     let len = if len_str.length() == 0 {
       0
     } else {
@@ -266,11 +327,25 @@ pub fn read_response(
         Err(e) => return Err(e)
       }
       body = @cor.Body::Bytes(bs)
+      // —— 可选：无 CL/TE 时按 EOF 读取（默认关闭） ——
+    } else if enable_eof_fallback {
+      let bs = match read_body_to_eof(cur, io, read_win, max_body) {
+        Ok(b) => b
+        Err(e) => return Err(e)
+      }
+      if bs.length() > 0 {
+        body = @cor.Body::Bytes(bs)
+      } else {
+        body = @cor.Body::Empty
+      }
     }
   }
   let status : @cor.Status = { code: c.code, reason: c.reason }
   Ok({ status, headers, body })
 }
+
+
+
 
 // ---------- 简单 API ----------
 pub fn get(
@@ -484,7 +559,6 @@ test "client: POST — sends body & parses fixed-length response" {
     }
   }
 
-  // 设置 limits（来自 cor.Limits）
   let limits : @cor.Limits = {
     max_headers: 32,
     max_line: 1024,

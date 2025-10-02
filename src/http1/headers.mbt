@@ -1,62 +1,3 @@
-// http1/headers.mbt — 增量解析 HTTP/1.1 头部
-// 判断空白：空格或水平制表符
-fn is_ws(b : Byte) -> Bool {
-  b == 0x20 || b == 0x09
-}
-
-// 在 arr 中查找第一个 b 的位置
-fn find_byte(arr : Array[Byte], needle : Byte) -> Int? {
-  let mut i = 0
-  while i < arr.length() {
-    if arr[i] == needle {
-      return Some(i)
-    }
-    i += 1
-  }
-  None
-}
-
-// 左裁剪（空格/制表符）
-fn ltrim_ascii(arr : Array[Byte]) -> Array[Byte] {
-  let mut i = 0
-  while i < arr.length() && is_ws(arr[i]) {
-    i += 1
-  }
-  let out : Array[Byte] = []
-  let mut j = i
-  while j < arr.length() {
-    out.push(arr[j])
-    j += 1
-  }
-  out
-}
-
-// 右裁剪（空格/制表符）
-fn rtrim_ascii(arr : Array[Byte]) -> Array[Byte] {
-  if arr.length() == 0 {
-    return arr
-  }
-  let mut end = arr.length()
-  while end > 0 && is_ws(arr[end - 1]) {
-    end -= 1
-  }
-  let out : Array[Byte] = []
-  let mut i = 0
-  while i < end {
-    out.push(arr[i])
-    i += 1
-  }
-  out
-}
-
-// UTF-8 字节转字符串（带错误信息）
-fn bytes_to_utf8(arr : Array[Byte], ctx : String) -> Result[String, String] {
-  match (try? @buf.utf8_bytes_to_string(Bytes::from_array(arr))) {
-    Ok(s) => Ok(s)
-    Err(_) => Err("invalid utf8 in " + ctx)
-  }
-}
-
 // 解析头部：读到空行（CRLF）为止
 // max_headers: 头部最大数量限制；max_line：单行最大长度（字节）
 pub fn parse_headers(
@@ -68,7 +9,6 @@ pub fn parse_headers(
   let colon = 0x3A // ':'
   let mut count = 0
   while true {
-    // 读一行（不含 CRLF）
     let line = match cur.buf_read_line_crlf(max_line) {
       Ok(bs) => bs
       Err(_) => return Err("read header line failed: ")
@@ -86,7 +26,7 @@ pub fn parse_headers(
     }
 
     // 找到冒号
-    let pos = match find_byte(line, colon.to_byte()) {
+    let pos = match @cor.find_byte(line, colon.to_byte()) {
       Some(p) => p
       None => return Err("malformed header (missing :)")
     }
@@ -98,22 +38,22 @@ pub fn parse_headers(
       name.push(line[i])
       i += 1
     }
-    name = rtrim_ascii(name) // 名称右裁剪（防止尾部空白）
+    name = @cor.rtrim_ascii(name) // 名称右裁剪（防止尾部空白）
     let mut value : Array[Byte] = []
     let mut j = pos + 1
     while j < line.length() {
       value.push(line[j])
       j += 1
     }
-    value = ltrim_ascii(value) // 值左裁剪
-    value = rtrim_ascii(value) // 值右裁剪
+    value = @cor.ltrim_ascii(value) // 值左裁剪
+    value = @cor.rtrim_ascii(value) // 值右裁剪
 
     // 转成 String
-    let name_s = match bytes_to_utf8(name, "header-name") {
+    let name_s = match @cor.bytes_to_utf8(name, "header-name") {
       Ok(s) => s
       Err(e) => return Err(e)
     }
-    let value_s = match bytes_to_utf8(value, "header-value") {
+    let value_s = match @cor.bytes_to_utf8(value, "header-value") {
       Ok(s) => s
       Err(e) => return Err(e)
     }
@@ -123,6 +63,7 @@ pub fn parse_headers(
   }
   Ok(headers)
 }
+
 
 // http1/headers_test.mbt — 头部解析测试
 test "http1: parse headers — two lines then blank" {

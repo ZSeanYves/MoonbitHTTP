@@ -29,8 +29,6 @@ fn get(@transport.Transport, String, String, Map[String, String], @core.Limits) 
 
 fn hello_handler(@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool)
 
-fn parse_content_length(Map[String, String]) -> Result[Int, String]
-
 fn parse_headers(@transport.BufCursor, Int, Int) -> Result[Map[String, String], String]
 
 fn parse_request_line(@transport.BufCursor) -> Result[@core.RequestLine, String]
@@ -41,7 +39,7 @@ fn read_exact_from(@transport.BufCursor, @transport.Transport, Int, Int) -> Resu
 
 fn read_request_full(@transport.Transport, Int, Int, Int, Int) -> Result[@core.Request, String]
 
-fn read_response(@transport.Transport, Int, Int, Int, Int) -> Result[@core.Response, String]
+fn read_response(@transport.Transport, Int, Int, Int, Int, enable_eof_fallback? : Bool) -> Result[@core.Response, String]
 
 fn serve_loop(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, String]
 

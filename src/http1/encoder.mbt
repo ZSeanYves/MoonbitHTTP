@@ -1,4 +1,3 @@
-// http1/encoder.mbt — HTTP 响应编码器
 pub fn encode_content_length_prefix(content_length : Int) -> String {
   "Content-Length: " + content_length.to_string() + "\r\n\r\n"
 }
@@ -82,14 +81,13 @@ pub fn encode_response_bytes(
 }
 
 
-// 编码响应状态行（HTTP/1.1 200 OK）
+// 编码响应状态行（固定 HTTP/1.1；从 StatusCode 通用生成）
 pub fn encode_status_line(status : @cor.StatusCode) -> String {
-  match status {
-    @cor.StatusCode::OK => "HTTP/1.1 200 OK\r\n"
-    @cor.StatusCode::NotFound => "HTTP/1.1 404 Not Found\r\n"
-    @cor.StatusCode::InternalServerError => "HTTP/1.1 500 Internal Server Error\r\n"
-  }
+  let code = @cor.status_code_value(status)
+  let reason = @cor.default_reason(code)
+  "HTTP/1.1 " + code.to_string() + " " + reason + "\r\n"
 }
+
 
 
 // 编码响应头部（Content-Length, Transfer-Encoding: chunked）

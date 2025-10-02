@@ -1,0 +1,159 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/http2"
+
+import(
+  "ZSeanYves/MoonbitHTTP/transport"
+)
+
+// Values
+const H2_CLIENT_PREFACE : String = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+
+const H2_DEFAULT_MAX_FRAME_SIZE : Int = 16384
+
+const H2_FLAGS_ACK : Int = 0x1
+
+const H2_FLAGS_END_HEADERS : Int = 0x4
+
+const H2_FLAGS_END_STREAM : Int = 0x1
+
+const H2_FLAGS_PADDED : Int = 0x8
+
+const H2_FLAGS_PRIORITY : Int = 0x20
+
+const H2_FRAME_CONTINUATION : Int = 0x9
+
+const H2_FRAME_DATA : Int = 0x0
+
+const H2_FRAME_GOAWAY : Int = 0x7
+
+const H2_FRAME_HEADERS : Int = 0x1
+
+const H2_FRAME_PING : Int = 0x6
+
+const H2_FRAME_PRIORITY : Int = 0x2
+
+const H2_FRAME_PUSH_PROMISE : Int = 0x5
+
+const H2_FRAME_RST_STREAM : Int = 0x3
+
+const H2_FRAME_SETTINGS : Int = 0x4
+
+const H2_FRAME_WINDOW_UPDATE : Int = 0x8
+
+fn build_data_frames(Int, Array[Byte], Bool, max_frame_size? : Int) -> Array[Byte]
+
+fn build_goaway_frame(Int, Int, Array[Byte]) -> Array[Byte]
+
+fn build_headers_frames(Int, Array[Byte], Bool, max_frame_size? : Int) -> Array[Byte]
+
+fn build_headers_frames_from_list(Int, Array[HpackHeader], Bool, max_frame_size? : Int) -> Array[Byte]
+
+fn build_headers_frames_prio(Int, Array[Byte], Bool, Int, Bool, H2Priority) -> Array[Byte]
+
+fn build_ping_frame(Array[Byte], Bool) -> Array[Byte]
+
+fn build_rst_stream_frame(Int, Int) -> Array[Byte]
+
+fn build_settings_frame(Array[H2SettingKV], Bool) -> Array[Byte]
+
+fn build_window_update_frame(Int, Int) -> Array[Byte]
+
+fn client_preface_bytes() -> Array[Byte]
+
+fn decode_frame_header(@transport.BufCursor, @transport.Transport, Int, Int) -> Result[H2FrameHeader, String]
+
+fn decode_settings_payload(Array[Byte]) -> Result[Array[H2SettingKV], String]
+
+fn encode_frame_header(H2FrameHeader) -> Array[Byte]
+
+fn encode_settings_payload(Array[H2SettingKV]) -> Array[Byte]
+
+fn h2_client_start(@transport.Transport, Array[H2SettingKV]) -> Result[Unit, String]
+
+fn h2_server_accept_and_ack(@transport.BufCursor, @transport.Transport, Int, max_frame_size? : Int) -> Result[Array[H2SettingKV], String]
+
+fn h2_server_handle_get_hello(@transport.BufCursor, @transport.Transport, Int, max_frame_size? : Int) -> Result[Unit, String]
+
+fn hpack_decode_block(Array[Byte]) -> Result[Array[HpackHeader], String]
+
+fn hpack_encode_list_noindex(Array[HpackHeader]) -> Array[Byte]
+
+fn hpack_encode_literal_noindex(String, String, use_huffman? : Bool) -> Array[Byte]
+
+fn hpack_huff_decode(Array[Byte]) -> Result[Array[Byte], String]
+
+fn hpack_huff_encode(Array[Byte]) -> Result[Array[Byte], String]
+
+fn hpack_static_get(Int) -> (String, String)?
+
+fn parse_ping_frame(H2Frame) -> Result[(Bool, Array[Byte]), String]
+
+fn parse_rst_stream_error(H2Frame) -> Result[Int, String]
+
+fn parse_settings_frame(H2Frame) -> Result[(Bool, Array[H2SettingKV]), String]
+
+fn parse_window_update_increment(H2Frame) -> Result[Int, String]
+
+fn read_and_check_client_preface(@transport.BufCursor, @transport.Transport, Int) -> Result[Unit, String]
+
+fn read_frame(@transport.BufCursor, @transport.Transport, Int, max_frame_size? : Int) -> Result[H2Frame, String]
+
+fn read_headers_as_list(@transport.BufCursor, @transport.Transport, Int, max_frame_size? : Int) -> Result[(H2HeadersInfo, Array[HpackHeader]), String]
+
+fn read_headers_block(@transport.BufCursor, @transport.Transport, Int, max_frame_size? : Int) -> Result[(H2HeadersInfo, Array[Byte]), String]
+
+// Errors
+
+// Types and methods
+pub(all) struct H2Frame {
+  header : H2FrameHeader
+  payload : Array[Byte]
+}
+
+pub(all) struct H2FrameHeader {
+  length : Int
+  typ : Int
+  flags : Int
+  stream_id : Int
+}
+
+pub(all) struct H2HeadersInfo {
+  stream_id : Int
+  end_stream : Bool
+  has_priority : Bool
+  exclusive : Bool
+  dep_stream : Int
+  weight : Int
+}
+
+pub(all) struct H2Priority {
+  exclusive : Bool
+  dep_stream : Int
+  weight : Int
+}
+
+pub(all) struct H2SettingKV {
+  id : Int
+  value : Int
+}
+
+pub(all) struct HpackHeader {
+  name : String
+  value : String
+}
+
+pub struct HuffNode {
+  left : Int
+  right : Int
+  sym : Int
+}
+
+pub(all) struct HuffSym {
+  code : Int
+  bits : Int
+}
+
+// Type aliases
+
+// Traits
+
