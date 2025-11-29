@@ -18,6 +18,8 @@ fn body_empty() -> Body
 
 fn body_len(Body) -> Int
 
+fn body_stream_from_bytes(Array[Byte]) -> Body
+
 fn byte_slice(Array[Byte], Int, Int) -> Array[Byte]
 
 fn bytes_to_utf8(Array[Byte], String) -> Result[String, String]
@@ -95,6 +97,7 @@ pub suberror Herror {
 pub(all) enum Body {
   Empty
   Bytes(Array[Byte])
+  Stream(() -> Result[(Array[Byte], Bool), String])
 }
 
 pub(all) struct Limits {
