@@ -1,4 +1,5 @@
 // 通用调试工具：打印前 16 个字节的十六进制
+///|
 pub fn dbg_hex16(bs : Array[Byte]) -> String {
   let n = if bs.length() < 16 { bs.length() } else { 16 }
   let mut i = 0
@@ -16,6 +17,7 @@ pub fn dbg_hex16(bs : Array[Byte]) -> String {
   s
 }
 
+///|
 fn encode_block_with_huffman(
   hs : Array[HpackHeader],
   use_huffman_for_name : Bool,
@@ -45,7 +47,7 @@ fn encode_block_with_huffman(
   block
 }
 
-
+///|
 test "h2: SETTINGS encode/decode roundtrip" {
   let kvs : Array[H2SettingKV] = []
   kvs.push({ id: 0x1, value: 0 })
@@ -89,7 +91,7 @@ test "h2: SETTINGS encode/decode roundtrip" {
   }
 }
 
-
+///|
 test "h2: PING encode/decode (ack and no-ack)" {
   let opaque1 = @buf.string_to_utf8_bytes("12345678").to_array()
 
@@ -160,7 +162,7 @@ test "h2: PING encode/decode (ack and no-ack)" {
   }
 }
 
-
+///|
 test "h2: server accepts preface + SETTINGS then sends ACK" {
   let pre = client_preface_bytes()
   let cli_settings = build_settings_frame([], false)
@@ -199,9 +201,7 @@ test "h2: server accepts preface + SETTINGS then sends ACK" {
   }
 }
 
-
-
-
+///|
 test "h2: HEADERS single-frame roundtrip" {
   let sid = 1
   // 伪 header block：随手给点字节（后续接 HPACK）
@@ -217,6 +217,7 @@ test "h2: HEADERS single-frame roundtrip" {
   assert_eq(s, "abcd")
 }
 
+///|
 test "h2: HEADERS + CONTINUATION reassemble" {
   let sid = 1
   // 制造一个超过默认帧长的小片段（用非常小的 max_frame_size 来强制切片）
@@ -232,9 +233,7 @@ test "h2: HEADERS + CONTINUATION reassemble" {
   assert_eq(s, "0123456789abcdefghijklmnopqrstuvwxyz")
 }
 
-
-
-
+///|
 test "hpack: decode simple literals (noindex)" {
   let block : Array[Byte] = []
   let a = hpack_encode_literal_noindex(":method", "GET")
@@ -253,6 +252,7 @@ test "hpack: decode simple literals (noindex)" {
   assert_eq(hs[1].value, "/")
 }
 
+///|
 test "hpack: indexed field" {
   // 直接用静态索引 8 => :status: 200
   let bytes : Array[Byte] = []
@@ -266,8 +266,7 @@ test "hpack: indexed field" {
   assert_eq(hs[0].value, "200")
 }
 
-
-
+///|
 test "h2: HEADERS roundtrip via HPACK (no-index)" {
   // 构造一个最小请求头集（无 Huffman、no-index）
   let req_hs : Array[HpackHeader] = []
@@ -289,9 +288,9 @@ test "h2: HEADERS roundtrip via HPACK (no-index)" {
   assert_eq(got[1].value, "http")
 }
 
-
-
 // mini_roundtrip_test
+
+///|
 test "h2: minimal roundtrip GET → 200 + DATA('hello')" {
   // client → server 入站：preface + client SETTINGS + request HEADERS(stream 1, END_STREAM)
   let pre = client_preface_bytes()
@@ -355,9 +354,9 @@ test "h2: minimal roundtrip GET → 200 + DATA('hello')" {
   assert_eq(s, "hello")
 }
 
-
-
 //  不启用 Huffman：headers roundtrip
+
+///|
 test "hpack: no-huffman headers encode → decode roundtrip" {
   let hs : Array[HpackHeader] = []
   hs.push({ name: ":method", value: "GET" })
@@ -388,8 +387,9 @@ test "hpack: no-huffman headers encode → decode roundtrip" {
   assert_eq(ua_ok, true)
 }
 
-
 // 2) 仅对“值”尝试启用 Huffman：即使表没全，也会自动回退；roundtrip 必须一致
+
+///|
 test "hpack: (try) huffman for values → decode roundtrip" {
   let hs : Array[HpackHeader] = []
   hs.push({ name: ":method", value: "GET" })
@@ -397,9 +397,7 @@ test "hpack: (try) huffman for values → decode roundtrip" {
   hs.push({ name: ":authority", value: "example.com" })
   hs.push({ name: ":path", value: "/" })
   hs.push({ name: "cookie", value: "///" })
-
   let block = encode_block_with_huffman(hs, false, true)
-
   let bytes = build_headers_frames(
     1,
     block,
@@ -408,7 +406,6 @@ test "hpack: (try) huffman for values → decode roundtrip" {
   )
   let io = (try? @tsp.from_inmemory(bytes)).unwrap()
   let cur = @tsp.buf_new()
-
   match
     read_headers_as_list(
       cur,
@@ -435,8 +432,9 @@ test "hpack: (try) huffman for values → decode roundtrip" {
   }
 }
 
-
 // 3) 名字不在静态表时，(try) huffman（会针对 name/value 一起尝试；不足时回退），roundtrip 一致
+
+///|
 test "hpack: literal-name with (try) huffman → decode roundtrip" {
   let hs : Array[HpackHeader] = []
   hs.push({ name: "x-test", value: "v/1" }) // name 不在静态表；value 含 '/'

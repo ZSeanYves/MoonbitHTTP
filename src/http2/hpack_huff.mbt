@@ -1,3 +1,4 @@
+///|
 fn table_init() -> Map[Int, HuffSym] {
   let t : Map[Int, HuffSym] = Map::new()
   t.set(47, { code: 0x18, bits: 6 })
@@ -21,6 +22,8 @@ fn table_init() -> Map[Int, HuffSym] {
 }
 
 // 构建“按位前缀”查找树,加速解码
+
+///|
 fn build_trie(tbl : Map[Int, HuffSym]) -> Array[HuffNode] {
   let nodes : Array[HuffNode] = []
   // root
@@ -66,8 +69,9 @@ fn build_trie(tbl : Map[Int, HuffSym]) -> Array[HuffNode] {
   nodes
 }
 
-
 // 解码 
+
+///|
 pub fn hpack_huff_decode(data : Array[Byte]) -> Result[Array[Byte], String] {
   let tbl = table_init()
   let trie = build_trie(tbl)
@@ -115,6 +119,8 @@ pub fn hpack_huff_decode(data : Array[Byte]) -> Result[Array[Byte], String] {
 }
 
 // ===== 编码 
+
+///|
 pub fn hpack_huff_encode(raw : Array[Byte]) -> Result[Array[Byte], String] {
   let tbl = table_init()
   let mut bitbuf : Int = 0

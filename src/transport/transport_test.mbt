@@ -1,5 +1,6 @@
 // transport 的功能测试
 // --- 基础：空输入时 read 的行为 ---
+///|
 test "transport: read() on empty, not closed -> WouldBlock" {
   let io = from_inmemory([])
   let tmp : Array[Byte] = []
@@ -13,8 +14,9 @@ test "transport: read() on empty, not closed -> WouldBlock" {
   }
 }
 
-
 // --- push_rx + read 基本路径 ---
+
+///|
 test "transport: push_rx -> read some bytes" {
   let io = from_inmemory([])
   let a = @buf.string_to_utf8_bytes("GET ").to_array()
@@ -44,6 +46,8 @@ test "transport: push_rx -> read some bytes" {
 
 // --- read_exact 满足/自旋 ---
 // PS：read_exact 里有 WouldBlock 重试逻辑，如后续没有读取到会一直阻塞
+
+///|
 test "transport: read_exact n bytes" {
   let io = from_inmemory(@buf.string_to_utf8_bytes("ABCDEF").to_array())
   let bs = match io.read_exact(6) {
@@ -57,18 +61,22 @@ test "transport: read_exact n bytes" {
   assert_eq(bs, @buf.string_to_utf8_bytes("ABCDEF").to_array())
 }
 
-
-
 // --- write / write_all + take_tx ---
+
+///|
 test "transport: write_all then take_tx" {
   let io = from_inmemory([])
-  let resp = @buf.string_to_utf8_bytes("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHello")
+  let resp = @buf.string_to_utf8_bytes(
+    "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nHello",
+  )
   let _ = io.write_all(resp.to_array())
   let out = io.take_tx()
   assert_eq(out, resp.to_array())
 }
 
 // --- flush 是 no-op 但要可调用 ---
+
+///|
 test "transport: flush no-op" {
   let io = from_inmemory([])
   let mut ok = true
@@ -80,6 +88,8 @@ test "transport: flush no-op" {
 }
 
 // --- close 后：read 空返回 Eof；write/flush 返回 Closed ---
+
+///|
 test "transport: close semantics" {
   let io = from_inmemory([])
   let _ = io.close()
@@ -114,17 +124,14 @@ test "transport: close semantics" {
   }
 }
 
-
-
-
-
 // BufCursor 的功能测试
 
 // --- NeedMore：分片到达后再读行 ---
+
+///|
 test "bufcursor: read line with fragments (NeedMore -> Ok)" {
   let cur = buf_new()
   cur.buf_push(@buf.string_to_utf8_bytes("GET / HT").to_array())
-
   match cur.buf_read_line_crlf(8 * 1024) {
     Err(BufError::NeedMore(_)) => ()
     _ => {
@@ -132,9 +139,7 @@ test "bufcursor: read line with fragments (NeedMore -> Ok)" {
       assert_eq(a, false)
     }
   }
-
   cur.buf_push(@buf.string_to_utf8_bytes("TP/1.1\r\n").to_array())
-
   let line = match cur.buf_read_line_crlf(8 * 1024) {
     Ok(l) => l
     _ => {
@@ -149,11 +154,12 @@ test "bufcursor: read line with fragments (NeedMore -> Ok)" {
 }
 
 // --- LineTooLong：超长行报错 ---
+
+///|
 test "bufcursor: line too long" {
   let cur = buf_new()
   // 构造一行 10 个 'A' + CRLF，但 max_len 给 5
   cur.buf_push(@buf.string_to_utf8_bytes("AAAAAAAAAA\r\n").to_array())
-
   match cur.buf_read_line_crlf(5) {
     Err(BufError::LineTooLong(_)) => ()
     _ => {
@@ -164,10 +170,13 @@ test "bufcursor: line too long" {
 }
 
 // --- 连续两行：Back-to-back CRLF ---
+
+///|
 test "bufcursor: two lines back-to-back" {
   let cur = buf_new()
-  cur.buf_push(@buf.string_to_utf8_bytes("Host: a\r\nUser-Agent: x\r\n").to_array())
-
+  cur.buf_push(
+    @buf.string_to_utf8_bytes("Host: a\r\nUser-Agent: x\r\n").to_array(),
+  )
   let l1 = match cur.buf_read_line_crlf(8 * 1024) {
     Ok(l) => l
     _ => {
@@ -177,7 +186,6 @@ test "bufcursor: two lines back-to-back" {
     }
   }
   assert_eq(l1, @buf.string_to_utf8_bytes("Host: a").to_array())
-
   let l2 = match cur.buf_read_line_crlf(8 * 1024) {
     Ok(l) => l
     _ => {
@@ -191,6 +199,8 @@ test "bufcursor: two lines back-to-back" {
 }
 
 // --- take/peek/drain 组合语义 ---
+
+///|
 test "bufcursor: take/peek/drain semantics" {
   let cur = buf_new()
   cur.buf_push(@buf.string_to_utf8_bytes("abcdef").to_array())

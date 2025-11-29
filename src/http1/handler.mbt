@@ -3,6 +3,7 @@
 //      若 is_chunked = true，则你必须在 headers 里设置 "Transfer-Encoding":"chunked"；编码器按 chunked 输出。
 //handler    : (Request) -> (StatusCode, Map[String,String], Array[Byte], Bool)
 
+///|
 fn read_request_once(
   io : @tsp.Transport,
   max_headers : Int,
@@ -76,10 +77,10 @@ fn read_request_once(
     }
     out
   }
-  Ok({ line: req_line, headers: req_headers , body: @cor.Body::Empty })
+  Ok({ line: req_line, headers: req_headers, body: @cor.Body::Empty })
 }
 
-
+///|
 fn write_response_once(
   io : @tsp.Transport,
   status : @cor.StatusCode,
@@ -145,9 +146,10 @@ fn write_response_once(
         chunk.push(body[j])
         j += 1
       }
-      match (try? io.write_all(chunk)) {
-        Ok(_) => ()
-        Err(_) => return Err("write chunk body failed ")
+      try io.write_all(chunk) catch {
+        _ => return Err("write chunk body failed ")
+      } noraise {
+        _ => ()
       }
       match @cor.write_ascii(io, "\r\n") {
         Ok(_) => ()
@@ -170,15 +172,17 @@ fn write_response_once(
       Ok(_) => ()
       Err(e) => return Err(e)
     }
-    match (try? io.write_all(body)) {
-      Ok(_) => Ok(())
-      Err(_) => Err("write body bytes failed ")
+    try io.write_all(body) catch {
+      _ => Err("write body bytes failed ")
+    } noraise {
+      _ => Ok(())
     }
   }
 }
 
-
 // 读取一个完整请求：行 + 头 + （可选）body
+
+///|
 pub fn read_request_full(
   io : @tsp.Transport,
   max_headers : Int,
@@ -227,9 +231,9 @@ pub fn read_request_full(
   Ok(creq)
 }
 
-
-
 // ---- 从 Transport 读到 BufCursor，直到可解析出一行（或读尽） ----
+
+///|
 fn read_once_into(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -252,6 +256,8 @@ fn read_once_into(
 }
 
 // 兼容旧用法：一次请求
+
+///|
 pub fn serve_once(
   io : @tsp.Transport,
   handler : (@cor.Request) -> (
@@ -274,6 +280,7 @@ pub fn serve_once(
   write_response_once(io, status, resp_headers, resp_body, is_chunked)
 }
 
+///|
 pub fn serve_loop(
   io : @tsp.Transport,
   handler : (@cor.Request) -> (
@@ -380,12 +387,9 @@ pub fn serve_loop(
   Ok(())
 }
 
-
-
-
-
-
 // 一个最简单的处理器：无论请求什么都返回 200 text/plain: "Hello"
+
+///|
 pub fn hello_handler(
   req : @cor.Request,
 ) -> (@cor.StatusCode, Map[String, String], Array[Byte], Bool) {
@@ -396,8 +400,9 @@ pub fn hello_handler(
   (@cor.StatusCode::OK, hs, body, false) // 非 chunked，自动 Content-Length
 }
 
-
 // 一个 chunked 处理器：返回两行拼起来的 body
+
+///|
 pub fn chunked_handler(
   req : @cor.Request,
 ) -> (@cor.StatusCode, Map[String, String], Array[Byte], Bool) {
@@ -411,9 +416,9 @@ pub fn chunked_handler(
   (@cor.StatusCode::OK, hs, body, true)
 }
 
-
-
 // 确保从 cur/io 里“精确”读取 need 个字节（放到 Array[Byte] 返回）
+
+///|
 pub fn read_exact_from(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -436,7 +441,6 @@ pub fn read_exact_from(
       have += chunk.length()
       continue
     }
-
     let n = match read_once_into(cur, io, read_win) {
       Ok(n) => n
       Err(e) => return Err(e)
@@ -450,7 +454,6 @@ pub fn read_exact_from(
       }
       continue
     }
-
     rounds += 1
     if rounds > 4096 {
       return Err("too many read rounds (request body)")
@@ -460,6 +463,8 @@ pub fn read_exact_from(
 }
 
 // 一个用于 Expect 测试的简易处理器：回 200 OK，text/plain，body="ok"
+
+///|
 fn expect_ok_handler(
   req : @cor.Request,
 ) -> (@cor.StatusCode, Map[String, String], Array[Byte], Bool) {
@@ -471,8 +476,9 @@ fn expect_ok_handler(
   (@cor.StatusCode::OK, hs, body, false) // 非 chunked，由编码器写 CL
 }
 
-
 // 端到端：Expect: 100-continue
+
+///|
 test "server: Expect 100-continue — sends 100 then 200" {
   // 用拼接的方式构造请求
   let req = "POST /upload HTTP/1.1\r\n" +
@@ -486,13 +492,14 @@ test "server: Expect 100-continue — sends 100 then 200" {
 
   // in-memory transport：预置入站为请求
   let rx = @buf.string_to_utf8_bytes(req).to_array()
-  let io = match (try? @tsp.from_inmemory(rx)) {
-    Ok(t) => t
-    Err(_) => {
+  let io = try @tsp.from_inmemory(rx) catch {
+    _ => {
       let a = true
       assert_eq(a, false)
       return
     }
+  } noraise {
+    t => t
   }
 
   // 跑一轮服务端主循环（会先回 100，再读体，再回 200）

@@ -1,5 +1,6 @@
 //Tools：读写（局部实现，避免依赖 http1）
 // 对 encoder 和 read 的补丁：
+///|
 fn read_missing_into(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -30,9 +31,9 @@ fn read_missing_into(
   }
 }
 
-
-
 // 编解码：帧头
+
+///|
 pub fn encode_frame_header(h : H2FrameHeader) -> Array[Byte] {
   let out : Array[Byte] = []
   // length: 24-bit big-endian
@@ -57,6 +58,8 @@ pub fn encode_frame_header(h : H2FrameHeader) -> Array[Byte] {
 }
 
 // 读帧头（先预取 9 字节，再消费）
+
+///|
 pub fn decode_frame_header(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -116,10 +119,9 @@ pub fn decode_frame_header(
   Ok({ length: len, typ, flags, stream_id: sid })
 }
 
-
-
-
 // 读完整帧（头 + 载荷），按帧长再动态预取  
+
+///|
 pub fn read_frame(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -161,15 +163,16 @@ pub fn read_frame(
   Ok({ header: h, payload })
 }
 
-
-
-
 // 连接前言（客户端发送 / 服务器校验）
+
+///|
 pub fn client_preface_bytes() -> Array[Byte] {
   @buf.string_to_utf8_bytes(H2_CLIENT_PREFACE).to_array()
 }
 
 // 服务器侧校验：严格读取并仅消费 24 字节前言，剩余字节留在 cur 里
+
+///|
 pub fn read_and_check_client_preface(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -215,10 +218,9 @@ pub fn read_and_check_client_preface(
   Ok(())
 }
 
-
-
-
 // 编码 SETTINGS 的 payload（不含帧头）
+
+///|
 pub fn encode_settings_payload(kvs : Array[H2SettingKV]) -> Array[Byte] {
   let out : Array[Byte] = []
   for kv in kvs {
@@ -235,6 +237,8 @@ pub fn encode_settings_payload(kvs : Array[H2SettingKV]) -> Array[Byte] {
 }
 
 // 解析 SETTINGS 的 payload
+
+///|
 pub fn decode_settings_payload(
   bs : Array[Byte],
 ) -> Result[Array[H2SettingKV], String] {
@@ -256,6 +260,8 @@ pub fn decode_settings_payload(
 }
 
 // 生成一个完整 SETTINGS 帧（stream=0；可带 ACK 标志，payload 为空）
+
+///|
 pub fn build_settings_frame(
   kvs : Array[H2SettingKV],
   ack : Bool,
@@ -276,6 +282,8 @@ pub fn build_settings_frame(
 }
 
 // PING 帧（payload 8 字节）
+
+///|
 pub fn build_ping_frame(opaque8 : Array[Byte], ack : Bool) -> Array[Byte] {
   // 需要 8 字节，不够补 0，多了截断
   let p : Array[Byte] = []
@@ -295,6 +303,8 @@ pub fn build_ping_frame(opaque8 : Array[Byte], ack : Bool) -> Array[Byte] {
 }
 
 // GOAWAY（最小版）：last-stream-id(32) + error-code(32) + optional debug data
+
+///|
 pub fn build_goaway_frame(
   last_stream_id : Int,
   error_code : Int,
@@ -327,9 +337,10 @@ pub fn build_goaway_frame(
   out
 }
 
-
 // 解析一帧是否 SETTINGS，返回 (ack, kvs)
 // - ack=true 时 payload 必须为空
+
+///|
 pub fn parse_settings_frame(
   f : H2Frame,
 ) -> Result[(Bool, Array[H2SettingKV]), String] {
@@ -351,6 +362,8 @@ pub fn parse_settings_frame(
 }
 
 // 解析一帧是否 PING，返回 (ack, opaque8)
+
+///|
 pub fn parse_ping_frame(f : H2Frame) -> Result[(Bool, Array[Byte]), String] {
   if f.header.typ != H2_FRAME_PING {
     return Err("not a PING frame")
@@ -363,6 +376,8 @@ pub fn parse_ping_frame(f : H2Frame) -> Result[(Bool, Array[Byte]), String] {
 }
 
 // —— WINDOW_UPDATE ——
+
+///|
 pub fn build_window_update_frame(
   stream_id : Int,
   increment : Int,
@@ -387,6 +402,7 @@ pub fn build_window_update_frame(
   out
 }
 
+///|
 pub fn parse_window_update_increment(f : H2Frame) -> Result[Int, String] {
   if f.header.typ != H2_FRAME_WINDOW_UPDATE {
     return Err("not a WINDOW_UPDATE frame")
@@ -405,8 +421,9 @@ pub fn parse_window_update_increment(f : H2Frame) -> Result[Int, String] {
   Ok(inc)
 }
 
-
 // —— RST_STREAM ——
+
+///|
 pub fn build_rst_stream_frame(stream_id : Int, error_code : Int) -> Array[Byte] {
   let ec = error_code & 0xFFFFFFFF
   let p : Array[Byte] = []
@@ -427,6 +444,7 @@ pub fn build_rst_stream_frame(stream_id : Int, error_code : Int) -> Array[Byte] 
   out
 }
 
+///|
 pub fn parse_rst_stream_error(f : H2Frame) -> Result[Int, String] {
   if f.header.typ != H2_FRAME_RST_STREAM {
     return Err("not a RST_STREAM frame")
@@ -442,26 +460,28 @@ pub fn parse_rst_stream_error(f : H2Frame) -> Result[Int, String] {
   Ok(ec)
 }
 
-
+///|
 pub fn h2_client_start(
   io : @tsp.Transport,
   settings : Array[H2SettingKV],
 ) -> Result[Unit, String] {
   // 发送前言
   let pre = client_preface_bytes()
-  match (try? io.write_all(pre)) {
-    Ok(_) => ()
-    Err(_) => return Err("write client preface failed")
+  try io.write_all(pre) catch {
+    _ => return Err("write client preface failed")
+  } noraise {
+    _ => ()
   }
   // 发送 SETTINGS
   let sf = build_settings_frame(settings, false)
-  match (try? io.write_all(sf)) {
-    Ok(_) => Ok(())
-    Err(_) => Err("write client settings failed")
+  try io.write_all(sf) catch {
+    _ => Err("write client settings failed")
+  } noraise {
+    _ => Ok(())
   }
 }
 
-
+///|
 pub fn h2_server_accept_and_ack(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -486,14 +506,17 @@ pub fn h2_server_accept_and_ack(
   }
   // 回 ACK
   let ack_bytes = build_settings_frame([], true)
-  match (try? io.write_all(ack_bytes)) {
-    Ok(_) => ()
-    Err(_) => return Err("write settings ack failed")
+  try io.write_all(ack_bytes) catch {
+    _ => return Err("write settings ack failed")
+  } noraise {
+    _ => ()
   }
   Ok(kvs)
 }
 
 // 服务器一次完整处理：preface+SETTINGS(ack) → 读取请求 HEADERS → 回 200 和 DATA("hello")
+
+///|
 pub fn h2_server_handle_get_hello(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -536,13 +559,15 @@ pub fn h2_server_handle_get_hello(
   let data_bytes = build_data_frames(1, body, true, max_frame_size~)
 
   // 写出
-  match (try? io.write_all(hdr_bytes)) {
-    Ok(_) => ()
-    Err(_) => return Err("write response headers failed")
+  try io.write_all(hdr_bytes) catch {
+    _ => return Err("write response headers failed")
+  } noraise {
+    _ => ()
   }
-  match (try? io.write_all(data_bytes)) {
-    Ok(_) => ()
-    Err(_) => return Err("write response data failed")
+  try io.write_all(data_bytes) catch {
+    _ => return Err("write response data failed")
+  } noraise {
+    _ => ()
   }
   Ok(())
 }

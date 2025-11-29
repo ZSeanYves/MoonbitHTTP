@@ -1,4 +1,5 @@
 // 直到读到一整行（不含 CRLF）
+///|
 fn read_line_until_ok(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -9,9 +10,10 @@ fn read_line_until_ok(
   while true {
     match cur.buf_read_line_crlf(max_line) {
       Ok(bytes) =>
-        match (try? @buf.utf8_bytes_to_string(Bytes::from_array(bytes))) {
-          Ok(s) => return Ok(s) // 成功返回字符串
-          Err(_) => return Err("invalid utf8 in line") // UTF-8 转换失败
+        try @buf.utf8_bytes_to_string(Bytes::from_array(bytes)) catch {
+          _ => return Err("invalid utf8 in line") // UTF-8 转换失败
+        } noraise {
+          s => return Ok(s) // 成功返回字符串
         }
       Err(_) => {
         // 读取失败时，尝试再次读取
@@ -33,9 +35,9 @@ fn read_line_until_ok(
   return Err("Unexpected error in while loop") // This will never be hit, but needed for type consistency
 }
 
-
-
 // 读定长正文：优先消费 cur 中已缓冲的数据，不足再从 io 拉，直到凑够 n
+
+///|
 fn read_exact_bytes(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -83,8 +85,9 @@ fn read_exact_bytes(
   Ok(out)
 }
 
-
 // 解析响应状态行：HTTP/1.1 200 OK
+
+///|
 fn parse_status_line_streaming(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -137,6 +140,8 @@ fn parse_status_line_streaming(
 }
 
 // 读取 chunked 响应体（合并为 Bytes；忽略 trailers 的键值解析，最小实现）
+
+///|
 fn read_chunked_body(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -177,14 +182,14 @@ fn read_chunked_body(
   Ok(out)
 }
 
-
-
 // 按 EOF 读满（带上限/轮次保护），优先吃缓冲，再从 io 拉 
+
+///|
 fn read_body_to_eof(
-  cur: @tsp.BufCursor,
-  io:  @tsp.Transport,
-  read_win: Int,
-  max_body: Int,
+  cur : @tsp.BufCursor,
+  io : @tsp.Transport,
+  read_win : Int,
+  max_body : Int,
 ) -> Result[Array[Byte], String] {
   let out : Array[Byte] = []
 
@@ -192,37 +197,48 @@ fn read_body_to_eof(
   let avail0 = cur.buf_len()
   if avail0 > 0 {
     let chunk0 = cur.buf_take(avail0)
-    for b in chunk0 { out.push(b) }
+    for b in chunk0 {
+      out.push(b)
+    }
   }
-
   let mut rounds = 0
   while out.length() <= max_body {
     match read_once_into(cur, io, read_win) {
       Ok(n) => {
         if n == 0 {
-          if cur.buf_len() == 0 { break } // 视为结束
+          if cur.buf_len() == 0 {
+            break
+          } // 视为结束
         }
         let avail = cur.buf_len()
         if avail > 0 {
           let chunk = cur.buf_take(avail)
-          for b in chunk { out.push(b) }
+          for b in chunk {
+            out.push(b)
+          }
         }
       }
       Err(e) => {
-        if e == "eof" || e == "Eof" { break }
+        if e == "eof" || e == "Eof" {
+          break
+        }
         return Err(e)
       }
     }
     rounds += 1
-    if rounds > 4096 { return Err("too many read rounds (eof-body)") }
+    if rounds > 4096 {
+      return Err("too many read rounds (eof-body)")
+    }
   }
-
-  if out.length() > max_body { return Err("response body too large") }
+  if out.length() > max_body {
+    return Err("response body too large")
+  }
   Ok(out)
 }
 
-
 // ---------- 主逻辑 ----------
+
+///|
 pub fn read_response(
   io : @tsp.Transport,
   max_headers : Int,
@@ -273,7 +289,6 @@ pub fn read_response(
     let status : @cor.Status = { code: c.code, reason: c.reason }
     return Ok({ status, headers, body: @cor.Body::Empty })
   }
-
   let mut te = match @cor.get_ci(headers, "transfer-encoding") {
     Some(v) => v
     None => ""
@@ -344,10 +359,9 @@ pub fn read_response(
   Ok({ status, headers, body })
 }
 
-
-
-
 // ---------- 简单 API ----------
+
+///|
 pub fn get(
   io : @tsp.Transport,
   target : String,
@@ -371,6 +385,7 @@ pub fn get(
   )
 }
 
+///|
 pub fn post(
   io : @tsp.Transport,
   target : String,
@@ -390,9 +405,10 @@ pub fn post(
     ignore(@cor.write_ascii(io, k + ": " + v + "\r\n"))
   }
   ignore(@cor.write_ascii(io, "\r\n"))
-  match (try? io.write_all(body)) {
-    Ok(_) => ()
-    Err(_) => return Err("write body failed")
+  try io.write_all(body) catch {
+    _ => return Err("write body failed")
+  } noraise {
+    _ => ()
   }
   read_response(
     io,
@@ -403,11 +419,11 @@ pub fn post(
   )
 }
 
-
-
 // ---------- 测试 ----------
 // Tools
 // 检查字符串是否以指定前缀开始
+
+///|
 fn str_starts_with(s : String, prefix : String) -> Bool {
   if s.length() < prefix.length() {
     return false
@@ -421,6 +437,8 @@ fn str_starts_with(s : String, prefix : String) -> Bool {
 }
 
 // 检查字符串是否包含指定的子串
+
+///|
 fn str_contains(s : String, needle : String) -> Bool {
   if needle.length() == 0 {
     return true
@@ -444,6 +462,8 @@ fn str_contains(s : String, needle : String) -> Bool {
 }
 
 // 测试：GET 请求并解析固定长度响应
+
+///|
 test "client: GET — parse fixed-length response & verify written request" {
   // 预置服务端响应（固定 Content-Length = 5）
   let resp_str = "HTTP/1.1 200 OK\r\n" +
@@ -452,13 +472,14 @@ test "client: GET — parse fixed-length response & verify written request" {
     "\r\n" +
     "hello"
   let rx = @buf.string_to_utf8_bytes(resp_str).to_array()
-  let io = match (try? @tsp.from_inmemory(rx)) {
-    Ok(t) => t
-    Err(_) => {
+  let io = try @tsp.from_inmemory(rx) catch {
+    _ => {
       let a = true
       assert_eq(a, false)
       return
     }
+  } noraise {
+    t => t
   }
   // 客户端 GET
   let limits : @cor.Limits = {
@@ -497,6 +518,8 @@ test "client: GET — parse fixed-length response & verify written request" {
 }
 
 // 测试：GET 请求并解析 chunked 响应
+
+///|
 test "client: GET — parse chunked response" {
   // 预置服务端响应（chunked：5\r\nhello\r\n0\r\n\r\n）
   let resp_str = "HTTP/1.1 200 OK\r\n" +
@@ -505,13 +528,14 @@ test "client: GET — parse chunked response" {
     "\r\n" +
     "5\r\nhello\r\n0\r\n\r\n"
   let rx = @buf.string_to_utf8_bytes(resp_str).to_array()
-  let io = match (try? @tsp.from_inmemory(rx)) {
-    Ok(t) => t
-    Err(_) => {
+  let io = try @tsp.from_inmemory(rx) catch {
+    _ => {
       let a = true
       assert_eq(a, false)
       return
     }
+  } noraise {
+    t => t
   }
   let limits : @cor.Limits = {
     max_headers: 32,
@@ -542,6 +566,8 @@ test "client: GET — parse chunked response" {
 }
 
 // 测试：POST 请求并解析固定长度响应
+
+///|
 test "client: POST — sends body & parses fixed-length response" {
   // 服务端预置响应（"ok"）
   let resp_str = "HTTP/1.1 200 OK\r\n" +
@@ -550,15 +576,15 @@ test "client: POST — sends body & parses fixed-length response" {
     "\r\n" +
     "ok"
   let rx = @buf.string_to_utf8_bytes(resp_str).to_array()
-  let io = match (try? @tsp.from_inmemory(rx)) {
-    Ok(t) => t
-    Err(_) => {
+  let io = try @tsp.from_inmemory(rx) catch {
+    _ => {
       let a = true
       assert_eq(a, false)
       return
     }
+  } noraise {
+    t => t
   }
-
   let limits : @cor.Limits = {
     max_headers: 32,
     max_line: 1024,

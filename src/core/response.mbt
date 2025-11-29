@@ -1,15 +1,18 @@
+///|
 pub(all) struct Status {
   code : Int
   reason : String // 例如 "OK"、"Not Found"
 }
 
 // 响应状态码（常用子集，按 RFC 7231/9110 常见值补全）
+
+///|
 pub(all) enum StatusCode {
   // 1xx Informational
   Continue = 100
   SwitchingProtocols = 101
-  Processing = 102               // RFC 2518
-  EarlyHints = 103               // RFC 8297
+  Processing = 102 // RFC 2518
+  EarlyHints = 103 // RFC 8297
 
   // 2xx Success
   OK = 200
@@ -35,12 +38,12 @@ pub(all) enum StatusCode {
   MethodNotAllowed = 405
   RequestTimeout = 408
   LengthRequired = 411
-  PayloadTooLarge = 413          // RFC 7231: "Payload Too Large"（原 413 Request Entity Too Large）
+  PayloadTooLarge = 413 // RFC 7231: "Payload Too Large"（原 413 Request Entity Too Large）
   URITooLong = 414
   UnsupportedMediaType = 415
   ExpectationFailed = 417
-  MisdirectedRequest = 421       // RFC 7540
-  UnprocessableContent = 422     // RFC 9110（原 422 Unprocessable Entity）
+  MisdirectedRequest = 421 // RFC 7540
+  UnprocessableContent = 422 // RFC 9110（原 422 Unprocessable Entity）
   UpgradeRequired = 426
   TooManyRequests = 429
   RequestHeaderFieldsTooLarge = 431
@@ -55,33 +58,37 @@ pub(all) enum StatusCode {
 }
 
 // 状态行（解析/编码用）
+
+///|
 pub(all) struct StatusLine {
   version : String
   code : Int
   reason : String
 }
 
-
+///|
 pub(all) struct Response {
   status : Status
   headers : Map[String, String]
   body : Body
 }
 
+///|
 pub(all) struct Limits {
   max_headers : Int
-  max_line    : Int
-  read_win    : Int
-  max_body    : Int
+  max_line : Int
+  read_win : Int
+  max_body : Int
 }
 
-
-
 // 便捷构造
+
+///|
 pub fn status(code : Int, reason : String) -> Status {
   { code, reason }
 }
 
+///|
 pub fn resp_empty(
   code : Int,
   reason : String,
@@ -90,6 +97,7 @@ pub fn resp_empty(
   { status: status(code, reason), headers, body: Body::Empty }
 }
 
+///|
 pub fn resp_bytes(
   code : Int,
   reason : String,
@@ -100,12 +108,16 @@ pub fn resp_bytes(
 }
 
 // —— 小工具：是否无消息体（读/写端可共用） ——
+
+///|
 pub fn status_no_body(code : Int) -> Bool {
   (code >= 100 && code < 200) || code == 204 || code == 304
 }
 
 // —— 小工具：常见状态码的默认 reason phrase ——
 // 未覆盖的返回 "Unknown"（编码时建议保留你传入的 reason）
+
+///|
 pub fn default_reason(code : Int) -> String {
   match code {
     // 1xx
@@ -152,19 +164,22 @@ pub fn default_reason(code : Int) -> String {
     504 => "Gateway Timeout"
     505 => "HTTP Version Not Supported"
     // fallback
-    _   => "Unknown"
+    _ => "Unknown"
   }
 }
 
 // —— 便捷构造：从 Int 或 StatusCode 构造 Status ——
 // 如果 reason 传空串，可以用 default_reason 补全（按需使用）
 
+///|
 pub fn make_status(code : Int, reason : String) -> Status {
   let r = if reason.length() == 0 { default_reason(code) } else { reason }
   { code, reason: r }
 }
 
 // 把枚举值映射到整型
+
+///|
 pub fn status_code_value(sc : StatusCode) -> Int {
   match sc {
     // 1xx
@@ -212,6 +227,8 @@ pub fn status_code_value(sc : StatusCode) -> Int {
     StatusCode::HTTPVersionNotSupported => 505
   }
 }
+
+///|
 pub fn make_status_from(code : StatusCode) -> Status {
   let c = status_code_value(code)
   { code: c, reason: default_reason(c) }

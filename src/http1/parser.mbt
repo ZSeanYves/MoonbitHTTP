@@ -1,6 +1,9 @@
 // http1/parser.mbt — HTTP/1.1 请求解析器
 // 请求方法：GET、POST 等
-pub fn parse_request_line(cur : @tsp.BufCursor) -> Result[@cor.RequestLine, String] {
+///|
+pub fn parse_request_line(
+  cur : @tsp.BufCursor,
+) -> Result[@cor.RequestLine, String] {
   // 读一整行（不含 CRLF）
   let line = match cur.buf_read_line_crlf(1024) {
     Ok(l) => l
@@ -14,10 +17,10 @@ pub fn parse_request_line(cur : @tsp.BufCursor) -> Result[@cor.RequestLine, Stri
   }
 
   // 1) 方法字符串
-  let method_str = match
-    (try? @buf.utf8_bytes_to_string(Bytes::from_array(parts[0]))) {
-    Ok(s) => s
-    Err(_) => return Err("Failed to decode method as UTF-8".to_string())
+  let method_str = try @buf.utf8_bytes_to_string(Bytes::from_array(parts[0])) catch {
+    _ => return Err("Failed to decode method as UTF-8".to_string())
+  } noraise {
+    s => s
   }
   let method1 = match method_str {
     "GET" => @cor.Method::GET
@@ -33,20 +36,17 @@ pub fn parse_request_line(cur : @tsp.BufCursor) -> Result[@cor.RequestLine, Stri
   }
 
   // 2) 目标（/index.html 等）
-  let target = match
-    (try? @buf.utf8_bytes_to_string(Bytes::from_array(parts[1]))) {
-    Ok(s) => s
-    Err(_) => return Err("Failed to decode target as UTF-8".to_string())
+  let target = try @buf.utf8_bytes_to_string(Bytes::from_array(parts[1])) catch {
+    _ => return Err("Failed to decode target as UTF-8".to_string())
+  } noraise {
+    s => s
   }
 
   // 3) 版本（HTTP/1.1）
-  let version = match
-    (try? @buf.utf8_bytes_to_string(Bytes::from_array(parts[2]))) {
-    Ok(s) => s
-    Err(_) => return Err("Failed to decode version as UTF-8".to_string())
+  let version = try @buf.utf8_bytes_to_string(Bytes::from_array(parts[2])) catch {
+    _ => return Err("Failed to decode version as UTF-8".to_string())
+  } noraise {
+    s => s
   }
   Ok({ http_method: method1, target, version })
 }
-
-
-

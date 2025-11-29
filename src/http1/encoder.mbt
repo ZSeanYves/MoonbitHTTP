@@ -1,8 +1,11 @@
+///|
 pub fn encode_content_length_prefix(content_length : Int) -> String {
   "Content-Length: " + content_length.to_string() + "\r\n\r\n"
 }
 
 // 生成 chunked 编码后的字节序列：<hex>\r\n<chunk>\r\n ... 0\r\n\r\n
+
+///|
 pub fn encode_chunked_bytes(
   body : Array[Byte],
   chunk_size : Int,
@@ -29,9 +32,9 @@ pub fn encode_chunked_bytes(
   out
 }
 
-
-
 // 非分块 = 原样字节；分块 = 上面那个
+
+///|
 pub fn encode_body_bytes(
   body : Array[Byte],
   is_chunked : Bool,
@@ -45,6 +48,8 @@ pub fn encode_body_bytes(
 }
 // 组合成“完整响应字节序列”（状态行 + 头 + 空行/CL + 实体）
 // is_chunked=true 时忽略 content_length，写 CRLF + 分块体；否则写 Content-Length + 实体
+
+///|
 pub fn encode_response_bytes(
   status : @cor.StatusCode,
   headers : Map[String, String],
@@ -80,17 +85,18 @@ pub fn encode_response_bytes(
   out
 }
 
-
 // 编码响应状态行（固定 HTTP/1.1；从 StatusCode 通用生成）
+
+///|
 pub fn encode_status_line(status : @cor.StatusCode) -> String {
   let code = @cor.status_code_value(status)
   let reason = @cor.default_reason(code)
   "HTTP/1.1 " + code.to_string() + " " + reason + "\r\n"
 }
 
-
-
 // 编码响应头部（Content-Length, Transfer-Encoding: chunked）
+
+///|
 pub fn encode_headers(headers : Map[String, String]) -> String {
   let header_str : Array[String] = []
   let keys = headers.keys()
@@ -105,12 +111,15 @@ pub fn encode_headers(headers : Map[String, String]) -> String {
 
 // NOTE: 仅用于文本/测试。二进制场景请使用 encode_response_bytes 或 write_response_once。
 // 编码响应体（支持 Content-Length 或 chunked）
+
+///|
 pub fn encode_body(body : Array[Byte], content_length : Int) -> String {
   if content_length > 0 {
     // Content-Length 模式
-    let a = match (try? @buf.utf8_bytes_to_string(Bytes::from_array(body))) {
-      Ok(s) => s
-      Err(_) => return "Failed to decode target as UTF-8"
+    let a = try @buf.utf8_bytes_to_string(Bytes::from_array(body)) catch {
+      _ => return "Failed to decode target as UTF-8"
+    } noraise {
+      s => s
     }
     return "Content-Length: " + content_length.to_string() + "\r\n\r\n" + a
   } else {
@@ -125,10 +134,10 @@ pub fn encode_body(body : Array[Byte], content_length : Int) -> String {
         chunk.push(body[j])
         j += 1
       }
-      let chunk_str = match
-        (try? @buf.utf8_bytes_to_string(Bytes::from_array(chunk))) {
-        Ok(s) => s
-        Err(_) => return "Failed to decode target as UTF-8"
+      let chunk_str = try @buf.utf8_bytes_to_string(Bytes::from_array(chunk)) catch {
+        _ => return "Failed to decode target as UTF-8"
+      } noraise {
+        s => s
       }
       chunks.push(
         @cor._int_to_hex(chunk.length()) + "\r\n" + chunk_str + "\r\n",
@@ -141,6 +150,8 @@ pub fn encode_body(body : Array[Byte], content_length : Int) -> String {
 }
 
 // 兼容旧签名：content_len==0 + headers["Transfer-Encoding"]=="chunked" => 分块
+
+///|
 pub fn encode_response(
   status : @cor.StatusCode,
   headers : Map[String, String],
@@ -157,9 +168,8 @@ pub fn encode_response(
     chunk_size=1024,
     content_length_override=if is_chunked { None } else { Some(content_len) },
   )
-  match (try? @buf.utf8_bytes_to_string(Bytes::from_array(bytes))) {
-    Ok(s) => s
-    Err(_) => {
+  try @buf.utf8_bytes_to_string(Bytes::from_array(bytes)) catch {
+    _ => {
       let head = encode_status_line(status) + encode_headers(headers)
       if is_chunked {
         head + "\r\n" + "<non-utf8-body-chunked>"
@@ -175,20 +185,29 @@ pub fn encode_response(
         "<non-utf8-body>"
       }
     }
+  } noraise {
+    s => s
   }
 }
 
-
 // http1/encoder_test.mbt — 响应编码器测试
+
+///|
 test "http1: encode 200 OK response" {
   let body : Array[Byte] = @buf.string_to_utf8_bytes("Hello, world!").to_array()
   let headers : Map[String, String] = Map::new()
   headers.set("Content-Type", "text/plain")
-  let response = encode_response(@cor.StatusCode::OK, headers, body, body.length())
+  let response = encode_response(
+    @cor.StatusCode::OK,
+    headers,
+    body,
+    body.length(),
+  )
   let expected = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 13\r\n\r\nHello, world!"
   assert_eq(response, expected)
 }
 
+///|
 test "http1: encode chunked response" {
   let body : Array[Byte] = @buf.string_to_utf8_bytes("Hello, world!").to_array()
   let headers : Map[String, String] = Map::new()
@@ -200,6 +219,8 @@ test "http1: encode chunked response" {
 }
 
 // Test for InternalServerError variant construction
+
+///|
 test "http1: encode 500 Internal Server Error response" {
   let body : Array[Byte] = @buf.string_to_utf8_bytes("Server error!").to_array()
   let headers : Map[String, String] = Map::new()
@@ -215,6 +236,8 @@ test "http1: encode 500 Internal Server Error response" {
 }
 
 // Test for NotFound variant construction 
+
+///|
 test "http1: encode 404 Not Found response" {
   let body : Array[Byte] = @buf.string_to_utf8_bytes("Not found!").to_array()
   let headers : Map[String, String] = Map::new()
@@ -229,29 +252,42 @@ test "http1: encode 404 Not Found response" {
   assert_eq(response, expected)
 }
 
+///|
 test "http1: encode_response_bytes fixed-length (binary-safe)" {
   let body : Array[Byte] = [0xde, 0xad, 0xbe, 0xef]
-  let headers : Map[String,String] = Map::new()
+  let headers : Map[String, String] = Map::new()
   headers.set("X-Bin", "yes")
   let bytes = encode_response_bytes(@cor.StatusCode::OK, headers, body, false)
   // 断言：末尾 4 字节就是原始 body
   let n = bytes.length()
-  assert_eq(bytes[n-4], 0xde)
-  assert_eq(bytes[n-3], 0xad)
-  assert_eq(bytes[n-2], 0xbe)
-  assert_eq(bytes[n-1], 0xef)
+  assert_eq(bytes[n - 4], 0xde)
+  assert_eq(bytes[n - 3], 0xad)
+  assert_eq(bytes[n - 2], 0xbe)
+  assert_eq(bytes[n - 1], 0xef)
 }
 
+///|
 test "http1: encode_response_bytes chunked (hex size lower-case)" {
   let body : Array[Byte] = @buf.string_to_utf8_bytes("Hello, world!").to_array()
-  let headers : Map[String,String] = Map::new()
+  let headers : Map[String, String] = Map::new()
   headers.set("Transfer-Encoding", "chunked")
-  let bytes = encode_response_bytes(@cor.StatusCode::OK, headers, body, true, chunk_size=64)
+  let bytes = encode_response_bytes(
+    @cor.StatusCode::OK,
+    headers,
+    body,
+    true,
+    chunk_size=64,
+  )
   // 抽取尾部 "0\r\n\r\n"
   let tail : Array[Byte] = []
   let i0 = bytes.length() - 5
   let mut i = i0
-  while i < bytes.length() { tail.push(bytes[i]); i += 1 }
-  let tail_s = (try? @buf.utf8_bytes_to_string(Bytes::from_array(tail))).unwrap_or("")
+  while i < bytes.length() {
+    tail.push(bytes[i])
+    i += 1
+  }
+  let tail_s = (try? @buf.utf8_bytes_to_string(Bytes::from_array(tail))).unwrap_or(
+    "",
+  )
   assert_eq(tail_s, "0\r\n\r\n")
 }

@@ -1,5 +1,6 @@
 // 从字符串 s 中截取 [start, end) 区间，返回新字符串
-pub fn str_slice(s:String, start:Int, end:Int) -> String {
+///|
+pub fn str_slice(s : String, start : Int, end : Int) -> String {
   let mut out = ""
   let mut i = start
   while i < end && i < s.length() {
@@ -10,6 +11,8 @@ pub fn str_slice(s:String, start:Int, end:Int) -> String {
 }
 
 // 提取字节数组中的一个切片
+
+///|
 pub fn byte_slice(bytes : Array[Byte], start : Int, end : Int) -> Array[Byte] {
   let lo = if start < 0 { 0 } else { start }
   let hi = if end > bytes.length() { bytes.length() } else { end }
@@ -23,17 +26,21 @@ pub fn byte_slice(bytes : Array[Byte], start : Int, end : Int) -> Array[Byte] {
   out
 }
 
+///|
 pub fn copy_first(bs : Array[Byte], n : Int) -> Array[Byte] {
   let take = if n < 0 { 0 } else if n > bs.length() { bs.length() } else { n }
   let out : Array[Byte] = []
   let mut i = 0
-  while i < take { out.push(bs[i]); i += 1 }
+  while i < take {
+    out.push(bs[i])
+    i += 1
+  }
   out
 }
 
-
-
 // 将正整数转换为 16 进制字符串（小写），用于 chunked 块长度
+
+///|
 pub fn _int_to_hex(n : Int) -> String {
   if n == 0 {
     return "0"
@@ -56,13 +63,16 @@ pub fn _int_to_hex(n : Int) -> String {
     i += 1
     j -= 1
   }
-  match (try? @buf.utf8_bytes_to_string(Bytes::from_array(out))) {
-    Ok(s) => s
-    Err(_) => "0"
+  try @buf.utf8_bytes_to_string(Bytes::from_array(out)) catch {
+    _ => "0"
+  } noraise {
+    s => s
   }
 }
 
 // 解析 16 进制数字（块大小）
+
+///|
 pub fn _hex_to_int(s : String) -> Result[Int, String] {
   if s.length() == 0 {
     return Err("empty chunk size")
@@ -88,6 +98,8 @@ pub fn _hex_to_int(s : String) -> Result[Int, String] {
 }
 
 // 把 ASCII 字符串追加到 out
+
+///|
 pub fn push_ascii(dst : Array[Byte], s : String) -> Array[Byte] {
   let bs = @buf.string_to_utf8_bytes(s).to_array()
   for b in bs {
@@ -96,16 +108,20 @@ pub fn push_ascii(dst : Array[Byte], s : String) -> Array[Byte] {
   dst
 }
 // ASCII 字符串的便捷函数
+
+///|
 pub fn write_ascii(io : @tsp.Transport, s : String) -> Result[Unit, String] {
   let bs = @buf.string_to_utf8_bytes(s).to_array()
-  match (try? io.write_all(bs)) {
-     Ok(_) => Ok(())
-    Err(_) => Err("write ascii failed ")
+  try io.write_all(bs) catch {
+    _ => Err("write ascii failed ")
+  } noraise {
+    _ => Ok(())
   }
 }
 
-
 // 大小写不敏感获取单值（兼容当前 Map[String,String] 存储）
+
+///|
 pub fn get_ci(headers : Map[String, String], key : String) -> String? {
   let want = norm_key(key)
   match headers.get(key) {
@@ -120,13 +136,16 @@ pub fn get_ci(headers : Map[String, String], key : String) -> String? {
   None
 }
 
-
 // 判断空白：空格或水平制表符
+
+///|
 fn is_ws(b : Byte) -> Bool {
   b == 0x20 || b == 0x09
 }
 
 // 在 arr 中查找第一个 b 的位置
+
+///|
 pub fn find_byte(arr : Array[Byte], needle : Byte) -> Int? {
   let mut i = 0
   while i < arr.length() {
@@ -139,6 +158,8 @@ pub fn find_byte(arr : Array[Byte], needle : Byte) -> Int? {
 }
 
 // 左裁剪（空格/制表符）
+
+///|
 pub fn ltrim_ascii(arr : Array[Byte]) -> Array[Byte] {
   let mut i = 0
   while i < arr.length() && is_ws(arr[i]) {
@@ -154,6 +175,8 @@ pub fn ltrim_ascii(arr : Array[Byte]) -> Array[Byte] {
 }
 
 // 右裁剪（空格/制表符）
+
+///|
 pub fn rtrim_ascii(arr : Array[Byte]) -> Array[Byte] {
   if arr.length() == 0 {
     return arr
@@ -172,14 +195,19 @@ pub fn rtrim_ascii(arr : Array[Byte]) -> Array[Byte] {
 }
 
 // UTF-8 字节转字符串（带错误信息）
+
+///|
 pub fn bytes_to_utf8(arr : Array[Byte], ctx : String) -> Result[String, String] {
-  match (try? @buf.utf8_bytes_to_string(Bytes::from_array(arr))) {
-    Ok(s) => Ok(s)
-    Err(_) => Err("invalid utf8 in " + ctx)
+  try @buf.utf8_bytes_to_string(Bytes::from_array(arr)) catch {
+    _ => Err("invalid utf8 in " + ctx)
+  } noraise {
+    s => Ok(s)
   }
 }
 
 // 去左右空白（仅空格与制表符）
+
+///|
 pub fn trim_sp(s : String) -> String {
   let mut b = 0
   let mut e = s.length()
@@ -192,18 +220,21 @@ pub fn trim_sp(s : String) -> String {
   str_slice(s, b, e)
 }
 
-
+///|
 pub fn norm_key(key : String) -> String {
   trim_sp(key.to_lower())
 }
 // 是否需要在“写回”时剔除该头（仅当无正文状态码时生效）
+
+///|
 pub fn _skip_hdr_in_no_body(key : String) -> Bool {
-  let k = norm_key(key)        // to_lower + trim
+  let k = norm_key(key) // to_lower + trim
   k == "content-length" || k == "transfer-encoding"
 }
 
-
 // 按 header 类型拆分值（CSV，但 Set-Cookie 例外）
+
+///|
 pub fn split_header_list(norm_key_lc : String, raw : String) -> Array[String] {
   // RFC 6265: Set-Cookie 不能用逗号拆分（值内允许逗号）
   if norm_key_lc == "set-cookie" {
@@ -231,10 +262,9 @@ pub fn split_header_list(norm_key_lc : String, raw : String) -> Array[String] {
   out
 }
 
-
-
-
 // 逗号分隔列表中查 token（大小写不敏感，容忍分号参数）
+
+///|
 pub fn has_token_ci(
   headers : Map[String, String],
   key : String,
@@ -287,10 +317,9 @@ pub fn has_token_ci(
   }
 }
 
-
-
-
 // 获取“可能多值”的头部所有值（逗号分隔；但对 Set-Cookie 不拆分）
+
+///|
 pub fn get_all_ci(headers : Map[String, String], key : String) -> Array[String] {
   match get_ci(headers, key) {
     Some(val) => split_header_list(norm_key(key), val)
@@ -300,6 +329,8 @@ pub fn get_all_ci(headers : Map[String, String], key : String) -> Array[String] 
 
 // 大小写不敏感解析 Content-Length（只接受纯数字，允许前后空白）
 // 返回 Result 以便在调用处区分错误原因
+
+///|
 pub fn parse_content_length(hs : Map[String, String]) -> Result[Int, String] {
   // 用公共大小写无关获取
   let raw = match get_ci(hs, "content-length") {
@@ -326,6 +357,7 @@ pub fn parse_content_length(hs : Map[String, String]) -> Result[Int, String] {
   Ok(n)
 }
 
+///|
 pub fn content_length_opt(hs : Map[String, String]) -> Int? {
   match parse_content_length(hs) {
     Ok(n) => Some(n)
@@ -334,13 +366,14 @@ pub fn content_length_opt(hs : Map[String, String]) -> Int? {
 }
 
 // 输入整行（不含 CRLF），返回纯数字十六进制部分
+
+///|
 pub fn parse_chunk_size_line(line : String) -> Result[Int, String] {
   let trimmed = trim_sp(line)
   let mut i = 0
-  while i < trimmed.length() && trimmed[i] != ';' { i += 1 }
+  while i < trimmed.length() && trimmed[i] != ';' {
+    i += 1
+  }
   let hex_part = trim_sp(str_slice(trimmed, 0, i))
   _hex_to_int(hex_part)
 }
-
-
-

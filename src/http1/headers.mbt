@@ -1,5 +1,6 @@
 // 解析头部：读到空行（CRLF）为止
 // max_headers: 头部最大数量限制；max_line：单行最大长度（字节）
+///|
 pub fn parse_headers(
   cur : @tsp.BufCursor,
   max_headers : Int,
@@ -64,8 +65,9 @@ pub fn parse_headers(
   Ok(headers)
 }
 
-
 // http1/headers_test.mbt — 头部解析测试
+
+///|
 test "http1: parse headers — two lines then blank" {
   let cur = @tsp.buf_new()
   // 两行头 + 空行结束
@@ -84,6 +86,7 @@ test "http1: parse headers — two lines then blank" {
   assert_eq(hs.get("User-Agent").unwrap_or(""), "curl/8.8")
 }
 
+///|
 test "http1: parse headers — trim spaces around value" {
   let cur = @tsp.buf_new()
   cur.buf_push(@buf.string_to_utf8_bytes("X-Token:   abc123   \r\n").to_array())
@@ -92,6 +95,7 @@ test "http1: parse headers — trim spaces around value" {
   assert_eq(hs.get("X-Token").unwrap_or(""), "abc123")
 }
 
+///|
 test "http1: parse headers — too many headers" {
   let cur = @tsp.buf_new()
   cur.buf_push(@buf.string_to_utf8_bytes("A: 1\r\n").to_array())
@@ -107,6 +111,7 @@ test "http1: parse headers — too many headers" {
   }
 }
 
+///|
 test "http1: parse headers — malformed (missing colon)" {
   let cur = @tsp.buf_new()
   cur.buf_push(@buf.string_to_utf8_bytes("Bad-Header\r\n").to_array())
@@ -119,4 +124,3 @@ test "http1: parse headers — malformed (missing colon)" {
     }
   }
 }
-

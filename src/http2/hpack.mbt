@@ -1,4 +1,5 @@
 // --- 静态表（RFC7541 Appendix A：1..61 全量） ---
+///|
 pub fn hpack_static_get(idx : Int) -> (String, String)? {
   match idx {
     1 => Some((":authority", ""))
@@ -67,68 +68,175 @@ pub fn hpack_static_get(idx : Int) -> (String, String)? {
 }
 
 // 用“名字”拿静态表中的最小索引**（用于 Literal-with-indexed-name）
+
+///|
 fn hpack_static_find_name(name : String) -> Int {
   // 伪头
-  if name == ":authority" { return 1 }
-  if name == ":method"    { return 2 }
-  if name == ":path"      { return 4 }
-  if name == ":scheme"    { return 6 }
-  if name == ":status"    { return 8 } // 多值就挑第一个
+  if name == ":authority" {
+    return 1
+  }
+  if name == ":method" {
+    return 2
+  }
+  if name == ":path" {
+    return 4
+  }
+  if name == ":scheme" {
+    return 6
+  }
+  if name == ":status" {
+    return 8
+  } // 多值就挑第一个
 
   // 普通头（挑该名字出现的最小索引）
-  if name == "accept-charset"              { return 15 }
-  if name == "accept-encoding"             { return 16 }
-  if name == "accept-language"             { return 17 }
-  if name == "accept-ranges"               { return 18 }
-  if name == "accept"                      { return 19 }
-  if name == "access-control-allow-origin" { return 20 }
-  if name == "age"                         { return 21 }
-  if name == "allow"                       { return 22 }
-  if name == "authorization"               { return 23 }
-  if name == "cache-control"               { return 24 }
-  if name == "content-disposition"         { return 25 }
-  if name == "content-encoding"            { return 26 }
-  if name == "content-language"            { return 27 }
-  if name == "content-length"              { return 28 }
-  if name == "content-location"            { return 29 }
-  if name == "content-range"               { return 30 }
-  if name == "content-type"                { return 31 }
-  if name == "cookie"                      { return 32 }
-  if name == "date"                        { return 33 }
-  if name == "etag"                        { return 34 }
-  if name == "expect"                      { return 35 }
-  if name == "expires"                     { return 36 }
-  if name == "from"                        { return 37 }
-  if name == "host"                        { return 38 }
-  if name == "if-match"                    { return 39 }
-  if name == "if-modified-since"           { return 40 }
-  if name == "if-none-match"               { return 41 }
-  if name == "if-range"                    { return 42 }
-  if name == "if-unmodified-since"         { return 43 }
-  if name == "last-modified"               { return 44 }
-  if name == "link"                        { return 45 }
-  if name == "location"                    { return 46 }
-  if name == "max-forwards"                { return 47 }
-  if name == "proxy-authenticate"          { return 48 }
-  if name == "proxy-authorization"         { return 49 }
-  if name == "range"                       { return 50 }
-  if name == "referer"                     { return 51 }
-  if name == "refresh"                     { return 52 }
-  if name == "retry-after"                 { return 53 }
-  if name == "server"                      { return 54 }
-  if name == "set-cookie"                  { return 55 }
-  if name == "strict-transport-security"   { return 56 }
-  if name == "transfer-encoding"           { return 57 }
-  if name == "user-agent"                  { return 58 }
-  if name == "vary"                        { return 59 }
-  if name == "via"                         { return 60 }
-  if name == "www-authenticate"            { return 61 }
+  if name == "accept-charset" {
+    return 15
+  }
+  if name == "accept-encoding" {
+    return 16
+  }
+  if name == "accept-language" {
+    return 17
+  }
+  if name == "accept-ranges" {
+    return 18
+  }
+  if name == "accept" {
+    return 19
+  }
+  if name == "access-control-allow-origin" {
+    return 20
+  }
+  if name == "age" {
+    return 21
+  }
+  if name == "allow" {
+    return 22
+  }
+  if name == "authorization" {
+    return 23
+  }
+  if name == "cache-control" {
+    return 24
+  }
+  if name == "content-disposition" {
+    return 25
+  }
+  if name == "content-encoding" {
+    return 26
+  }
+  if name == "content-language" {
+    return 27
+  }
+  if name == "content-length" {
+    return 28
+  }
+  if name == "content-location" {
+    return 29
+  }
+  if name == "content-range" {
+    return 30
+  }
+  if name == "content-type" {
+    return 31
+  }
+  if name == "cookie" {
+    return 32
+  }
+  if name == "date" {
+    return 33
+  }
+  if name == "etag" {
+    return 34
+  }
+  if name == "expect" {
+    return 35
+  }
+  if name == "expires" {
+    return 36
+  }
+  if name == "from" {
+    return 37
+  }
+  if name == "host" {
+    return 38
+  }
+  if name == "if-match" {
+    return 39
+  }
+  if name == "if-modified-since" {
+    return 40
+  }
+  if name == "if-none-match" {
+    return 41
+  }
+  if name == "if-range" {
+    return 42
+  }
+  if name == "if-unmodified-since" {
+    return 43
+  }
+  if name == "last-modified" {
+    return 44
+  }
+  if name == "link" {
+    return 45
+  }
+  if name == "location" {
+    return 46
+  }
+  if name == "max-forwards" {
+    return 47
+  }
+  if name == "proxy-authenticate" {
+    return 48
+  }
+  if name == "proxy-authorization" {
+    return 49
+  }
+  if name == "range" {
+    return 50
+  }
+  if name == "referer" {
+    return 51
+  }
+  if name == "refresh" {
+    return 52
+  }
+  if name == "retry-after" {
+    return 53
+  }
+  if name == "server" {
+    return 54
+  }
+  if name == "set-cookie" {
+    return 55
+  }
+  if name == "strict-transport-security" {
+    return 56
+  }
+  if name == "transfer-encoding" {
+    return 57
+  }
+  if name == "user-agent" {
+    return 58
+  }
+  if name == "vary" {
+    return 59
+  }
+  if name == "via" {
+    return 60
+  }
+  if name == "www-authenticate" {
+    return 61
+  }
   0
 }
 
-
 // 可变长整数（N 前缀位)
 // 参照 RFC7541 §5.1
+
+///|
 fn decode_integer(
   buf : Array[Byte],
   pos : Int,
@@ -164,6 +272,8 @@ fn decode_integer(
 
 // 字符串（支持 Huffman：H=1）
 // RFC7541 §5.2；最高位为 Huffman 标志
+
+///|
 fn decode_string(buf : Array[Byte], pos : Int) -> Result[(String, Int), String] {
   if pos >= buf.length() {
     return Err("hpack str: OOB")
@@ -194,8 +304,9 @@ fn decode_string(buf : Array[Byte], pos : Int) -> Result[(String, Int), String] 
   Ok((s, used1 + len))
 }
 
-
 // 主解码：把 header block bytes 解成数组（保持顺序）
+
+///|
 pub fn hpack_decode_block(
   block : Array[Byte],
 ) -> Result[Array[HpackHeader], String] {
@@ -260,6 +371,7 @@ pub fn hpack_decode_block(
   Ok(out)
 }
 
+///|
 fn decode_header_name(
   block : Array[Byte],
   pos : Int,
@@ -284,8 +396,9 @@ fn decode_header_name(
   }
 }
 
-
 // 编整数（N 前缀位）
+
+///|
 fn encode_integer(n : Int, value : Int) -> Array[Byte] {
   let out : Array[Byte] = []
   let prefix_max = (1 << n) - 1
@@ -303,35 +416,39 @@ fn encode_integer(n : Int, value : Int) -> Array[Byte] {
   out
 }
 
-
 // 编字符串：可选 Huffman（默认 false 以保持旧行为）
+
+///|
 fn encode_string(s : String, use_huffman? : Bool = false) -> Array[Byte] {
   let raw = @buf.string_to_utf8_bytes(s).to_array()
   let (payload, hflag) = if use_huffman {
     match hpack_huff_encode(raw) {
-      Ok(x) => {
+      Ok(x) =>
         // 自校验：确保解码端可还原
         match hpack_huff_decode(x) {
           Ok(_) => (x, true)
-          Err(_) => (raw, false)   // 回退
+          Err(_) => (raw, false) // 回退
         }
-      }
-      Err(_) => (raw, false)       // 回退
+      Err(_) => (raw, false) // 回退
     }
   } else {
     (raw, false)
   }
   let out = encode_integer(7, payload.length())
-  out[0] = ((out[0].to_int() & 0x7F) | (if hflag {0x80} else {0})).to_byte()
+  out[0] = ((out[0].to_int() & 0x7F) | (if hflag { 0x80 } else { 0 })).to_byte()
   let mut i = 0
-  while i < payload.length() { out.push(payload[i]); i += 1 }
+  while i < payload.length() {
+    out.push(payload[i])
+    i += 1
+  }
   out
 }
-
 
 // 支持 Literal without indexing：name 用静态表索引或字面量,Huffman 可选
 // 目前默认不启用 Huffman,调用方可选择 H=1
 // 目前仅支持静态表索引；动态表未实现
+
+///|
 pub fn hpack_encode_literal_noindex(
   name : String,
   value : String,
@@ -378,10 +495,9 @@ pub fn hpack_encode_literal_noindex(
   out
 }
 
-
-
-
 // 把 (name,value) 列表编码为一个 header block（最小编码：no-index, no-huffman）
+
+///|
 pub fn hpack_encode_list_noindex(hs : Array[HpackHeader]) -> Array[Byte] {
   let out : Array[Byte] = []
   let mut i = 0
@@ -400,6 +516,8 @@ pub fn hpack_encode_list_noindex(hs : Array[HpackHeader]) -> Array[Byte] {
 
 // 把 Map[String,String]（或伪头在前的 Array）封成 HEADERS(+CONTINUATION) 帧字节
 // 传入的 `hs` 顺序为：伪头在前：:method, :path, :scheme, :authority
+
+///|
 pub fn build_headers_frames_from_list(
   stream_id : Int,
   hs : Array[HpackHeader],

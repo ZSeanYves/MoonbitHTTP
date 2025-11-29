@@ -1,6 +1,7 @@
 // 解析 HEADERS/CONTINUATION 头块（从首个 HEADERS 开始，一直读到 END_HEADERS）
 // 返回：(info, 完整 header block fragment 原始字节)
 // 说明：仅 HEADERS 允许 PADDED/PRIORITY；CONTINUATION 只允许 END_HEADERS。
+///|
 pub fn read_headers_block(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -35,7 +36,6 @@ pub fn read_headers_block(
       return Err("h2 headers: invalid pad length")
     }
   }
-
   let mut exclusive = false
   let mut dep_stream = 0
   let mut weight = 0
@@ -58,7 +58,7 @@ pub fn read_headers_block(
   let mut first_limit = pl.length() - pad_len
   if first_limit < off {
     first_limit = off
-  } 
+  }
   let frag : Array[Byte] = []
   let mut i = off
   while i < first_limit {
@@ -104,6 +104,8 @@ pub fn read_headers_block(
 }
 
 // 读一个 HEADERS(+CONTINUATION...) 并用 HPACK 解码为键值数组
+
+///|
 pub fn read_headers_as_list(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -127,8 +129,9 @@ pub fn read_headers_as_list(
 // 可选：end_stream 标志、priority(5B)，暂不支持 padding（保持简单）
 //  如需 padding，后面可扩展（在首帧 payload 前插 1B padlen + pad bytes）。
 
-
 // 无 PRIORITY 版本（与你现有调用保持一致）
+
+///|
 pub fn build_headers_frames(
   stream_id : Int,
   fragment : Array[Byte],
@@ -146,6 +149,8 @@ pub fn build_headers_frames(
 }
 
 // 带 PRIORITY 的版本
+
+///|
 pub fn build_headers_frames_prio(
   stream_id : Int,
   fragment : Array[Byte],
@@ -249,9 +254,10 @@ pub fn build_headers_frames_prio(
   out
 }
 
-
 // DATA 帧（仅构造；拆读直接用 read_frame）
 // 把 payload 切成若干 DATA 帧；最后一帧可置 END_STREAM
+
+///|
 pub fn build_data_frames(
   stream_id : Int,
   payload : Array[Byte],

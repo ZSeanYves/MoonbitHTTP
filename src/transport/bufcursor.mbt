@@ -1,33 +1,44 @@
 // 解析缓冲游标：累积 -> 查找 CRLF -> 切出一行/定长数据（供 http1 解码器使用）
+///|
 pub struct BufCursor {
   mut buf : Array[Byte] // 累积的未消费字节
 }
 
 // 新建一个空的缓冲游标
+
+///|
 pub fn buf_new() -> BufCursor {
   let bufcursor = { buf: [] }
   bufcursor
 }
 
 // 追加一段新到达的数据
-pub fn buf_push(self : BufCursor, chunk : Array[Byte]) -> Unit {
+
+///|
+pub fn BufCursor::buf_push(self : BufCursor, chunk : Array[Byte]) -> Unit {
   for b in chunk {
     self.buf.push(b)
   }
 }
 
 // 当前缓冲可用字节数
-pub fn buf_len(self : BufCursor) -> Int {
+
+///|
+pub fn BufCursor::buf_len(self : BufCursor) -> Int {
   self.buf.length()
 }
 
 // 是否为空
-pub fn buf_is_empty(self : BufCursor) -> Bool {
+
+///|
+pub fn BufCursor::buf_is_empty(self : BufCursor) -> Bool {
   self.buf.length() == 0
 }
 
 // 内部：查找首次出现的 CRLF，返回 '\n' 的索引（即 CR 的下一个位置）
-fn find_crlf(self : BufCursor) -> Int? {
+
+///|
+fn BufCursor::find_crlf(self : BufCursor) -> Int? {
   let mut i = 1
   let a = 0x0D
   let b = 0x0A
@@ -42,7 +53,9 @@ fn find_crlf(self : BufCursor) -> Int? {
 
 // 读取一行（以 CRLF 结尾），返回不含 CRLF 的字节数组，并从缓冲中消费这一行 + CRLF。
 // 如果当前没有完整的一行，则返回 NeedMore；若行太长，返回 LineTooLong。
-pub fn buf_read_line_crlf(
+
+///|
+pub fn BufCursor::buf_read_line_crlf(
   self : BufCursor,
   max_len : Int,
 ) -> Result[Array[Byte], BufError] {
@@ -77,7 +90,9 @@ pub fn buf_read_line_crlf(
 
 // 取走最多 n 字节（用于定长 Body 读取），并从缓冲中消费这 n 字节。
 // 如果可用字节少于 n，则返回尽量多的那部分（由上层决定是否继续凑满）。
-pub fn buf_take(self : BufCursor, n : Int) -> Array[Byte] {
+
+///|
+pub fn BufCursor::buf_take(self : BufCursor, n : Int) -> Array[Byte] {
   let m = if n < self.buf.length() { n } else { self.buf.length() }
   let out : Array[Byte] = []
   let mut i = 0
@@ -97,7 +112,9 @@ pub fn buf_take(self : BufCursor, n : Int) -> Array[Byte] {
 }
 
 // 仅窥视（不消费）前缀最多 n 字节
-pub fn buf_peek(self : BufCursor, n : Int) -> Array[Byte] {
+
+///|
+pub fn BufCursor::buf_peek(self : BufCursor, n : Int) -> Array[Byte] {
   let m = if n < self.buf.length() { n } else { self.buf.length() }
   let out : Array[Byte] = []
   let mut i = 0
@@ -109,7 +126,9 @@ pub fn buf_peek(self : BufCursor, n : Int) -> Array[Byte] {
 }
 
 // 丢弃前缀 n 字节，返回实际丢弃的数量（若不足 n，则全丢）
-pub fn buf_drain(self : BufCursor, n : Int) -> Int {
+
+///|
+pub fn BufCursor::buf_drain(self : BufCursor, n : Int) -> Int {
   let m = if n < self.buf.length() { n } else { self.buf.length() }
   let rest : Array[Byte] = []
   let mut i = m
