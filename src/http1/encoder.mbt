@@ -4,7 +4,6 @@ pub fn encode_content_length_prefix(content_length : Int) -> String {
 }
 
 // 生成 chunked 编码后的字节序列：<hex>\r\n<chunk>\r\n ... 0\r\n\r\n
-
 ///|
 pub fn encode_chunked_bytes(
   body : Array[Byte],

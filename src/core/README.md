@@ -142,7 +142,7 @@ hs.set("Content-Type", "text/plain")
 let body = "Hi".to_utf8_array()
 
 let resp_bytes = encode_response_bytes(status.code, hs, body, false)
-println(Bytes::from_array(resp_bytes).to_string())
+//println(Bytes::from_array(resp_bytes).to_string())
 ```
 
 ---

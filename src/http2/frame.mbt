@@ -104,7 +104,7 @@ pub fn decode_frame_header(
   if len > max_frame_size {
     return Err("h2 frame: length exceeds max_frame_size")
   }
-  //println(
+  ////println(
   //  "H2 header parsed: len=" +
   //  len.to_string() +
   //  " typ=" +
@@ -133,7 +133,7 @@ pub fn read_frame(
     Err(e) => return Err(e)
   }
   let need = h.length
-  //println(
+  ////println(
   //  "H2 payload want=" +
   //  need.to_string() +
   //  " cur_have=" +
@@ -214,7 +214,7 @@ pub fn read_and_check_client_preface(
   if s != H2_CLIENT_PREFACE {
     return Err("h2 preface mismatch")
   }
-  //println("after preface, cur_have=" + cur.buf_len().to_string())
+  ////println("after preface, cur_have=" + cur.buf_len().to_string())
   Ok(())
 }
 

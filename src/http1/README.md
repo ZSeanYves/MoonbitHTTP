@@ -26,8 +26,8 @@ use @buf = @ZSeanYves/bufferutils
 use http/http1 { serve_once, StatusCode }
 
 fn hello(req: Request) -> (StatusCode, Map[String,String], Array[Byte], Bool) {
-  println("req line = {}", req.line)
-  println("headers = {:?}", req.headers)
+  //println("req line = {}", req.line)
+  //println("headers = {:?}", req.headers)
   let hs : Map[String,String] = Map::new()
   hs.set("Content-Type", "text/plain")
   let body = @buf.string_to_utf8_bytes("Hello").to_array()
@@ -37,7 +37,7 @@ fn hello(req: Request) -> (StatusCode, Map[String,String], Array[Byte], Bool) {
 let rx = @buf.string_to_utf8_bytes("GET / HTTP/1.1\r\nHost: a\r\n\r\n").to_array()
 let io = @tsp.from_inmemory(rx)
 let _  = serve_once(io, hello, 32, 1024, 4096)
-println(Bytes::from_array(io.take_tx()).to_string())
+//println(Bytes::from_array(io.take_tx()).to_string())
 ```
 
 ### 2) Keep-alive server loop
@@ -54,12 +54,12 @@ use http/http1 { get, post }
 
 let limits : Limits = { max_headers: 32, max_line: 1024, read_win: 4096, max_body: 1*1024*1024 }
 let resp = get(io, "/", "example.com", Map::new(), limits).unwrap()
-println(resp.status.code)
-println(Bytes::from_array(resp.body.unwrap_bytes()).to_string())
+//println(resp.status.code)
+//println(Bytes::from_array(resp.body.unwrap_bytes()).to_string())
 
 let body = @buf.string_to_utf8_bytes("{\"ok\":true}").to_array()
 let resp2 = post(io, "/api", "example.com", body, "application/json", Map::new(), limits).unwrap()
-println(resp2.status.code)
+//println(resp2.status.code)
 ```
 
 ### 4) Reading chunked response (from tests)

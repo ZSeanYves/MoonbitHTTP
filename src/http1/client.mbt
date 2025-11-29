@@ -140,7 +140,6 @@ fn parse_status_line_streaming(
 }
 
 // 读取 chunked 响应体（合并为 Bytes；忽略 trailers 的键值解析，最小实现）
-
 ///|
 fn read_chunked_body(
   cur : @tsp.BufCursor,
@@ -181,6 +180,126 @@ fn read_chunked_body(
   }
   Ok(out)
 }
+
+///|
+/// 读取一个请求（行 + 头 + body），body 支持流式：
+/// 对 Content-Length>0 的请求，返回 Body::Stream（真正 streaming）
+/// 对 chunked 请求，返回 Body::Stream（逐块解析）
+/// 对无 body 的请求，返回 Body::Empty
+pub fn read_request_streaming(
+  io : @tsp.Transport,
+  max_headers : Int,
+  max_line : Int,
+  read_win : Int,
+  max_body : Int,
+  stream_chunk? : Int = 8 * 1024,
+) -> Result[@cor.Request, String] {
+  let req_heads = match read_request_once(io, max_headers, max_line, read_win) {
+    Ok(r) => r
+    Err(e) => return Err(e)
+  }
+  let rl = req_heads.line
+  let hs = req_heads.headers
+  let mut body : @cor.Body = @cor.Body::Empty
+  if @cor.has_token_ci(hs, "transfer-encoding", "chunked") {
+    let cur = @tsp.buf_new()
+    let mut total = 0
+    let mut finished = false
+    body = @cor.Body::Stream(fn() -> Result[(Array[Byte], Bool), String] {
+      if finished {
+        let empty : Array[Byte] = []
+        return Ok((empty, true))
+      }
+      let size_line = match read_line_until_ok(cur, io, read_win, max_line) {
+        Ok(x) => x
+        Err(e) => return Err(e)
+      }
+      let size = match @cor._hex_to_int(size_line) {
+        Ok(n) => n
+        Err(e) => return Err(e)
+      }
+      if size == 0 {
+        ignore(read_line_until_ok(cur, io, read_win, max_line))
+        finished = true
+        let empty : Array[Byte] = []
+        return Ok((empty, true))
+      }
+      let bs = match read_exact_bytes(cur, io, size, read_win) {
+        Ok(b) => b
+        Err(e) => return Err(e)
+      }
+      ignore(read_line_until_ok(cur, io, read_win, max_line))
+      total += bs.length()
+      if total > max_body {
+        return Err("response body too large")
+      }
+      Ok((bs, false))
+    })
+  } else {
+    let len = match @cor.parse_content_length(hs) {
+      Ok(n) => n
+      Err(_) => 0
+    }
+    if len < 0 {
+      return Err("negative content-length")
+    }
+    if len > 0 && len > max_body {
+      return Err("payload too large: " + len.to_string())
+    }
+    if len > 0 {
+      // 真 streaming：不一次性读完，而是返回 Body::Stream
+      let mut remaining = len
+      let chunk_size = stream_chunk
+      let mut rounds = 0
+      let cur = @tsp.buf_new()
+      body = @cor.Body::Stream(fn() -> Result[(Array[Byte], Bool), String] {
+        if remaining <= 0 {
+          let empty : Array[Byte] = []
+          return Ok((empty, true))
+        }
+        let want = if remaining < chunk_size { remaining } else { chunk_size }
+        let out : Array[Byte] = []
+        let mut have = 0
+        while have < want {
+          let chunk = cur.buf_take(want - have)
+          if chunk.length() > 0 {
+            let mut j = 0
+            while j < chunk.length() {
+              out.push(chunk[j])
+              j += 1
+            }
+            ignore(cur.buf_drain(chunk.length()))
+            have += chunk.length()
+            continue
+          }
+          let n = match read_once_into(cur, io, read_win) {
+            Ok(n) => n
+            Err(e) => return Err(e)
+          }
+          if n == 0 {
+            rounds += 1
+            if rounds > 4096 {
+              return Err("too many read rounds (stream body)")
+            }
+            continue
+          }
+          rounds += 1
+          if rounds > 4096 {
+            return Err("too many read rounds (stream body)")
+          }
+        }
+        remaining -= have
+        let done = remaining <= 0
+        Ok((out, done))
+      })
+    } else {
+      body = @cor.Body::Empty
+    }
+  }
+  let req : @cor.Request = { line: rl, headers: hs, body }
+  Ok(req)
+}
+
 
 // 按 EOF 读满（带上限/轮次保护），优先吃缓冲，再从 io 拉 
 
@@ -607,7 +726,7 @@ test "client: POST — sends body & parses fixed-length response" {
       let s = (try? @buf.utf8_bytes_to_string(Bytes::from_array(bs))).unwrap_or(
         "",
       )
-      //println("Response body: " + s)
+      ////println("Response body: " + s)
       assert_eq(s, "ok")
     }
     _ => {
@@ -641,8 +760,8 @@ test "client: POST — sends body & parses fixed-length response" {
   }
 
   // 检查分隔符位置是否找到
-  //println("Position of separator: ")
-  //println(pos)
+  ////println("Position of separator: ")
+  ////println(pos)
   assert_eq(pos >= 0, true)
   let a = @buf.string_to_utf8_bytes(txs).to_array()
   let body_sent = @cor.byte_slice(a, pos + sep.length(), a.length())

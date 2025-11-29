@@ -53,8 +53,8 @@ test "h2: SETTINGS encode/decode roundtrip" {
   kvs.push({ id: 0x1, value: 0 })
   kvs.push({ id: 0x5, value: 16384 })
   let bytes = build_settings_frame(kvs, false)
-  //println("SETTINGS total bytes = " + bytes.length().to_string())
-  //println("SETTINGS head9 hex   = " + dbg_hex16(bytes)) 
+  ////println("SETTINGS total bytes = " + bytes.length().to_string())
+  ////println("SETTINGS head9 hex   = " + dbg_hex16(bytes)) 
   let io = (try? @tsp.from_inmemory(bytes)).unwrap()
   let cur = @tsp.buf_new()
   let rf = read_frame(cur, io, 4096) // ← 不再 unwrap
@@ -74,7 +74,7 @@ test "h2: SETTINGS encode/decode roundtrip" {
         }
         Err(e) => {
           ignore(e)
-          //println("parse_settings_frame failed: " + e)
+          ////println("parse_settings_frame failed: " + e)
           let a = true
           assert_eq(a, false)
           return
@@ -83,7 +83,7 @@ test "h2: SETTINGS encode/decode roundtrip" {
     }
     Err(e) => {
       ignore(e)
-      //println("read_frame failed: " + e)
+      ////println("read_frame failed: " + e)
       let a = true
       assert_eq(a, false)
       return
@@ -97,8 +97,8 @@ test "h2: PING encode/decode (ack and no-ack)" {
 
   // no-ack
   let b1 = build_ping_frame(opaque1, false)
-  //println("PING(no-ack) bytes = " + b1.length().to_string())
-  //println("PING(no-ack) head  = " + dbg_hex16(b1))
+  ////println("PING(no-ack) bytes = " + b1.length().to_string())
+  ////println("PING(no-ack) head  = " + dbg_hex16(b1))
   let io1 = (try? @tsp.from_inmemory(b1)).unwrap()
   let cur1 = @tsp.buf_new()
   let r1 = read_frame(cur1, io1, 4096)
@@ -112,7 +112,7 @@ test "h2: PING encode/decode (ack and no-ack)" {
         }
         Err(e) => {
           ignore(e)
-          //println("parse_ping_frame (no-ack) failed: " + e)
+          ////println("parse_ping_frame (no-ack) failed: " + e)
           let a = true
           assert_eq(a, false)
           return
@@ -121,7 +121,7 @@ test "h2: PING encode/decode (ack and no-ack)" {
     }
     Err(e) => {
       ignore(e)
-      //println("read_frame (no-ack) failed: " + e)
+      ////println("read_frame (no-ack) failed: " + e)
       let a = true
       assert_eq(a, false)
       return
@@ -130,8 +130,8 @@ test "h2: PING encode/decode (ack and no-ack)" {
 
   // ack
   let b2 = build_ping_frame(opaque1, true)
-  //println("PING(ack)   bytes = " + b2.length().to_string())
-  //println("PING(ack)   head  = " + dbg_hex16(b2))
+  ////println("PING(ack)   bytes = " + b2.length().to_string())
+  ////println("PING(ack)   head  = " + dbg_hex16(b2))
   let io2 = (try? @tsp.from_inmemory(b2)).unwrap()
   let cur2 = @tsp.buf_new()
   let r2 = read_frame(cur2, io2, 4096)
@@ -145,7 +145,7 @@ test "h2: PING encode/decode (ack and no-ack)" {
         }
         Err(e) => {
           ignore(e)
-          //println("parse_ping_frame (ack) failed: " + e)
+          ////println("parse_ping_frame (ack) failed: " + e)
           let a = true
           assert_eq(a, false)
           return
@@ -154,7 +154,7 @@ test "h2: PING encode/decode (ack and no-ack)" {
     }
     Err(e) => {
       ignore(e)
-      //println("read_frame (ack) failed: " + e)
+      ////println("read_frame (ack) failed: " + e)
       let a = true
       assert_eq(a, false)
       return
@@ -173,8 +173,8 @@ test "h2: server accepts preface + SETTINGS then sends ACK" {
   for b in cli_settings {
     inbound.push(b)
   }
-  //println("SERVER inbound bytes = " + inbound.length().to_string())
-  //println("SERVER inbound head9 = " + dbg_hex16(inbound))
+  ////println("SERVER inbound bytes = " + inbound.length().to_string())
+  ////println("SERVER inbound head9 = " + dbg_hex16(inbound))
   let io = (try? @tsp.from_inmemory(inbound)).unwrap()
   let cur = @tsp.buf_new()
   let rk = h2_server_accept_and_ack(cur, io, 4096)
@@ -193,7 +193,7 @@ test "h2: server accepts preface + SETTINGS then sends ACK" {
     }
     Err(e) => {
       ignore(e)
-      //println("h2_server_accept_and_ack failed: " + e)
+      ////println("h2_server_accept_and_ack failed: " + e)
       let a = true
       assert_eq(a, false)
       return
@@ -317,8 +317,8 @@ test "h2: minimal roundtrip GET → 200 + DATA('hello')" {
   let cur = @tsp.buf_new()
   match h2_server_handle_get_hello(cur, io, 4096) {
     Ok(_) => ()
-    Err(e) => {
-      println("server handle failed: " + e)
+    Err(_e) => {
+      //println("server handle failed: " + e)
       let a = true
       assert_eq(a, false)
       return
@@ -424,8 +424,8 @@ test "hpack: (try) huffman for values → decode roundtrip" {
       assert_eq(got[0].name, ":method")
       assert_eq(got[0].value, "GET")
     }
-    Err(e) => {
-      println("read_headers_as_list failed: " + e)
+    Err(_e) => {
+      //println("read_headers_as_list failed: " + e)
       let a = true
       assert_eq(a, false)
     }

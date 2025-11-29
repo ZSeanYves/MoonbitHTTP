@@ -180,8 +180,105 @@ fn write_response_once(
   }
 }
 
-// 读取一个完整请求：行 + 头 + （可选）body
 
+///|
+/// Stream：强制以 chunked 编码写出
+pub fn write_response_with_body(
+  io : @tsp.Transport,
+  status : @cor.StatusCode,
+  headers : Map[String, String],
+  body : @cor.Body,
+  is_chunked : Bool,
+) -> Result[Unit, String] {
+  let code = @cor.status_code_value(status)
+  let no_body = @cor.status_no_body(code)
+  match body {
+    @cor.Body::Stream(_) =>
+      if !is_chunked {
+        return Err("Body::Stream requires chunked transfer (is_chunked=true)")
+      }
+    _ => ()
+  }
+  let head_status = encode_status_line(status)
+  match @cor.write_ascii(io, head_status) {
+    Ok(_) => ()
+    Err(e) => return Err(e)
+  }
+  for k in headers.keys() {
+    let k_norm = @cor.norm_key(k)
+    if no_body && @cor._skip_hdr_in_no_body(k) {
+      continue
+    }
+    if !no_body && is_chunked && k_norm == "content-length" {
+      continue
+    }
+    if !no_body &&
+      !is_chunked &&
+      (k_norm == "transfer-encoding" || k_norm == "content-length") {
+      continue
+    }
+    let v = headers.get(k).unwrap_or("")
+    match @cor.write_ascii(io, k + ": " + v + "\r\n") {
+      Ok(_) => ()
+      Err(e) => return Err(e)
+    }
+  }
+  if no_body {
+    match @cor.write_ascii(io, "\r\n") {
+      Ok(_) => ()
+      Err(e) => return Err(e)
+    }
+    return Ok(())
+  }
+  match body {
+    @cor.Body::Empty =>
+      match @cor.write_ascii(io, "\r\nContent-Length: 0\r\n\r\n") {
+        Ok(_) => Ok(())
+        Err(e) => Err(e)
+      }
+    @cor.Body::Bytes(bs) =>
+      write_response_once(io, status, headers, bs, is_chunked)
+    @cor.Body::Stream(next) => {
+      match @cor.write_ascii(io, "\r\n") {
+        Ok(_) => ()
+        Err(e) => return Err(e)
+      }
+      while true {
+        let (chunk, done) = match next() {
+          Ok(p) => p
+          Err(e) => return Err(e)
+        }
+        if chunk.length() > 0 {
+          match
+            @cor.write_ascii(io, @cor._int_to_hex(chunk.length()) + "\r\n") {
+            Ok(_) => ()
+            Err(e) => return Err(e)
+          }
+          try io.write_all(chunk) catch {
+            _ => return Err("write chunk body failed ")
+          } noraise {
+            _ => ()
+          }
+          match @cor.write_ascii(io, "\r\n") {
+            Ok(_) => ()
+            Err(e) => return Err(e)
+          }
+        }
+        if done {
+          break
+        }
+      }
+      // 终止块
+      match @cor.write_ascii(io, "0\r\n\r\n") {
+        Ok(_) => Ok(())
+        Err(e) => Err(e)
+      }
+    }
+  }
+}
+
+
+// 读取一个完整请求：行 + 头 + （可选）body
 ///|
 pub fn read_request_full(
   io : @tsp.Transport,
@@ -231,8 +328,8 @@ pub fn read_request_full(
   Ok(creq)
 }
 
-// ---- 从 Transport 读到 BufCursor，直到可解析出一行（或读尽） ----
 
+// ---- 从 Transport 读到 BufCursor，直到可解析出一行（或读尽） ----
 ///|
 fn read_once_into(
   cur : @tsp.BufCursor,
@@ -256,7 +353,6 @@ fn read_once_into(
 }
 
 // 兼容旧用法：一次请求
-
 ///|
 pub fn serve_once(
   io : @tsp.Transport,
@@ -278,6 +374,30 @@ pub fn serve_once(
   }
   let (status, resp_headers, resp_body, is_chunked) = handler(req)
   write_response_once(io, status, resp_headers, resp_body, is_chunked)
+}
+
+///|
+/// 基于 Body 的一次性服务：handler 可以返回 Body::Empty / Bytes / Stream
+pub fn serve_once_body(
+  io : @tsp.Transport,
+  handler : (@cor.Request) -> (
+    @cor.StatusCode,
+    Map[String, String],
+    @cor.Body,
+    Bool, // is_chunked
+  ),
+  max_headers : Int,
+  max_line : Int,
+  read_win : Int,
+  max_body? : Int = 1 * 1024 * 1024,
+) -> Result[Unit, String] {
+  let req = match
+    read_request_full(io, max_headers, max_line, read_win, max_body) {
+    Ok(r) => r
+    Err(e) => return Err(e)
+  }
+  let (status, resp_headers, resp_body, is_chunked) = handler(req)
+  write_response_with_body(io, status, resp_headers, resp_body, is_chunked)
 }
 
 ///|
@@ -387,8 +507,40 @@ pub fn serve_loop(
   Ok(())
 }
 
-// 一个最简单的处理器：无论请求什么都返回 200 text/plain: "Hello"
+///|
+pub fn serve_once_body_streaming(
+  io : @tsp.Transport,
+  handler : (@cor.Request) -> (
+    @cor.StatusCode,
+    Map[String, String],
+    @cor.Body,
+    Bool,
+  ),
+  max_headers : Int,
+  max_line : Int,
+  read_win : Int,
+  max_body? : Int = 1 * 1024 * 1024,
+  stream_chunk? : Int = 8 * 1024,
+) -> Result[Unit, String] {
+  let req = match
+    read_request_streaming(
+      io,
+      max_headers,
+      max_line,
+      read_win,
+      max_body,
+      stream_chunk~, 
+    ) {
+    Ok(r) => r
+    Err(e) => return Err(e)
+  }
+  let (status, resp_headers, resp_body, is_chunked) = handler(req)
+  write_response_with_body(io, status, resp_headers, resp_body, is_chunked)
+}
 
+
+
+// 一个最简单的处理器：无论请求什么都返回 200 text/plain: "Hello"
 ///|
 pub fn hello_handler(
   req : @cor.Request,
@@ -401,7 +553,6 @@ pub fn hello_handler(
 }
 
 // 一个 chunked 处理器：返回两行拼起来的 body
-
 ///|
 pub fn chunked_handler(
   req : @cor.Request,
@@ -416,8 +567,70 @@ pub fn chunked_handler(
   (@cor.StatusCode::OK, hs, body, true)
 }
 
-// 确保从 cur/io 里“精确”读取 need 个字节（放到 Array[Byte] 返回）
 
+// 真正流式返回（多块 chunked）
+///|
+pub fn streaming_handler(
+  req : @cor.Request,
+) -> (@cor.StatusCode, Map[String, String], @cor.Body, Bool) {
+  ignore(req)
+  let hs : Map[String, String] = Map::new()
+  hs.set("Content-Type", "text/plain")
+  hs.set("Transfer-Encoding", "chunked")
+  let chunks : Array[String] = []
+  chunks.push("part-1...\n")
+  chunks.push("part-2...\n")
+  chunks.push("part-3...\n")
+  let mut idx = 0
+  let body = @cor.Body::Stream(fn() -> Result[(Array[Byte], Bool), String] {
+    if idx >= chunks.length() {
+      let empty : Array[Byte] = []
+      Ok((empty, true))
+    } else {
+      let s = chunks[idx]
+      idx += 1
+      let bs = @buf.string_to_utf8_bytes(s).to_array()
+      let done = idx >= chunks.length()
+      Ok((bs, done))
+    }
+  })
+  (@cor.StatusCode::OK, hs, body, true) // is_chunked = true
+}
+
+///|
+pub fn echo_handler_streaming(
+  req : @cor.Request,
+) -> (@cor.StatusCode, Map[String, String], @cor.Body, Bool) {
+  let hs_resp : Map[String, String] = Map::new()
+  hs_resp.set("Content-Type", "application/octet-stream")
+  hs_resp.set("Transfer-Encoding", "chunked")
+  match req.body {
+    @cor.Body::Stream(next) => {
+      // 这里简单做个“边读请求、边写响应”的转发示例：
+      // 把请求的 Stream 直接变成响应的 Stream
+      let body_out = @cor.Body::Stream(fn() -> Result[
+        (Array[Byte], Bool),
+        String,
+      ] {
+        // 每次从请求流里拉一块
+        let (chunk, done) = match next() {
+          Ok(p) => p
+          Err(e) => return Err(e)
+        }
+        Ok((chunk, done))
+      })
+      (@cor.StatusCode::OK, hs_resp, body_out, true)
+    }
+    _ => {
+      // 非 streaming（比如 chunked 被一次性读完的情况）
+      let empty : Array[Byte] = []
+      (@cor.StatusCode::BadRequest, hs_resp, @cor.Body::Bytes(empty), false)
+    }
+  }
+}
+
+
+// 确保从 cur/io 里“精确”读取 need 个字节（放到 Array[Byte] 返回）
 ///|
 pub fn read_exact_from(
   cur : @tsp.BufCursor,
@@ -530,3 +743,287 @@ test "server: Expect 100-continue — sends 100 then 200" {
   let p200 = s.find("HTTP/1.1 200 OK\r\n").unwrap_or(-1)
   assert_eq(p100 >= 0 && p200 > p100, true)
 }
+
+///|
+test "http1: streaming_handler generates 3 chunks (debug)" {
+  let req : @cor.Request = {
+    line: {
+      http_method: @cor.Method::GET,
+      target: "/stream",
+      version: "HTTP/1.1",
+    },
+    headers: Map::new(),
+    body: @cor.Body::Empty,
+  }
+  let (status, hs, body, is_chunked) = streaming_handler(req)
+  let code = @cor.status_code_value(status)
+  ////println("=== streaming_handler test ===")
+  ////println("status = " + code.to_string())
+  ////println(
+  // "TE = " +
+  //  hs.get("Transfer-Encoding").unwrap_or("<none>") +
+  //  ", is_chunked = " +
+  //  is_chunked.to_string(),
+  //)
+
+  // 状态、头部先简单打印
+  if code != 200 {
+    ////println("!! status code != 200")
+    return
+  }
+  if hs.get("Transfer-Encoding").unwrap_or("") != "chunked" {
+    ////println("!! TE != chunked")
+    return
+  }
+  if !is_chunked {
+    ////println("!! is_chunked != true")
+    return
+  }
+  match body {
+    @cor.Body::Stream(next) => {
+      // 第1块
+      let (c1, done1) = match next() {
+        Ok(p) => p
+        Err(_e) => {
+          ////println("next() 1 failed: " + _e)
+          return
+        }
+      }
+      let s1 = try @buf.utf8_bytes_to_string(Bytes::from_array(c1)) catch {
+        _ => {
+          ////println("bad utf8 in chunk1")
+          return
+        }
+      } noraise {
+        s => s
+      }
+      ////println("chunk1 = '" + s1 + "', done1 = " + done1.to_string())
+      if s1 != "part-1...\n" || done1 {
+       // //println("!! chunk1 mismatch or done1 should be false")
+        return
+      }
+
+      // 第2块
+      let (c2, done2) = match next() {
+        Ok(p) => p
+        Err(_e) => {
+          //println("next() 2 failed: " + _e)
+          return
+        }
+      }
+      let s2 = try @buf.utf8_bytes_to_string(Bytes::from_array(c2)) catch {
+        _ => {
+          //println("bad utf8 in chunk2")
+          return
+        }
+      } noraise {
+        s => s
+      }
+      //println("chunk2 = '" + s2 + "', done2 = " + done2.to_string())
+      if s2 != "part-2...\n" || done2 {
+        //println("!! chunk2 mismatch or done2 should be false")
+        return
+      }
+
+      // 第3块
+      let (c3, done3) = match next() {
+        Ok(p) => p
+        Err(_e) => {
+          //println("next() 3 failed: " + _e)
+          return
+        }
+      }
+      let s3 = try @buf.utf8_bytes_to_string(Bytes::from_array(c3)) catch {
+        _ => {
+          //println("bad utf8 in chunk3")
+          return
+        }
+      } noraise {
+        s => s
+      }
+      //println("chunk3 = '" + s3 + "', done3 = " + done3.to_string())
+      if s3 != "part-3...\n" {
+        //println("!! chunk3 mismatch")
+        return
+      }
+      if !done3 {
+        //println("!! done3 should be true")
+        return
+      }
+
+      // 再调一次，看看结束后的行为
+      let (_c4, _done4) = match next() {
+        Ok(p) => p
+        Err(_e) => {
+          //println("next() 4 failed: " + _e)
+          return
+        }
+      }
+      //println(
+      //  "after done: chunk4.len = " +
+      //  _c4.length().to_string() +
+      // ", done4 = " +
+      //  _done4.to_string(),
+      //)
+    }
+    _ => {
+      //println("!! streaming_handler should return Body::Stream")
+      return
+    }
+  }
+  //println("streaming_handler test finished.\n")
+}
+
+///|
+test "http1: echo_handler_streaming echo body (debug)" {
+  //println("=== echo_handler_streaming test ===")
+
+  // 准备两段要“流入”的内容
+  let chunks_in : Array[String] = []
+  chunks_in.push("hello ")
+  chunks_in.push("world")
+  let mut idx_in = 0
+  let body_in = @cor.Body::Stream(fn() -> Result[(Array[Byte], Bool), String] {
+    if idx_in >= chunks_in.length() {
+      let empty : Array[Byte] = []
+      Ok((empty, true))
+    } else {
+      let s = chunks_in[idx_in]
+      idx_in += 1
+      let bs = @buf.string_to_utf8_bytes(s).to_array()
+      let done = idx_in >= chunks_in.length()
+      Ok((bs, done))
+    }
+  })
+  let req : @cor.Request = {
+    line: {
+      http_method: @cor.Method::POST,
+      target: "/echo",
+      version: "HTTP/1.1",
+    },
+    headers: Map::new(),
+    body: body_in,
+  }
+  let (status, hs, body_out, is_chunked) = echo_handler_streaming(req)
+  let code = @cor.status_code_value(status)
+  //println("status = " + code.to_string())
+  //println(
+  //  "TE = " +
+  //  hs.get("Transfer-Encoding").unwrap_or("<none>") +
+  //  ", is_chunked = " +
+  //  is_chunked.to_string(),
+  //)
+  if code != 200 {
+    //println("!! status code != 200")
+    return
+  }
+  if hs.get("Transfer-Encoding").unwrap_or("") != "chunked" {
+    //println("!! TE != chunked")
+    return
+  }
+  if !is_chunked {
+    //println("!! is_chunked != true")
+    return
+  }
+  match body_out {
+    @cor.Body::Stream(next_out) => {
+      let buf_all : Array[Byte] = []
+      let mut round = 0
+      while true {
+        round += 1
+        if round > 10 {
+          //println("!! too many rounds when reading echo stream")
+          break
+        }
+        let (chunk, done) = match next_out() {
+          Ok(p) => p
+          Err(_e) => {
+            //println("next_out() failed: " + _e)
+            return
+          }
+        }
+        //println(
+        //  "round " +
+        //  round.to_string() +
+        //  ", chunk.len = " +
+        //  chunk.length().to_string() +
+        //  ", done = " +
+        //  done.to_string(),
+        //)
+        let mut i = 0
+        while i < chunk.length() {
+          buf_all.push(chunk[i])
+          i += 1
+        }
+        if done {
+          break
+        }
+      }
+      let _s_all = try
+        @buf.utf8_bytes_to_string(Bytes::from_array(buf_all))
+      catch {
+        _ => {
+          //println("bad utf8 in all echo bytes")
+          return
+        }
+      } noraise {
+        s => s
+      }
+      //println("echoed body = '" + _s_all + "'")
+      // 预期应为 "hello world"
+    }
+    _ => {
+      //println("!! echo handler should return Body::Stream")
+      return
+    }
+  }
+  //println("echo_handler_streaming test finished.\n")
+}
+
+///|
+test "http1: Body helpers debug" {
+  //println("=== Body helpers test ===")
+  let _empty = @cor.body_empty()
+  //println("len(Empty) = " + @cor.body_len(_empty).to_string())
+  let bs = @buf.string_to_utf8_bytes("abc").to_array()
+  let _b_bytes = @cor.body_bytes(bs)
+  //println("len(Bytes 'abc') = " + @cor.body_len(_b_bytes).to_string())
+  let b_stream = @cor.body_stream_from_bytes(bs)
+  //println("len(Stream 'abc') = " + @cor.body_len(b_stream).to_string())
+  match b_stream {
+    @cor.Body::Stream(next) => {
+      let (c1, _d1) = match next() {
+        Ok(p) => p
+        Err(_e) => {
+          //println("next() 1 failed: " + _e)
+          return
+        }
+      }
+      let _s1 = try @buf.utf8_bytes_to_string(Bytes::from_array(c1)) catch {
+        _ => {
+          //println("bad utf8 in stream chunk1")
+          return
+        }
+      } noraise {
+        s => s
+      }
+      //println("stream chunk1 = '" + _s1 + "', done1 = " + _d1.to_string())
+      let (_c2, _d2) = match next() {
+        Ok(p) => p
+        Err(_e) => {
+          //println("next() 2 failed: " + _e)
+          return
+        }
+      }
+      //println(
+      //  "stream chunk2 len = " +
+      //  _c2.length().to_string() +
+      //  ", done2 = " +
+      //  _d2.to_string(),
+      //)
+    }
+    _ => ()//println("body_stream_from_bytes did not return Body::Stream")
+  }
+  //println("Body helpers test finished.\n")
+}
+

@@ -42,9 +42,9 @@ use @tsp = @ZSeanYves/MoonbitHTTP/transport
 let io  = @tsp.from_inmemory(frames)
 let cur = @tsp.buf_new()
 let (info, list) = read_headers_as_list(cur, io, 4096).unwrap()
-println(info.stream_id)   // 1
-println(info.end_stream)  // false
-println(list[0].name)     // ":method"
+//println(info.stream_id)   // 1
+//println(info.end_stream)  // false
+//println(list[0].name)     // ":method"
 ```
 
 ### 3) DATA 帧

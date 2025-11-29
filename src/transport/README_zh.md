@@ -32,7 +32,7 @@ let resp = @buf.string_to_utf8_bytes(
 let _ = io.write_all(resp.to_array())
 let out = io.take_tx()
 
-println(Bytes::from_array(out).to_string())
+//println(Bytes::from_array(out).to_string())
 ```
 
 ### 2) 模拟分片的网络数据 → 使用临时缓冲读取
@@ -51,10 +51,10 @@ buf.resize(1024, 0.to_byte())
 match io.read(buf) {
   Ok(n) => {
     let line = Bytes::from_array(buf.slice(0, n)).to_string()
-    println("got: {}", line)
+    //println("got: {}", line)
   }
-  Err(IoError::WouldBlock) => println("暂时没有数据"),
-  Err(e) => println("读取错误: {:?}", e)
+  Err(IoError::WouldBlock) => //println("暂时没有数据"),
+  Err(e) => //println("读取错误: {:?}", e)
 }
 ```
 
@@ -70,8 +70,8 @@ cur.buf_push(@buf.string_to_utf8_bytes("User-Agent: x\r\n").to_array())
 
 let l1 = cur.buf_read_line_crlf(8 * 1024).unwrap()
 let l2 = cur.buf_read_line_crlf(8 * 1024).unwrap()
-println(Bytes::from_array(l1).to_string()) // "Host: a"
-println(Bytes::from_array(l2).to_string()) // "User-Agent: x"
+//println(Bytes::from_array(l1).to_string()) // "Host: a"
+//println(Bytes::from_array(l2).to_string()) // "User-Agent: x"
 ```
 
 > 提示：`WouldBlock` 表示“暂时没有数据”；`Eof` 表示输入流已结束（通常是 `close()` 后且接收缓冲为空）。
@@ -217,10 +217,10 @@ match io.read(tmp) {
 }
 
 let line = cur.buf_read_line_crlf(8 * 1024).unwrap()
-println(Bytes::from_array(line).to_string()) // "GET / HTTP/1.1"
+//println(Bytes::from_array(line).to_string()) // "GET / HTTP/1.1"
 
 let resp = @buf.string_to_utf8_bytes("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK")
 let _ = io.write_all(resp.to_array())
 let out = io.take_tx()
-println(Bytes::from_array(out).to_string())
+//println(Bytes::from_array(out).to_string())
 ```
