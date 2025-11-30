@@ -1,148 +1,297 @@
-# MoonbitHTTP/http2（中文说明）
+# MoonbitHTTP — HTTP/2 模块
 
-## 概览
+> 对应 `src/http2` 的中文版 README
 
-一个面向 MoonBit 的 **HTTP/2 工具包**：提供帧层（9 字节帧头 + 载荷）、**HEADERS/DATA 构帧工具**，以及精简的 **HPACK**（静态表 + 非索引字面量，可选 Huffman）。本包侧重教学与测试，运行在抽象传输层（如 `@tsp.Transport`）之上，不直接进行真实网络通信。
+## 1. 模块概览
 
-**你将获得**：
+MoonbitHTTP 的 **`http2` 模块**提供的是 **HTTP/2 协议的帧层实现 + HPACK 头部压缩实现**，重点在于：
 
-* **帧层 API**：编码/解码帧头；构造与解析核心帧：**SETTINGS**、**PING**、**GOAWAY**、**WINDOW_UPDATE**、**RST_STREAM**；从传输层读取任意帧。
-* **HEADERS/DATA 工具**：把头块切分为 HEADERS + CONTINUATION（自动设置 `END_HEADERS`）；把消息体切分为 DATA 帧（可带 `END_STREAM`）。
-* **HPACK**：静态表查询与**非索引字面量**编码（名称可用静态索引）；头块解码；可选 Huffman 编解码。
-* **前言与握手**：客户端前言字节；SETTINGS 基本交换辅助函数。
+* 正确解析 / 编码各类 HTTP/2 **帧（Frame）**
+* 识别并处理 HTTP/2 **连接前言（Connection Preface）**
+* 实现 **HPACK 静态表** 的头部压缩与解压
+* 对协议违规进行清晰的错误报告和校验
 
-> 范围说明：更偏向学习/测试用途。动态表、优先级调度、流量控制记账，以及更复杂的 HPACK 索引策略暂时保持最小化实现。
+它目前 **不是** 一个完整的 HTTP/2 服务端或客户端实现：
+
+* ❌ 不实现流量控制（Flow Control）
+* ❌ 不实现优先级 / Server Push
+
+更适合用于：
+
+* 学习 / 调试 HTTP/2 二进制层细节
+* 搭建自定义的 HTTP/2 工具（例如抓包分析器、测试工具、代理等）
+* 为未来的高层 HTTP/2 Runtime（真正的服务端 / 客户端）打基础
+
+如果你只需要 HTTP/1.1，可以查看 [`src/http1`](../http1/README.md)。
 
 ---
 
-## 使用示例
+## 2. 设计目标
 
-### 1) HPACK 头列表 → HEADERS(+CONTINUATION) 帧
+* **关注点分离**：`http2` 只关心 *帧* 和 *HPACK*，不负责连接管理、路由或业务逻辑
+* **方便测试**：所有 API 都可以在内存中运行，依赖共享的 `transport` 模块（无需真实网络）
+* **显式控制**：连接、流状态、SETTINGS、流量控制等都交给调用者管理
+* **术语贴近 RFC**：命名尽量与 HTTP/2 标准（RFC 7540）保持一致
+
+当前的非目标：
+
+* 不内置完整 HTTP/2 服务器或客户端
+* 不自动管理流量控制窗口
+* 不实现 Server Push 与复杂优先级调度
+
+---
+
+## 3. 包结构（逻辑划分）
+
+典型结构（文件名可能略有差异，仅作逻辑说明）：
+
+* `http2/preface.mbt`
+
+  * 识别 / 校验 HTTP/2 客户端和服务端前言（Preface）的工具函数
+* `http2/frame.mbt`
+
+  * 核心帧类型（DATA/HEADERS/SETTINGS/...）与编码 / 解码逻辑
+* `http2/hpack.mbt`
+
+  * HPACK 静态表与头部块（Header Block）的压缩 / 解压
+* `http2/error.mbt`
+
+  * HTTP/2 专用错误枚举与辅助函数
+
+实际使用时，你通常不会一次性 import 所有模块，而是按需选用：
 
 ```moonbit
-use http/http2 { build_headers_frames_from_list }
+use http/http2/preface { detect_client_preface }
+use http/http2/frame   { decode_frame, encode_settings_frame }
+use http/http2/hpack   { hpack_encode, hpack_decode }
+```
+
+> 注意：具体文件名在项目演进中可能略有调整，但“前言 / 帧 / HPACK”的划分会保持稳定。
+
+---
+
+## 4. 已实现的 HTTP/2 功能
+
+### 4.1 连接前言（Connection Preface）
+
+* `detect_client_preface(bytes: Array[Byte]) -> Bool`
+
+  * 判断字节序列是否以固定的 HTTP/2 客户端前言开头：
+    `"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"`
+* 可选：`detect_server_preface` 用于校验服务端发出的第一个帧 / 首个响应序列是否合理
+
+通常在 **连接入口** 就会使用这些工具，来区分：
+
+* 这是发来的 HTTP/1.1 请求？
+* 还是 HTTP/2 前言？
+
+### 4.2 帧编解码（Frame Codec）
+
+`frame` 模块提供：
+
+* 一个统一的 `Frame` 枚举类型，内部包含所有具体帧类型的变体
+* 每种帧的独立编码 / 解码函数
+
+支持的帧类型包括（按 HTTP/2 标准）：
+
+* `DATA`
+* `HEADERS`
+* `PRIORITY`
+* `RST_STREAM`
+* `SETTINGS`
+* `PUSH_PROMISE`（可以解析，目前不会在 Runtime 中主动使用）
+* `PING`
+* `GOAWAY`
+* `WINDOW_UPDATE`
+
+**解码示例**：
+
+```moonbit
+use http/http2/frame { decode_frame, Frame }
+use @tsp = @ZSeanYves/MoonbitHTTP/transport
+
+let raw : Array[Byte] = [
+  0, 0, 4,    // length = 4
+  0x4, 0x0,   // type = SETTINGS, flags = 0
+  0, 0, 0, 0  // stream_id = 0
+]
+
+let io  = @tsp.from_inmemory(raw)
+let f   = decode_frame(io).unwrap()
+
+match f {
+| Frame::Settings(s) => {
+    // 处理 SETTINGS
+  }
+| _ => {
+    // 处理其他类型帧
+  }
+}
+```
+
+**编码示例：SETTINGS 帧**：
+
+```moonbit
+use http/http2/frame { encode_settings_frame, SettingPair }
+
+let settings : Array[SettingPair] = [
+  { id: 0x1, value: 4096 }, // HEADER_TABLE_SIZE
+  { id: 0x3, value: 100 },  // MAX_CONCURRENT_STREAMS
+]
+
+let bytes = encode_settings_frame(settings, false)
+// 将 bytes 通过你的 Transport 发送出去
+```
+
+其他帧类型也有类似的编码函数，例如：
+
+* `encode_data_frame(stream_id, payload, end_stream)`
+* `encode_headers_frame(stream_id, header_block, end_headers)`
+* `encode_ping(ping_bytes, ack)`
+* `encode_goaway(last_stream_id, error_code, debug_data)`
+* `encode_window_update(stream_id, increment)`
+
+> 具体函数签名可能略有差异，但核心目标只有一个：**构造出一帧合法的 HTTP/2 帧字节序列**。
+
+### 4.3 HPACK（静态表）
+
+`hpack` 模块实现 HPACK 编解码，用于压缩 / 解压 HEADERS 帧中携带的 Header Block：
+
+* `hpack_encode(headers: Array[(String, String)]) -> Array[Byte]`
+* `hpack_decode(bytes: Array[Byte]) -> Array[(String, String)]`
+
+当前实现特点：
+
+* 仅使用 HPACK 规范中的 **静态表（Static Table）**
+* 支持 **“不入表的字面量头部”** 形式
+* 当收到修改动态表大小的指令时会报错（即不支持动态表）
+
+**解码示例**：
+
+```moonbit
+use http/http2/hpack { hpack_decode }
 use @buf = @ZSeanYves/bufferutils
 
-let hs : Array[HpackHeader] = []
-hs.push({ name: ":method",   value: "GET" })
-hs.push({ name: ":scheme",   value: "https" })
-hs.push({ name: ":authority", value: "example.com" })
-hs.push({ name: ":path",      value: "/" })
-hs.push({ name: "accept",     value: "*/*" })
-
-let frames = build_headers_frames_from_list(1, hs, false)
+let encoded = @buf.string_to_utf8_bytes("\x82\x86\x84").to_array()
+let headers = hpack_decode(encoded)
+// headers : Array[(String, String)]
 ```
 
-### 2) 读取 HEADERS 为 (name,value) 列表
+**编码示例**：
 
 ```moonbit
-use http/http2 { read_headers_as_list }
+use http/http2/hpack { hpack_encode }
+
+let headers : Array[(String, String)] = [
+  (":method", "GET"),
+  ("host", "example.com"),
+]
+
+let encoded_block = hpack_encode(headers)
+// `encoded_block` 可作为 HEADERS 帧中的头部块
+```
+
+---
+
+## 5. 综合示例：构造一个简单的帧“查看器”
+
+下面是一个将各组件组合起来的示例：从一个 `Transport` 中读取数据，识别 HTTP/2 前言，并循环解析帧，打印或处理：
+
+```moonbit
+use http/http2/preface { detect_client_preface }
+use http/http2/frame   { decode_frame, Frame }
 use @tsp = @ZSeanYves/MoonbitHTTP/transport
 
-let io  = @tsp.from_inmemory(frames)
-let cur = @tsp.buf_new()
-let (info, list) = read_headers_as_list(cur, io, 4096).unwrap()
-//println(info.stream_id)   // 1
-//println(info.end_stream)  // false
-//println(list[0].name)     // ":method"
+fn inspect_connection(rx: Array[Byte]) {
+  let io = @tsp.from_inmemory(rx)
+
+  // 例如先窥探前 N 字节，不消费
+  let preface_bytes = io.peek(24)
+  if !detect_client_preface(preface_bytes) {
+    // 不是 HTTP/2（可能是 HTTP/1.1 或垃圾数据）
+    return
+  }
+
+  // 正式消费前言（具体做法依具体 Transport 实现）
+  let _ = io.consume(preface_bytes.length())
+
+  // 不断读取帧
+  loop {
+    match decode_frame(io) {
+    | Err(e) => {
+        // EOF 或协议错误，直接退出
+        break
+      }
+    | Ok(f) => {
+        match f {
+        | Frame::Settings(s) => {
+            // 打印 / 应用 SETTINGS
+          }
+        | Frame::Data(d) => {
+            // 检查 Data 内容
+          }
+        | Frame::Headers(h) => {
+            // 需要的话，可以再调用 hpack_decode 解出头部
+          }
+        | _ => {
+            // 其他帧
+          }
+        }
+      }
+    }
+  }
+}
 ```
 
-### 3) DATA 帧
-
-```moonbit
-use http/http2 { build_data_frames }
-let body = @buf.string_to_utf8_bytes("hello").to_array()
-let data_frames = build_data_frames(1, body, true)
-```
-
-### 4) 前言 + SETTINGS 握手
-
-```moonbit
-use http/http2 { h2_client_start, h2_server_accept_and_ack, H2SettingKV }
-use @tsp = @ZSeanYves/MoonbitHTTP/transport
-let io  = @tsp.from_inmemory([])
-let cur = @tsp.buf_new()
-
-// 客户端：发送前言与 SETTINGS
-let _ = h2_client_start(io, [])
-
-// 服务端：读取前言与 SETTINGS，并回 ACK
-let _ = h2_server_accept_and_ack(cur, io, 4096)
-```
+> 这个示例故意保持“低抽象”，所以连接何时结束、何时回 SETTINGS、如何维护状态，全部交给调用者决定。
 
 ---
 
-## API 速览
+## 6. 与其它模块的关系
 
-### 常量与结构体
+在未来构建完整 HTTP 栈时，你大致会这样分层：
 
-```moonbit
-// 帧类型与标志位、默认值、前言字符串
-H2_FRAME_*、H2_FLAGS_*、H2_DEFAULT_MAX_FRAME_SIZE、H2_CLIENT_PREFACE
+* `transport` —— 内存 / 真实网络 IO
+* `http2` —— 帧、HPACK、前言检测
+* （未来）`http2_runtime` —— 流状态机、流量控制、请求/响应映射
+* `core` —— 通用的 `Request`、`Response`、`StatusCode`、`Body`、`Limits` 等
 
-// 关键结构\ nH2FrameHeader { length, typ, flags, stream_id }
-H2Frame { header, payload }
-H2SettingKV { id, value }
-H2Priority { exclusive, dep_stream, weight }
-H2HeadersInfo { stream_id, end_stream, has_priority, exclusive, dep_stream, weight }
-HpackHeader { name, value }
-```
+目前 `http2` 有意停在“帧 + HPACK”层，以保持：
 
-### 帧层
-
-```moonbit
-encode_frame_header / decode_frame_header
-read_frame(cur, io, read_win, max_frame_size?)
-client_preface_bytes / read_and_check_client_preface
-encode_settings_payload / decode_settings_payload
-build_settings_frame / parse_settings_frame
-build_ping_frame / parse_ping_frame
-build_goaway_frame
-build_window_update_frame / parse_window_update_increment
-build_rst_stream_frame / parse_rst_stream_error
-h2_client_start / h2_server_accept_and_ack
-```
-
-### HEADERS / DATA
-
-```moonbit
-read_headers_block / read_headers_as_list
-build_headers_frames / build_headers_frames_prio
-build_data_frames
-```
-
-### HPACK
-
-```moonbit
-hpack_static_get
-hpack_encode_literal_noindex / hpack_encode_list_noindex
-hpack_decode_block
-hpack_huff_encode / hpack_huff_decode
-```
+* 实验安全（不会隐藏复杂的 Runtime 副作用）
+* 方便单元测试
+* 允许用户在其上自定义不同风格的 Runtime（服务器、代理、隧道工具等）
 
 ---
 
-## 注意事项
+## 7. 当前限制与非目标
 
-* **无动态表**：遇到动态表大小更新会报错；编码只用非索引字面量与静态表名索引。
-* **Huffman**：编码可选；解码通过小型解码树逐位处理。
-* **填充与优先级**：提供 PRIORITY 版本构帧；**暂未**提供显式 PADDED 构帧。
-* **单流示例**：文档示例默认使用 `stream_id = 1`，未实现完整流状态机。
-* **流控**：提供 WINDOW_UPDATE 的编解码；窗口值管理交由调用方。
-* **错误与 I/O**：会透传传输层错误（`WouldBlock`/`Eof`/`Closed`）；`read_win` 控制增量读取。
+* ❌ 暂无开箱即用的 HTTP/2 服务器 / 客户端
+* ❌ 不会自动发送 / 处理 SETTINGS + ACK
+* ❌ 不跟踪连接 / 流的窗口大小（Flow Control）
+* ❌ 不实现优先级 / 依赖树
+* ❌ 不支持 Server Push
+* ❌ 不包含 TLS / ALPN 协商
+* ❌ 不包含 HTTP/1.1 ↔ HTTP/2 Upgrade 逻辑
 
----
-
-## 路线图
-
-* [ ] HPACK **动态表** 与更多表述格式
-* [ ] 完整的头部填充与 trailer 处理
-* [ ] 流状态机、优先级调度、服务器推送
-* [ ] 连接级与流级的流量控制记账
-* [ ] 更完善的端到端示例（超越 "hello" demo）
+这些都更适合作为“上层 Runtime”的职责，而不是 `http2` 模块本身的职责。
 
 ---
 
-## 许可证
+## 8. Roadmap（后续计划）
 
-MIT License. 详见 [LICENSE](LICENSE)。
+计划中的演进方向（可能随实际开发调整）：
+
+* [ ] 基础版 HTTP/2 Runtime（单连接，有限流数）
+* [ ] 连接级和流级的流量控制管理
+* [ ] HPACK 动态表与压缩策略调优
+* [ ] 多路复用工具函数，以及简单的请求/响应映射
+* [ ] 与 HTTP/1.1 的自动协商 / 升级辅助函数
+
+在这些内容完成之前，请将 `http2` 看作一个 **低层协议工具箱**，而不是一个“框架接口”。
+
+---
+
+## 9. 许可证
+
+与整个 MoonbitHTTP 项目一致，本模块使用 **MIT 许可证**。

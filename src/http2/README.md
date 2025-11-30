@@ -3,196 +3,284 @@
 [![Build Status](https://img.shields.io/github/actions/workflow/status/ZSeanYves/MoonbitHTTP/ci.yml)](https://github.com/ZSeanYves/MoonbitHTTP/actions)
 [![License](https://img.shields.io/github/license/ZSeanYves/MoonbitHTTP)](LICENSE)
 
-## Overview
 
-A **minimal HTTP/2 toolkit** for MoonBit: frame layer (9‑byte header + payload), **HEADERS/DATA framing helpers**, and a compact **HPACK** (static table + literal‑without‑index, optional Huffman). This package focuses on testability and clarity; it runs over an abstract transport (e.g., `@tsp.Transport`) and does not open real sockets.
+## 1. Overview
 
-**What you get**
+The **`http2`** package in MoonbitHTTP provides a **frame-level** and **HPACK-level** implementation of the HTTP/2 protocol.
 
-* **Frames**: encode/decode the 9‑byte frame header; build and parse core frames: **SETTINGS**, **PING**, **GOAWAY**, **WINDOW_UPDATE**, **RST_STREAM**; read arbitrary frames from a transport.
-* **HEADERS/DATA helpers**: split a header block into HEADERS + CONTINUATION with `END_HEADERS`; segment body bytes into DATA frames with `END_STREAM`.
-* **HPACK**: static table lookups and **literal‑without‑index** encoding (names use static index when available); block decoder; optional Huffman encode/decode.
-* **Preface & handshake**: client preface bytes; basic SETTINGS exchange helpers.
+It focuses on:
 
-> Scope: geared for learning/tests. Dynamic table, priority scheduling, flow control bookkeeping, and HPACK indexing strategies beyond literal‑without‑index are intentionally minimal.
+* Correct parsing / encoding of HTTP/2 **frames**
+* Basic handling of the HTTP/2 **connection preface**
+* Implementation of **HPACK static-table** header compression / decompression
+* Clear error reporting and validation of protocol invariants
+
+It is intentionally **not** a full HTTP/2 runtime.
+There is **flow control, or prioritization** yet. Instead, this package acts as a **building block** for:
+
+* Learning and debugging HTTP/2 at the binary level
+* Building custom HTTP/2 tools (debuggers, inspectors, test harnesses)
+* Providing the foundation for a future high-level HTTP/2 server/client
+
+If you need an HTTP/1.1-only server/client, see [`src/http1`](../http1/README.md).
 
 ---
 
-## Usage
+## 2. Design Goals
 
-### 1) Encode headers → HEADERS(+CONTINUATION) frames
+* **Separation of concerns**: This package only deals with *frames* and *HPACK*.
+* **Testability**: All APIs work with in-memory buffers and the shared `transport` module (no real sockets required).
+* **Explicitness over magic**: Callers are expected to explicitly manage connection / stream state, settings, and flow control.
+* **Low surprise**: Function names and data structures follow the HTTP/2 RFC 7540 terminology as closely as possible.
+
+Non-goals (for now):
+
+* Implementing a full HTTP/2 server or client
+* Managing flow control windows
+* Implementing server push or priority scheduling
+
+---
+
+## 3. Package Layout
+
+The typical layout looks like this (names simplified):
+
+* `http2/preface.mbt`
+
+  * Utilities to detect / validate HTTP/2 client and server prefaces
+* `http2/frame.mbt`
+
+  * Core frame types (DATA/HEADERS/SETTINGS/...) and encode/decode logic
+* `http2/hpack.mbt`
+
+  * HPACK static-table handling and header block (de)compression
+* `http2/error.mbt`
+
+  * HTTP/2 specific error enums and helpers
+
+You normally do **not** import all of these directly from application code.
+Instead, you selectively use the pieces you need, e.g.:
 
 ```moonbit
-use http/http2 { build_headers_frames_from_list }
+use http/http2/preface { detect_client_preface }
+use http/http2/frame    { decode_frame, encode_settings_frame }
+use http/http2/hpack    { hpack_encode, hpack_decode }
+```
+
+> Note: Exact file names may evolve, but the logical split (preface / frame / hpack) will remain stable.
+
+---
+
+## 4. Implemented HTTP/2 Features
+
+### 4.1 Connection Preface
+
+* `detect_client_preface(bytes: Array[Byte]) -> Bool`
+
+  * Returns `true` if the byte sequence starts with the fixed HTTP/2 client preface:
+    `"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"`
+* Optionally, a `detect_server_preface` helper can be provided to validate the first frame(s) the server sends back.
+
+These helpers are typically used at the **connection entry point** to decide whether the peer is attempting HTTP/1.1 or HTTP/2.
+
+### 4.2 Frame Codec
+
+The `frame` module provides:
+
+* A common `Frame` sum type (variant/enum) that wraps all concrete frame kinds
+* Per-frame encode/decode helpers
+
+Supported frame types include (as separate constructors / variants):
+
+* `DATA`
+* `HEADERS`
+* `PRIORITY`
+* `RST_STREAM`
+* `SETTINGS`
+* `PUSH_PROMISE` (parsed, but not used at runtime yet)
+* `PING`
+* `GOAWAY`
+* `WINDOW_UPDATE`
+
+**Decoding**:
+
+```moonbit
+use http/http2/frame { decode_frame }
+use @tsp = @ZSeanYves/MoonbitHTTP/transport
+
+let raw : Array[Byte] = [
+  0, 0, 4,    // length = 4
+  0x4, 0x0,   // type=SETTINGS, flags=0
+  0, 0, 0, 0  // stream_id = 0
+]
+let io  = @tsp.from_inmemory(raw)
+let f   = decode_frame(io).unwrap()
+// match f { Frame::Settings(settings) => ..., _ => ... }
+```
+
+**Encoding** (example: SETTINGS frame):
+
+```moonbit
+use http/http2/frame { encode_settings_frame, SettingPair }
+
+let settings : Array[SettingPair] = [
+  { id: 0x1, value: 4096 }, // HEADER_TABLE_SIZE
+  { id: 0x3, value: 100 },  // MAX_CONCURRENT_STREAMS
+]
+
+let bytes = encode_settings_frame(settings, false)
+// send `bytes` over your Transport
+```
+
+For other frame types you will find corresponding helpers such as:
+
+* `encode_data_frame(stream_id, payload, end_stream)`
+* `encode_headers_frame(stream_id, header_block, end_headers)`
+* `encode_ping(ping_bytes, ack)`
+* `encode_goaway(last_stream_id, error_code, debug_data)`
+* `encode_window_update(stream_id, increment)`
+
+> Exact signatures may differ slightly, but the intent is always: **build a valid HTTP/2 frame into a byte array**.
+
+### 4.3 HPACK (Static Table)
+
+The `hpack` module provides uint8-level HPACK processing for header blocks:
+
+* `hpack_encode(headers: Array[(String, String)]) -> Array[Byte]`
+* `hpack_decode(bytes: Array[Byte]) -> Array[(String, String)]`
+
+Current implementation:
+
+* Uses **only the static table** defined by the HPACK spec
+* Supports **literal header fields without indexing**
+* Rejects / errors on attempts to modify the dynamic table size
+
+Example – decoding a header block:
+
+```moonbit
+use http/http2/hpack { hpack_decode }
 use @buf = @ZSeanYves/bufferutils
 
-let hs : Array[HpackHeader] = []
-hs.push({ name: ":method",   value: "GET" })
-hs.push({ name: ":scheme",   value: "https" })
-hs.push({ name: ":authority", value: "example.com" })
-hs.push({ name: ":path",      value: "/" })
-hs.push({ name: "accept",     value: "*/*" })
-
-// HPACK (literal-noindex) → HEADERS/CONTINUATION frames (auto-sliced)
-let frames = build_headers_frames_from_list(1, hs, false)
+let encoded = @buf.string_to_utf8_bytes("\x82\x86\x84").to_array()
+let headers = hpack_decode(encoded)
+// headers: Array[(String,String)]
 ```
 
-### 2) Read HEADERS as a list of (name,value)
+Example – encoding a small header list:
 
 ```moonbit
-use http/http2 { read_headers_as_list }
+use http/http2/hpack { hpack_encode }
+
+let headers : Array[(String, String)] = [
+  (":method", "GET"),
+  ("host", "example.com"),
+]
+
+let encoded_block = hpack_encode(headers)
+// `encoded_block` can be used inside a HEADERS frame
+```
+
+---
+
+## 5. Putting It Together — Minimal Inspector Example
+
+This example shows how you might wire the building blocks to **inspect incoming frames** from a `Transport`:
+
+```moonbit
+use http/http2/preface { detect_client_preface }
+use http/http2/frame   { decode_frame, Frame }
 use @tsp = @ZSeanYves/MoonbitHTTP/transport
 
-let io  = @tsp.from_inmemory(frames)
-let cur = @tsp.buf_new()
-let (info, list) = read_headers_as_list(cur, io, 4096).unwrap()
-//println(info.stream_id)   // 1
-//println(info.end_stream)  // false
-//println(list[0].name)     // ":method"
+// Assume `rx` is raw bytes captured from a client attempting HTTP/2
+fn inspect_connection(rx: Array[Byte]) {
+  let io = @tsp.from_inmemory(rx)
+  let preface_bytes = io.peek(24)   // example: read first N bytes without consuming
+
+  if !detect_client_preface(preface_bytes) {
+    // Not HTTP/2, maybe HTTP/1.1 or garbage
+    return
+  }
+
+  // Consume the preface bytes (implementation-specific)
+  let _ = io.consume(preface_bytes.length())
+
+  // Now loop over frames
+  loop {
+    match decode_frame(io) {
+      Err(e) => {
+        // handle EOF / protocol error
+        break
+      }
+      Ok(f) => {
+        match f {
+        | Frame::Settings(s) => {
+            // print settings, etc.
+          }
+        | Frame::Data(d) => {
+            // inspect DATA payload
+          }
+        | Frame::Headers(h) => {
+            // inspect HEADERS (header_block); you can further call hpack_decode
+          }
+        | _ => {
+            // other frame types
+          }
+        }
+      }
+    }
+  }
+}
 ```
 
-### 3) DATA frames
-
-```moonbit
-use http/http2 { build_data_frames }
-let body = @buf.string_to_utf8_bytes("hello").to_array()
-let data_frames = build_data_frames(1, body, true)
-```
-
-### 4) Preface + SETTINGS handshake
-
-```moonbit
-use http/http2 { h2_client_start, h2_server_accept_and_ack, H2SettingKV }
-use @tsp = @ZSeanYves/MoonbitHTTP/transport
-let io  = @tsp.from_inmemory([])
-let cur = @tsp.buf_new()
-
-// client side
-let _ = h2_client_start(io, [])
-
-// server side (reads preface and client SETTINGS, replies ACK)
-let _ = h2_server_accept_and_ack(cur, io, 4096)
-```
+> This is deliberately low-level: all connection semantics (when to stop, when to send SETTINGS, etc.) are in the caller's hands.
 
 ---
 
-## API
+## 6. Integration with Other MoonbitHTTP Modules
 
-### Constants & structs
+Typical layering when you eventually build a full HTTP stack:
 
-```moonbit
-// Frame types
-pub const H2_FRAME_DATA          : Int = 0x0
-pub const H2_FRAME_HEADERS       : Int = 0x1
-pub const H2_FRAME_PRIORITY      : Int = 0x2
-pub const H2_FRAME_RST_STREAM    : Int = 0x3
-pub const H2_FRAME_SETTINGS      : Int = 0x4
-pub const H2_FRAME_PUSH_PROMISE  : Int = 0x5
-pub const H2_FRAME_PING          : Int = 0x6
-pub const H2_FRAME_GOAWAY        : Int = 0x7
-pub const H2_FRAME_WINDOW_UPDATE : Int = 0x8
-pub const H2_FRAME_CONTINUATION  : Int = 0x9
+* `transport` — in-memory or real network IO
+* `http2` — frames, HPACK, preface detection
+* (future) `http2_runtime` — stream state machine, flow control, request/response mapping
+* `core` — `Request`, `Response`, `StatusCode`, `Body`, `Limits`, etc.
 
-// Flags (bit mask)
-pub const H2_FLAGS_ACK         : Int = 0x1    // SETTINGS, PING
-pub const H2_FLAGS_END_STREAM  : Int = 0x1    // DATA/HEADERS (same bit, context-dependent)
-pub const H2_FLAGS_END_HEADERS : Int = 0x4
-pub const H2_FLAGS_PADDED      : Int = 0x8
-pub const H2_FLAGS_PRIORITY    : Int = 0x20
+At the moment, `http2` deliberately **stops** at the frame + HPACK layer so that it remains:
 
-// Defaults & preface
-pub const H2_DEFAULT_MAX_FRAME_SIZE : Int = 16384
-pub const H2_CLIENT_PREFACE : String = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
-
-// Core structs
-pub struct H2FrameHeader { length : Int, typ : Int, flags : Int, stream_id : Int }
-pub struct H2Frame       { header : H2FrameHeader, payload : Array[Byte] }
-pub struct H2SettingKV   { id : Int, value : Int }
-pub struct H2Priority    { exclusive : Bool, dep_stream : Int, weight : Int }
-pub struct H2HeadersInfo { stream_id : Int, end_stream : Bool, has_priority : Bool, exclusive : Bool, dep_stream : Int, weight : Int }
-pub struct HpackHeader   { name : String, value : String }
-```
-
-### Frame layer
-
-```moonbit
-fn encode_frame_header(h : H2FrameHeader) -> Array[Byte]
-fn decode_frame_header(bs : Array[Byte]) -> Result[H2FrameHeader, String]
-fn read_frame(cur : @tsp.BufCursor, io : @tsp.Transport, read_win : Int, max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE) -> Result[H2Frame, String]
-
-fn client_preface_bytes() -> Array[Byte]
-fn read_and_check_client_preface(cur : @tsp.BufCursor, io : @tsp.Transport, read_win : Int) -> Result[Unit, String]
-
-fn encode_settings_payload(kvs : Array[H2SettingKV]) -> Array[Byte]
-fn decode_settings_payload(bs : Array[Byte]) -> Result[Array[H2SettingKV], String]
-fn build_settings_frame(kvs : Array[H2SettingKV], ack : Bool) -> Array[Byte]
-fn parse_settings_frame(f : H2Frame) -> Result[(Bool, Array[H2SettingKV]), String]
-
-fn build_ping_frame(opaque8 : Array[Byte], ack : Bool) -> Array[Byte]
-fn parse_ping_frame(f : H2Frame) -> Result[(Bool, Array[Byte]), String]
-
-fn build_goaway_frame(last_stream_id : Int, error_code : Int, debug : Array[Byte]) -> Array[Byte]
-
-fn build_window_update_frame(stream_id : Int, increment : Int) -> Array[Byte]
-fn parse_window_update_increment(f : H2Frame) -> Result[Int, String]
-
-fn build_rst_stream_frame(stream_id : Int, error_code : Int) -> Array[Byte]
-fn parse_rst_stream_error(f : H2Frame) -> Result[Int, String]
-
-// Convenience
-fn h2_client_start(io : @tsp.Transport, settings : Array[H2SettingKV]) -> Result[Unit, String]
-fn h2_server_accept_and_ack(cur : @tsp.BufCursor, io : @tsp.Transport, read_win : Int, max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE) -> Result[Array[H2SettingKV], String]
-```
-
-### HEADERS / DATA helpers
-
-```moonbit
-fn read_headers_block(cur : @tsp.BufCursor, io : @tsp.Transport, read_win : Int, max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE) -> Result[(H2HeadersInfo, Array[Byte]), String]
-fn read_headers_as_list(cur : @tsp.BufCursor, io : @tsp.Transport, read_win : Int, max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE) -> Result[(H2HeadersInfo, Array[HpackHeader]), String]
-
-fn build_headers_frames(stream_id : Int, fragment : Array[Byte], end_stream : Bool, max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE) -> Array[Byte]
-fn build_headers_frames_prio(stream_id : Int, fragment : Array[Byte], end_stream : Bool, exclusive : Bool, dep_stream : Int, weight : Int, max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE) -> Array[Byte]
-
-fn build_data_frames(stream_id : Int, body : Array[Byte], end_stream : Bool, max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE) -> Array[Byte]
-```
-
-### HPACK
-
-```moonbit
-fn hpack_static_get(idx : Int) -> (String, String)?
-fn hpack_encode_literal_noindex(name : String, value : String, use_huffman? : Bool = false) -> Array[Byte]
-fn hpack_encode_list_noindex(hs : Array[HpackHeader]) -> Array[Byte]
-fn hpack_decode_block(block : Array[Byte]) -> Result[Array[HpackHeader], String]
-fn hpack_huff_encode(raw : Array[Byte]) -> Result[Array[Byte], String]
-fn hpack_huff_decode(data : Array[Byte]) -> Result[Array[Byte], String]
-```
+* Safe to experiment with
+* Easy to test in isolation
+* Flexible enough for different runtime designs (server, proxy, tunneling tools, etc.)
 
 ---
 
-## Notes
+## 7. Current Limitations & Non‑Goals
 
-* **No dynamic table**: decoding returns error on dynamic table size updates; encoding uses *literal‑without‑index* and static name indexes.
-* **Huffman**: optional on encode; decoder builds a small trie for bit‑level decode.
-* **Padding & priority**: `build_headers_frames_prio` supports PRIORITY fields; explicit **PADDED** build is not provided yet.
-* **Single‑stream examples**: examples assume `stream_id = 1` and do not implement full stream state machines.
-* **Flow control**: helper to build/parse WINDOW_UPDATE exists, but global/per‑stream window bookkeeping is left to callers.
-* **Errors / I/O**: APIs surface transport errors (`WouldBlock`, `Eof`, `Closed`) from the in‑memory transport layer; `read_win` controls incremental reads.
+* ❌ No ready-to-use HTTP/2 server or client
+* ❌ No automatic SETTINGS / ACK handling
+* ❌ No flow-control window accounting
+* ❌ No prioritization / dependency tree for streams
+* ❌ No server push
+* ❌ No TLS / ALPN negotiation
+* ❌ No HTTP/1.1 ↔ HTTP/2 upgrade logic built in
 
----
-
-## Roadmap
-
-* [ ] HPACK **dynamic table** (inserts/eviction) and more header representations
-* [ ] Full header padding and trailer handling
-* [ ] Stream state machine, PRIORITY scheduling, server push
-* [ ] Flow‑control windows management (connection + per‑stream)
-* [ ] End‑to‑end client/server examples beyond the "hello" demo
+All of the above are **planned for future layers** built on top of this package, not inside it.
 
 ---
 
-## License
+## 8. Roadmap
 
-MIT License. See [LICENSE](LICENSE).
+Planned (subject to change):
+
+* [ ] Basic HTTP/2 runtime package (single-connection, limited streams)
+* [ ] Flow-control handling at connection and stream levels
+* [ ] HPACK dynamic table and header compression tuning
+* [ ] Multiplexing utilities and simple request/response mapping
+* [ ] Integration helpers to auto-detect HTTP/1.1 vs HTTP/2
+
+For now, treat `http2` as a **low-level protocol toolbox** rather than a full framework.
 
 ---
 
+## 9. License
+
+This module is released under the **MIT License**, same as the rest of MoonbitHTTP.
