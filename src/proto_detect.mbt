@@ -98,8 +98,6 @@ pub fn sniff_http_proto(
 ///|
 /// 自动协议路由入口：
 /// 目前仅支持 HTTP/1：
-///     * Http1         -> 调用 http1 的 serve_loop 处理整条连接
-///     * Http2Preface  -> 回一个 505 HTTP Version Not Supported，并关闭连接
 pub fn serve_connection_auto(
   io : @tsp.Transport,
   handler : (@cor.Request) -> (

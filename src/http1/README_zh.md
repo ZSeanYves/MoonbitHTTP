@@ -3,22 +3,33 @@
 [![Build Status](https://img.shields.io/github/actions/workflow/status/ZSeanYves/MoonbitHTTP/ci.yml)](https://github.com/ZSeanYves/MoonbitHTTP/actions)
 [![License](https://img.shields.io/github/license/ZSeanYves/MoonbitHTTP)](LICENSE)
 
-## 概览
 
-一个面向 MoonBit 项目的模块化、易于测试的 **HTTP/1.1 库**。提供请求解析、响应编码，以及最小化的客户端/服务端工具函数，基于可插拔的传输层（如 [`MoonbitHTTP/transport`](../transport)）。
+## 简介
 
-* **解析器**：逐步解析请求行、头部与消息体。
-* **编码器**：生成带有 `Content-Length` 或 `chunked` 编码的响应。
-* **服务端工具**：`serve_once` 和 `serve_loop`，把传输层、解析和编码串联起来。
-* **客户端工具**：`get`、`post`、`read_response`，便于进行简单的 HTTP/1.1 交互。
+MoonbitHTTP 的 HTTP/1.1 模块是一个**模块化、可测试、可扩展**的协议库，实现了 HTTP/1.1 的常见功能：请求解析、响应编码、客户端与服务端工具，并且 **完整支持流式（chunked）消息体**。
 
-本库只包含 **协议逻辑**，不做实际网络通信。适合单元测试，也便于后续扩展。
+本模块只包含协议逻辑，不包含实际网络通信，可与任何传输层组合，并适用于单元测试场景。
+
+---
+
+## 功能特性
+
+* ✔ **HTTP/1.1 请求解析**（请求行、头部、消息体）
+* ✔ **HTTP/1.1 响应编码**（状态行、头部、消息体）
+* ✔ **轻量客户端工具**：GET / POST
+* ✔ **轻量服务端工具**：一次请求、循环服务、流式服务
+* ✔ **完整流式支持**：
+
+  * chunked 请求体解析
+  * chunked 响应体编码
+* ✔ **可插拔传输层**（如内存传输、Socket 适配器等）
+* ✔ 支持安全限制（headers 限制、最大 body 限制等）
 
 ---
 
 ## 使用示例
 
-### 1) 最小服务端：一次请求 → 一次响应
+### 1. 最小服务端示例
 
 ```moonbit
 use @tsp = @ZSeanYves/MoonbitHTTP/transport
@@ -26,154 +37,167 @@ use @buf = @ZSeanYves/bufferutils
 use http/http1 { serve_once, StatusCode }
 
 fn hello(req: Request) -> (StatusCode, Map[String,String], Array[Byte], Bool) {
-  //println("req line = {}", req.line)
-  //println("headers = {:?}", req.headers)
   let hs : Map[String,String] = Map::new()
   hs.set("Content-Type", "text/plain")
   let body = @buf.string_to_utf8_bytes("Hello").to_array()
   (StatusCode::OK, hs, body, false)
 }
 
-let rx = @buf.string_to_utf8_bytes("GET / HTTP/1.1\r\nHost: a\r\n\r\n").to_array()
+let raw = "GET / HTTP/1.1\r\nHost: a\r\n\r\n"
+let rx = @buf.string_to_utf8_bytes(raw).to_array()
 let io = @tsp.from_inmemory(rx)
 let _  = serve_once(io, hello, 32, 1024, 4096)
-//println(Bytes::from_array(io.take_tx()).to_string())
 ```
 
-### 2) 保持连接的循环服务端
+---
+
+### 2. 循环服务端（支持 Keep-Alive）
 
 ```moonbit
 use http/http1 { serve_loop }
 let _ = serve_loop(io, hello, 32, 1024, 4096)
 ```
 
-### 3) 客户端 GET / POST
+---
+
+### 3. 客户端 GET / POST 示例
 
 ```moonbit
 use http/http1 { get, post }
 
-let limits : Limits = { max_headers: 32, max_line: 1024, read_win: 4096, max_body: 1*1024*1024 }
-let resp = get(io, "/", "example.com", Map::new(), limits).unwrap()
-//println(resp.status.code)
-//println(Bytes::from_array(resp.body.unwrap_bytes()).to_string())
+let limits : Limits = {
+  max_headers: 32,
+  max_line: 1024,
+  read_win: 4096,
+  max_body: 1*1024*1024,
+}
 
+let resp = get(io, "/", "example.com", Map::new(), limits).unwrap()
+```
+
+POST 示例：
+
+```moonbit
 let body = @buf.string_to_utf8_bytes("{\"ok\":true}").to_array()
 let resp2 = post(io, "/api", "example.com", body, "application/json", Map::new(), limits).unwrap()
-//println(resp2.status.code)
-```
-
-### 4) 读取分块编码响应（来自测试用例）
-
-```moonbit
-let raw = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n" ++
-          "5\r\nHello\r\n" ++
-          "6\r\n World!\r\n" ++
-          "0\r\n\r\n"
-let io  = @tsp.from_inmemory(@buf.string_to_utf8_bytes(raw).to_array())
-let resp = read_response(io, 32, 1024, 4096, 1024*1024).unwrap()
-assert_eq!(Bytes::from_array(resp.body.unwrap_bytes()).to_string(), "Hello World!")
-```
-
-### 5) 处理 POST 请求体（来自测试用例）
-
-```moonbit
-let raw = "POST /submit HTTP/1.1\r\nHost: x\r\nContent-Length: 11\r\n\r\nHello World"
-let io  = @tsp.from_inmemory(@buf.string_to_utf8_bytes(raw).to_array())
-let req = read_request_full(io, 32, 1024, 4096, 1024*1024).unwrap()
-assert_eq!(req.line.method, "POST")
-assert_eq!(Bytes::from_array(req.body.unwrap_bytes()).to_string(), "Hello World")
 ```
 
 ---
 
-## API
-
-### 解析器
+### 4. 读取 Chunked（分块传输）响应
 
 ```moonbit
-fn parse_request_line(cur : @tsp.BufCursor) -> Result[@cor.RequestLine, String]
-fn parse_headers(cur : @tsp.BufCursor, max_headers : Int, max_line : Int) -> Result[Map[String,String], String]
+let raw = "HTTP/1.1 200 OK\r\n" ++
+          "Transfer-Encoding: chunked\r\n\r\n" ++
+          "5\r\nHello\r\n" ++
+          "6\r\n World!\r\n" ++
+          "0\r\n\r\n"
+
+let io  = @tsp.from_inmemory(@buf.string_to_utf8_bytes(raw).to_array())
+let resp = read_response(io, 32, 1024, 4096, 1024*1024).unwrap()
 ```
 
-### 编码器
+---
+
+### 5. 流式响应（Chunked，新增）
 
 ```moonbit
-fn encode_status_line(status : @cor.StatusCode) -> String
-fn encode_headers(headers : Map[String, String]) -> String
-fn encode_content_length_prefix(content_length : Int) -> String
-fn encode_chunked_bytes(body : Array[Byte], chunk_size : Int) -> Array[Byte]
-fn encode_response_bytes(
-  status : @cor.StatusCode,
-  headers : Map[String, String],
-  body : Array[Byte],
-  is_chunked : Bool,
-  chunk_size? : Int = 1024,
-  content_length_override? : Int? = None
-) -> Array[Byte]
+fn stream_resp(_req: Request) -> (StatusCode, Map[String,String], Body, Bool) {
+  let hs : Map[String,String] = Map::new()
+  hs.set("Content-Type", "text/plain")
+  hs.set("Transfer-Encoding", "chunked")
+
+  let parts : Array[String] = ["part1\n", "part2\n", "part3\n"]
+  let mut i = 0
+
+  let body = Body::Stream(fn() -> Result[(Array[Byte], Bool), String] {
+    if i >= parts.length() {
+      Ok(([], true))
+    } else {
+      let chunk = @buf.string_to_utf8_bytes(parts[i]).to_array()
+      i += 1
+      Ok((chunk, i >= parts.length()))
+    }
+  })
+
+  (StatusCode::OK, hs, body, true)
+}
 ```
 
-### 服务端工具
+调用：
 
 ```moonbit
-fn read_request_full(io : @tsp.Transport, max_headers : Int, max_line : Int, read_win : Int, max_body : Int) -> Result[@cor.Request, String]
-fn serve_once(io : @tsp.Transport, handler : (@cor.Request) -> (@cor.StatusCode, Map[String,String], Array[Byte], Bool), max_headers : Int, max_line : Int, read_win : Int, max_body? : Int = 1*1024*1024) -> Result[Unit, String]
-fn serve_loop(io : @tsp.Transport, handler : (@cor.Request) -> (@cor.StatusCode, Map[String,String], Array[Byte], Bool), max_headers : Int, max_line : Int, read_win : Int, max_body? : Int = 1*1024*1024) -> Result[Unit, String]
+let _ = serve_once_body_streaming(io, stream_resp, 32, 1024, 4096)
 ```
 
-### 客户端工具
+---
+
+### 6. 流式回显 Chunked 请求体
 
 ```moonbit
-fn read_response(io : @tsp.Transport, max_headers : Int, max_line : Int, read_win : Int, max_body : Int) -> Result[@cor.Response, String]
-fn get(io : @tsp.Transport, target : String, host : String, extra_headers : Map[String, String], limits : @cor.Limits) -> Result[@cor.Response, String]
-fn post(io : @tsp.Transport, target : String, host : String, body : Array[Byte], content_type : String, extra_headers : Map[String, String], limits : @cor.Limits) -> Result[@cor.Response, String]
+let raw_req = "POST /echo HTTP/1.1\r\n" ++
+              "Host: x\r\n" ++
+              "Transfer-Encoding: chunked\r\n\r\n" ++
+              "5\r\nHello\r\n" ++
+              "0\r\n\r\n"
+
+let io = @tsp.from_inmemory(@buf.string_to_utf8_bytes(raw_req).to_array())
+let _  = serve_once_body_streaming(io, echo_handler_streaming, 32, 1024, 4096)
 ```
+
+---
+
+## API 速览
+
+### 解析（Parsing）
+
+* `parse_request_line`
+* `parse_headers`
+* `read_request_full`
+* `read_request_streaming`
+
+### 编码（Encoding）
+
+* `encode_status_line`
+* `encode_headers`
+* `encode_response_bytes`
+* `encode_chunked_bytes`
+
+### 服务端（Server）
+
+* `serve_once`
+* `serve_loop`
+* `serve_once_body`
+* `serve_once_body_streaming`
+* `write_response_with_body`
+
+### 客户端（Client）
+
+* `read_response`
+* `get`
+* `post`
 
 ---
 
 ## 注意事项
 
-* **头部大小写不敏感**：内部会转换为小写进行查找。
-* **限制项**：用于防御恶意输入：
-
-  * `max_headers` — 头部最大数量
-  * `max_line` — 单行最大长度
-  * `read_win` — 每次读取的窗口大小
-  * `max_body` — 消息体最大长度
-* **分块编码**：支持响应的 chunked 编码/解码；请求端暂不支持 chunked 请求体。
-* **状态码**：编码器默认支持 200/404/500，可通过 `core` 扩展。
-* **传输层**：示例基于内存传输，可替换为真实后端。
-* **错误语义**：
-
-  * `WouldBlock` → 暂时无数据，可在推入新字节后重试。
-  * `Eof` → 输入流结束，通常发生在 `close()` 后。
-  * `Closed` → 在关闭后写入。
-  * 这些语义直接来自传输层，方便与解析/客户端/服务端对接。
+* **头部大小写不敏感**（内部转换为小写）
+* **限制项（Limits）**用于防御恶意或超大输入
+* **流式支持**包括 chunked 请求与 chunked 响应
+* 可与任意传输层结合（内存、网络等）
 
 ---
 
-## 示例：分块响应处理
+## 未来计划（Roadmap）
 
-```moonbit
-fn chunked(_req: Request) -> (StatusCode, Map[String,String], Array[Byte], Bool) {
-  let hs : Map[String,String] = Map::new()
-  hs.set("Content-Type", "text/plain")
-  hs.set("Transfer-Encoding", "chunked")
-  let body = @buf.string_to_utf8_bytes("hello, chunked!").to_array()
-  (StatusCode::OK, hs, body, true)
-}
-```
-
----
-
-## 路线图
-
-* [ ] 支持请求端分块请求体 (`Transfer-Encoding: chunked`)
-* [ ] 更多状态码映射
-* [ ] 首部规范化与重复首部处理
-* [ ] 非阻塞传输层适配（如 uv/epoll）
+* ✔ 支持 chunked 请求体解析
+* ✔ 支持 chunked 响应流式输出
+* ⏳ 更丰富的状态码支持
+* ⏳ Header 规范化（Canonicalization）
+* ⏳ 非阻塞传输层适配（uv/epoll）
 
 ---
 
 ## 许可证
 
-MIT License. 详见 [LICENSE](LICENSE)。
+MIT License

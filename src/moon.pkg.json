@@ -17,10 +17,6 @@
         {
             "path": "ZSeanYves/MoonbitHTTP/http1",
             "alias": "htp1"
-        },
-        {
-            "path": "ZSeanYves/MoonbitHTTP/http2",
-            "alias": "htp2"
         }
     ]
 }
