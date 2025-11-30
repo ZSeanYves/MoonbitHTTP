@@ -85,9 +85,24 @@ fn read_exact_bytes(
   Ok(out)
 }
 
-// 解析响应状态行：HTTP/1.1 200 OK
 
 ///|
+/// 简单的 ASCII 子串工具：从 s[start..end) 切一段出来。
+/// 这里假定 status line 只含 ASCII，直接按字节切。
+fn ascii_substring(s : String, start : Int, end : Int) -> String {
+  let bytes = @buf.string_to_utf8_bytes(s).to_array()
+  let out_bytes : Array[Byte] = []
+  let mut i = start
+  while i < end && i < bytes.length() {
+    out_bytes.push(bytes[i])
+    i += 1
+  }
+  (try? @buf.utf8_bytes_to_string(Bytes::from_array(out_bytes))).unwrap_or("")
+}
+
+// 解析响应状态行：HTTP/1.1 200 OK
+///|
+/// 解析响应状态行：HTTP/1.1 200 OK
 fn parse_status_line_streaming(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
@@ -99,45 +114,52 @@ fn parse_status_line_streaming(
     Err(e) => return Err(e)
   }
 
-  // 拆前两段：version、code；剩余为 reason
-  let parts : Array[String] = []
-  let mut start = 0
+  // 找到前两个空格的位置：
+  //   [0 .. first_space)     -> version
+  //   [first_space+1 .. second_space) -> code_str
+  //   [second_space+1 .. end) -> reason
+  let mut first_space = -1
+  let mut second_space = -1
   let mut i = 0
   while i < s.length() {
     if s[i] == ' ' {
-      parts.push(@cor.str_slice(s, start, i)) // 用 str_slice 替换 start..i
-      start = i + 1
-      if parts.length() == 2 {
+      if first_space < 0 {
+        first_space = i
+      } else {
+        second_space = i
         break
       }
     }
     i += 1
   }
-  if parts.length() < 2 {
+  if first_space < 0 || second_space < 0 {
     return Err("malformed status line: " + s)
   }
-  let version = parts[0]
-  let code_str = parts[1]
-  let reason = if start < s.length() {
-    @cor.str_slice(s, start, s.length())
+
+  // 版本号子串（主要为了 completeness，用不用都无所谓）
+  let version = ascii_substring(s, 0, first_space)
+
+  // 解析 code_str -> Int
+  let mut code : Int = 0
+  let mut j = first_space + 1
+  while j < second_space {
+    let ch = s[j]
+    if ch < 48 || ch > 57 { // '0'..'9'
+      return Err("invalid status code in line: " + s)
+    }
+    code = code * 10 + (ch - 48)
+    j += 1
+  }
+
+  // reason 子串
+  let reason = if second_space + 1 < s.length() {
+    ascii_substring(s, second_space + 1, s.length())
   } else {
     ""
-  } // 用 str_slice 替换 start..s.length()
-
-  // code_str -> Int
-  let bs = @buf.string_to_utf8_bytes(code_str).to_array()
-  let mut j = 0
-  let mut code : Int = 0
-  while j < bs.length() {
-    let d = bs[j].to_int()
-    if d < 48 || d > 57 {
-      return Err("invalid status code: " + code_str)
-    }
-    code = code * 10 + (d - 48)
-    j += 1
   }
   Ok({ version, code, reason })
 }
+
 
 // 读取 chunked 响应体（合并为 Bytes；忽略 trailers 的键值解析，最小实现）
 ///|
@@ -236,7 +258,6 @@ fn read_body_to_eof(
 }
 
 // ---------- 主逻辑 ----------
-
 ///|
 pub fn read_response(
   io : @tsp.Transport,
@@ -358,6 +379,184 @@ pub fn read_response(
   Ok({ status, headers, body })
 }
 
+
+///|
+/// 流式读取响应：
+pub fn read_response_streaming(
+  io : @tsp.Transport,
+  max_headers : Int,
+  max_line : Int,
+  read_win : Int,
+  max_body : Int,
+  stream_chunk? : Int = 8 * 1024,
+  enable_eof_fallback? : Bool = false,
+) -> Result[@cor.Response, String] {
+  let cur = @tsp.buf_new()
+
+  // —— 状态行 —— 
+  let c = match parse_status_line_streaming(cur, io, read_win, max_line) {
+    Ok(t) => t
+    Err(e) => return Err(e)
+  }
+
+  // —— 头部 —— 
+  let headers : Map[String, String] = {
+    let mut out_ok = false
+    let mut out : Map[String, String] = Map::new()
+    let mut rounds = 0
+    while true {
+      match parse_headers(cur, max_headers, max_line) {
+        Ok(hs) => {
+          out = hs
+          out_ok = true
+          break
+        }
+        Err(_) => {
+          let n = match read_once_into(cur, io, read_win) {
+            Ok(n) => n
+            Err(e) => return Err(e)
+          }
+          ignore(n)
+          rounds += 1
+          if rounds > 1024 {
+            return Err("too many read rounds (headers)")
+          }
+        }
+      }
+    }
+    if !out_ok {
+      return Err("unreachable: headers not parsed")
+    }
+    out
+  }
+
+  // —— 无消息体状态码：1xx / 204 / 304 ——
+  let code = c.code
+  let status_no_body = (code >= 100 && code < 200) || code == 204 || code == 304
+  if status_no_body {
+    let status : @cor.Status = { code: c.code, reason: c.reason }
+    return Ok({ status, headers, body: @cor.Body::Empty })
+  }
+
+  // —— Transfer-Encoding 归一化为小写 —— 
+  let mut te = match @cor.get_ci(headers, "transfer-encoding") {
+    Some(v) => v
+    None => ""
+  }
+  {
+    let bs = @buf.string_to_utf8_bytes(te).to_array()
+    let out : Array[Byte] = []
+    let mut i = 0
+    while i < bs.length() {
+      let c = bs[i].to_int()
+      out.push(if c >= 65 && c <= 90 { (c + 32).to_byte() } else { bs[i] })
+      i += 1
+    }
+    te = (try? @buf.utf8_bytes_to_string(Bytes::from_array(out))).unwrap_or(te)
+  }
+  let mut body = @cor.Body::Empty
+
+  // —— chunked：仍然一次性读完（后续可以再升级为 streaming chunked 解码） —— 
+  if te == "chunked" || (te.length() > 0 && te.find("chunked") != None) {
+    let bs = match read_chunked_body(cur, io, read_win, max_line, max_body) {
+      Ok(b) => b
+      Err(e) => return Err(e)
+    }
+    body = @cor.Body::Bytes(bs)
+  } else {
+    // —— Content-Length —— 
+    let len_str = match @cor.get_ci(headers, "content-length") {
+      Some(v) => v
+      None => ""
+    }
+    let len = if len_str.length() == 0 {
+      0
+    } else {
+      let bss = @buf.string_to_utf8_bytes(len_str).to_array()
+      let mut i = 0
+      let mut n : Int = 0
+      while i < bss.length() {
+        let d = bss[i].to_int()
+        if d < 48 || d > 57 {
+          return Err("invalid Content-Length: " + len_str)
+        }
+        n = n * 10 + (d - 48)
+        i += 1
+      }
+      n
+    }
+    if len > 0 {
+      if len > max_body {
+        return Err("response body too large")
+      }
+
+      // 真正 streaming：不一次性读完，而是返回 Body::Stream
+      let mut remaining = len
+      let chunk_sz = stream_chunk
+      let mut rounds = 0
+      body = @cor.Body::Stream(fn() -> Result[(Array[Byte], Bool), String] {
+        if remaining <= 0 {
+          let empty : Array[Byte] = []
+          return Ok((empty, true))
+        }
+        let want = if remaining < chunk_sz { remaining } else { chunk_sz }
+        let out : Array[Byte] = []
+        let mut have = 0
+        while have < want {
+          // 先吃 BufCursor 内已缓存数据
+          let chunk = cur.buf_take(want - have)
+          if chunk.length() > 0 {
+            let mut j = 0
+            while j < chunk.length() {
+              out.push(chunk[j])
+              j += 1
+            }
+            have += chunk.length()
+            continue
+          }
+
+          // 没有缓存数据，从底层 Transport 拉
+          let n = match read_once_into(cur, io, read_win) {
+            Ok(n) => n
+            Err(e) => return Err(e)
+          }
+          if n == 0 {
+            // 非阻塞场景可能返回 0，避免死循环
+            rounds += 1
+            if rounds > 4096 {
+              return Err("too many read rounds (stream-body)")
+            }
+            continue
+          }
+          rounds += 1
+          if rounds > 4096 {
+            return Err("too many read rounds (stream-body)")
+          }
+        }
+        remaining -= have
+        let done = remaining <= 0
+        Ok((out, done))
+      })
+    } else if enable_eof_fallback {
+      let bs = match read_body_to_eof(cur, io, read_win, max_body) {
+        Ok(b) => b
+        Err(e) => return Err(e)
+      }
+      if bs.length() > 0 {
+        body = @cor.Body::Bytes(bs)
+      } else {
+        body = @cor.Body::Empty
+      }
+    } else {
+      body = @cor.Body::Empty
+    }
+  }
+  let status : @cor.Status = { code: c.code, reason: c.reason }
+  Ok({ status, headers, body })
+}
+
+
+
 // ---------- 简单 API ----------
 
 ///|
@@ -383,6 +582,37 @@ pub fn get(
     limits.max_body,
   )
 }
+
+
+///|
+/// 流式版 GET：
+pub fn get_streaming(
+  io : @tsp.Transport,
+  target : String,
+  host : String,
+  extra_headers : Map[String, String],
+  limits : @cor.Limits,
+  stream_chunk? : Int = 8 * 1024,
+  enable_eof_fallback? : Bool = false,
+) -> Result[@cor.Response, String] {
+  ignore(@cor.write_ascii(io, "GET " + target + " HTTP/1.1\r\n"))
+  ignore(@cor.write_ascii(io, "Host: " + host + "\r\n"))
+  for k in extra_headers.keys() {
+    let v = extra_headers.get(k).unwrap_or("")
+    ignore(@cor.write_ascii(io, k + ": " + v + "\r\n"))
+  }
+  ignore(@cor.write_ascii(io, "Connection: close\r\n\r\n"))
+  read_response_streaming(
+    io,
+    limits.max_headers,
+    limits.max_line,
+    limits.read_win,
+    limits.max_body,
+    stream_chunk~,
+    enable_eof_fallback~,
+  )
+}
+
 
 ///|
 pub fn post(
@@ -420,45 +650,6 @@ pub fn post(
 
 // ---------- 测试 ----------
 // Tools
-// 检查字符串是否以指定前缀开始
-
-///|
-fn str_starts_with(s : String, prefix : String) -> Bool {
-  if s.length() < prefix.length() {
-    return false
-  }
-  for i in 0..<prefix.length() {
-    if s[i] != prefix[i] {
-      return false
-    }
-  }
-  return true
-}
-
-// 检查字符串是否包含指定的子串
-
-///|
-fn str_contains(s : String, needle : String) -> Bool {
-  if needle.length() == 0 {
-    return true
-  }
-  if needle.length() > s.length() {
-    return false
-  }
-  for i in 0..<(s.length() - needle.length() + 1) {
-    let mut match_found = true
-    for j in 0..<needle.length() {
-      if s[i + j] != needle[j] {
-        match_found = false
-        break
-      }
-    }
-    if match_found {
-      return true
-    }
-  }
-  return false
-}
 
 // 测试：GET 请求并解析固定长度响应
 
@@ -511,9 +702,9 @@ test "client: GET — parse fixed-length response & verify written request" {
   let txs = (try? @buf.utf8_bytes_to_string(Bytes::from_array(tx))).unwrap_or(
     "",
   )
-  assert_eq(str_starts_with(txs, "GET /index.html HTTP/1.1\r\n"), true)
-  assert_eq(str_contains(txs, "Host: example.com\r\n"), true)
-  assert_eq(str_contains(txs, "\r\n\r\n"), true)
+  assert_eq(@cor.str_starts_with(txs, "GET /index.html HTTP/1.1\r\n"), true)
+  assert_eq(@cor.str_contains(txs, "Host: example.com\r\n"), true)
+  assert_eq(@cor.str_contains(txs, "\r\n\r\n"), true)
 }
 
 // 测试：GET 请求并解析 chunked 响应
@@ -621,10 +812,10 @@ test "client: POST — sends body & parses fixed-length response" {
     "",
   )
   let bytes = @buf.string_to_utf8_bytes(txs).to_array()
-  assert_eq(str_starts_with(txs, "POST /api HTTP/1.1\r\n"), true)
-  assert_eq(str_contains(txs, "Host: example.com\r\n"), true)
-  assert_eq(str_contains(txs, "Content-Type: application/json\r\n"), true)
-  assert_eq(str_contains(txs, "Content-Length: 7\r\n"), true) // {"a":1} 长度 7
+  assert_eq(@cor.str_starts_with(txs, "POST /api HTTP/1.1\r\n"), true)
+  assert_eq(@cor.str_contains(txs, "Host: example.com\r\n"), true)
+  assert_eq(@cor.str_contains(txs, "Content-Type: application/json\r\n"), true)
+  assert_eq(@cor.str_contains(txs, "Content-Length: 7\r\n"), true) // {"a":1} 长度 7
   let sep = @buf.string_to_utf8_bytes("\r\n\r\n").to_array()
   let mut pos = -1
   let mut i = 0
@@ -650,3 +841,85 @@ test "client: POST — sends body & parses fixed-length response" {
   )
   assert_eq(b, "{\"a\":1}")
 }
+
+
+///|
+test "client: GET streaming — fixed-length response as stream" {
+  // 服务端预置响应：Content-Length = 11, body = "hello world"
+  let resp_str = "HTTP/1.1 200 OK\r\n" +
+    "Content-Type: text/plain\r\n" +
+    "Content-Length: 11\r\n" +
+    "\r\n" +
+    "hello world"
+  let rx = @buf.string_to_utf8_bytes(resp_str).to_array()
+  let io = try @tsp.from_inmemory(rx) catch {
+    _ => {
+      assert_eq(true, false)
+      return
+    }
+  } noraise {
+    t => t
+  }
+  let limits : @cor.Limits = {
+    max_headers: 32,
+    max_line: 1024,
+    read_win: 4096,
+    max_body: 1 * 1024 * 1024,
+  }
+  let extra : Map[String, String] = Map::new()
+
+  // 使用 streaming 版 GET，指定较小的 stream_chunk，让它分多次吐出
+  let resp = match
+    get_streaming(
+      io,
+      "/",
+      "example.com",
+      extra,
+      limits,
+      stream_chunk=5,
+      enable_eof_fallback=false,
+    ) {
+    Ok(r) => r
+    Err(e) => {
+      assert_eq(e.length() >= 0, false)
+      return
+    }
+  }
+  match resp.body {
+    @cor.Body::Stream(next) => {
+      let buf_all : Array[Byte] = []
+      let mut round = 0
+      while true {
+        round += 1
+        if round > 10 {
+          // 不应该出现太多轮
+          assert_eq(true, false)
+          break
+        }
+        let (chunk, done) = match next() {
+          Ok(p) => p
+          Err(_e) => {
+            assert_eq(true, false)
+            return
+          }
+        }
+        let mut i = 0
+        while i < chunk.length() {
+          buf_all.push(chunk[i])
+          i += 1
+        }
+        if done {
+          break
+        }
+      }
+      let s = (try? @buf.utf8_bytes_to_string(Bytes::from_array(buf_all))).unwrap_or(
+        "",
+      )
+      assert_eq(s, "hello world")
+    }
+    _ =>
+      // 期望 streaming 版必须返回 Body::Stream
+      assert_eq(true, false)
+  }
+}
+

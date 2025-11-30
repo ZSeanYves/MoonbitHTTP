@@ -36,7 +36,7 @@ fn hello(req: Request) -> (StatusCode, Map[String,String], Array[Byte], Bool) {
 
 let rx = @buf.string_to_utf8_bytes("GET / HTTP/1.1\r\nHost: a\r\n\r\n").to_array()
 let io = @tsp.from_inmemory(rx)
-let _  = serve_once(io, hello, 32, 1024, 4096)
+let _  = serve_once_body(io, hello, 32, 1024, 4096)
 //println(Bytes::from_array(io.take_tx()).to_string())
 ```
 

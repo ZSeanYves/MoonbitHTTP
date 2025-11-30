@@ -377,3 +377,42 @@ pub fn parse_chunk_size_line(line : String) -> Result[Int, String] {
   let hex_part = trim_sp(str_slice(trimmed, 0, i))
   _hex_to_int(hex_part)
 }
+
+
+// 检查字符串是否以指定前缀开始
+///|
+pub fn str_starts_with(s : String, prefix : String) -> Bool {
+  if s.length() < prefix.length() {
+    return false
+  }
+  for i in 0..<prefix.length() {
+    if s[i] != prefix[i] {
+      return false
+    }
+  }
+  return true
+}
+
+// 检查字符串是否包含指定的子串
+///|
+pub fn str_contains(s : String, needle : String) -> Bool {
+  if needle.length() == 0 {
+    return true
+  }
+  if needle.length() > s.length() {
+    return false
+  }
+  for i in 0..<(s.length() - needle.length() + 1) {
+    let mut match_found = true
+    for j in 0..<needle.length() {
+      if s[i + j] != needle[j] {
+        match_found = false
+        break
+      }
+    }
+    if match_found {
+      return true
+    }
+  }
+  return false
+}

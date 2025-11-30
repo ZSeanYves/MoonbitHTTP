@@ -32,7 +32,6 @@ pub fn encode_chunked_bytes(
 }
 
 // 非分块 = 原样字节；分块 = 上面那个
-
 ///|
 pub fn encode_body_bytes(
   body : Array[Byte],
@@ -47,7 +46,6 @@ pub fn encode_body_bytes(
 }
 // 组合成“完整响应字节序列”（状态行 + 头 + 空行/CL + 实体）
 // is_chunked=true 时忽略 content_length，写 CRLF + 分块体；否则写 Content-Length + 实体
-
 ///|
 pub fn encode_response_bytes(
   status : @cor.StatusCode,
@@ -85,7 +83,6 @@ pub fn encode_response_bytes(
 }
 
 // 编码响应状态行（固定 HTTP/1.1；从 StatusCode 通用生成）
-
 ///|
 pub fn encode_status_line(status : @cor.StatusCode) -> String {
   let code = @cor.status_code_value(status)
@@ -94,7 +91,6 @@ pub fn encode_status_line(status : @cor.StatusCode) -> String {
 }
 
 // 编码响应头部（Content-Length, Transfer-Encoding: chunked）
-
 ///|
 pub fn encode_headers(headers : Map[String, String]) -> String {
   let header_str : Array[String] = []
@@ -110,7 +106,6 @@ pub fn encode_headers(headers : Map[String, String]) -> String {
 
 // NOTE: 仅用于文本/测试。二进制场景请使用 encode_response_bytes 或 write_response_once。
 // 编码响应体（支持 Content-Length 或 chunked）
-
 ///|
 pub fn encode_body(body : Array[Byte], content_length : Int) -> String {
   if content_length > 0 {
@@ -149,7 +144,6 @@ pub fn encode_body(body : Array[Byte], content_length : Int) -> String {
 }
 
 // 兼容旧签名：content_len==0 + headers["Transfer-Encoding"]=="chunked" => 分块
-
 ///|
 pub fn encode_response(
   status : @cor.StatusCode,
@@ -190,7 +184,6 @@ pub fn encode_response(
 }
 
 // http1/encoder_test.mbt — 响应编码器测试
-
 ///|
 test "http1: encode 200 OK response" {
   let body : Array[Byte] = @buf.string_to_utf8_bytes("Hello, world!").to_array()

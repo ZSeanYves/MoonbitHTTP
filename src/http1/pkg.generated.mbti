@@ -29,6 +29,8 @@ fn encode_status_line(@core.StatusCode) -> String
 
 fn get(@transport.Transport, String, String, Map[String, String], @core.Limits) -> Result[@core.Response, String]
 
+fn get_streaming(@transport.Transport, String, String, Map[String, String], @core.Limits, stream_chunk? : Int, enable_eof_fallback? : Bool) -> Result[@core.Response, String]
+
 fn hello_handler(@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool)
 
 fn parse_headers(@transport.BufCursor, Int, Int) -> Result[Map[String, String], String]
@@ -45,17 +47,15 @@ fn read_request_streaming(@transport.Transport, Int, Int, Int, Int, stream_chunk
 
 fn read_response(@transport.Transport, Int, Int, Int, Int, enable_eof_fallback? : Bool) -> Result[@core.Response, String]
 
-fn serve_loop(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, String]
+fn read_response_streaming(@transport.Transport, Int, Int, Int, Int, stream_chunk? : Int, enable_eof_fallback? : Bool) -> Result[@core.Response, String]
 
-fn serve_once(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, String]
+fn serve_loop(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, String]
 
 fn serve_once_body(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], @core.Body, Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, String]
 
 fn serve_once_body_streaming(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], @core.Body, Bool), Int, Int, Int, max_body? : Int, stream_chunk? : Int) -> Result[Unit, String]
 
 fn streaming_handler(@core.Request) -> (@core.StatusCode, Map[String, String], @core.Body, Bool)
-
-fn write_response_with_body(@transport.Transport, @core.StatusCode, Map[String, String], @core.Body, Bool) -> Result[Unit, String]
 
 // Errors
 

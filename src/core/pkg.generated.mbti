@@ -80,7 +80,11 @@ fn status_code_value(StatusCode) -> Int
 
 fn status_no_body(Int) -> Bool
 
+fn str_contains(String, String) -> Bool
+
 fn str_slice(String, Int, Int) -> String
+
+fn str_starts_with(String, String) -> Bool
 
 fn trim_sp(String) -> String
 

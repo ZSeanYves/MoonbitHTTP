@@ -164,7 +164,6 @@ pub fn read_frame(
 }
 
 // 连接前言（客户端发送 / 服务器校验）
-
 ///|
 pub fn client_preface_bytes() -> Array[Byte] {
   @buf.string_to_utf8_bytes(H2_CLIENT_PREFACE).to_array()
@@ -515,7 +514,6 @@ pub fn h2_server_accept_and_ack(
 }
 
 // 服务器一次完整处理：preface+SETTINGS(ack) → 读取请求 HEADERS → 回 200 和 DATA("hello")
-
 ///|
 pub fn h2_server_handle_get_hello(
   cur : @tsp.BufCursor,
@@ -570,4 +568,180 @@ pub fn h2_server_handle_get_hello(
     _ => ()
   }
   Ok(())
+}
+
+
+///|
+test "h2: server_handle_get_hello end-to-end" {
+  // ===== 1. 构造客户端侧的入站字节流：preface + SETTINGS + HEADERS(GET /) =====
+
+  // 1.1 HTTP/2 preface
+  let pre = client_preface_bytes()
+
+  // 1.2 客户端 SETTINGS（这里就空 payload）
+  let client_settings : Array[H2SettingKV] = []
+  let sf = build_settings_frame(client_settings, false)
+
+  // 1.3 构造请求 HEADERS（:method / :path / :scheme / :authority）
+  let req_hs : Array[HpackHeader] = {
+    let a : Array[HpackHeader] = []
+    a.push({ name: ":method", value: "GET" })
+    a.push({ name: ":path", value: "/" })
+    a.push({ name: ":scheme", value: "https" })
+    a.push({ name: ":authority", value: "example.com" })
+    a
+  }
+  // HEADERS 帧，stream 1，END_STREAM = true
+  let req_hdr_bytes = build_headers_frames_from_list(
+    1,
+    req_hs,
+    true,
+    max_frame_size=H2_DEFAULT_MAX_FRAME_SIZE,
+  )
+
+  // 1.4 拼成完整“客户端入站数据流”
+  let rx : Array[Byte] = []
+  // preface
+  for b in pre {
+    rx.push(b)
+  }
+  // SETTINGS
+  for b in sf {
+    rx.push(b)
+  }
+  // HEADERS(GET /)
+  for b in req_hdr_bytes {
+    rx.push(b)
+  }
+
+  // ===== 2. 建立 in-memory transport，喂入 rx，然后跑 h2_server_handle_get_hello =====
+
+  let empty : Array[Byte] = []
+  let io = try @tsp.from_inmemory(empty) catch {
+    _ => {
+      let a = true
+      assert_eq(a, false)
+      return
+    }
+  } noraise {
+    t => t
+  }
+  io.push_rx(rx)
+  let cur = @tsp.buf_new()
+  let read_win = 4096
+  match h2_server_handle_get_hello(cur, io, read_win) {
+    Ok(_) => ()
+    Err(e) => {
+      // 不应该失败
+      assert_eq(e.length() >= 0, false)
+      return
+    }
+  }
+
+  // 刷新写缓冲
+  match io.flush() {
+    Ok(_) => ()
+    Err(_e) => () // 测试里忽略 flush 失败
+  }
+
+  // 取出服务端写出的响应字节：
+  //   - 1 个 SETTINGS ack 帧
+  //   - 1 组 HEADERS(:status 200, content-type, content-length)
+  //   - 1 个 DATA("hello", END_STREAM)
+  let tx = io.take_tx()
+
+  // ===== 3. 用一个新的 Transport/BufCursor，把响应字节按帧解析出来并断言 =====
+
+  let io2 = try @tsp.from_inmemory(tx) catch {
+    _ => {
+      let a = true
+      assert_eq(a, false)
+      return
+    }
+  } noraise {
+    t => t
+  }
+  let cur2 = @tsp.buf_new()
+
+  // 3.1 读第一帧：应该是 SETTINGS ack（stream 0, flags & ACK != 0）
+  let f0 = match
+    read_frame(cur2, io2, read_win, max_frame_size=H2_DEFAULT_MAX_FRAME_SIZE) {
+    Ok(x) => x
+    Err(e) => {
+      assert_eq(e.length() >= 0, false)
+      return
+    }
+  }
+  // 类型必须是 SETTINGS
+  assert_eq(f0.header.typ == H2_FRAME_SETTINGS, true)
+  // 解析 SETTINGS 帧，应该是 ack=true，payload 为空
+  let (ack0, kvs0) = match parse_settings_frame(f0) {
+    Ok(t) => t
+    Err(e) => {
+      assert_eq(e.length() >= 0, false)
+      return
+    }
+  }
+  assert_eq(ack0, true)
+  assert_eq(kvs0.length(), 0)
+
+  // 3.2 读 HEADERS(+CONTINUATION...)，解出 header 列表
+  let (info, hs) = match
+    read_headers_as_list(
+      cur2,
+      io2,
+      read_win,
+      max_frame_size=H2_DEFAULT_MAX_FRAME_SIZE,
+    ) {
+    Ok(t) => t
+    Err(e) => {
+      assert_eq(e.length() >= 0, false)
+      return
+    }
+  }
+
+  // 必须是同一个 stream（1）
+  assert_eq(info.stream_id, 1)
+  // GET 请求有 body 吗？这里服务器 demo 回复时 DATA 里带 END_STREAM，
+  // 所以 HEADERS 这边 end_stream 应该是 false
+  assert_eq(info.end_stream, false)
+
+  // 3.3 在 hpacks 里查关键 header
+  let mut status_val = ""
+  let mut ctype_val = ""
+  let mut clen_val = ""
+  for h in hs {
+    if h.name == ":status" {
+      status_val = h.value
+    } else if h.name == "content-type" {
+      ctype_val = h.value
+    } else if h.name == "content-length" {
+      clen_val = h.value
+    }
+  }
+
+  // 断言响应 status / headers
+  assert_eq(status_val, "200")
+  assert_eq(ctype_val, "text/plain")
+  assert_eq(clen_val, "5")
+
+  // 3.4 再读一帧：应该是 DATA("hello")，带 END_STREAM
+  let f1 = match
+    read_frame(cur2, io2, read_win, max_frame_size=H2_DEFAULT_MAX_FRAME_SIZE) {
+    Ok(x) => x
+    Err(e) => {
+      assert_eq(e.length() >= 0, false)
+      return
+    }
+  }
+  assert_eq(f1.header.typ == H2_FRAME_DATA, true)
+  assert_eq(f1.header.stream_id, 1)
+  // DATA 应该带 END_STREAM
+  assert_eq((f1.header.flags & H2_FLAGS_END_STREAM) != 0, true)
+
+  // payload 应该是 "hello"
+  let body_str = (try? @buf.utf8_bytes_to_string(Bytes::from_array(f1.payload))).unwrap_or(
+    "",
+  )
+  assert_eq(body_str, "hello")
 }

@@ -183,7 +183,7 @@ fn write_response_once(
 
 ///|
 /// Stream：强制以 chunked 编码写出
-pub fn write_response_with_body(
+fn write_response_with_body(
   io : @tsp.Transport,
   status : @cor.StatusCode,
   headers : Map[String, String],
@@ -522,30 +522,6 @@ fn read_once_into(
     Err(@tsp.IoError::Eof) => Err("eof while reading")
     Err(@tsp.IoError::Closed) => Err("closed while reading")
   }
-}
-
-// 兼容旧用法：一次请求
-///|
-pub fn serve_once(
-  io : @tsp.Transport,
-  handler : (@cor.Request) -> (
-    @cor.StatusCode,
-    Map[String, String],
-    Array[Byte],
-    Bool,
-  ),
-  max_headers : Int,
-  max_line : Int,
-  read_win : Int,
-  max_body? : Int = 1 * 1024 * 1024, // 默认 1MB
-) -> Result[Unit, String] {
-  let req = match
-    read_request_full(io, max_headers, max_line, read_win, max_body) {
-    Ok(r) => r
-    Err(e) => return Err(e)
-  }
-  let (status, resp_headers, resp_body, is_chunked) = handler(req)
-  write_response_once(io, status, resp_headers, resp_body, is_chunked)
 }
 
 ///|
@@ -904,11 +880,11 @@ test "server: Expect 100-continue — sends 100 then 200" {
   let s = (try? @buf.utf8_bytes_to_string(Bytes::from_array(tx))).unwrap_or("")
 
   // 断言：先有 100 Continue，再有最终 200 OK
-  assert_eq(str_starts_with(s, "HTTP/1.1 100 Continue\r\n\r\n"), true)
-  assert_eq(str_contains(s, "HTTP/1.1 200 OK\r\n"), true)
+  assert_eq(@cor.str_starts_with(s, "HTTP/1.1 100 Continue\r\n\r\n"), true)
+  assert_eq(@cor.str_contains(s, "HTTP/1.1 200 OK\r\n"), true)
 
   // 最终响应应包含 Content-Length: 2（"ok"）
-  assert_eq(str_contains(s, "Content-Length: 2\r\n"), true)
+  assert_eq(@cor.str_contains(s, "Content-Length: 2\r\n"), true)
 
   // 校验 100 与 200 的顺序（100 出现在 200 之前）
   let p100 = s.find("HTTP/1.1 100 Continue\r\n\r\n").unwrap_or(-1)
@@ -1277,8 +1253,8 @@ test "http1: full chunked HTTP request -> streaming echo (debug)" {
   )
 
   // 断言：HTTP/1.1 200 + chunked 头 + body 包含 "hello " & "world"
-  assert_eq(str_contains(s, "HTTP/1.1 200 OK"), true)
-  assert_eq(str_contains(s, "Transfer-Encoding: chunked"), true)
-  assert_eq(str_contains(s, "hello "), true)
-  assert_eq(str_contains(s, "world"), true)
+  assert_eq(@cor.str_contains(s, "HTTP/1.1 200 OK"), true)
+  assert_eq(@cor.str_contains(s, "Transfer-Encoding: chunked"), true)
+  assert_eq(@cor.str_contains(s, "hello "), true)
+  assert_eq(@cor.str_contains(s, "world"), true)
 }
