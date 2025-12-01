@@ -1,7 +1,5 @@
 ///|
 /// HTTP 协议“粗略类型”
-/// - Http1         : 普通 HTTP/1.1
-/// - Http2Preface  : 收到标准 HTTP/2 client preface 开头
 pub enum HttpProtoKind {
   Http1
   Http2Preface

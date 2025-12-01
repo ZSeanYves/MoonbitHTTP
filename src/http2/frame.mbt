@@ -1,4 +1,4 @@
-//Tools：读写（局部实现，避免依赖 http1）
+// 局部实现，避免依赖 http1
 // 对 encoder 和 read 的补丁：
 ///|
 fn read_missing_into(
@@ -513,6 +513,165 @@ pub fn h2_server_accept_and_ack(
   Ok(kvs)
 }
 
+
+/// 把 HTTP/2 的伪头 + 正常头数组，转换成 @cor.Request
+/// 目前只做最小实现：只识别 GET/POST，其它方法暂时当作 GET
+fn h2_headers_to_request(
+  _info : H2HeadersInfo,
+  hs : Array[HpackHeader],
+) -> Result[@cor.Request, String] {
+  let mut method_str = ""
+  let mut path = ""
+  let mut _scheme = ""
+  let mut _authority = ""
+  let headers : Map[String, String] = Map::new()
+  let mut i = 0
+  while i < hs.length() {
+    let h = hs[i]
+    if h.name.length() > 0 && h.name[0] == ':' {
+      if h.name == ":method" {
+        method_str = h.value
+      } else if h.name == ":path" {
+        path = h.value
+      } else if h.name == ":scheme" {
+        _scheme = h.value
+      } else if h.name == ":authority" {
+        _authority = h.value
+      }
+    } else {
+      headers.set(h.name, h.value)
+    }
+    i += 1
+  }
+  if path.length() == 0 {
+    path = "/"
+  }
+  let _method = if method_str == "POST" {
+    @cor.Method::POST
+  } else if method_str == "HEAD" {
+    @cor.Method::HEAD
+  } else if method_str == "PUT" {
+    @cor.Method::PUT
+  } else if method_str == "DELETE" {
+    @cor.Method::DELETE
+  } else {
+    @cor.Method::GET
+  }
+  let line : @cor.RequestLine = {
+    http_method: _method,
+    target: path,
+    version: "HTTP/2",
+  }
+  Ok({ line, headers, body: @cor.Body::Empty }, // 目前不解析请求体 DATA，后面再扩展
+  )
+}
+
+/// HTTP/2：单请求版本的流式 server。
+pub fn serve_once_body_streaming(
+  cur : @tsp.BufCursor,
+  io : @tsp.Transport,
+  handler : (@cor.Request) -> (
+    @cor.StatusCode,
+    Map[String, String],
+    @cor.Body,
+    Bool,
+  ),
+  read_win : Int,
+  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
+) -> Result[Unit, String] {
+  match h2_server_accept_and_ack(cur, io, read_win, max_frame_size~) {
+    Ok(_) => ()
+    Err(e) => return Err("h2 serve_once: handshake failed: " + e)
+  }
+  let (info, hs) = match
+    read_headers_as_list(cur, io, read_win, max_frame_size~) {
+    Ok(t) => t
+    Err(e) => return Err("h2 serve_once: read headers failed: " + e)
+  }
+
+  // 目前 demo 只支持 stream_id = 1
+  if info.stream_id != 1 {
+    return Err("h2 serve_once: only stream 1 supported in demo")
+  }
+  let req = match h2_headers_to_request(info, hs) {
+    Ok(r) => r
+    Err(e) => return Err("h2 serve_once: build request failed: " + e)
+  }
+  let (status_code, user_headers, body, _ignored_flag) = handler(req)
+  let status_int = @cor.status_code_value(status_code)
+  let resp_hs : Array[HpackHeader] = {
+    let a : Array[HpackHeader] = []
+    a.push({ name: ":status", value: status_int.to_string() })
+    for k in user_headers.keys() {
+      let v = user_headers.get(k).unwrap_or("")
+      a.push({ name: k, value: v })
+    }
+    a
+  }
+  let body_is_empty = match body {
+    @cor.Body::Empty => true
+    _ => false
+  }
+  let hdr_bytes = build_headers_frames_from_list(
+    1, // 目前只支持单流
+    resp_hs,
+    body_is_empty,
+    max_frame_size~,
+  )
+  try io.write_all(hdr_bytes) catch {
+    _ => return Err("h2 serve_once: write response headers failed")
+  } noraise {
+    _ => ()
+  }
+  if body_is_empty {
+    return Ok(())
+  }
+
+  // 根据 Body 类型发送 DATA（流式）
+  match body {
+    @cor.Body::Bytes(bs) => {
+      let data_bytes = build_data_frames(1, bs, true, max_frame_size~)
+      try io.write_all(data_bytes) catch {
+        _ => return Err("h2 serve_once: write response body failed")
+      } noraise {
+        _ => ()
+      }
+      Ok(())
+    }
+    @cor.Body::Stream(next) => {
+      let mut rounds = 0
+      while true {
+        rounds += 1
+        if rounds > 4096 {
+          return Err("h2 serve_once: too many body stream rounds")
+        }
+        let (chunk, done) = match next() {
+          Ok(p) => p
+          Err(e) => return Err("h2 serve_once: body stream error: " + e)
+        }
+        if chunk.length() == 0 && !done {
+          continue
+        }
+        let data_bytes = build_data_frames(1, chunk, done, max_frame_size~)
+        try io.write_all(data_bytes) catch {
+          _ => return Err("h2 serve_once: write response data failed")
+        } noraise {
+          _ => ()
+        }
+        if done {
+          break
+        }
+      }
+      Ok(())
+    }
+    _ => Ok(())
+  }
+}
+
+
+
+
+
 // 服务器一次完整处理：preface+SETTINGS(ack) → 读取请求 HEADERS → 回 200 和 DATA("hello")
 ///|
 pub fn h2_server_handle_get_hello(
@@ -573,7 +732,6 @@ pub fn h2_server_handle_get_hello(
 
 ///|
 test "h2: server_handle_get_hello end-to-end" {
-  // ===== 1. 构造客户端侧的入站字节流：preface + SETTINGS + HEADERS(GET /) =====
 
   // 1.1 HTTP/2 preface
   let pre = client_preface_bytes()
@@ -614,7 +772,7 @@ test "h2: server_handle_get_hello end-to-end" {
     rx.push(b)
   }
 
-  // ===== 2. 建立 in-memory transport，喂入 rx，然后跑 h2_server_handle_get_hello =====
+  // 建立 in-memory transport，喂入 rx，然后跑 h2_server_handle_get_hello 
 
   let empty : Array[Byte] = []
   let io = try @tsp.from_inmemory(empty) catch {
@@ -644,13 +802,10 @@ test "h2: server_handle_get_hello end-to-end" {
     Err(_e) => () // 测试里忽略 flush 失败
   }
 
-  // 取出服务端写出的响应字节：
-  //   - 1 个 SETTINGS ack 帧
-  //   - 1 组 HEADERS(:status 200, content-type, content-length)
-  //   - 1 个 DATA("hello", END_STREAM)
+  // 取出服务端写出的响应字节：1 个 SETTINGS ack 帧，1 组 HEADERS(:status 200, content-type, content-length)，1 个 DATA("hello", END_STREAM)
   let tx = io.take_tx()
 
-  // ===== 3. 用一个新的 Transport/BufCursor，把响应字节按帧解析出来并断言 =====
+  // 3. 用一个新的 Transport/BufCursor，把响应字节按帧解析出来并断言 
 
   let io2 = try @tsp.from_inmemory(tx) catch {
     _ => {
@@ -744,4 +899,199 @@ test "h2: server_handle_get_hello end-to-end" {
     "",
   )
   assert_eq(body_str, "hello")
+}
+
+
+///|
+test "http2: serve_once_body_streaming — streaming response DATA" {
+  //println("=== http2 streaming server test ===")
+
+  // 1. 构造“客户端 → 服务器”的字节流：
+  //    preface + SETTINGS + HEADERS(GET /stream, END_STREAM=1)
+  let pre = client_preface_bytes()
+  let settings : Array[H2SettingKV] = []
+  let sf = build_settings_frame(settings, false)
+  let req_hs : Array[HpackHeader] = []
+  req_hs.push({ name: ":method", value: "GET" })
+  req_hs.push({ name: ":path", value: "/stream" })
+  req_hs.push({ name: ":scheme", value: "https" })
+  req_hs.push({ name: ":authority", value: "example.com" })
+
+  // end_stream=true 表示请求没有 DATA 体
+  let hdr_bytes = build_headers_frames_from_list(
+    1,
+    req_hs,
+    true,
+    max_frame_size=H2_DEFAULT_MAX_FRAME_SIZE,
+  )
+  let rx : Array[Byte] = []
+  for b in pre {
+    rx.push(b)
+  }
+  for b in sf {
+    rx.push(b)
+  }
+  for b in hdr_bytes {
+    rx.push(b)
+  }
+
+  // 2. in-memory transport
+  let io = try @tsp.from_inmemory(rx) catch {
+    _ => {
+      assert_eq(true, false)
+      return
+    }
+  } noraise {
+    t => t
+  }
+  let cur = @tsp.buf_new()
+
+  // 3. server 端 handler：返回一个两块的 Body::Stream
+  let handler = fn(
+    req : @cor.Request,
+  ) -> (@cor.StatusCode, Map[String, String], @cor.Body, Bool) {
+    if req.line.target != "/stream" {
+      let hs : Map[String, String] = Map::new()
+      let body : Array[Byte] = []
+      return (@cor.StatusCode::NotFound, hs, @cor.Body::Bytes(body), false)
+    }
+    let hs : Map[String, String] = Map::new()
+    hs.set("content-type", "text/plain")
+    let mut step = 0
+    let body = @cor.Body::Stream(fn() -> Result[(Array[Byte], Bool), String] {
+      if step == 0 {
+        step += 1
+        let bs = @buf.string_to_utf8_bytes("part-1\n").to_array()
+        Ok((bs, false))
+      } else if step == 1 {
+        step += 1
+        let bs = @buf.string_to_utf8_bytes("part-2\n").to_array()
+        Ok((bs, true))
+      } else {
+        let empty : Array[Byte] = []
+        Ok((empty, true))
+      }
+    })
+    (@cor.StatusCode::OK, hs, body, false)
+  }
+
+  // 4. 跑一轮 HTTP/2 单请求流式 server
+  let r = serve_once_body_streaming(
+    cur,
+    io,
+    handler,
+    4096,
+    max_frame_size=H2_DEFAULT_MAX_FRAME_SIZE,
+  )
+  match r {
+    Ok(_) => ()
+    Err(e) => {
+      println("server error: " + e)
+      assert_eq(true, false)
+      return
+    }
+  }
+
+  // 5. 取出 server 写出的响应字节，用新的 in-memory 连接来解析
+  let resp_bytes = io.take_tx()
+  let io2 = try @tsp.from_inmemory(resp_bytes) catch {
+    _ => {
+      assert_eq(true, false)
+      return
+    }
+  } noraise {
+    t => t
+  }
+  let cur2 = @tsp.buf_new()
+
+  // 5.1 先读掉服务器发出的 SETTINGS ack（stream 0）
+  let f0 = match
+    read_frame(cur2, io2, 4096, max_frame_size=H2_DEFAULT_MAX_FRAME_SIZE) {
+    Ok(x) => x
+    Err(e) => {
+      println("read first frame failed: " + e)
+      assert_eq(true, false)
+      return
+    }
+  }
+  if f0.header.typ == H2_FRAME_SETTINGS {
+    let (ack, _) = match parse_settings_frame(f0) {
+      Ok(t) => t
+      Err(e) => {
+        println("parse settings ack failed: " + e)
+        assert_eq(true, false)
+        return
+      }
+    }
+    // 必须是 ack
+    assert_eq(ack, true)
+  } else {
+    //println("first frame is not SETTINGS, typ=" + f0.header.typ.to_string())
+    assert_eq(true, false)
+    return
+  }
+
+  // 5.2 现在才读响应 HEADERS(+CONTINUATION)
+  let (info, hs) = match
+    read_headers_as_list(
+      cur2,
+      io2,
+      4096,
+      max_frame_size=H2_DEFAULT_MAX_FRAME_SIZE,
+    ) {
+    Ok(t) => t
+    Err(e) => {
+      println("read response headers failed: " + e)
+      assert_eq(true, false)
+      return
+    }
+  }
+  assert_eq(info.stream_id, 1)
+  let mut has_status_200 = false
+  for h in hs {
+    if h.name == ":status" && h.value == "200" {
+      has_status_200 = true
+    }
+  }
+  assert_eq(has_status_200, true)
+
+  // 6. 再读 DATA 帧，把 payload 拼起来
+  let all : Array[Byte] = []
+  let mut done = false
+  let mut rounds2 = 0
+  while !done {
+    rounds2 += 1
+    if rounds2 > 16 {
+      println("too many DATA frames")
+      assert_eq(true, false)
+      return
+    }
+    let f = match
+      read_frame(cur2, io2, 4096, max_frame_size=H2_DEFAULT_MAX_FRAME_SIZE) {
+      Ok(x) => x
+      Err(e) => {
+        println("read_frame failed: " + e)
+        assert_eq(true, false)
+        return
+      }
+    }
+    if f.header.typ == H2_FRAME_DATA {
+      let mut i = 0
+      while i < f.payload.length() {
+        all.push(f.payload[i])
+        i += 1
+      }
+      if (f.header.flags & H2_FLAGS_END_STREAM) != 0 {
+        done = true
+      }
+    } else {
+      // 其他帧 (WINDOW_UPDATE 等) 暂时忽略
+    }
+  }
+  let body_str = (try? @buf.utf8_bytes_to_string(Bytes::from_array(all))).unwrap_or(
+    "",
+  )
+  //println("streaming response body = '" + body_str + "'")
+  assert_eq(body_str, "part-1\npart-2\n")
+  //println("=== http2 streaming server test finished ===\n")
 }
