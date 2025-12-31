@@ -16,10 +16,9 @@ fn read_line_until_ok(
           s => return Ok(s) // 成功返回字符串
         }
       Err(_) => {
-        // 读取失败时，尝试再次读取
         let n = match read_once_into(cur, io, read_win) {
           Ok(n) => n
-          Err(e) => return Err(e) // 读取发生错误时返回
+          Err(e) => return Err(e) 
         }
         ignore(n)
         rounds += 1
@@ -30,13 +29,9 @@ fn read_line_until_ok(
       }
     }
   }
-
-  // Fallback in case of unexpected failure
-  return Err("Unexpected error in while loop") // This will never be hit, but needed for type consistency
+  return Err("Unexpected error in while loop") 
 }
-
 // 读定长正文：优先消费 cur 中已缓冲的数据，不足再从 io 拉，直到凑够 n
-
 ///|
 fn read_exact_bytes(
   cur : @tsp.BufCursor,
@@ -136,7 +131,6 @@ fn parse_status_line_streaming(
     return Err("malformed status line: " + s)
   }
 
-  // 版本号子串（主要为了 completeness，用不用都无所谓）
   let version = ascii_substring(s, 0, first_space)
 
   // 解析 code_str -> Int
@@ -147,7 +141,7 @@ fn parse_status_line_streaming(
     if ch < 48 || ch > 57 { // '0'..'9'
       return Err("invalid status code in line: " + s)
     }
-    code = code * 10 + (ch - 48)
+    code = code * 10 + (ch.to_int() - 48)
     j += 1
   }
 
@@ -258,7 +252,7 @@ fn read_body_to_eof(
 
 // ---------- 主逻辑 ----------
 ///|
-pub fn read_response(
+fn read_response(
   io : @tsp.Transport,
   max_headers : Int,
   max_line : Int,
@@ -381,7 +375,7 @@ pub fn read_response(
 
 ///|
 /// 流式读取响应：
-pub fn read_response_streaming(
+fn read_response_streaming(
   io : @tsp.Transport,
   max_headers : Int,
   max_line : Int,
@@ -558,14 +552,13 @@ pub fn read_response_streaming(
 
 // ---------- 简单 API ----------
 
-///|
 pub fn get(
   io : @tsp.Transport,
   target : String,
   host : String,
   extra_headers : Map[String, String],
   limits : @cor.Limits,
-) -> Result[@cor.Response, String] {
+) -> Result[@cor.Response, @cor.Herror] {
   ignore(@cor.write_ascii(io, "GET " + target + " HTTP/1.1\r\n"))
   ignore(@cor.write_ascii(io, "Host: " + host + "\r\n"))
   for k in extra_headers.keys() {
@@ -573,13 +566,17 @@ pub fn get(
     ignore(@cor.write_ascii(io, k + ": " + v + "\r\n"))
   }
   ignore(@cor.write_ascii(io, "Connection: close\r\n\r\n"))
-  read_response(
+
+  match read_response(
     io,
     limits.max_headers,
     limits.max_line,
     limits.read_win,
     limits.max_body,
-  )
+  ) {
+    Ok(resp) => Ok(resp)
+    Err(e) => Err(@cor.err_proto("http1 client GET: " + e))
+  }
 }
 
 
@@ -593,7 +590,7 @@ pub fn get_streaming(
   limits : @cor.Limits,
   stream_chunk? : Int = 8 * 1024,
   enable_eof_fallback? : Bool = false,
-) -> Result[@cor.Response, String] {
+) -> Result[@cor.Response, @cor.Herror] {
   ignore(@cor.write_ascii(io, "GET " + target + " HTTP/1.1\r\n"))
   ignore(@cor.write_ascii(io, "Host: " + host + "\r\n"))
   for k in extra_headers.keys() {
@@ -601,7 +598,8 @@ pub fn get_streaming(
     ignore(@cor.write_ascii(io, k + ": " + v + "\r\n"))
   }
   ignore(@cor.write_ascii(io, "Connection: close\r\n\r\n"))
-  read_response_streaming(
+
+  match read_response_streaming(
     io,
     limits.max_headers,
     limits.max_line,
@@ -609,8 +607,12 @@ pub fn get_streaming(
     limits.max_body,
     stream_chunk~,
     enable_eof_fallback~,
-  )
+  ) {
+    Ok(resp) => Ok(resp)
+    Err(e) => Err(@cor.err_proto("http1 client GET streaming: " + e))
+  }
 }
+
 
 
 ///|
@@ -618,11 +620,11 @@ pub fn post(
   io : @tsp.Transport,
   target : String,
   host : String,
+  extra_headers : Map[String, String],
   body : Array[Byte],
   content_type : String,
-  extra_headers : Map[String, String],
   limits : @cor.Limits,
-) -> Result[@cor.Response, String] {
+) -> Result[@cor.Response, @cor.Herror] {
   let len = body.length()
   ignore(@cor.write_ascii(io, "POST " + target + " HTTP/1.1\r\n"))
   ignore(@cor.write_ascii(io, "Host: " + host + "\r\n"))
@@ -633,19 +635,25 @@ pub fn post(
     ignore(@cor.write_ascii(io, k + ": " + v + "\r\n"))
   }
   ignore(@cor.write_ascii(io, "\r\n"))
+
   try io.write_all(body) catch {
-    _ => return Err("write body failed")
+    _ => return Err(@cor.err_io("http1 client POST: write body failed"))
   } noraise {
     _ => ()
   }
-  read_response(
+
+  match read_response(
     io,
     limits.max_headers,
     limits.max_line,
     limits.read_win,
     limits.max_body,
-  )
+  ) {
+    Ok(resp) => Ok(resp)
+    Err(e) => Err(@cor.err_proto("http1 client POST: " + e))
+  }
 }
+
 
 // ---------- 测试 ----------
 // Tools
@@ -681,7 +689,7 @@ test "client: GET — parse fixed-length response & verify written request" {
   let resp = match get(io, "/index.html", "example.com", extra, limits) {
     Ok(r) => r
     Err(e) => {
-      assert_eq(e.length() >= 0, false)
+      assert_eq(@cor.error_to_string(e).length() >= 0, false)
       return
     }
   }
@@ -736,7 +744,7 @@ test "client: GET — parse chunked response" {
   let resp = match get(io, "/", "example.com", extra, limits) {
     Ok(r) => r
     Err(e) => {
-      assert_eq(e.length() >= 0, false)
+      assert_eq(@cor.error_to_string(e).length() >= 0, false)
       return
     }
   }
@@ -784,10 +792,10 @@ test "client: POST — sends body & parses fixed-length response" {
   extra.set("User-Agent", "MoonbitHTTP/0.1")
   let body = @buf.string_to_utf8_bytes("{\"a\":1}").to_array()
   let resp = match
-    post(io, "/api", "example.com", body, "application/json", extra, limits) {
+    post(io, "/api", "example.com", extra, body, "application/json", limits) {
     Ok(r) => r
     Err(e) => {
-      assert_eq(e.length() >= 0, false)
+      assert_eq(@cor.error_to_string(e).length() >= 0, false)
       return
     }
   }
@@ -880,7 +888,7 @@ test "client: GET streaming — fixed-length response as stream" {
     ) {
     Ok(r) => r
     Err(e) => {
-      assert_eq(e.length() >= 0, false)
+      assert_eq(@cor.error_to_string(e).length() >= 0, false)
       return
     }
   }

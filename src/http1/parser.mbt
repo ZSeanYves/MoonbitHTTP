@@ -1,7 +1,7 @@
 // http1/parser.mbt — HTTP/1.1 请求解析器
 // 请求方法：GET、POST 等
 ///|
-pub fn parse_request_line(
+fn parse_request_line(
   cur : @tsp.BufCursor,
 ) -> Result[@cor.RequestLine, String] {
   // 读一整行（不含 CRLF）

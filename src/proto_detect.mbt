@@ -25,6 +25,18 @@ fn bytes_starts_with(hay : Array[Byte], needle : Array[Byte]) -> Bool {
 }
 
 
+// 一个最简单的处理器：无论请求什么都返回 200 text/plain: "Hello"
+///|
+fn hello_handler(
+  req : @cor.Request,
+) -> (@cor.StatusCode, Map[String, String], Array[Byte], Bool) {
+  ignore(req) // 先不看请求
+  let hs : Map[String, String] = Map::new()
+  hs.set("Content-Type", "text/plain")
+  let body = @buf.string_to_utf8_bytes("Hello, MoonBit!").to_array()
+  (@cor.StatusCode::OK, hs, body, false) // 非 chunked，自动 Content-Length
+}
+
 /// 规则：
 /// 若前缀匹配完整的 HTTP/2 preface，则返回 Http2Preface
 /// 否则一律按 Http1 处理
@@ -95,7 +107,10 @@ pub fn sniff_http_proto(
 
 ///|
 /// 自动协议路由入口：
-/// 目前仅支持 HTTP/1：
+/// - HTTP/1：调用 http1::serve_loop
+/// - HTTP/2：调用 http2::serve_once（单请求 demo 版）
+///
+/// 返回统一的 Herror，便于上层区分 Io / Proto / User 三类错误。
 pub fn serve_connection_auto(
   io : @tsp.Transport,
   handler : (@cor.Request) -> (
@@ -108,28 +123,23 @@ pub fn serve_connection_auto(
   max_line : Int,
   read_win : Int,
   max_body? : Int = 1 * 1024 * 1024,
-) -> Result[Unit, String] {
+) -> Result[Unit, @cor.Herror] {
   let kind = match sniff_http_proto(io) {
     Ok(k) => k
-    Err(e) => return Err(e)
+    Err(e) => return Err(@cor.err_proto("sniff_http_proto failed: " + e))
   }
+
   match kind {
     HttpProtoKind::Http1 =>
-      //  HTTP/1.1：直接走现有的 serve_loop
+      // HTTP/1.1：直接走现有的 serve_loop
       @htp1.serve_loop(io, handler, max_headers, max_line, read_win, max_body~)
-    HttpProtoKind::Http2Preface => {
-      //  HTTP/2 preface：当前尚未支持，先回 505 + Connection: close
-      let resp = "HTTP/1.1 505 HTTP Version Not Supported\r\n" +
-        "Content-Length: 0\r\n" +
-        "Connection: close\r\n" +
-        "\r\n"
-      ignore(@cor.write_ascii(io, resp))
-      // 尝试关闭连接（忽略错误）
-      ignore(io.close())
-      Ok(())
-    }
+
+    HttpProtoKind::Http2Preface =>
+      // HTTP/2：使用 http2 的单请求 runtime
+      @htp2.serve_once(io, handler, read_win)
   }
 }
+
 
 
 ///|
@@ -238,7 +248,7 @@ test "proto-router: http1 request routed to http1 serve_loop" {
   // 使用自动路由入口，handler 用 http1 里的 hello_handler
   let r = serve_connection_auto(
     io,
-    @htp1.hello_handler,
+    hello_handler,
     64, // max_headers
     4096, // max_line
     4096, // read_win
@@ -248,7 +258,7 @@ test "proto-router: http1 request routed to http1 serve_loop" {
     Ok(_) => ()
     Err(e) => {
       // 不期望这里失败
-      assert_eq(e.length() >= 0, false)
+      assert_eq(@cor.error_to_string(e).length() >= 0, false)
       return
     }
   }
@@ -264,9 +274,28 @@ test "proto-router: http1 request routed to http1 serve_loop" {
 
 
 ///|
-test "proto-router: http2 preface gets 505 response" {
-  let preface_str = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
-  let bs = @buf.string_to_utf8_bytes(preface_str).to_array()
+///|
+test "proto-router: http2 basic GET routed to h2 runtime" {
+  // 1. 构造“客户端 → 服务器”的字节流：
+  //    preface + SETTINGS（不带 ACK；不必发送 HEADERS）
+  let preface_bytes = @buf.string_to_utf8_bytes(@htp2.H2_CLIENT_PREFACE).to_array()
+  let client_settings : Array[@htp2.H2SettingKV] = []
+  let sf = @htp2.build_settings_frame(client_settings, false)
+  let rx : Array[Byte] = []
+  // 追加 preface
+  let mut i = 0
+  while i < preface_bytes.length() {
+    rx.push(preface_bytes[i])
+    i += 1
+  }
+  // 追加 SETTINGS 帧
+  i = 0
+  while i < sf.length() {
+    rx.push(sf[i])
+    i += 1
+  }
+
+  // 2. in-memory transport：空 init + push_rx
   let empty : Array[Byte] = []
   let io = try @tsp.from_inmemory(empty) catch {
     _ => {
@@ -276,35 +305,59 @@ test "proto-router: http2 preface gets 505 response" {
   } noraise {
     t => t
   }
-  io.push_rx(bs)
+  io.push_rx(rx)
 
-  // handler 此时理论上不会被调用，我们给一个“占位”的 handler
-  let dummy_handler = fn(
+  // 3. handler：如果 HTTP/2 runtime 真能构造出 Request，就返回 200 + "Hello H2"
+  let handler = fn(
     _req : @cor.Request,
   ) -> (@cor.StatusCode, Map[String, String], Array[Byte], Bool) {
     let hs : Map[String, String] = Map::new()
-    let body : Array[Byte] = []
-    (@cor.StatusCode::InternalServerError, hs, body, false)
+    let body = @buf.string_to_utf8_bytes("Hello H2").to_array()
+    (@cor.StatusCode::OK, hs, body, false)
   }
-  let r = serve_connection_auto(
+
+  // 4. 走自动路由入口（我们这里不对 Result 做强断言，只做黑盒检查）
+  let _ = serve_connection_auto(
     io,
-    dummy_handler,
-    64,
-    4096,
-    4096,
+    handler,
+    64, // max_headers（只对 HTTP/1 有意义）
+    4096, // max_line    （只对 HTTP/1 有意义）
+    4096, // read_win
     max_body=1 * 1024 * 1024,
   )
-  match r {
-    Ok(_) => ()
+
+  // 5. 检查 server 写出的第一个 HTTP/2 帧是否是 SETTINGS ack
+  let tx = io.take_tx()
+  // 必须有输出
+  assert_eq(tx.length() > 0, true)
+
+  // 用 http2 模块自带的 read_frame 再解一遍
+  let io2 = try @tsp.from_inmemory(tx) catch {
+    _ => {
+      assert_eq(true, false)
+      return
+    }
+  } noraise {
+    t => t
+  }
+  let cur2 = @tsp.buf_new()
+  let f0 = match
+    @htp2.read_frame(
+      cur2,
+      io2,
+      4096,
+      max_frame_size=@htp2.H2_DEFAULT_MAX_FRAME_SIZE,
+    ) {
+    Ok(x) => x
     Err(e) => {
-      assert_eq(e.length() >= 0, false)
+      // 如果这里失败，说明根本没有写出合法的 HTTP/2 帧
+      println("proto-router h2: read_frame failed: " + e)
+      assert_eq(true, false)
       return
     }
   }
-  let tx = io.take_tx()
-  let s = (try? @buf.utf8_bytes_to_string(Bytes::from_array(tx))).unwrap_or("")
 
-  // 期望直接回 505，并带有 Connection: close
-  assert_eq(@cor.str_starts_with(s, "HTTP/1.1 505 HTTP Version Not Supported"), true)
-  assert_eq(@cor.str_contains(s, "Connection: close"), true)
+  // 期望第一帧是 SETTINGS，且带 ACK 标志
+  assert_eq(f0.header.typ == @htp2.H2_FRAME_SETTINGS, true)
+  assert_eq((f0.header.flags & @htp2.H2_FLAGS_ACK) != 0, true)
 }

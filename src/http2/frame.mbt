@@ -34,7 +34,7 @@ fn read_missing_into(
 // 编解码：帧头
 
 ///|
-pub fn encode_frame_header(h : H2FrameHeader) -> Array[Byte] {
+fn encode_frame_header(h : H2FrameHeader) -> Array[Byte] {
   let out : Array[Byte] = []
   // length: 24-bit big-endian
   let len = h.length
@@ -60,7 +60,7 @@ pub fn encode_frame_header(h : H2FrameHeader) -> Array[Byte] {
 // 读帧头（先预取 9 字节，再消费）
 
 ///|
-pub fn decode_frame_header(
+fn decode_frame_header(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
   _read_win : Int,
@@ -165,14 +165,14 @@ pub fn read_frame(
 
 // 连接前言（客户端发送 / 服务器校验）
 ///|
-pub fn client_preface_bytes() -> Array[Byte] {
+fn client_preface_bytes() -> Array[Byte] {
   @buf.string_to_utf8_bytes(H2_CLIENT_PREFACE).to_array()
 }
 
 // 服务器侧校验：严格读取并仅消费 24 字节前言，剩余字节留在 cur 里
 
 ///|
-pub fn read_and_check_client_preface(
+fn read_and_check_client_preface(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
   _read_win : Int, // 不再用固定窗口
@@ -220,7 +220,7 @@ pub fn read_and_check_client_preface(
 // 编码 SETTINGS 的 payload（不含帧头）
 
 ///|
-pub fn encode_settings_payload(kvs : Array[H2SettingKV]) -> Array[Byte] {
+fn encode_settings_payload(kvs : Array[H2SettingKV]) -> Array[Byte] {
   let out : Array[Byte] = []
   for kv in kvs {
     let id = kv.id & 0xFFFF
@@ -238,7 +238,7 @@ pub fn encode_settings_payload(kvs : Array[H2SettingKV]) -> Array[Byte] {
 // 解析 SETTINGS 的 payload
 
 ///|
-pub fn decode_settings_payload(
+fn decode_settings_payload(
   bs : Array[Byte],
 ) -> Result[Array[H2SettingKV], String] {
   if bs.length() % 6 != 0 {
@@ -283,7 +283,7 @@ pub fn build_settings_frame(
 // PING 帧（payload 8 字节）
 
 ///|
-pub fn build_ping_frame(opaque8 : Array[Byte], ack : Bool) -> Array[Byte] {
+fn build_ping_frame(opaque8 : Array[Byte], ack : Bool) -> Array[Byte] {
   // 需要 8 字节，不够补 0，多了截断
   let p : Array[Byte] = []
   let need = 8
@@ -304,7 +304,7 @@ pub fn build_ping_frame(opaque8 : Array[Byte], ack : Bool) -> Array[Byte] {
 // GOAWAY（最小版）：last-stream-id(32) + error-code(32) + optional debug data
 
 ///|
-pub fn build_goaway_frame(
+fn _build_goaway_frame(
   last_stream_id : Int,
   error_code : Int,
   debug : Array[Byte],
@@ -340,7 +340,7 @@ pub fn build_goaway_frame(
 // - ack=true 时 payload 必须为空
 
 ///|
-pub fn parse_settings_frame(
+fn parse_settings_frame(
   f : H2Frame,
 ) -> Result[(Bool, Array[H2SettingKV]), String] {
   if f.header.typ != H2_FRAME_SETTINGS {
@@ -363,7 +363,7 @@ pub fn parse_settings_frame(
 // 解析一帧是否 PING，返回 (ack, opaque8)
 
 ///|
-pub fn parse_ping_frame(f : H2Frame) -> Result[(Bool, Array[Byte]), String] {
+fn parse_ping_frame(f : H2Frame) -> Result[(Bool, Array[Byte]), String] {
   if f.header.typ != H2_FRAME_PING {
     return Err("not a PING frame")
   }
@@ -377,7 +377,7 @@ pub fn parse_ping_frame(f : H2Frame) -> Result[(Bool, Array[Byte]), String] {
 // —— WINDOW_UPDATE ——
 
 ///|
-pub fn build_window_update_frame(
+fn _build_window_update_frame(
   stream_id : Int,
   increment : Int,
 ) -> Array[Byte] {
@@ -402,7 +402,7 @@ pub fn build_window_update_frame(
 }
 
 ///|
-pub fn parse_window_update_increment(f : H2Frame) -> Result[Int, String] {
+fn _parse_window_update_increment(f : H2Frame) -> Result[Int, String] {
   if f.header.typ != H2_FRAME_WINDOW_UPDATE {
     return Err("not a WINDOW_UPDATE frame")
   }
@@ -423,7 +423,7 @@ pub fn parse_window_update_increment(f : H2Frame) -> Result[Int, String] {
 // —— RST_STREAM ——
 
 ///|
-pub fn build_rst_stream_frame(stream_id : Int, error_code : Int) -> Array[Byte] {
+fn _build_rst_stream_frame(stream_id : Int, error_code : Int) -> Array[Byte] {
   let ec = error_code & 0xFFFFFFFF
   let p : Array[Byte] = []
   p.push(((ec >> 24) & 0xFF).to_byte())
@@ -444,7 +444,7 @@ pub fn build_rst_stream_frame(stream_id : Int, error_code : Int) -> Array[Byte] 
 }
 
 ///|
-pub fn parse_rst_stream_error(f : H2Frame) -> Result[Int, String] {
+fn _parse_rst_stream_error(f : H2Frame) -> Result[Int, String] {
   if f.header.typ != H2_FRAME_RST_STREAM {
     return Err("not a RST_STREAM frame")
   }
@@ -460,7 +460,7 @@ pub fn parse_rst_stream_error(f : H2Frame) -> Result[Int, String] {
 }
 
 ///|
-pub fn h2_client_start(
+fn h2_client_start(
   io : @tsp.Transport,
   settings : Array[H2SettingKV],
 ) -> Result[Unit, String] {
@@ -481,7 +481,7 @@ pub fn h2_client_start(
 }
 
 ///|
-pub fn h2_server_accept_and_ack(
+fn h2_server_accept_and_ack(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
   read_win : Int,
@@ -566,6 +566,9 @@ fn h2_headers_to_request(
   )
 }
 
+
+
+
 /// HTTP/2：单请求版本的流式 server。
 pub fn serve_once_body_streaming(
   cur : @tsp.BufCursor,
@@ -578,26 +581,40 @@ pub fn serve_once_body_streaming(
   ),
   read_win : Int,
   max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
-) -> Result[Unit, String] {
+) -> Result[Unit, @cor.Herror] {
+  // 1）握手：接受 preface + SETTINGS，并回 ACK
   match h2_server_accept_and_ack(cur, io, read_win, max_frame_size~) {
     Ok(_) => ()
-    Err(e) => return Err("h2 serve_once: handshake failed: " + e)
+    Err(e) =>
+      return Err(@cor.err_proto("h2 serve_once: handshake failed: " + e))
   }
+
+  // 2）读取首个 HEADERS 帧，组装成 header 列表
   let (info, hs) = match
     read_headers_as_list(cur, io, read_win, max_frame_size~) {
     Ok(t) => t
-    Err(e) => return Err("h2 serve_once: read headers failed: " + e)
+    Err(e) =>
+      return Err(@cor.err_proto("h2 serve_once: read headers failed: " + e))
   }
 
   // 目前 demo 只支持 stream_id = 1
   if info.stream_id != 1 {
-    return Err("h2 serve_once: only stream 1 supported in demo")
+    return Err(
+      @cor.err_proto("h2 serve_once: only stream 1 supported in demo"),
+    )
   }
+
+  // 3）从伪头和普通头构造 Request
   let req = match h2_headers_to_request(info, hs) {
     Ok(r) => r
-    Err(e) => return Err("h2 serve_once: build request failed: " + e)
+    Err(e) =>
+      return Err(@cor.err_proto("h2 serve_once: build request failed: " + e))
   }
+
+  // 4）调用用户 handler
   let (status_code, user_headers, body, _ignored_flag) = handler(req)
+
+  // 5）构造响应 HEADERS
   let status_int = @cor.status_code_value(status_code)
   let resp_hs : Array[HpackHeader] = {
     let a : Array[HpackHeader] = []
@@ -619,7 +636,10 @@ pub fn serve_once_body_streaming(
     max_frame_size~,
   )
   try io.write_all(hdr_bytes) catch {
-    _ => return Err("h2 serve_once: write response headers failed")
+    _ =>
+      return Err(
+        @cor.err_io("h2 serve_once: write response headers failed"),
+      )
   } noraise {
     _ => ()
   }
@@ -627,12 +647,14 @@ pub fn serve_once_body_streaming(
     return Ok(())
   }
 
-  // 根据 Body 类型发送 DATA（流式）
+  // 6）根据 Body 类型发送 DATA（支持 Bytes / Stream）
   match body {
     @cor.Body::Bytes(bs) => {
       let data_bytes = build_data_frames(1, bs, true, max_frame_size~)
       try io.write_all(data_bytes) catch {
-        _ => return Err("h2 serve_once: write response body failed")
+        _ => return Err(
+          @cor.err_io("h2 serve_once: write response body failed"),
+        )
       } noraise {
         _ => ()
       }
@@ -643,18 +665,28 @@ pub fn serve_once_body_streaming(
       while true {
         rounds += 1
         if rounds > 4096 {
-          return Err("h2 serve_once: too many body stream rounds")
+          return Err(
+            @cor.err_proto("h2 serve_once: too many body stream rounds"),
+          )
         }
         let (chunk, done) = match next() {
           Ok(p) => p
-          Err(e) => return Err("h2 serve_once: body stream error: " + e)
+          Err(e) =>
+            return Err(
+              @cor.err_user(
+                "h2 serve_once: body stream error: " + e,
+              ),
+            )
         }
         if chunk.length() == 0 && !done {
+          // 空块但未结束，就继续拉下一轮
           continue
         }
         let data_bytes = build_data_frames(1, chunk, done, max_frame_size~)
         try io.write_all(data_bytes) catch {
-          _ => return Err("h2 serve_once: write response data failed")
+          _ => return Err(
+            @cor.err_io("h2 serve_once: write response data failed"),
+          )
         } noraise {
           _ => ()
         }
@@ -668,6 +700,38 @@ pub fn serve_once_body_streaming(
   }
 }
 
+///|
+/// HTTP/2：对外的单请求 server runtime，handler 形状与 http1::serve_loop 一致：
+///   Request -> (StatusCode, headers, body_bytes, _is_chunked)
+/// 注意：HTTP/2 不使用 chunked，这里的 Bool 会被忽略。
+pub fn serve_once(
+  io : @tsp.Transport,
+  handler : (@cor.Request) -> (
+    @cor.StatusCode,
+    Map[String, String],
+    Array[Byte],
+    Bool,
+  ),
+  read_win : Int,
+  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
+) -> Result[Unit, @cor.Herror] {
+  let cur = @tsp.buf_new()
+
+  // 把 bytes-handler 适配成 Body-handler，复用 serve_once_body_streaming
+  let body_handler = fn(
+    req : @cor.Request,
+  ) -> (@cor.StatusCode, Map[String, String], @cor.Body, Bool) {
+    let (status, hdrs, body_bytes, _ignored_chunked) = handler(req)
+    // HTTP/2 没有 chunked 编码，这里统一用 Bytes
+    (status, hdrs, @cor.Body::Bytes(body_bytes), false)
+  }
+
+  match
+    serve_once_body_streaming(cur, io, body_handler, read_win, max_frame_size~) {
+    Ok(_) => Ok(())
+    Err(e) => Err(e)
+  }
+}
 
 
 
@@ -986,7 +1050,7 @@ test "http2: serve_once_body_streaming — streaming response DATA" {
   match r {
     Ok(_) => ()
     Err(e) => {
-      println("server error: " + e)
+      println("server error: " + @cor.error_to_string(e))
       assert_eq(true, false)
       return
     }
@@ -1094,4 +1158,225 @@ test "http2: serve_once_body_streaming — streaming response DATA" {
   //println("streaming response body = '" + body_str + "'")
   assert_eq(body_str, "part-1\npart-2\n")
   //println("=== http2 streaming server test finished ===\n")
+}
+
+
+///|
+test "h2: SETTINGS encode/decode roundtrip" {
+  let kvs : Array[H2SettingKV] = []
+  kvs.push({ id: 0x1, value: 0 })
+  kvs.push({ id: 0x5, value: 16384 })
+  let bytes = build_settings_frame(kvs, false)
+  ////println("SETTINGS total bytes = " + bytes.length().to_string())
+  ////println("SETTINGS head9 hex   = " + dbg_hex16(bytes)) 
+  let io = (try? @tsp.from_inmemory(bytes)).unwrap()
+  let cur = @tsp.buf_new()
+  let rf = read_frame(cur, io, 4096) // ← 不再 unwrap
+  match rf {
+    Ok(f) => {
+      assert_eq(f.header.typ, H2_FRAME_SETTINGS)
+      assert_eq(f.header.stream_id, 0)
+      let rps = parse_settings_frame(f) // ← 不再 unwrap
+      match rps {
+        Ok((ack, kvs2)) => {
+          assert_eq(ack, false)
+          assert_eq(kvs2.length(), 2)
+          assert_eq(kvs2[0].id, 0x1)
+          assert_eq(kvs2[0].value, 0)
+          assert_eq(kvs2[1].id, 0x5)
+          assert_eq(kvs2[1].value, 16384)
+        }
+        Err(e) => {
+          ignore(e)
+          ////println("parse_settings_frame failed: " + e)
+          let a = true
+          assert_eq(a, false)
+          return
+        }
+      }
+    }
+    Err(e) => {
+      ignore(e)
+      ////println("read_frame failed: " + e)
+      let a = true
+      assert_eq(a, false)
+      return
+    }
+  }
+}
+
+///|
+test "h2: PING encode/decode (ack and no-ack)" {
+  let opaque1 = @buf.string_to_utf8_bytes("12345678").to_array()
+
+  // no-ack
+  let b1 = build_ping_frame(opaque1, false)
+  ////println("PING(no-ack) bytes = " + b1.length().to_string())
+  ////println("PING(no-ack) head  = " + dbg_hex16(b1))
+  let io1 = (try? @tsp.from_inmemory(b1)).unwrap()
+  let cur1 = @tsp.buf_new()
+  let r1 = read_frame(cur1, io1, 4096)
+  match r1 {
+    Ok(f1) => {
+      let rp1 = parse_ping_frame(f1)
+      match rp1 {
+        Ok((ack1, p1)) => {
+          assert_eq(ack1, false)
+          assert_eq(p1, opaque1)
+        }
+        Err(e) => {
+          ignore(e)
+          ////println("parse_ping_frame (no-ack) failed: " + e)
+          let a = true
+          assert_eq(a, false)
+          return
+        }
+      }
+    }
+    Err(e) => {
+      ignore(e)
+      ////println("read_frame (no-ack) failed: " + e)
+      let a = true
+      assert_eq(a, false)
+      return
+    }
+  }
+
+  // ack
+  let b2 = build_ping_frame(opaque1, true)
+  ////println("PING(ack)   bytes = " + b2.length().to_string())
+  ////println("PING(ack)   head  = " + dbg_hex16(b2))
+  let io2 = (try? @tsp.from_inmemory(b2)).unwrap()
+  let cur2 = @tsp.buf_new()
+  let r2 = read_frame(cur2, io2, 4096)
+  match r2 {
+    Ok(f2) => {
+      let rp2 = parse_ping_frame(f2)
+      match rp2 {
+        Ok((ack2, p2)) => {
+          assert_eq(ack2, true)
+          assert_eq(p2, opaque1)
+        }
+        Err(e) => {
+          ignore(e)
+          ////println("parse_ping_frame (ack) failed: " + e)
+          let a = true
+          assert_eq(a, false)
+          return
+        }
+      }
+    }
+    Err(e) => {
+      ignore(e)
+      ////println("read_frame (ack) failed: " + e)
+      let a = true
+      assert_eq(a, false)
+      return
+    }
+  }
+}
+
+///|
+test "h2: server accepts preface + SETTINGS then sends ACK" {
+  let pre = client_preface_bytes()
+  let cli_settings = build_settings_frame([], false)
+  let inbound : Array[Byte] = []
+  for b in pre {
+    inbound.push(b)
+  }
+  for b in cli_settings {
+    inbound.push(b)
+  }
+  ////println("SERVER inbound bytes = " + inbound.length().to_string())
+  ////println("SERVER inbound head9 = " + dbg_hex16(inbound))
+  let io = (try? @tsp.from_inmemory(inbound)).unwrap()
+  let cur = @tsp.buf_new()
+  let rk = h2_server_accept_and_ack(cur, io, 4096)
+  match rk {
+    Ok(kvs) => {
+      assert_eq(kvs.length(), 0)
+      let tx = io.take_tx()
+      assert_eq(tx.length() >= 9, true)
+      assert_eq(tx[3].to_int(), H2_FRAME_SETTINGS)
+      assert_eq(tx[4].to_int() & 0x1, 1)
+      assert_eq(tx[5].to_int() & 0x80, 0)
+      assert_eq(
+        tx[5].to_int() | tx[6].to_int() | tx[7].to_int() | tx[8].to_int(),
+        0,
+      )
+    }
+    Err(e) => {
+      ignore(e)
+      ////println("h2_server_accept_and_ack failed: " + e)
+      let a = true
+      assert_eq(a, false)
+      return
+    }
+  }
+}
+
+// mini_roundtrip_test
+
+///|
+test "h2: minimal roundtrip GET → 200 + DATA('hello')" {
+  // client → server 入站：preface + client SETTINGS + request HEADERS(stream 1, END_STREAM)
+  let pre = client_preface_bytes()
+  let cli_settings = build_settings_frame([], false)
+
+  // 构造最小请求头：:method GET, :scheme http, :authority example.com, :path /
+  let req_hs : Array[HpackHeader] = []
+  req_hs.push({ name: ":method", value: "GET" })
+  req_hs.push({ name: ":scheme", value: "http" })
+  req_hs.push({ name: ":authority", value: "example.com" })
+  req_hs.push({ name: ":path", value: "/" })
+  let req_headers_bytes = build_headers_frames_from_list(1, req_hs, true)
+  let inbound : Array[Byte] = []
+  for b in pre {
+    inbound.push(b)
+  }
+  for b in cli_settings {
+    inbound.push(b)
+  }
+  for b in req_headers_bytes {
+    inbound.push(b)
+  }
+  let io = (try? @tsp.from_inmemory(inbound)).unwrap()
+  let cur = @tsp.buf_new()
+  match h2_server_handle_get_hello(cur, io, 4096) {
+    Ok(_) => ()
+    Err(_e) => {
+      //println("server handle failed: " + e)
+      let a = true
+      assert_eq(a, false)
+      return
+    }
+  }
+
+  // 取出 server 写回内容，解析：应为 SETTINGS(ACK) + HEADERS(:status 200, ...) + DATA("hello", END_STREAM)
+  let tx = io.take_tx()
+  let io2 = (try? @tsp.from_inmemory(tx)).unwrap()
+  let cur2 = @tsp.buf_new()
+
+  // 先读 SETTINGS ACK
+  let fa = read_frame(cur2, io2, 4096).unwrap()
+  assert_eq(fa.header.typ, H2_FRAME_SETTINGS)
+  assert_eq(fa.header.stream_id, 0)
+  assert_eq(fa.header.length, 0)
+  assert_eq((fa.header.flags & H2_FLAGS_ACK) != 0, true)
+
+  // 用桥接函数一次性读取并解码响应 HEADERS（内部会处理 CONTINUATION）
+  let (info_resp, _) = read_headers_as_list(cur2, io2, 4096).unwrap()
+  assert_eq(info_resp.stream_id, 1)
+  assert_eq(info_resp.end_stream, false)
+  // 如需校验内容，可加：
+  // assert_eq(hdrs_resp[0].name, ":status")
+  // assert_eq(hdrs_resp[0].value, "200")
+
+  let f2 = read_frame(cur2, io2, 4096).unwrap()
+  assert_eq(f2.header.typ, H2_FRAME_DATA)
+  assert_eq((f2.header.flags & H2_FLAGS_END_STREAM) != 0, true)
+  let s = (try? @buf.utf8_bytes_to_string(Bytes::from_array(f2.payload))).unwrap_or(
+    "",
+  )
+  assert_eq(s, "hello")
 }

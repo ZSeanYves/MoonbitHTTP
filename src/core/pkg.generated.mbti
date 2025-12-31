@@ -6,89 +6,89 @@ import(
 )
 
 // Values
-fn _hex_to_int(String) -> Result[Int, String]
+pub fn _hex_to_int(String) -> Result[Int, String]
 
-fn _int_to_hex(Int) -> String
+pub fn _int_to_hex(Int) -> String
 
-fn _skip_hdr_in_no_body(String) -> Bool
+pub fn _skip_hdr_in_no_body(String) -> Bool
 
-fn body_bytes(Array[Byte]) -> Body
+pub fn body_bytes(Array[Byte]) -> Body
 
-fn body_empty() -> Body
+pub fn body_empty() -> Body
 
-fn body_len(Body) -> Int
+pub fn body_len(Body) -> Int
 
-fn body_stream_from_bytes(Array[Byte]) -> Body
+pub fn body_stream_from_bytes(Array[Byte]) -> Body
 
-fn byte_slice(Array[Byte], Int, Int) -> Array[Byte]
+pub fn byte_slice(Array[Byte], Int, Int) -> Array[Byte]
 
-fn bytes_to_utf8(Array[Byte], String) -> Result[String, String]
+pub fn bytes_to_utf8(Array[Byte], String) -> Result[String, String]
 
-fn content_length_opt(Map[String, String]) -> Int?
+pub fn content_length_opt(Map[String, String]) -> Int?
 
-fn copy_first(Array[Byte], Int) -> Array[Byte]
+pub fn copy_first(Array[Byte], Int) -> Array[Byte]
 
-fn default_reason(Int) -> String
+pub fn default_reason(Int) -> String
 
-fn err_io(String) -> Error
+pub fn err_io(String) -> Herror
 
-fn err_proto(String) -> Error
+pub fn err_proto(String) -> Herror
 
-fn err_user(String) -> Error
+pub fn err_user(String) -> Herror
 
-fn error_to_string(Herror) -> String
+pub fn error_to_string(Herror) -> String
 
-fn find_byte(Array[Byte], Byte) -> Int?
+pub fn find_byte(Array[Byte], Byte) -> Int?
 
-fn get_all_ci(Map[String, String], String) -> Array[String]
+pub fn get_all_ci(Map[String, String], String) -> Array[String]
 
-fn get_ci(Map[String, String], String) -> String?
+pub fn get_ci(Map[String, String], String) -> String?
 
-fn has_token_ci(Map[String, String], String, String) -> Bool
+pub fn has_token_ci(Map[String, String], String, String) -> Bool
 
-fn header_get(Request, String) -> String?
+pub fn header_get(Request, String) -> String?
 
-fn ltrim_ascii(Array[Byte]) -> Array[Byte]
+pub fn ltrim_ascii(Array[Byte]) -> Array[Byte]
 
-fn make_status(Int, String) -> Status
+pub fn make_status(Int, String) -> Status
 
-fn make_status_from(StatusCode) -> Status
+pub fn make_status_from(StatusCode) -> Status
 
-fn norm_key(String) -> String
+pub fn norm_key(String) -> String
 
-fn parse_chunk_size_line(String) -> Result[Int, String]
+pub fn parse_chunk_size_line(String) -> Result[Int, String]
 
-fn parse_content_length(Map[String, String]) -> Result[Int, String]
+pub fn parse_content_length(Map[String, String]) -> Result[Int, String]
 
-fn push_ascii(Array[Byte], String) -> Array[Byte]
+pub fn push_ascii(Array[Byte], String) -> Array[Byte]
 
-fn req_line(Method, String, String) -> RequestLine
+pub fn req_line(Method, String, String) -> RequestLine
 
-fn request_new(RequestLine, Map[String, String]) -> Request
+pub fn request_new(RequestLine, Map[String, String]) -> Request
 
-fn resp_bytes(Int, String, Map[String, String], Array[Byte]) -> Response
+pub fn resp_bytes(Int, String, Map[String, String], Array[Byte]) -> Response
 
-fn resp_empty(Int, String, Map[String, String]) -> Response
+pub fn resp_empty(Int, String, Map[String, String]) -> Response
 
-fn rtrim_ascii(Array[Byte]) -> Array[Byte]
+pub fn rtrim_ascii(Array[Byte]) -> Array[Byte]
 
-fn split_header_list(String, String) -> Array[String]
+pub fn split_header_list(String, String) -> Array[String]
 
-fn status(Int, String) -> Status
+pub fn status(Int, String) -> Status
 
-fn status_code_value(StatusCode) -> Int
+pub fn status_code_value(StatusCode) -> Int
 
-fn status_no_body(Int) -> Bool
+pub fn status_no_body(Int) -> Bool
 
-fn str_contains(String, String) -> Bool
+pub fn str_contains(String, String) -> Bool
 
-fn str_slice(String, Int, Int) -> String
+pub fn str_slice(String, Int, Int) -> String
 
-fn str_starts_with(String, String) -> Bool
+pub fn str_starts_with(String, String) -> Bool
 
-fn trim_sp(String) -> String
+pub fn trim_sp(String) -> String
 
-fn write_ascii(@transport.Transport, String) -> Result[Unit, String]
+pub fn write_ascii(@transport.Transport, String) -> Result[Unit, String]
 
 // Errors
 pub suberror Herror {

@@ -1,6 +1,6 @@
 // --- 静态表（RFC7541 Appendix A：1..61 全量） ---
 ///|
-pub fn hpack_static_get(idx : Int) -> (String, String)? {
+fn hpack_static_get(idx : Int) -> (String, String)? {
   match idx {
     1 => Some((":authority", ""))
     2 => Some((":method", "GET"))
@@ -307,7 +307,7 @@ fn decode_string(buf : Array[Byte], pos : Int) -> Result[(String, Int), String] 
 // 主解码：把 header block bytes 解成数组（保持顺序）
 
 ///|
-pub fn hpack_decode_block(
+fn hpack_decode_block(
   block : Array[Byte],
 ) -> Result[Array[HpackHeader], String] {
   let out : Array[HpackHeader] = []
@@ -449,7 +449,7 @@ fn encode_string(s : String, use_huffman? : Bool = false) -> Array[Byte] {
 // 目前仅支持静态表索引；动态表未实现
 
 ///|
-pub fn hpack_encode_literal_noindex(
+fn hpack_encode_literal_noindex(
   name : String,
   value : String,
   use_huffman? : Bool = false,
@@ -498,7 +498,7 @@ pub fn hpack_encode_literal_noindex(
 // 把 (name,value) 列表编码为一个 header block（最小编码：no-index, no-huffman）
 
 ///|
-pub fn hpack_encode_list_noindex(hs : Array[HpackHeader]) -> Array[Byte] {
+fn hpack_encode_list_noindex(hs : Array[HpackHeader]) -> Array[Byte] {
   let out : Array[Byte] = []
   let mut i = 0
   while i < hs.length() {
@@ -518,7 +518,7 @@ pub fn hpack_encode_list_noindex(hs : Array[HpackHeader]) -> Array[Byte] {
 // 传入的 `hs` 顺序为：伪头在前：:method, :path, :scheme, :authority
 
 ///|
-pub fn build_headers_frames_from_list(
+fn build_headers_frames_from_list(
   stream_id : Int,
   hs : Array[HpackHeader],
   end_stream : Bool,

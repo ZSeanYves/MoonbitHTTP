@@ -167,7 +167,7 @@ fn read_reponse(
 
 ///|
 /// HTTP/2: 以 streaming 方式读取响应：
-pub fn read_response_streaming(
+fn read_response_streaming(
   io : @tsp.Transport,
   max_headers : Int,
   max_line : Int,
@@ -433,13 +433,11 @@ pub fn get_streaming(
     true, // end_stream: 请求端无 body
     max_frame_size=limits.max_line, // 用 max_line 作为最大帧长上限也可以
   )
-
   try io.write_all(hdr_bytes) catch {
     _ => return Err("h2 client: write request headers failed")
   } noraise {
     _ => ()
   }
-
   read_response_streaming(
     io,
     limits.max_headers,

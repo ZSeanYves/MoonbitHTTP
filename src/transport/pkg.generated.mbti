@@ -6,13 +6,13 @@ import(
 )
 
 // Values
-fn buf_new() -> BufCursor
+pub fn buf_new() -> BufCursor
 
-fn default_limits() -> IoLimits
+pub fn default_limits() -> IoLimits
 
-fn from_inmemory(Array[Byte]) -> Transport raise @bufferutils.BufferError
+pub fn from_inmemory(Array[Byte]) -> Transport raise @bufferutils.BufferError
 
-fn io_is_fatal(IoError) -> Bool
+pub fn io_is_fatal(IoError) -> Bool
 
 // Errors
 pub suberror BufError {
@@ -30,13 +30,13 @@ pub suberror IoError {
 pub struct BufCursor {
   mut buf : Array[Byte]
 }
-fn BufCursor::buf_drain(Self, Int) -> Int
-fn BufCursor::buf_is_empty(Self) -> Bool
-fn BufCursor::buf_len(Self) -> Int
-fn BufCursor::buf_peek(Self, Int) -> Array[Byte]
-fn BufCursor::buf_push(Self, Array[Byte]) -> Unit
-fn BufCursor::buf_read_line_crlf(Self, Int) -> Result[Array[Byte], BufError]
-fn BufCursor::buf_take(Self, Int) -> Array[Byte]
+pub fn BufCursor::buf_drain(Self, Int) -> Int
+pub fn BufCursor::buf_is_empty(Self) -> Bool
+pub fn BufCursor::buf_len(Self) -> Int
+pub fn BufCursor::buf_peek(Self, Int) -> Array[Byte]
+pub fn BufCursor::buf_push(Self, Array[Byte]) -> Unit
+pub fn BufCursor::buf_read_line_crlf(Self, Int) -> Result[Array[Byte], BufError]
+pub fn BufCursor::buf_take(Self, Int) -> Array[Byte]
 
 pub struct IoLimits {
   read_window_max : Int
@@ -51,15 +51,15 @@ pub struct Transport {
   txw : @bufferutils.BufferWriter
   mut is_closed : Bool
 }
-fn Transport::close(Self) -> Result[Unit, IoError]
-fn Transport::flush(Self) -> Result[Unit, IoError]
-fn Transport::push_rx(Self, Array[Byte]) -> Unit
-fn Transport::read(Self, Array[Byte]) -> Result[Int, IoError]
-fn Transport::read_exact(Self, Int) -> Result[Array[Byte], IoError]
-fn Transport::rx_len(Self) -> Int
-fn Transport::take_tx(Self) -> Array[Byte]
-fn Transport::write(Self, Array[Byte]) -> Result[Int, IoError] raise @bufferutils.BufferError
-fn Transport::write_all(Self, Array[Byte]) -> Result[Unit, IoError] raise @bufferutils.BufferError
+pub fn Transport::close(Self) -> Result[Unit, IoError]
+pub fn Transport::flush(Self) -> Result[Unit, IoError]
+pub fn Transport::push_rx(Self, Array[Byte]) -> Unit
+pub fn Transport::read(Self, Array[Byte]) -> Result[Int, IoError]
+pub fn Transport::read_exact(Self, Int) -> Result[Array[Byte], IoError]
+pub fn Transport::rx_len(Self) -> Int
+pub fn Transport::take_tx(Self) -> Array[Byte]
+pub fn Transport::write(Self, Array[Byte]) -> Result[Int, IoError] raise @bufferutils.BufferError
+pub fn Transport::write_all(Self, Array[Byte]) -> Result[Unit, IoError] raise @bufferutils.BufferError
 
 // Type aliases
 

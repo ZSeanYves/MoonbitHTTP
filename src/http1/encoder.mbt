@@ -5,7 +5,7 @@ pub fn encode_content_length_prefix(content_length : Int) -> String {
 
 // 生成 chunked 编码后的字节序列：<hex>\r\n<chunk>\r\n ... 0\r\n\r\n
 ///|
-pub fn encode_chunked_bytes(
+fn encode_chunked_bytes(
   body : Array[Byte],
   chunk_size : Int,
 ) -> Array[Byte] {
@@ -31,19 +31,6 @@ pub fn encode_chunked_bytes(
   out
 }
 
-// 非分块 = 原样字节；分块 = 上面那个
-///|
-pub fn encode_body_bytes(
-  body : Array[Byte],
-  is_chunked : Bool,
-  chunk_size? : Int = 1024,
-) -> Array[Byte] {
-  if is_chunked {
-    encode_chunked_bytes(body, chunk_size)
-  } else {
-    body
-  }
-}
 // 组合成“完整响应字节序列”（状态行 + 头 + 空行/CL + 实体）
 // is_chunked=true 时忽略 content_length，写 CRLF + 分块体；否则写 Content-Length + 实体
 ///|
@@ -84,7 +71,7 @@ pub fn encode_response_bytes(
 
 // 编码响应状态行（固定 HTTP/1.1；从 StatusCode 通用生成）
 ///|
-pub fn encode_status_line(status : @cor.StatusCode) -> String {
+fn encode_status_line(status : @cor.StatusCode) -> String {
   let code = @cor.status_code_value(status)
   let reason = @cor.default_reason(code)
   "HTTP/1.1 " + code.to_string() + " " + reason + "\r\n"
@@ -92,7 +79,7 @@ pub fn encode_status_line(status : @cor.StatusCode) -> String {
 
 // 编码响应头部（Content-Length, Transfer-Encoding: chunked）
 ///|
-pub fn encode_headers(headers : Map[String, String]) -> String {
+fn encode_headers(headers : Map[String, String]) -> String {
   let header_str : Array[String] = []
   let keys = headers.keys()
 
@@ -104,48 +91,10 @@ pub fn encode_headers(headers : Map[String, String]) -> String {
   return header_str.join("\r\n") + "\r\n"
 }
 
-// NOTE: 仅用于文本/测试。二进制场景请使用 encode_response_bytes 或 write_response_once。
-// 编码响应体（支持 Content-Length 或 chunked）
-///|
-pub fn encode_body(body : Array[Byte], content_length : Int) -> String {
-  if content_length > 0 {
-    // Content-Length 模式
-    let a = try @buf.utf8_bytes_to_string(Bytes::from_array(body)) catch {
-      _ => return "Failed to decode target as UTF-8"
-    } noraise {
-      s => s
-    }
-    return "Content-Length: " + content_length.to_string() + "\r\n\r\n" + a
-  } else {
-    // Transfer-Encoding: chunked 模式
-    let chunks : Array[String] = []
-    let mut i = 0
-    let chunk_size = 1024
-    while i < body.length() {
-      let chunk : Array[Byte] = []
-      let mut j = i
-      while j < i + chunk_size && j < body.length() {
-        chunk.push(body[j])
-        j += 1
-      }
-      let chunk_str = try @buf.utf8_bytes_to_string(Bytes::from_array(chunk)) catch {
-        _ => return "Failed to decode target as UTF-8"
-      } noraise {
-        s => s
-      }
-      chunks.push(
-        @cor._int_to_hex(chunk.length()) + "\r\n" + chunk_str + "\r\n",
-      )
-      i += chunk_size
-    }
-    chunks.push("0\r\n\r\n")
-    return chunks.join("")
-  }
-}
 
 // 兼容旧签名：content_len==0 + headers["Transfer-Encoding"]=="chunked" => 分块
 ///|
-pub fn encode_response(
+fn encode_response(
   status : @cor.StatusCode,
   headers : Map[String, String],
   body : Array[Byte],

@@ -7,55 +7,21 @@ import(
 )
 
 // Values
-fn chunked_handler(@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool)
+pub fn encode_content_length_prefix(Int) -> String
 
-fn echo_handler_streaming(@core.Request) -> (@core.StatusCode, Map[String, String], @core.Body, Bool)
+pub fn encode_response_bytes(@core.StatusCode, Map[String, String], Array[Byte], Bool, chunk_size? : Int, content_length_override? : Int?) -> Array[Byte]
 
-fn encode_body(Array[Byte], Int) -> String
+pub fn get(@transport.Transport, String, String, Map[String, String], @core.Limits) -> Result[@core.Response, @core.Herror]
 
-fn encode_body_bytes(Array[Byte], Bool, chunk_size? : Int) -> Array[Byte]
+pub fn get_streaming(@transport.Transport, String, String, Map[String, String], @core.Limits, stream_chunk? : Int, enable_eof_fallback? : Bool) -> Result[@core.Response, @core.Herror]
 
-fn encode_chunked_bytes(Array[Byte], Int) -> Array[Byte]
+pub fn post(@transport.Transport, String, String, Map[String, String], Array[Byte], String, @core.Limits) -> Result[@core.Response, @core.Herror]
 
-fn encode_content_length_prefix(Int) -> String
+pub fn serve_loop(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, @core.Herror]
 
-fn encode_headers(Map[String, String]) -> String
+pub fn serve_once_body(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], @core.Body, Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, @core.Herror]
 
-fn encode_response(@core.StatusCode, Map[String, String], Array[Byte], Int) -> String
-
-fn encode_response_bytes(@core.StatusCode, Map[String, String], Array[Byte], Bool, chunk_size? : Int, content_length_override? : Int?) -> Array[Byte]
-
-fn encode_status_line(@core.StatusCode) -> String
-
-fn get(@transport.Transport, String, String, Map[String, String], @core.Limits) -> Result[@core.Response, String]
-
-fn get_streaming(@transport.Transport, String, String, Map[String, String], @core.Limits, stream_chunk? : Int, enable_eof_fallback? : Bool) -> Result[@core.Response, String]
-
-fn hello_handler(@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool)
-
-fn parse_headers(@transport.BufCursor, Int, Int) -> Result[Map[String, String], String]
-
-fn parse_request_line(@transport.BufCursor) -> Result[@core.RequestLine, String]
-
-fn post(@transport.Transport, String, String, Array[Byte], String, Map[String, String], @core.Limits) -> Result[@core.Response, String]
-
-fn read_exact_from(@transport.BufCursor, @transport.Transport, Int, Int) -> Result[Array[Byte], String]
-
-fn read_request_full(@transport.Transport, Int, Int, Int, Int) -> Result[@core.Request, String]
-
-fn read_request_streaming(@transport.Transport, Int, Int, Int, Int, stream_chunk? : Int) -> Result[@core.Request, String]
-
-fn read_response(@transport.Transport, Int, Int, Int, Int, enable_eof_fallback? : Bool) -> Result[@core.Response, String]
-
-fn read_response_streaming(@transport.Transport, Int, Int, Int, Int, stream_chunk? : Int, enable_eof_fallback? : Bool) -> Result[@core.Response, String]
-
-fn serve_loop(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, String]
-
-fn serve_once_body(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], @core.Body, Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, String]
-
-fn serve_once_body_streaming(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], @core.Body, Bool), Int, Int, Int, max_body? : Int, stream_chunk? : Int) -> Result[Unit, String]
-
-fn streaming_handler(@core.Request) -> (@core.StatusCode, Map[String, String], @core.Body, Bool)
+pub fn serve_once_body_streaming(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], @core.Body, Bool), Int, Int, Int, max_body? : Int, stream_chunk? : Int) -> Result[Unit, @core.Herror]
 
 // Errors
 

@@ -1,7 +1,7 @@
 // 解析头部：读到空行（CRLF）为止
 // max_headers: 头部最大数量限制；max_line：单行最大长度（字节）
 ///|
-pub fn parse_headers(
+fn parse_headers(
   cur : @tsp.BufCursor,
   max_headers : Int,
   max_line : Int,

@@ -280,7 +280,7 @@ fn write_response_with_body(
 
 // 读取一个完整请求：行 + 头 + （可选）body
 ///|
-pub fn read_request_full(
+fn read_request_full(
   io : @tsp.Transport,
   max_headers : Int,
   max_line : Int,
@@ -330,7 +330,7 @@ pub fn read_request_full(
 
 ///|
 /// 读取一个请求（行 + 头 + body），body 支持流式：
-pub fn read_request_streaming(
+fn read_request_streaming(
   io : @tsp.Transport,
   max_headers : Int,
   max_line : Int,
@@ -525,7 +525,6 @@ fn read_once_into(
 }
 
 ///|
-/// 基于 Body 的一次性服务：handler 可以返回 Body::Empty / Bytes / Stream
 pub fn serve_once_body(
   io : @tsp.Transport,
   handler : (@cor.Request) -> (
@@ -538,15 +537,20 @@ pub fn serve_once_body(
   max_line : Int,
   read_win : Int,
   max_body? : Int = 1 * 1024 * 1024,
-) -> Result[Unit, String] {
+) -> Result[Unit, @cor.Herror] {
   let req = match
     read_request_full(io, max_headers, max_line, read_win, max_body) {
     Ok(r) => r
-    Err(e) => return Err(e)
+    Err(e) => return Err(@cor.err_proto("http1 serve_once_body: " + e))
   }
   let (status, resp_headers, resp_body, is_chunked) = handler(req)
-  write_response_with_body(io, status, resp_headers, resp_body, is_chunked)
+  match
+    write_response_with_body(io, status, resp_headers, resp_body, is_chunked) {
+    Ok(_) => Ok(())
+    Err(e) => Err(@cor.err_io("http1 serve_once_body: " + e))
+  }
 }
+
 
 ///|
 pub fn serve_loop(
@@ -561,12 +565,12 @@ pub fn serve_loop(
   max_line : Int,
   read_win : Int,
   max_body? : Int = 1 * 1024 * 1024,
-) -> Result[Unit, String] {
+) -> Result[Unit, @cor.Herror] {
   while true {
     let req_heads = match
       read_request_once(io, max_headers, max_line, read_win) {
-      Ok(r) => r
-      Err(e) => return Err(e)
+      Ok(h) => h
+      Err(e) => return Err(@cor.err_proto("http1 serve_loop: " + e))
     }
     if req_heads.line.version == "HTTP/1.1" &&
       !req_heads.headers.contains("Host") {
@@ -582,7 +586,7 @@ pub fn serve_loop(
 
     }
 
-    // —— 读取请求体 ——（新增：force_close 标记）
+    // —— 读取请求体 ——
     let hs = req_heads.headers
     let mut body = @cor.Body::Empty
     let mut force_close = false
@@ -593,9 +597,9 @@ pub fn serve_loop(
         Err(_e) =>
           if has_expect_100 {
             body = @cor.Body::Empty
-            force_close = true // ★ 触发容忍：强制关闭连接
+            force_close = true // 触发容忍：强制关闭连接
           } else {
-            return Err(_e)
+            return Err(@cor.err_proto("http1 serve_loop: " + _e))
           }
       }
     } else {
@@ -604,10 +608,14 @@ pub fn serve_loop(
         Err(_) => 0
       }
       if len < 0 {
-        return Err("negative content-length")
+        return Err(@cor.err_proto("http1 serve_loop: negative content-length"))
       }
       if len > 0 && len > max_body {
-        return Err("payload too large: " + len.to_string())
+        return Err(
+          @cor.err_proto(
+            "http1 serve_loop: payload too large: " + len.to_string(),
+          ),
+        )
       }
       if len > 0 {
         let cur = @tsp.buf_new()
@@ -618,7 +626,7 @@ pub fn serve_loop(
               body = @cor.Body::Empty
               force_close = true
             } else {
-              return Err(_e)
+              return Err(@cor.err_proto("http1 serve_loop: " + _e))
             }
         }
       }
@@ -632,7 +640,7 @@ pub fn serve_loop(
     }
     match write_response_once(io, status, resp_headers, resp_body, is_chunked) {
       Ok(_) => ()
-      Err(e) => return Err(e)
+      Err(e) => return Err(@cor.err_io("http1 serve_loop: " + e))
     }
 
     // —— 连接管理：有任何一处要求关闭，都关闭 —— 
@@ -669,7 +677,7 @@ pub fn serve_once_body_streaming(
   read_win : Int,
   max_body? : Int = 1 * 1024 * 1024,
   stream_chunk? : Int = 8 * 1024,
-) -> Result[Unit, String] {
+) -> Result[Unit, @cor.Herror] {
   let req = match
     read_request_streaming(
       io,
@@ -677,48 +685,28 @@ pub fn serve_once_body_streaming(
       max_line,
       read_win,
       max_body,
-      stream_chunk~, 
+      stream_chunk~,
     ) {
     Ok(r) => r
-    Err(e) => return Err(e)
+    Err(e) =>
+      return Err(@cor.err_proto("http1 serve_once_body_streaming: " + e))
   }
   let (status, resp_headers, resp_body, is_chunked) = handler(req)
-  write_response_with_body(io, status, resp_headers, resp_body, is_chunked)
+  match
+    write_response_with_body(io, status, resp_headers, resp_body, is_chunked) {
+    Ok(_) => Ok(())
+    Err(e) => Err(@cor.err_io("http1 serve_once_body_streaming: " + e))
+  }
 }
 
 
 
-// 一个最简单的处理器：无论请求什么都返回 200 text/plain: "Hello"
-///|
-pub fn hello_handler(
-  req : @cor.Request,
-) -> (@cor.StatusCode, Map[String, String], Array[Byte], Bool) {
-  ignore(req) // 先不看请求
-  let hs : Map[String, String] = Map::new()
-  hs.set("Content-Type", "text/plain")
-  let body = @buf.string_to_utf8_bytes("Hello, MoonBit!").to_array()
-  (@cor.StatusCode::OK, hs, body, false) // 非 chunked，自动 Content-Length
-}
 
-// 一个 chunked 处理器：返回两行拼起来的 body
-///|
-pub fn chunked_handler(
-  req : @cor.Request,
-) -> (@cor.StatusCode, Map[String, String], Array[Byte], Bool) {
-  ignore(req)
-  let hs : Map[String, String] = Map::new()
-  hs.set("Content-Type", "text/plain")
-  hs.set("Transfer-Encoding", "chunked")
-
-  // body 一次性给出，编码器会按 chunked 分块；为了可预期，给一个短 body
-  let body = @buf.string_to_utf8_bytes("Hello, world!").to_array()
-  (@cor.StatusCode::OK, hs, body, true)
-}
 
 
 // 真正流式返回（多块 chunked）
 ///|
-pub fn streaming_handler(
+fn streaming_handler(
   req : @cor.Request,
 ) -> (@cor.StatusCode, Map[String, String], @cor.Body, Bool) {
   ignore(req)
@@ -746,7 +734,7 @@ pub fn streaming_handler(
 }
 
 ///|
-pub fn echo_handler_streaming(
+fn echo_handler_streaming(
   req : @cor.Request,
 ) -> (@cor.StatusCode, Map[String, String], @cor.Body, Bool) {
   let hs_resp : Map[String, String] = Map::new()
@@ -780,7 +768,7 @@ pub fn echo_handler_streaming(
 
 // 确保从 cur/io 里“精确”读取 need 个字节（放到 Array[Byte] 返回）
 ///|
-pub fn read_exact_from(
+fn read_exact_from(
   cur : @tsp.BufCursor,
   io : @tsp.Transport,
   need : Int,
@@ -870,7 +858,7 @@ test "server: Expect 100-continue — sends 100 then 200" {
   match serve_loop(io, expect_ok_handler, max_headers, max_line, read_win) {
     Ok(_) => ()
     Err(e) => {
-      assert_eq(e.length() >= 0, false)
+      assert_eq(@cor.error_to_string(e).length() >= 0, false)
       return
     }
   }
@@ -1231,7 +1219,7 @@ test "http1: full chunked HTTP request -> streaming echo (debug)" {
   match r {
     Ok(_) => ()
     Err(e) => {
-      assert_eq(e.length() >= 0, false)
+      assert_eq(@cor.error_to_string(e).length() >= 0, false)
       return
     }
   }

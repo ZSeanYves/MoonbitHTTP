@@ -7,11 +7,11 @@ import(
 )
 
 // Values
-fn detect_http_proto_bytes(Array[Byte]) -> HttpProtoKind
+pub fn detect_http_proto_bytes(Array[Byte]) -> HttpProtoKind
 
-fn serve_connection_auto(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, String]
+pub fn serve_connection_auto(@transport.Transport, (@core.Request) -> (@core.StatusCode, Map[String, String], Array[Byte], Bool), Int, Int, Int, max_body? : Int) -> Result[Unit, @core.Herror]
 
-fn sniff_http_proto(@transport.Transport, read_win? : Int, max_rounds? : Int) -> Result[HttpProtoKind, String]
+pub fn sniff_http_proto(@transport.Transport, read_win? : Int, max_rounds? : Int) -> Result[HttpProtoKind, String]
 
 // Errors
 
