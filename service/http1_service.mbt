@@ -5,6 +5,7 @@ pub(all) struct ServerConfig {
   body_queue_capacity : Int
   read_timeout_ms : Int?
   write_timeout_ms : Int?
+  close_callback : ((Error?) -> Unit)?
 }
 
 ///|
@@ -15,6 +16,19 @@ pub fn ServerConfig::defaults() -> ServerConfig {
     body_queue_capacity: 8,
     read_timeout_ms: None,
     write_timeout_ms: None,
+    close_callback: None,
+  }
+}
+
+///|
+fn ServerConfig::without_close_callback(self : ServerConfig) -> ServerConfig {
+  {
+    limits: self.limits,
+    read_size: self.read_size,
+    body_queue_capacity: self.body_queue_capacity,
+    read_timeout_ms: self.read_timeout_ms,
+    write_timeout_ms: self.write_timeout_ms,
+    close_callback: None,
   }
 }
 
@@ -131,199 +145,230 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_conne
   let mut active_stream : @body.BodyStream? = None
   let mut handler_done = false
   @async.with_task_group(async fn(group) {
+    group.add_defer(fn() {
+      if active_stream is Some(stream) && !handler_done {
+        stream.fail(
+          @http1.Http1Error::UnexpectedEof("HTTP/1 connection closed"),
+        )
+      }
+    })
     let finish_handler = fn() {
       if active_stream is Some(stream) {
         stream.finish()
       }
     }
-    let decoder = @http1.RequestDecoder::new(limits=config.limits)
-    while read_some_with_timeout(
-            reader,
-            config.read_size,
-            config.read_timeout_ms,
-          )
-          is Some(bytes) {
-      match decoder.feed(bytes) {
-        Ok(_) => ()
-        Err(error) => raise error
-      }
-      while true {
-        let event = match decoder.next() {
-          Ok(Some(value)) => value
-          Ok(None) => break
+    try {
+      let decoder = @http1.RequestDecoder::new(limits=config.limits)
+      while read_some_with_timeout(
+              reader,
+              config.read_size,
+              config.read_timeout_ms,
+            )
+            is Some(bytes) {
+        match decoder.feed(bytes) {
+          Ok(_) => ()
           Err(error) => raise error
         }
-        match event {
-          RequestHead(request) => {
-            handler_done = false
-            let stream = @body.BodyStream::new(
-              capacity=config.body_queue_capacity,
-            )
-            active_stream = Some(stream)
-            let request = request.map_body(fn(_) { stream })
-            active = Some(
-              group.spawn(async fn() {
-                defer {
-                  handler_done = true
-                }
-                let response = service(request)
-                let request_method = request.http_method
-                let version = request.version
-                let mut framing = @http1.NoBody
-                if @types.response_allows_body(request_method, response.status) {
-                  match response.body.size_hint().exact_size() {
-                    Some(size) => framing = ContentLength(size)
-                    None =>
-                      framing = if version == Http11 {
-                        Chunked
-                      } else {
-                        CloseDelimited
-                      }
+        while true {
+          let event = match decoder.next() {
+            Ok(Some(value)) => value
+            Ok(None) => break
+            Err(error) => raise error
+          }
+          match event {
+            RequestHead(request) => {
+              handler_done = false
+              let stream = @body.BodyStream::new(
+                capacity=config.body_queue_capacity,
+              )
+              active_stream = Some(stream)
+              let request = request.map_body(fn(_) { stream })
+              active = Some(
+                group.spawn(async fn() {
+                  defer {
+                    handler_done = true
                   }
-                }
-                if !should_keep_alive(request) || framing == CloseDelimited {
-                  response.headers.set(
-                    @types.HeaderName::parse("connection").unwrap(),
-                    @types.HeaderValue::from_string("close").unwrap(),
-                  )
-                }
-                let response_head : @types.Response[Unit] = {
-                  status: response.status,
-                  version,
-                  headers: response.headers,
-                  body: (),
-                }
-                let encoded_head = match
-                  @http1.encode_response_head(
-                    response_head, request_method, framing,
-                  ) {
-                  Ok(value) => value
-                  Err(error) => raise error
-                }
-                write_with_timeout(
-                  writer,
-                  encoded_head,
-                  config.write_timeout_ms,
-                )
-                let mut remaining : Int? = match framing {
-                  ContentLength(size) => Some(size)
-                  _ => None
-                }
-                let mut sent_trailers = false
-                while response.body.next_frame() is Some(frame) {
-                  match frame {
-                    Data(data) => {
-                      if sent_trailers {
-                        raise @http1.Http1Error::InvalidFraming(
-                          "response data follows trailers",
-                        )
-                      }
-                      match remaining {
-                        Some(value) => {
-                          if data.length() > value {
-                            raise @http1.InvalidFraming(
-                              "response body exceeds content-length",
-                            )
-                          }
-                          remaining = Some(value - data.length())
+                  let response = service(request)
+                  let request_method = request.http_method
+                  let version = request.version
+                  let mut framing = @http1.NoBody
+                  if @types.response_allows_body(
+                      request_method,
+                      response.status,
+                    ) {
+                    match response.body.size_hint().exact_size() {
+                      Some(size) => framing = ContentLength(size)
+                      None =>
+                        framing = if version == Http11 {
+                          Chunked
+                        } else {
+                          CloseDelimited
                         }
-                        None => ()
-                      }
-                      let encoded = match
-                        @http1.encode_body_data(data, framing) {
-                        Ok(value) => value
-                        Err(error) => raise error
-                      }
-                      write_with_timeout(
-                        writer,
-                        encoded,
-                        config.write_timeout_ms,
-                      )
-                    }
-                    Trailers(trailers) => {
-                      if sent_trailers {
-                        raise @http1.Http1Error::InvalidFraming(
-                          "duplicate response trailers",
-                        )
-                      }
-                      sent_trailers = true
-                      let encoded = match
-                        @http1.encode_body_end(framing, trailers~) {
-                        Ok(value) => value
-                        Err(error) => raise error
-                      }
-                      write_with_timeout(
-                        writer,
-                        encoded,
-                        config.write_timeout_ms,
-                      )
                     }
                   }
-                }
-                if remaining is Some(value) && value != 0 {
-                  raise @http1.InvalidFraming(
-                    "response body shorter than content-length",
-                  )
-                }
-                if framing == Chunked && !sent_trailers {
-                  let encoded = match @http1.encode_body_end(framing) {
+                  if !should_keep_alive(request) || framing == CloseDelimited {
+                    response.headers.set(
+                      @types.HeaderName::parse("connection").unwrap(),
+                      @types.HeaderValue::from_string("close").unwrap(),
+                    )
+                  }
+                  let response_head : @types.Response[Unit] = {
+                    status: response.status,
+                    version,
+                    headers: response.headers,
+                    body: (),
+                  }
+                  let encoded_head = match
+                    @http1.encode_response_head(
+                      response_head, request_method, framing,
+                    ) {
                     Ok(value) => value
                     Err(error) => raise error
                   }
-                  write_with_timeout(writer, encoded, config.write_timeout_ms)
-                }
-              }),
-            )
+                  write_with_timeout(
+                    writer,
+                    encoded_head,
+                    config.write_timeout_ms,
+                  )
+                  let mut remaining : Int? = match framing {
+                    ContentLength(size) => Some(size)
+                    _ => None
+                  }
+                  let mut sent_trailers = false
+                  while response.body.next_frame() is Some(frame) {
+                    match frame {
+                      Data(data) => {
+                        if sent_trailers {
+                          raise @http1.Http1Error::InvalidFraming(
+                            "response data follows trailers",
+                          )
+                        }
+                        match remaining {
+                          Some(value) => {
+                            if data.length() > value {
+                              raise @http1.InvalidFraming(
+                                "response body exceeds content-length",
+                              )
+                            }
+                            remaining = Some(value - data.length())
+                          }
+                          None => ()
+                        }
+                        let encoded = match
+                          @http1.encode_body_data(data, framing) {
+                          Ok(value) => value
+                          Err(error) => raise error
+                        }
+                        write_with_timeout(
+                          writer,
+                          encoded,
+                          config.write_timeout_ms,
+                        )
+                      }
+                      Trailers(trailers) => {
+                        if sent_trailers {
+                          raise @http1.Http1Error::InvalidFraming(
+                            "duplicate response trailers",
+                          )
+                        }
+                        sent_trailers = true
+                        let encoded = match
+                          @http1.encode_body_end(framing, trailers~) {
+                          Ok(value) => value
+                          Err(error) => raise error
+                        }
+                        write_with_timeout(
+                          writer,
+                          encoded,
+                          config.write_timeout_ms,
+                        )
+                      }
+                    }
+                  }
+                  if remaining is Some(value) && value != 0 {
+                    raise @http1.InvalidFraming(
+                      "response body shorter than content-length",
+                    )
+                  }
+                  if framing == Chunked && !sent_trailers {
+                    let encoded = match @http1.encode_body_end(framing) {
+                      Ok(value) => value
+                      Err(error) => raise error
+                    }
+                    write_with_timeout(writer, encoded, config.write_timeout_ms)
+                  }
+                }),
+              )
+            }
+            RequestData(data) =>
+              if !handler_done && active_stream is Some(stream) {
+                stream.push(Data(data))
+              }
+            RequestTrailers(trailers) =>
+              if !handler_done && active_stream is Some(stream) {
+                stream.push(Trailers(trailers))
+              }
+            RequestEnd => {
+              finish_handler()
+              guard active is Some(task) else {
+                raise @http1.InvalidFraming(
+                  "request ended without request head",
+                )
+              }
+              task.wait()
+              active = None
+              active_stream = None
+            }
           }
-          RequestData(data) =>
+        }
+      }
+      decoder.finish_input()
+      while true {
+        match decoder.next() {
+          Err(error) => raise error
+          Ok(None) => break
+          Ok(Some(RequestData(data))) =>
             if !handler_done && active_stream is Some(stream) {
               stream.push(Data(data))
             }
-          RequestTrailers(trailers) =>
+          Ok(Some(RequestTrailers(trailers))) =>
             if !handler_done && active_stream is Some(stream) {
               stream.push(Trailers(trailers))
             }
-          RequestEnd => {
+          Ok(Some(RequestEnd)) => {
             finish_handler()
             guard active is Some(task) else {
-              raise @http1.InvalidFraming("request ended without request head")
+              raise @http1.Http1Error::InvalidFraming(
+                "request ended without request head",
+              )
             }
             task.wait()
             active = None
             active_stream = None
           }
+          Ok(Some(RequestHead(_))) =>
+            raise @http1.Http1Error::UnexpectedEof("request body")
         }
       }
-    }
-    decoder.finish_input()
-    while true {
-      match decoder.next() {
-        Err(error) => raise error
-        Ok(None) => break
-        Ok(Some(RequestData(data))) =>
-          if !handler_done && active_stream is Some(stream) {
-            stream.push(Data(data))
-          }
-        Ok(Some(RequestTrailers(trailers))) =>
-          if !handler_done && active_stream is Some(stream) {
-            stream.push(Trailers(trailers))
-          }
-        Ok(Some(RequestEnd)) => {
-          finish_handler()
-          guard active is Some(task) else {
-            raise @http1.Http1Error::InvalidFraming(
-              "request ended without request head",
-            )
-          }
-          task.wait()
-          active = None
-          active_stream = None
+    } catch {
+      error => {
+        if active_stream is Some(stream) {
+          stream.fail(error)
         }
-        Ok(Some(RequestHead(_))) =>
-          raise @http1.Http1Error::UnexpectedEof("request body")
+        raise error
       }
     }
-  })
+  }) catch {
+    error => {
+      if config.close_callback is Some(callback) {
+        callback(Some(error))
+      }
+      raise error
+    }
+  }
+  if config.close_callback is Some(callback) {
+    callback(None)
+  }
 }
 
 ///|
@@ -334,8 +379,15 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_with_
   error_responder : (Error) -> @types.Response[B],
   config? : ServerConfig = ServerConfig::defaults(),
 ) -> Unit {
-  serve_http1_connection(reader, writer, service, config~) catch {
+  let mut terminal : Error? = None
+  serve_http1_connection(
+    reader,
+    writer,
+    service,
+    config=config.without_close_callback(),
+  ) catch {
     error => {
+      terminal = Some(error)
       let response = error_responder(error)
       let head : @types.Response[Unit] = {
         status: response.status,
@@ -349,6 +401,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_with_
         Err(codec_error) => raise codec_error
       }
       write_with_timeout(writer, encoded, config.write_timeout_ms)
+      let mut sent_end = false
       while response.body.next_frame() is Some(frame) {
         match frame {
           Data(data) => {
@@ -359,19 +412,30 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_with_
             write_with_timeout(writer, encoded, config.write_timeout_ms)
           }
           Trailers(trailers) => {
+            if sent_end {
+              raise @http1.Http1Error::InvalidFraming(
+                "duplicate error response trailers",
+              )
+            }
             let encoded = match @http1.encode_body_end(framing, trailers~) {
               Ok(value) => value
               Err(codec_error) => raise codec_error
             }
             write_with_timeout(writer, encoded, config.write_timeout_ms)
+            sent_end = true
           }
         }
       }
-      write_with_timeout(
-        writer,
-        @http1.encode_body_end(framing).unwrap(),
-        config.write_timeout_ms,
-      )
+      if !sent_end {
+        write_with_timeout(
+          writer,
+          @http1.encode_body_end(framing).unwrap(),
+          config.write_timeout_ms,
+        )
+      }
     }
+  }
+  if config.close_callback is Some(callback) {
+    callback(terminal)
   }
 }

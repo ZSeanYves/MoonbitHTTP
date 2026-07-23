@@ -1,5 +1,5 @@
 ///|
-pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_auto_connection(
+async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_auto_connection_inner(
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
@@ -31,23 +31,56 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_auto_connec
     replay_writer.write(Bytes::from_array(prefix))
     replay_writer.write_reader(reader)
   })
-  let read_timeout_ms = config.read_timeout_ms
-  let write_timeout_ms = config.write_timeout_ms
   match detection {
     Detected(Http2PriorKnowledge) =>
       serve_http2_connection(
         replay,
         writer,
         service,
-        limits=config.limits,
-        read_timeout_ms?,
-        write_timeout_ms?,
+        config=config.without_close_callback(),
       )
-    Detected(Http1) | Detected(Http2Upgrade) =>
-      serve_http1_or_h2c_connection(replay, writer, service, config~)
+    Detected(Http1) =>
+      serve_http1_or_h2c_connection(
+        replay,
+        writer,
+        service,
+        config=config.without_close_callback(),
+      )
+    Detected(Http2Upgrade) =>
+      serve_http1_or_h2c_connection(
+        replay,
+        writer,
+        service,
+        config=config.without_close_callback(),
+      )
     Undetermined =>
       raise @http1.Http1Error::InvalidStartLine(
         "protocol detection did not finish",
       )
+  }
+}
+
+///|
+pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_auto_connection(
+  reader : R,
+  writer : W,
+  service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
+  config? : ServerConfig = ServerConfig::defaults(),
+) -> Unit {
+  serve_auto_connection_inner(
+    reader,
+    writer,
+    service,
+    config=config.without_close_callback(),
+  ) catch {
+    error => {
+      if config.close_callback is Some(callback) {
+        callback(Some(error))
+      }
+      raise error
+    }
+  }
+  if config.close_callback is Some(callback) {
+    callback(None)
   }
 }

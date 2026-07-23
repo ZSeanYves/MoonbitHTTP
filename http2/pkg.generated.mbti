@@ -89,7 +89,7 @@ pub(all) enum H2Action {
   SendPingAck(Array[Byte])
   HeadersStarted(Int, Bool)
   HeadersContinued(Int, Bool)
-  DataReceived(Int, Array[Byte], Bool)
+  DataReceived(Int, Array[Byte], Bool, Int)
   StreamResetReceived(Int, Int)
   GoawayReceived(Int, Int)
   WindowAvailable(Int, Int)
@@ -111,12 +111,14 @@ pub struct H2Connection {
 pub fn H2Connection::accept_upgraded_stream1(Self) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::apply_settings_payload(Self, BytesView) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::finish_local_stream(Self, Int) -> Result[Unit, H2ProtocolError]
+pub fn H2Connection::increase_connection_receive_window(Self, Int) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::new(H2Role) -> Self
 pub fn H2Connection::open_local_stream(Self, end_stream? : Bool) -> Result[Int, H2ProtocolError]
 pub fn H2Connection::receive(Self, H2Frame) -> Result[Array[H2Action], H2ProtocolError]
 pub fn H2Connection::release_capacity(Self, Int, Int) -> Result[Array[H2Action], H2ProtocolError]
 pub fn H2Connection::reserve_send_capacity(Self, Int, Int) -> Result[Int, H2ProtocolError]
 pub fn H2Connection::reset_stream(Self, Int) -> Result[Unit, H2ProtocolError]
+pub fn H2Connection::set_local_initial_window(Self, Int) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::stream_state(Self, Int) -> H2StreamState?
 
 pub(all) enum H2ErrorCode {

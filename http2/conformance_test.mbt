@@ -32,7 +32,7 @@ test "h2 conformance: padded DATA exposes only application bytes" {
       payload: [1, b'a', b'b', b'c', 0],
     })
     .unwrap()
-  assert_eq(actions is [DataReceived(1, [b'a', b'b', b'c'], false)], true)
+  assert_eq(actions is [DataReceived(1, [b'a', b'b', b'c'], false, 5)], true)
 }
 
 ///|

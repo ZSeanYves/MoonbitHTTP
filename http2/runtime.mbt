@@ -73,7 +73,7 @@ pub(all) enum H2Action {
   SendPingAck(Array[Byte])
   HeadersStarted(Int, Bool)
   HeadersContinued(Int, Bool)
-  DataReceived(Int, Array[Byte], Bool)
+  DataReceived(Int, Array[Byte], Bool, Int)
   StreamResetReceived(Int, Int)
   GoawayReceived(Int, Int)
   WindowAvailable(Int, Int)
@@ -112,6 +112,45 @@ pub fn H2Connection::new(role : H2Role) -> H2Connection {
     continuation_stream: None,
     goaway_received: false,
   }
+}
+
+///|
+/// Sets the bounded receive budget advertised to the peer before the first
+/// stream is opened. The budget is shared by the connection and each stream.
+pub fn H2Connection::set_local_initial_window(
+  self : H2Connection,
+  window : Int,
+) -> Result[Unit, H2ProtocolError] {
+  if window <= 0 || window > 0x7fffffff {
+    return Err(
+      ConnectionError(
+        FlowControlError,
+        "initial receive window is outside the HTTP/2 range",
+      ),
+    )
+  }
+  self.local_settings.initial_window_size = window
+  Ok(())
+}
+
+///|
+/// Expands the local connection-level receive window. HTTP/2 SETTINGS only
+/// changes stream windows, so callers must pair this with a connection
+/// WINDOW_UPDATE frame sent to the peer.
+pub fn H2Connection::increase_connection_receive_window(
+  self : H2Connection,
+  increment : Int,
+) -> Result[Unit, H2ProtocolError] {
+  if increment <= 0 || self.connection_recv_window + increment > 0x7fffffff {
+    return Err(
+      ConnectionError(
+        FlowControlError,
+        "invalid connection receive window increment",
+      ),
+    )
+  }
+  self.connection_recv_window += increment
+  Ok(())
 }
 
 ///|
@@ -559,7 +598,7 @@ pub fn H2Connection::receive(
       } else {
         frame.payload
       }
-      actions.push(DataReceived(h.stream_id, data, end_stream))
+      actions.push(DataReceived(h.stream_id, data, end_stream, h.length))
     }
     H2_FRAME_RST_STREAM => {
       if h.stream_id == 0 || frame.payload.length() != 4 {

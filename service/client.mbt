@@ -34,6 +34,14 @@ pub fn[R, W] ClientConnection::new(
 }
 
 ///|
+/// Marks the HTTP/1 client connection unusable. Physical transport shutdown is
+/// owned by the caller's Reader/Writer adapter.
+pub fn[R, W] ClientConnection::close(self : ClientConnection[R, W]) -> Unit {
+  self.closed = true
+  self.busy = false
+}
+
+///|
 pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection::send(
   self : ClientConnection[R, W],
   request : @types.Request[B],

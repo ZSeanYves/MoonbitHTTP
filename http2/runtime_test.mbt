@@ -77,7 +77,7 @@ test "h2 runtime: connection and stream flow control" {
   let actions = connection
     .receive(test_frame(H2_FRAME_DATA, 0, 1, payload))
     .unwrap()
-  assert_eq(actions is [DataReceived(1, _, false)], true)
+  assert_eq(actions is [DataReceived(1, _, false, 1024)], true)
   assert_eq(connection.release_capacity(1, 1024).unwrap().length(), 2)
 }
 

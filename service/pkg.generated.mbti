@@ -4,9 +4,7 @@ package "ZSeanYves/MoonbitHTTP/service"
 import {
   "ZSeanYves/MoonbitHTTP/body",
   "ZSeanYves/MoonbitHTTP/http1",
-  "ZSeanYves/MoonbitHTTP/http2",
   "ZSeanYves/MoonbitHTTP/types",
-  "moonbitlang/async",
   "moonbitlang/async/io",
 }
 
@@ -21,7 +19,9 @@ pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http1_or_h2c_
 
 pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http1_with_error_responder(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], (Error) -> @types.Response[B], config? : ServerConfig) -> Unit
 
-pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http2_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], limits? : @types.Limits, upgraded_request? : @types.Request[@body.BodyStream]?, upgrade_settings? : Bytes?, read_timeout_ms? : Int, write_timeout_ms? : Int) -> Unit
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http2_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig, upgraded_request? : @types.Request[@body.BodyStream]?, upgrade_settings? : Bytes?) -> Unit
+
+pub async fn[R : @io.Reader, W : @io.Writer, X] with_h2_client_connection(R, W, async (H2Client) -> X, config? : H2ClientConfig) -> X
 
 // Errors
 
@@ -36,27 +36,26 @@ pub struct ClientConnection[R, W] {
   mut closed : Bool
   mut busy : Bool
 }
+pub fn[R, W] ClientConnection::close(Self[R, W]) -> Unit
 pub fn[R, W] ClientConnection::new(R, W, limits? : @types.Limits, read_size? : Int, read_timeout_ms? : Int, write_timeout_ms? : Int) -> Self[R, W]
 pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] ClientConnection::send(Self[R, W], @types.Request[B]) -> @types.Response[@body.BodyStream]
 
-pub struct H2ClientConnection[R, W] {
-  reader : R
-  writer : W
+pub struct H2Client {
+  // private fields
+}
+pub fn H2Client::close(Self) -> Unit
+pub async fn[B : @body.Body] H2Client::send(Self, @types.Request[B]) -> @types.Response[@body.BodyStream]
+
+pub(all) struct H2ClientConfig {
   limits : @types.Limits
   max_concurrent_streams : Int
-  runtime : @http2.H2Connection
-  frames : @http2.FrameDecoder
-  encoder : @http2.HpackContext
-  decoder : @http2.HpackContext
-  write_lock : @async.Mutex
-  send_lock : @async.Mutex
-  mut started : Bool
-  mut closed : Bool
-  mut goaway : Bool
+  body_queue_capacity : Int
+  read_size : Int
+  read_timeout_ms : Int?
+  write_timeout_ms : Int?
+  close_callback : ((Error?) -> Unit)?
 }
-pub fn[R, W] H2ClientConnection::close(Self[R, W]) -> Unit
-pub fn[R, W] H2ClientConnection::new(R, W, limits? : @types.Limits, max_concurrent_streams? : Int) -> Self[R, W]
-pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] H2ClientConnection::send(Self[R, W], @types.Request[B]) -> @types.Response[@body.BodyStream]
+pub fn H2ClientConfig::defaults() -> Self
 
 pub(all) struct ServerConfig {
   limits : @types.Limits
@@ -64,6 +63,7 @@ pub(all) struct ServerConfig {
   body_queue_capacity : Int
   read_timeout_ms : Int?
   write_timeout_ms : Int?
+  close_callback : ((Error?) -> Unit)?
 }
 pub fn ServerConfig::defaults() -> Self
 
