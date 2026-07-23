@@ -26,6 +26,15 @@ jobs:
       - name: Check code (deny warnings)
         run: moon check --target all --deny-warn --warn-list +73
 
+      - name: Verify root package layout
+        run: |
+          test ! -d src
+          test -f moon.mod
+          ! rg -n 'source\s*=\s*"src"|moon (run|test) src/' . --glob '!_build/**' --glob '!target/**'
+
+      - name: Build all targets
+        run: moon build --target all --deny-warn --warn-list +73
+
       - name: Run tests
         run: moon test --target all --deny-warn --warn-list +73
 
@@ -40,6 +49,9 @@ jobs:
 
       - name: Build benchmarks
         run: moon bench --build-only --target native --deny-warn --warn-list +73
+
+      - name: Validate package manifest
+        run: moon package --list
 
       - name: Generate coverage report
         run: moon coverage analyze -- -f cobertura -o coverage.xml
