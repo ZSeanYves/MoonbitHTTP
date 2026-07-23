@@ -1,8 +1,8 @@
 ///|
-pub async fn[R : @aio.Reader, W : @aio.Writer] serve_http1_or_h2c_connection(
+pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_or_h2c_connection(
   reader : R,
   writer : W,
-  service : async (@types.Request[Bytes]) -> @types.Response[Bytes],
+  service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   config? : ServerConfig = ServerConfig::defaults(),
 ) -> Unit {
   let decoder = @http1.RequestDecoder::new(limits=config.limits)
@@ -33,7 +33,16 @@ pub async fn[R : @aio.Reader, W : @aio.Writer] serve_http1_or_h2c_connection(
               "request ended without a head",
             )
           }
-          let request = request_head.map_body(fn(_) { Bytes::from_array(body) })
+          let request_bytes = Bytes::from_array(body)
+          let request_stream = @body.BodyStream::new(
+            capacity=2,
+            size_hint=@body.SizeHint::exact(request_bytes.length()),
+          )
+          if !request_bytes.is_empty() {
+            request_stream.push(Data(request_bytes))
+          }
+          request_stream.finish()
+          let request = request_head.map_body(fn(_) { request_stream })
           if @auto.detect_h2c_upgrade(request.headers) {
             let settings_values = request.headers.get_all_string(
               "http2-settings",
@@ -67,26 +76,29 @@ pub async fn[R : @aio.Reader, W : @aio.Writer] serve_http1_or_h2c_connection(
               let name = @types.HeaderName::parse(name_text).unwrap()
               upgraded_headers.remove(name)
             }
-            let upgraded : @types.Request[Bytes] = {
+            let upgraded : @types.Request[@body.BodyStream] = {
               http_method: request.http_method,
               uri: request.uri,
               version: Http2,
               headers: upgraded_headers,
               body: request.body,
             }
-            serve_http2_connection_with_timeouts(
+            let read_timeout_ms = config.read_timeout_ms
+            let write_timeout_ms = config.write_timeout_ms
+            serve_http2_connection(
               replay,
               writer,
               service,
               limits=config.limits,
               upgraded_request=Some(upgraded),
               upgrade_settings=Some(settings),
-              read_timeout_ms=config.read_timeout_ms,
-              write_timeout_ms=config.write_timeout_ms,
+              read_timeout_ms?,
+              write_timeout_ms?,
             )
             return
           }
           let response = service(request)
+          let (response_bytes, response_trailers) = @body.collect(response.body)
           let close = !should_keep_alive(request_head)
           if close {
             response.headers.set(
@@ -98,7 +110,11 @@ pub async fn[R : @aio.Reader, W : @aio.Writer] serve_http1_or_h2c_connection(
               request_head.http_method,
               response.status,
             ) {
-            @http1.BodyFraming::ContentLength(response.body.length())
+            if response_trailers is Some(_) {
+              @http1.BodyFraming::Chunked
+            } else {
+              ContentLength(response_bytes.length())
+            }
           } else {
             NoBody
           }
@@ -119,7 +135,27 @@ pub async fn[R : @aio.Reader, W : @aio.Writer] serve_http1_or_h2c_connection(
           }
           write_with_timeout(writer, encoded_head, config.write_timeout_ms)
           if framing != NoBody {
-            write_with_timeout(writer, response.body, config.write_timeout_ms)
+            let encoded_data = match
+              @http1.encode_body_data(response_bytes, framing) {
+              Ok(value) => value
+              Err(error) => raise error
+            }
+            write_with_timeout(writer, encoded_data, config.write_timeout_ms)
+            if framing == Chunked {
+              let encoded_end = match response_trailers {
+                Some(trailers) =>
+                  match @http1.encode_body_end(framing, trailers~) {
+                    Ok(value) => value
+                    Err(error) => raise error
+                  }
+                None =>
+                  match @http1.encode_body_end(framing) {
+                    Ok(value) => value
+                    Err(error) => raise error
+                  }
+              }
+              write_with_timeout(writer, encoded_end, config.write_timeout_ms)
+            }
           }
           head = None
           body.clear()

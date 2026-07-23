@@ -164,10 +164,10 @@ pub fn encode_response_frames(
 }
 
 ///|
-pub fn encode_response_headers(
+pub fn[A] encode_response_headers(
   context : HpackContext,
   stream_id : Int,
-  response : @types.Response[Bytes],
+  response : @types.Response[A],
   end_stream : Bool,
   max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Result[Bytes, H2ProtocolError] {
@@ -201,6 +201,44 @@ pub fn encode_response_headers(
         end_stream,
         max_frame_size~,
       ),
+    ),
+  )
+}
+
+///|
+/// Encodes HTTP/2 trailing headers and closes the stream.
+pub fn encode_trailers(
+  context : HpackContext,
+  stream_id : Int,
+  trailers : @types.HeaderMap,
+  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
+) -> Result[Bytes, H2ProtocolError] {
+  if max_frame_size < 1 {
+    return Err(
+      ConnectionError(FrameSizeError, "max frame size must be positive"),
+    )
+  }
+  let fields : Array[HpackHeader] = []
+  for field in trailers.fields() {
+    let name = field.name.value
+    if name.has_prefix(":") ||
+      name == "connection" ||
+      name == "transfer-encoding" ||
+      name == "content-length" ||
+      name == "host" {
+      return Err(
+        StreamError(stream_id, ProtocolError, "invalid HTTP/2 trailer field"),
+      )
+    }
+    fields.push({ name, value: field.value.to_string_lossy() })
+  }
+  let block = match context.encode_incremental(fields) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  Ok(
+    Bytes::from_array(
+      build_headers_frames(stream_id, block.to_array(), true, max_frame_size~),
     ),
   )
 }
@@ -300,4 +338,57 @@ pub fn encode_request_frames(
     }
   }
   Ok(Bytes::from_array(out))
+}
+
+///|
+/// Encodes only the request HEADERS block. The body is sent separately by a
+/// connection implementation so it can honor flow-control windows.
+pub fn[A] encode_request_headers(
+  context : HpackContext,
+  stream_id : Int,
+  request : @types.Request[A],
+  end_stream : Bool,
+  scheme? : String = "http",
+  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
+) -> Result[Bytes, H2ProtocolError] {
+  if max_frame_size < 1 {
+    return Err(
+      ConnectionError(FrameSizeError, "max frame size must be positive"),
+    )
+  }
+  let authority = request.headers
+    .get_string("host")
+    .map(fn(value) { value.to_string_lossy() })
+    .unwrap_or("")
+  let fields : Array[HpackHeader] = [
+    { name: ":method", value: method_text(request.http_method) },
+    { name: ":scheme", value: scheme },
+    { name: ":authority", value: authority },
+    { name: ":path", value: request.uri.value },
+  ]
+  for field in request.headers.fields() {
+    let name = field.name.value
+    if name == "host" ||
+      name == "connection" ||
+      name == "transfer-encoding" ||
+      name == "upgrade" ||
+      name == "keep-alive" {
+      continue
+    }
+    fields.push({ name, value: field.value.to_string_lossy() })
+  }
+  let block = match context.encode_incremental(fields) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  Ok(
+    Bytes::from_array(
+      build_headers_frames(
+        stream_id,
+        block.to_array(),
+        end_stream,
+        max_frame_size~,
+      ),
+    ),
+  )
 }

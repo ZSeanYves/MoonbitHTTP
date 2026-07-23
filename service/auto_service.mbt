@@ -1,8 +1,8 @@
 ///|
-pub async fn[R : @aio.Reader, W : @aio.Writer] serve_auto_connection(
+pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_auto_connection(
   reader : R,
   writer : W,
-  service : async (@types.Request[Bytes]) -> @types.Response[Bytes],
+  service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   config? : ServerConfig = ServerConfig::defaults(),
 ) -> Unit {
   let detector = @auto.Detector::new()
@@ -31,15 +31,17 @@ pub async fn[R : @aio.Reader, W : @aio.Writer] serve_auto_connection(
     replay_writer.write(Bytes::from_array(prefix))
     replay_writer.write_reader(reader)
   })
+  let read_timeout_ms = config.read_timeout_ms
+  let write_timeout_ms = config.write_timeout_ms
   match detection {
     Detected(Http2PriorKnowledge) =>
-      serve_http2_connection_with_timeouts(
+      serve_http2_connection(
         replay,
         writer,
         service,
         limits=config.limits,
-        read_timeout_ms=config.read_timeout_ms,
-        write_timeout_ms=config.write_timeout_ms,
+        read_timeout_ms?,
+        write_timeout_ms?,
       )
     Detected(Http1) | Detected(Http2Upgrade) =>
       serve_http1_or_h2c_connection(replay, writer, service, config~)

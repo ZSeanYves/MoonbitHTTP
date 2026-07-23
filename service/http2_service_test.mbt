@@ -45,11 +45,13 @@ async test "service: HTTP/2 dispatches two streams on one connection" {
       status: 200,
       version: Http2,
       headers: response_headers,
-      body: if request.uri.value == "/one" {
-        b"one"
-      } else {
-        b"two"
-      },
+      body: @body.FullBody::new(
+        if request.uri.value == "/one" {
+          b"one"
+        } else {
+          b"two"
+        },
+      ),
     }
   })
   assert_eq(calls, 2)
@@ -110,7 +112,7 @@ async test "service: HTTP/2 response honors flow-control windows" {
       status: 200,
       version: Http2,
       headers: @types.HeaderMap::new(),
-      body: Bytes::from_array(body),
+      body: @body.FullBody::new(Bytes::from_array(body)),
     }
   })
   let decoder = @http2.FrameDecoder::new(max_buffer_size=512 * 1024)
@@ -170,7 +172,7 @@ async test "service: stream errors reset only the offending stream" {
       status: 200,
       version: Http2,
       headers: @types.HeaderMap::new(),
-      body: b"ok",
+      body: @body.FullBody::new(b"ok"),
     }
   })
   assert_eq(calls, 1)
