@@ -1,6 +1,6 @@
 # ZSeanYves/MoonbitHTTP
 
-MoonbitHTTP 0.4.0 是一个传输层无关、可流式驱动的 MoonBit HTTP 协议库。
+MoonbitHTTP 0.5.0 是一个传输层无关、端到端流式驱动的 MoonBit HTTP 协议库。
 核心 codec 是纯增量状态机，可在四个稳定后端运行；异步连接层直接使用
 `moonbitlang/async/io.Reader` 与 `Writer`，可接 TCP、内存 pipe 或外部运行时。
 
@@ -9,11 +9,11 @@ MoonbitHTTP 0.4.0 是一个传输层无关、可流式驱动的 MoonBit HTTP 协
 | 包 | 职责 |
 | --- | --- |
 | `types` | 多值 HeaderMap、Method、Uri、Version、泛型 Request/Response、Limits |
-| `body` | 异步 `Body` trait、Data/Trailers frame、SizeHint、收集与限制 |
+| `body` | 异步 `Body` trait、有界 `BodyStream`、Data/Trailers frame 和 SizeHint |
 | `codec` | 与协议无关的增量字节缓冲和结构化 codec 错误 |
 | `http1` | RFC 9110/9112 framing、流式事件、pipeline、请求/响应编码 |
 | `http2` | 帧、完整 HPACK Huffman/动态表、连接/流状态和流量控制 |
-| `service` | 异步 HTTP/1、HTTP/2、自动协议 server，以及 HTTP/1 client connection |
+| `service` | 流式 HTTP/1、HTTP/2、自动协议 server，以及 HTTP/1/HTTP/2 client |
 | `auto` | HTTP/2 prior knowledge、h2c 和外部 ALPN 选择 |
 | `uv_adapter` | callback/uv 风格 I/O 到官方 Reader/Writer 的薄适配 |
 | `test_support` | 分片、故障注入和录制 I/O 测试工具 |
@@ -29,7 +29,7 @@ async fn serve_connection[R : @io.Reader, W : @io.Writer](reader : R, writer : W
       status: 200,
       version: request.version,
       headers,
-      body: b"Hello from MoonbitHTTP!",
+      body: @body.FullBody::new(b"Hello from MoonbitHTTP!"),
     }
   })
 }

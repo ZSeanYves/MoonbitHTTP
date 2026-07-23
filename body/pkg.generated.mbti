@@ -3,6 +3,7 @@ package "ZSeanYves/MoonbitHTTP/body"
 
 import {
   "ZSeanYves/MoonbitHTTP/types",
+  "moonbitlang/async/aqueue",
   "moonbitlang/core/debug",
 }
 
@@ -15,6 +16,22 @@ pub(all) suberror BodyLimitExceeded {
 } derive(Eq, @debug.Debug)
 
 // Types and methods
+pub struct BodyStream {
+  queue : @aqueue.Queue[Frame]
+  hint : SizeHint
+  on_data_consumed : async (Int) -> Unit
+  pull : (async () -> Frame?)?
+  mut finished : Bool
+  mut failure : Error?
+}
+pub fn BodyStream::fail(Self, Error) -> Unit
+pub fn BodyStream::finish(Self) -> Unit
+pub fn BodyStream::from_pull(async () -> Frame?, size_hint? : SizeHint) -> Self
+pub fn BodyStream::new(capacity? : Int, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit) -> Self
+pub async fn BodyStream::push(Self, Frame) -> Unit
+pub fn BodyStream::try_push(Self, Frame) -> Bool raise
+pub impl Body for BodyStream
+
 pub struct EmptyBody(Unit)
 pub fn EmptyBody::new() -> Self
 pub impl Body for EmptyBody
@@ -44,7 +61,10 @@ pub(all) struct SizeHint {
   upper : Int?
 }
 pub fn SizeHint::exact(Int) -> Self
+pub fn SizeHint::exact_size(Self) -> Int?
+pub fn SizeHint::lower_bound(Self) -> Int
 pub fn SizeHint::unknown() -> Self
+pub fn SizeHint::upper_bound(Self) -> Int?
 
 // Type aliases
 

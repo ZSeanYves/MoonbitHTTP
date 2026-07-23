@@ -48,13 +48,17 @@ pub fn encode_ping_ack(Array[Byte]) -> Result[Bytes, H2ProtocolError]
 
 pub fn encode_request_frames(HpackContext, Int, @types.Request[Bytes], scheme? : String, max_frame_size? : Int) -> Result[Bytes, H2ProtocolError]
 
+pub fn[A] encode_request_headers(HpackContext, Int, @types.Request[A], Bool, scheme? : String, max_frame_size? : Int) -> Result[Bytes, H2ProtocolError]
+
 pub fn encode_response_frames(HpackContext, Int, @types.Response[Bytes], max_frame_size? : Int) -> Result[Bytes, H2ProtocolError]
 
-pub fn encode_response_headers(HpackContext, Int, @types.Response[Bytes], Bool, max_frame_size? : Int) -> Result[Bytes, H2ProtocolError]
+pub fn[A] encode_response_headers(HpackContext, Int, @types.Response[A], Bool, max_frame_size? : Int) -> Result[Bytes, H2ProtocolError]
 
 pub fn encode_rst_stream(Int, H2ErrorCode) -> Result[Bytes, H2ProtocolError]
 
 pub fn encode_settings_frame(Array[H2Setting], Bool) -> Array[Byte]
+
+pub fn encode_trailers(HpackContext, Int, @types.HeaderMap, max_frame_size? : Int) -> Result[Bytes, H2ProtocolError]
 
 pub fn encode_window_update(Int, Int) -> Result[Bytes, H2ProtocolError]
 

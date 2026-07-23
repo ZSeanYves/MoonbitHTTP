@@ -1,6 +1,6 @@
 # ZSeanYves/MoonbitHTTP
 
-MoonbitHTTP 0.4.0 is a transport-independent, streaming HTTP protocol library
+MoonbitHTTP 0.5.0 is a transport-independent, streaming HTTP protocol library
 for MoonBit. Its codecs are pure incremental state machines that build on all
 four stable backends. Async connection drivers use
 `moonbitlang/async/io.Reader` and `Writer` directly, so they work with TCP,
@@ -11,11 +11,11 @@ memory pipes, and callback-based runtimes.
 | Package | Responsibility |
 | --- | --- |
 | `types` | Multi-value headers, generic Request/Response, Method, Uri, Version, limits |
-| `body` | Async Body trait, Data/Trailers frames, SizeHint and bounded collection |
+| `body` | Async Body trait, bounded BodyStream, Data/Trailers frames and SizeHint |
 | `codec` | Protocol-independent incremental byte buffering and codec errors |
 | `http1` | RFC 9110/9112 framing, streaming events, pipelining and encoding |
 | `http2` | Frames, complete HPACK Huffman/dynamic table, streams and flow control |
-| `service` | Async HTTP/1, HTTP/2 and auto-detect servers plus an HTTP/1 client connection |
+| `service` | Streaming HTTP/1, HTTP/2 and auto-detect servers plus HTTP/1 and HTTP/2 clients |
 | `auto` | Prior knowledge, h2c and externally supplied ALPN selection |
 | `uv_adapter` | Callback/uv-style I/O bridge to the official Reader/Writer traits |
 | `test_support` | Fragmentation, fault injection and recording I/O fixtures |

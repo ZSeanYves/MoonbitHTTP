@@ -2,23 +2,26 @@
 package "ZSeanYves/MoonbitHTTP/service"
 
 import {
+  "ZSeanYves/MoonbitHTTP/body",
   "ZSeanYves/MoonbitHTTP/http1",
+  "ZSeanYves/MoonbitHTTP/http2",
   "ZSeanYves/MoonbitHTTP/types",
+  "moonbitlang/async",
   "moonbitlang/async/io",
 }
 
 // Values
 pub async fn[R : @io.Reader] drive_http1_events(R, async (@http1.RequestEvent) -> Unit, config? : ServerConfig) -> Unit
 
-pub async fn[R : @io.Reader, W : @io.Writer] serve_auto_connection(R, W, async (@types.Request[Bytes]) -> @types.Response[Bytes], config? : ServerConfig) -> Unit
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_auto_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig) -> Unit
 
-pub async fn[R : @io.Reader, W : @io.Writer] serve_http1_connection(R, W, async (@types.Request[Bytes]) -> @types.Response[Bytes], config? : ServerConfig) -> Unit
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http1_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig) -> Unit
 
-pub async fn[R : @io.Reader, W : @io.Writer] serve_http1_or_h2c_connection(R, W, async (@types.Request[Bytes]) -> @types.Response[Bytes], config? : ServerConfig) -> Unit
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http1_or_h2c_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig) -> Unit
 
-pub async fn[R : @io.Reader, W : @io.Writer] serve_http1_with_error_responder(R, W, async (@types.Request[Bytes]) -> @types.Response[Bytes], (Error) -> @types.Response[Bytes], config? : ServerConfig) -> Unit
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http1_with_error_responder(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], (Error) -> @types.Response[B], config? : ServerConfig) -> Unit
 
-pub async fn[R : @io.Reader, W : @io.Writer] serve_http2_connection(R, W, async (@types.Request[Bytes]) -> @types.Response[Bytes], limits? : @types.Limits, upgraded_request? : @types.Request[Bytes]?, upgrade_settings? : Bytes?, read_timeout_ms? : Int, write_timeout_ms? : Int) -> Unit
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http2_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], limits? : @types.Limits, upgraded_request? : @types.Request[@body.BodyStream]?, upgrade_settings? : Bytes?, read_timeout_ms? : Int, write_timeout_ms? : Int) -> Unit
 
 // Errors
 
@@ -31,18 +34,34 @@ pub struct ClientConnection[R, W] {
   read_timeout_ms : Int?
   write_timeout_ms : Int?
   mut closed : Bool
+  mut busy : Bool
 }
 pub fn[R, W] ClientConnection::new(R, W, limits? : @types.Limits, read_size? : Int, read_timeout_ms? : Int, write_timeout_ms? : Int) -> Self[R, W]
-pub async fn[R : @io.Reader, W : @io.Writer] ClientConnection::send(Self[R, W], @types.Request[Bytes]) -> ClientResponse
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] ClientConnection::send(Self[R, W], @types.Request[B]) -> @types.Response[@body.BodyStream]
 
-pub(all) struct ClientResponse {
-  response : @types.Response[Bytes]
-  trailers : @types.HeaderMap?
+pub struct H2ClientConnection[R, W] {
+  reader : R
+  writer : W
+  limits : @types.Limits
+  max_concurrent_streams : Int
+  runtime : @http2.H2Connection
+  frames : @http2.FrameDecoder
+  encoder : @http2.HpackContext
+  decoder : @http2.HpackContext
+  write_lock : @async.Mutex
+  send_lock : @async.Mutex
+  mut started : Bool
+  mut closed : Bool
+  mut goaway : Bool
 }
+pub fn[R, W] H2ClientConnection::close(Self[R, W]) -> Unit
+pub fn[R, W] H2ClientConnection::new(R, W, limits? : @types.Limits, max_concurrent_streams? : Int) -> Self[R, W]
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] H2ClientConnection::send(Self[R, W], @types.Request[B]) -> @types.Response[@body.BodyStream]
 
 pub(all) struct ServerConfig {
   limits : @types.Limits
   read_size : Int
+  body_queue_capacity : Int
   read_timeout_ms : Int?
   write_timeout_ms : Int?
 }

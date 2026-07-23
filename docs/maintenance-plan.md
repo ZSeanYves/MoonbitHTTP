@@ -1,125 +1,95 @@
-# MoonbitHTTP 维护实施报告
+# MoonbitHTTP 0.5.0 维护实施报告
 
 日期：2026-07-23
 
-## 1. 结果
-
-Phase A-E 已全部完成。当前架构采用以下单一分层：
+## 1. 当前架构
 
 ```text
 types + body
       ^
-codec <- http1/http2 pure state machines
+codec <- http1/http2 incremental state machines
       ^
 service <- moonbitlang/async/io Reader + Writer
       ^
-TCP / memory pipe / callback or uv runtime
+TCP / memory pipe / callback runtime
 ```
 
-所有子包直接位于模块根目录；协议 codec 与异步连接层分别由 `http1`、
-`http2` 和 `service` 提供。
+所有包位于模块根目录。`types` 持有协议无关的泛型
+`Request[B]`/`Response[B]`；`body` 持有统一的异步 body 抽象；`http1`、
+`http2` 只负责协议状态机和帧编码；`service` 负责传输驱动和错误边界。
 
-## 2. Phase A：类型与传输基础
+## 2. 0.5.0 流式 API
 
-已完成：
+- `BodyStream` 使用有界异步队列，默认容量为 8；`push` 在队列满时挂起，
+  `finish` 表示正常结束，`fail` 保留原始终止错误。
+- `ServerConfig.body_queue_capacity` 控制 HTTP/1 request body 队列容量。
+- `serve_http1_connection`、`serve_http1_or_h2c_connection`、
+  `serve_http2_connection` 和 `serve_auto_connection` 的 handler 统一为
+  `Request[BodyStream] -> Response[B]`，其中 `B : Body`。
+- HTTP/1 `ClientConnection::send` 和 HTTP/2
+  `H2ClientConnection::send` 接受任意 `Body`，返回 `Response[BodyStream]`。
+- 旧的高层 `Request[Bytes]`、`Response[Bytes]` 和 `ClientResponse` 已删除，
+  不提供兼容别名。
 
-- `types` 提供验证并规范化的 `HeaderName`、字节型 `HeaderValue` 和保留顺序、
-  重复值的 `HeaderMap`。
-- `Request[B]` / `Response[B]` 使用泛型 body，不再由通用类型决定 body 实现。
-- `body.Body` 是异步帧接口，支持 `Data`、`Trailers`、`SizeHint` 和有界收集。
-- `codec.Buffer` 是纯增量缓冲，不依赖 runtime。
-- `io`、`service`、`uv_adapter` 直接复用 `moonbitlang/async/io.Reader` 与
-  `Writer`，没有创建竞争性的同名 trait。
-- 连接层已在官方 `MemoryReader`、callback adapter 和 TCP 上验证。
+`FullBody` 适合已知长度的小 body；`QueueBody` 适合固定 frame 序列；
+`BodyStream` 用于协议连接与 producer/consumer 并发。`body.collect` 是调用方
+显式选择的有界聚合工具，不是 service 的隐式行为。
 
-## 3. Phase B：HTTP/1 connection
+## 3. HTTP/1
 
-`http1.RequestDecoder` 和 `ResponseDecoder` 是持久连接状态机，输出：
+`RequestDecoder` 和 `ResponseDecoder` 持续输出：
 
 ```text
 Head -> Data* -> Trailers? -> End
 ```
 
-已实现：
+已实现任意输入分片、over-read/pipeline 缓冲、Content-Length、chunked、
+close-delimited response、trailers、HTTP/1.0/1.1 keep-alive、HEAD/CONNECT/1xx/
+204/304 body 规则，以及 Host/header/body/buffer 限制。
 
-- 任意输入分片、持久 over-read 缓冲和 pipeline 顺序；
-- fixed length、chunked、response close-delimited body；
-- 流式 data/trailers 事件及消费方背压；
-- 重复 Content-Length 一致性检查；
-- Transfer-Encoding/Content-Length 冲突拒绝；
-- Host、header/body/buffer limits；
-- HEAD、CONNECT 2xx、1xx、204、304 的无 body 规则；
-- keep-alive、Connection: close 和 EOF/半关闭处理；
-- 重复 header 的无损编码、chunked trailers 和 forbidden trailer 检查。
+高层 response framing 由 body `SizeHint` 决定：精确长度使用
+Content-Length；HTTP/1.1 未知长度使用 chunked；HTTP/1.0 未知长度使用
+close-delimited 并关闭连接。长度不一致、非 chunked trailers、重复 trailers
+或 trailers 后继续 DATA 均返回 `Http1Error.InvalidFraming`。
 
-service 与 client 共同使用同一组持久连接状态机。
+HTTP/1 server 在单连接内保持顺序响应。handler 提前完成后，driver 会继续消费
+当前 request 的剩余协议帧，不再向无人消费的 body queue 写入。
 
-## 4. Phase C：Service、Client 与协议选择
+## 4. HTTP/2
 
-已完成：
+已实现增量 frame decoder、HPACK 动态表/Huffman、SETTINGS、PING、GOAWAY、
+RST_STREAM、WINDOW_UPDATE、stream id/state、HEADERS/CONTINUATION 约束及连接/
+stream 双层 flow control。
 
-- `serve_http1_connection`：异步 `Request[Bytes] -> Response[Bytes]` service；
-- `drive_http1_events`：不聚合 body 的低层流式/backpressure driver；
-- `serve_http1_with_error_responder`：只有调用方显式提供策略时才映射错误；
-- `ClientConnection.send`：握手后的顺序复用、1xx、chunked、trailers、
-  close-delimited response；
-- `Detector`：不消费、不重排前缀的 prior-knowledge 探测；
-- 外部 ALPN 结果选择；
-- 完整 h2c Upgrade：解析 `HTTP2-Settings`、发送 101、保留 over-read 字节，
-  并把升级请求映射为 HTTP/2 stream 1；
-- `serve_auto_connection`：统一驱动 HTTP/1、HTTP/2 prior knowledge 和 h2c。
+HTTP/2 server 在收到 HEADERS 后立即分派 `Request[BodyStream]`。每个 stream 有
+有界 body queue 和一个 blocked-DATA 槽位；队列满时不返还窗口，控制帧仍由连接
+reader 继续处理。消费者取得 DATA 后才发送 WINDOW_UPDATE。response 按 peer
+window 分片发送，窗口为零时等待 WINDOW_UPDATE 信号；trailers 使用 trailing
+HEADERS，body 或 handler 失败发送 `RST_STREAM(CANCEL)`。
 
-连接池、重定向、cookie 和缓存不属于基础 `ClientConnection` 与 codec 的职责，
-当前版本不提供这些高层能力。
+`H2ClientConnection` 负责 client preface、SETTINGS、HPACK 上下文、stream id、
+GOAWAY/RST 和 request/response frame 编解码。当前公开 `send` 对同一传输执行
+串行驱动，以保证只使用 `moonbitlang/async` 公开的结构化并发 API 时不存在孤儿
+reader task；response 仍通过统一的 `BodyStream` 类型交付。需要真正多 stream
+并发 reader pump 的下一步 API 应由调用方提供 `TaskGroup` 生命周期，或等待
+async runtime 提供公开的可持有 background task handle。
 
-## 5. Phase D：HTTP/2 runtime
+## 5. 协议一致性与错误
 
-已完成的连接级能力：
+仓库内测试固定覆盖：
 
-- 增量 9-byte frame decoder 和最大帧限制；
-- client/server stream id 奇偶、递增和 stream 状态转换；
-- 多流请求聚合与并发 service 调度；
-- SETTINGS 生命周期和 initial-window 调整；
-- PING ACK、GOAWAY、RST_STREAM、WINDOW_UPDATE；
-- HEADERS/CONTINUATION 不可交错约束；
-- 连接与流两级 flow control、容量归还和发送容量预留；
-- service 响应按 peer window 分片发送，窗口耗尽时释放写锁并等待更新；
-- 响应写锁，保证连接级 HPACK 顺序和每流帧顺序；
-- HPACK 动态表、大小更新、header-list size 限制；
-- RFC 7541 Appendix B 的全部 257 个 Huffman 码字和严格 padding/EOS 校验。
+- HTTP/1 Content-Length/Transfer-Encoding 冲突、重复长度、非法十进制、
+  obs-fold、chunk size/CRLF、forbidden trailer 和 request-smuggling 组合；
+- HTTP/2 reserved stream bit、frame size、padding/priority、SETTINGS 角色约束、
+  stream id、WINDOW_UPDATE、RST/GOAWAY、HPACK Huffman/EOS 和伪头语义；
+- 任意单字节 split boundary、bounded `BodyStream`、HTTP/1 双向 trailers、
+  HTTP/2 多 stream server/flow-control，以及 HTTP/2 client 内存回环。
 
-HTTP/2 server push 没有成为用户功能；收到不允许的 PUSH_PROMISE 会按协议
-报错。这与原始任务中 HTTP/2 为可选项、且不要求高级服务器功能的边界一致。
+错误边界保持为：I/O 错误原样传播；HTTP/1 使用 `Http1Error`；HTTP/2 使用带
+error code/stream id 的 `H2ProtocolError`；用户 handler 错误仅在显式
+`serve_http1_with_error_responder` 中转换。
 
-## 6. Phase E：适配与质量门槛
-
-已完成：
-
-- `uv_adapter.CallbackTransport` 将异步 read/write/close callback 适配到官方
-  I/O trait，不锁定具体 uv.mbt 版本；
-- `test_support` 提供任意分片、故障 Reader 和录制 Writer；
-- HTTP/1 对每一个单字节 split boundary 做回归；
-- HTTP/2 frame 对每一个 header/payload split boundary 做回归；
-- HPACK 使用 RFC 7541 C.4.1 官方向量；
-- native benchmark 覆盖 HTTP/1 增量解析和 HPACK Huffman；
-- native TCP smoke server 经 curl HTTP/1.1、nghttp2 prior knowledge 和
-  nghttp2 h2c Upgrade 验证；
-- CI 检查格式、四后端零警告 check/test、native async integration、真实
-  socket 互操作、benchmark build 和 coverage。
-
-## 7. 错误边界
-
-- `types`：`HeaderError` / `UriError`；
-- `codec`：`CodecError`；
-- HTTP/1：`Http1Error`，区分 start-line/header/framing/limit/EOF；
-- HTTP/2：`H2ProtocolError.ConnectionError` 与 `StreamError`，携带 RFC error
-  code 和 stream id；
-- I/O：官方 Reader/Writer 抛出的原始错误；
-- 用户逻辑：service 抛出的原始错误。
-
-连接层不会无条件捕获所有错误并固定返回 500。
-
-## 8. 验证命令
+## 6. 验证命令
 
 ```bash
 moon fmt --check
@@ -129,49 +99,9 @@ moon build --target all --deny-warn --warn-list +73
 moon bench --build-only --target native --deny-warn --warn-list +73
 bash scripts/interoperability.sh
 moon coverage analyze -- -f cobertura -o coverage.xml
+moon info
 ```
 
-验证基线：
-
-- `moon check --target all --deny-warn --warn-list +73`：wasm、wasm-gc、JavaScript、
-  native 全部通过；
-- `moon test --target all --deny-warn --warn-list +73`：wasm 46/46、wasm-gc
-  37/37、JavaScript 46/46、native 46/46；wasm-gc 少 9 项是工具链不支持
-  async/whitebox 测试，并非测试失败；
-- `moon build --target all --deny-warn`、native benchmark build、发布打包和
-  `git diff --check` 全部通过；
-- curl HTTP/1.1、nghttp2 prior-knowledge、nghttp2 h2c Upgrade 真实 socket
-  互操作全部通过；
-- Cobertura 行覆盖率为 45.05%（728/1616）。该报告后端不计入
-  async/whitebox 测试。
-
-## 9. API 与布局基线
-
-- 子包直接位于模块根目录，包名统一使用 `lower_snake_case`；
-- 文件按职责命名，测试和基准分别使用 `_test.mbt` 与 `_bench.mbt` 后缀；
-- HTTP/2 帧序列化公开函数统一使用 `encode_*`；
-- HPACK 只公开有状态的 `HpackContext` 与明确的 Huffman codec；
-- `pkg.generated.mbti` 由 `moon info --target all` 按当前包图生成。
-
-## 10. 协议一致性覆盖
-
-已落实：
-
-- RFC 9112 负例：严格十进制 Content-Length、重复值一致性、TE/CL 冲突、折叠
-  header、close-delimited EOF 和 chunk framing；
-- HTTP/2 负例：保留 stream bit、PADDED 帧形状、自依赖、SETTINGS 角色约束、伪头
-  重复/缺失、大写 header 和 TE 语义；
-- HTTP/2 流级错误发送 `RST_STREAM` 后继续处理其他流；connection error 才会终止
-  连接；
-- 连接/流双层 flow-control 消耗与归还、长循环压力测试、响应发送容量预留；
-- ServerConfig、HTTP/2 connection 和 ClientConnection 的可选 read/write timeout
-  策略，默认不启用且由 async runtime 传播错误。
-
-当前一致性测试尚未覆盖：
-
-- 将更多 RFC 9112 request-smuggling 语料和 h2spec 负例固化为测试；
-- 使用可取消的 Reader fixture 验证取消传播和资源释放；
-- 与更多独立实现做差分测试；
-- parser/HPACK 的 native allocation 与 copy profiler 基线。
-
-这些属于 conformance 与性能覆盖边界，不影响当前 package 职责划分。
+0.5.0 本地基线：wasm 49/49、wasm-gc 37/37、JavaScript 49/49、native
+49/49。`pkg.generated.mbti` 由 `moon info` 生成；`service` 接口中不再存在高层
+`Request[Bytes]`、`Response[Bytes]` 或 `ClientResponse`。
