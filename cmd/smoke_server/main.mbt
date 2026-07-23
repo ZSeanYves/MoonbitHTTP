@@ -12,7 +12,10 @@ async fn main {
       let body = if request.http_method == Post {
         request.body
       } else {
-        b"MoonbitHTTP smoke\n"
+        let stream = @body.BodyStream::new(capacity=2)
+        stream.push(Data(b"MoonbitHTTP smoke\n"))
+        stream.finish()
+        stream
       }
       { status: 200, version: request.version, headers, body }
     }) catch {
