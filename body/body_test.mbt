@@ -10,3 +10,27 @@ async test "body: queue exposes data and trailers" {
     "ok",
   )
 }
+
+///|
+async test "body: bounded stream preserves frames and terminal errors" {
+  let stream = BodyStream::new(capacity=1)
+  stream.push(Data(b"first"))
+  match stream.next_frame() {
+    Some(Data(data)) => assert_eq(data, b"first")
+    _ => fail("missing first frame")
+  }
+  stream.push(Data(b"second"))
+  stream.finish()
+  match stream.next_frame() {
+    Some(Data(data)) => assert_eq(data, b"second")
+    _ => fail("missing second frame")
+  }
+  assert_true(stream.next_frame() is None)
+  let failed = BodyStream::new(capacity=1)
+  failed.fail(@types.UriError::InvalidUri("body failed"))
+  try failed.next_frame() catch {
+    _ => ()
+  } noraise {
+    _ => fail("body stream failure was swallowed")
+  }
+}

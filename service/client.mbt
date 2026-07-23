@@ -1,10 +1,6 @@
 ///|
-pub(all) struct ClientResponse {
-  response : @types.Response[Bytes]
-  trailers : @types.HeaderMap?
-}
-
-///|
+/// A sequential HTTP/1 connection. A response body must be fully consumed
+/// before the next request is sent on the same connection.
 pub struct ClientConnection[R, W] {
   reader : R
   writer : W
@@ -13,6 +9,7 @@ pub struct ClientConnection[R, W] {
   read_timeout_ms : Int?
   write_timeout_ms : Int?
   mut closed : Bool
+  mut busy : Bool
 }
 
 ///|
@@ -32,18 +29,34 @@ pub fn[R, W] ClientConnection::new(
     read_timeout_ms,
     write_timeout_ms,
     closed: false,
+    busy: false,
   }
 }
 
 ///|
-pub async fn[R : @aio.Reader, W : @aio.Writer] ClientConnection::send(
+pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection::send(
   self : ClientConnection[R, W],
-  request : @types.Request[Bytes],
-) -> ClientResponse {
+  request : @types.Request[B],
+) -> @types.Response[@body.BodyStream] {
   if self.closed {
     raise @http1.Http1Error::UnexpectedEof("client connection is closed")
   }
-  let framing = @http1.BodyFraming::ContentLength(request.body.length())
+  if self.busy {
+    raise @http1.Http1Error::InvalidFraming(
+      "previous response body has not been consumed",
+    )
+  }
+  let framing = match request.body.size_hint().exact_size() {
+    Some(size) => @http1.BodyFraming::ContentLength(size)
+    None =>
+      if request.version == Http11 {
+        Chunked
+      } else {
+        raise @http1.Http1Error::InvalidFraming(
+          "HTTP/1.0 requests require an exact body size",
+        )
+      }
+  }
   let request_head : @types.Request[Unit] = {
     http_method: request.http_method,
     uri: request.uri,
@@ -56,37 +69,122 @@ pub async fn[R : @aio.Reader, W : @aio.Writer] ClientConnection::send(
     Err(error) => raise error
   }
   write_with_timeout(self.writer, encoded_head, self.write_timeout_ms)
-  if !request.body.is_empty() {
-    write_with_timeout(self.writer, request.body, self.write_timeout_ms)
+  let mut remaining : Int? = match framing {
+    ContentLength(size) => Some(size)
+    _ => None
+  }
+  let mut sent_trailers = false
+  while request.body.next_frame() is Some(frame) {
+    match frame {
+      Data(data) => {
+        if sent_trailers {
+          raise @http1.Http1Error::InvalidFraming("body data follows trailers")
+        }
+        match remaining {
+          Some(value) => {
+            if data.length() > value {
+              raise @http1.Http1Error::InvalidFraming(
+                "request body exceeds content-length",
+              )
+            }
+            remaining = Some(value - data.length())
+          }
+          None => ()
+        }
+        let encoded = match @http1.encode_body_data(data, framing) {
+          Ok(value) => value
+          Err(error) => raise error
+        }
+        write_with_timeout(self.writer, encoded, self.write_timeout_ms)
+      }
+      Trailers(trailers) => {
+        if sent_trailers {
+          raise @http1.Http1Error::InvalidFraming("duplicate body trailers")
+        }
+        sent_trailers = true
+        let encoded = match @http1.encode_body_end(framing, trailers~) {
+          Ok(value) => value
+          Err(error) => raise error
+        }
+        write_with_timeout(self.writer, encoded, self.write_timeout_ms)
+      }
+    }
+  }
+  if remaining is Some(value) && value != 0 {
+    raise @http1.Http1Error::InvalidFraming(
+      "request body shorter than content-length",
+    )
+  }
+  if framing == Chunked && !sent_trailers {
+    write_with_timeout(
+      self.writer,
+      @http1.encode_body_end(framing).unwrap(),
+      self.write_timeout_ms,
+    )
   }
   let decoder = @http1.ResponseDecoder::new(
     request.http_method,
     limits=self.limits,
   )
-  let mut response_head : @types.Response[Unit]? = None
-  let response_body : Array[Byte] = []
-  let mut trailers : @types.HeaderMap? = None
-  while true {
+  for ;; {
     match decoder.next() {
       Err(error) => raise error
       Ok(Some(ResponseHead(value))) =>
         if value.status >= 100 && value.status < 200 && value.status != 101 {
-          response_head = None
+          ()
         } else {
-          response_head = Some(value)
-        }
-      Ok(Some(ResponseData(data))) => copy_data(response_body, data)
-      Ok(Some(ResponseTrailers(value))) => trailers = Some(value)
-      Ok(Some(ResponseEnd)) =>
-        if response_head is Some(value) {
-          let response = value.map_body(fn(_) {
-            Bytes::from_array(response_body)
-          })
-          if header_has_token(response.headers, "connection", "close") {
+          if header_has_token(value.headers, "connection", "close") {
             self.closed = true
           }
-          return { response, trailers }
+          self.busy = true
+          let stream = @body.BodyStream::from_pull(async fn() {
+            for ;; {
+              match decoder.next() {
+                Err(error) => {
+                  self.busy = false
+                  raise error
+                }
+                Ok(Some(ResponseData(data))) => return Some(Data(data))
+                Ok(Some(ResponseTrailers(value))) =>
+                  return Some(Trailers(value))
+                Ok(Some(ResponseEnd)) => {
+                  self.busy = false
+                  return None
+                }
+                Ok(Some(ResponseHead(_))) => ()
+                Ok(None) =>
+                  match
+                    read_some_with_timeout(
+                      self.reader,
+                      self.read_size,
+                      self.read_timeout_ms,
+                    ) {
+                    Some(bytes) =>
+                      match decoder.feed(bytes) {
+                        Ok(_) => ()
+                        Err(error) => {
+                          self.busy = false
+                          raise error
+                        }
+                      }
+                    None => {
+                      self.closed = true
+                      decoder.finish_input()
+                    }
+                  }
+              }
+            }
+          })
+          return value.map_body(fn(_) { stream })
         }
+      Ok(Some(ResponseData(_))) | Ok(Some(ResponseTrailers(_))) =>
+        raise @http1.Http1Error::InvalidFraming(
+          "response body event arrived before final response head",
+        )
+      Ok(Some(ResponseEnd)) =>
+        raise @http1.Http1Error::InvalidFraming(
+          "response ended before final response head",
+        )
       Ok(None) =>
         match
           read_some_with_timeout(

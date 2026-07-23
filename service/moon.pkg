@@ -1,7 +1,10 @@
 import {
   "moonbitlang/async",
   "moonbitlang/async/io" @aio,
+  "moonbitlang/async/aqueue",
+  "moonbitlang/core/string",
   "ZSeanYves/MoonbitHTTP/types",
+  "ZSeanYves/MoonbitHTTP/body",
   "ZSeanYves/MoonbitHTTP/http1",
   "ZSeanYves/MoonbitHTTP/http2",
   "ZSeanYves/MoonbitHTTP/auto",

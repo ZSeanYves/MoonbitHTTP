@@ -1,5 +1,6 @@
 import {
   "ZSeanYves/MoonbitHTTP/types",
+  "moonbitlang/async/aqueue",
 }
 
 import {
