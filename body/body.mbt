@@ -143,6 +143,7 @@ priv suberror BodyStreamEnded derive(Debug)
 /// `fail` wakes all consumers with the original error.
 pub struct BodyStream {
   queue : @aqueue.Queue[Frame]
+  space_available : @aqueue.Queue[Unit]
   hint : SizeHint
   on_data_consumed : async (Int) -> Unit
   pull : (async () -> Frame?)?
@@ -161,6 +162,7 @@ pub fn BodyStream::new(
   }
   {
     queue: Queue(kind=Blocking(capacity)),
+    space_available: Queue(kind=Unbounded),
     hint: size_hint,
     on_data_consumed,
     pull: None,
@@ -175,11 +177,13 @@ pub fn BodyStream::new(
 pub fn BodyStream::from_pull(
   pull : async () -> Frame?,
   size_hint? : SizeHint = SizeHint::unknown(),
+  on_data_consumed? : async (Int) -> Unit = fn(_) { () },
 ) -> BodyStream {
   {
     queue: Queue(kind=Blocking(1)),
+    space_available: Queue(kind=Unbounded),
     hint: size_hint,
-    on_data_consumed: fn(_) { () },
+    on_data_consumed,
     pull: Some(pull),
     finished: false,
     failure: None,
@@ -189,7 +193,10 @@ pub fn BodyStream::from_pull(
 ///|
 pub async fn BodyStream::push(self : BodyStream, frame : Frame) -> Unit {
   if self.pull is Some(_) {
-    raise BodyStreamEnded
+    raise match self.failure {
+      Some(error) => error
+      None => BodyStreamEnded
+    }
   }
   if self.finished {
     raise match self.failure {
@@ -197,7 +204,18 @@ pub async fn BodyStream::push(self : BodyStream, frame : Frame) -> Unit {
       None => BodyStreamEnded
     }
   }
-  self.queue.put(frame)
+  while true {
+    if self.finished {
+      raise match self.failure {
+        Some(error) => error
+        None => BodyStreamEnded
+      }
+    }
+    if self.queue.try_put(frame) {
+      return
+    }
+    self.space_available.get()
+  }
 }
 
 ///|
@@ -205,7 +223,10 @@ pub async fn BodyStream::push(self : BodyStream, frame : Frame) -> Unit {
 /// bounded queue is full.
 pub fn BodyStream::try_push(self : BodyStream, frame : Frame) -> Bool raise {
   if self.pull is Some(_) {
-    raise BodyStreamEnded
+    raise match self.failure {
+      Some(error) => error
+      None => BodyStreamEnded
+    }
   }
   if self.finished {
     raise match self.failure {
@@ -222,6 +243,7 @@ pub fn BodyStream::finish(self : BodyStream) -> Unit {
     self.finished = true
     if self.pull is None {
       self.queue.close(error=BodyStreamEnded)
+      self.space_available.close(error=BodyStreamEnded)
     }
   }
 }
@@ -233,6 +255,7 @@ pub fn BodyStream::fail(self : BodyStream, error : Error) -> Unit {
     self.failure = Some(error)
     if self.pull is None {
       self.queue.close(error~)
+      self.space_available.close(error~)
     }
   }
 }
@@ -255,6 +278,16 @@ pub impl Body for BodyStream with fn next_frame(self) {
     }
     if output is None {
       self.finished = true
+    } else if output is Some(Data(data)) {
+      (self.on_data_consumed)(data.length()) catch {
+        error => {
+          self.fail(error)
+          raise error
+        }
+      }
+    }
+    if output is Some(_) {
+      ignore(self.space_available.try_put(()) catch { _ => false })
     }
     return output
   }
@@ -263,7 +296,15 @@ pub impl Body for BodyStream with fn next_frame(self) {
     error => raise error
   }
   if output is Some(Data(data)) {
-    (self.on_data_consumed)(data.length())
+    (self.on_data_consumed)(data.length()) catch {
+      error => {
+        self.fail(error)
+        raise error
+      }
+    }
+  }
+  if output is Some(_) {
+    ignore(self.space_available.try_put(()) catch { _ => false })
   }
   output
 }

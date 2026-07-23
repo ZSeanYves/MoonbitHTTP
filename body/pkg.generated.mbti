@@ -18,6 +18,7 @@ pub(all) suberror BodyLimitExceeded {
 // Types and methods
 pub struct BodyStream {
   queue : @aqueue.Queue[Frame]
+  space_available : @aqueue.Queue[Unit]
   hint : SizeHint
   on_data_consumed : async (Int) -> Unit
   pull : (async () -> Frame?)?
@@ -26,7 +27,7 @@ pub struct BodyStream {
 }
 pub fn BodyStream::fail(Self, Error) -> Unit
 pub fn BodyStream::finish(Self) -> Unit
-pub fn BodyStream::from_pull(async () -> Frame?, size_hint? : SizeHint) -> Self
+pub fn BodyStream::from_pull(async () -> Frame?, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit) -> Self
 pub fn BodyStream::new(capacity? : Int, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit) -> Self
 pub async fn BodyStream::push(Self, Frame) -> Unit
 pub fn BodyStream::try_push(Self, Frame) -> Bool raise
