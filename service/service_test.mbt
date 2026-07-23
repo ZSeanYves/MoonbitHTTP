@@ -142,7 +142,7 @@ async test "service: HTTP/2 client sends preface and receives streamed body" {
   }
   let request_written : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
   let reader = @aio.MemoryReader(async fn(writer) {
-    for _ in 0..<4 {
+    for _ in 0..<3 {
       request_written.get()
     }
     writer.write(Bytes::from_array(input))
@@ -197,7 +197,7 @@ async test "service: HTTP/2 client multiplexes two response streams" {
   }
   let request_written : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
   let reader = @aio.MemoryReader(async fn(writer) {
-    for _ in 0..<5 {
+    for _ in 0..<4 {
       request_written.get()
     }
     writer.write(Bytes::from_array(input))

@@ -211,8 +211,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
       "invalid HTTP/2 client preface",
     )
   }
-  let receive_window = (config.body_queue_capacity + 1) *
-    @http2.H2_DEFAULT_MAX_FRAME_SIZE
+  let receive_window = config.body_queue_capacity + 1
   write_with_timeout(
     writer,
     Bytes::from_array(

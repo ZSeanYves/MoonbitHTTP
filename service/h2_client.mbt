@@ -801,8 +801,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, X] with_h2_client_connection(
     let client : H2Client = { shared, }
     group.add_defer(fn() { shared.close_with(None) })
     shared.write_bytes(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
-    let receive_window = (config.body_queue_capacity + 1) *
-      @http2.H2_DEFAULT_MAX_FRAME_SIZE
+    let receive_window = config.body_queue_capacity + 1
     shared.write_bytes(
       Bytes::from_array(
         @http2.encode_settings_frame([{ id: 4, value: receive_window }], false),
