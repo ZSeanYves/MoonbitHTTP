@@ -1,0 +1,12 @@
+import {
+  "moonbitlang/async/io" @aio,
+}
+
+import {
+  "moonbitlang/async",
+  "ZSeanYves/MoonbitHTTP/http1",
+} for "test"
+
+options(
+  "is-main": false,
+)

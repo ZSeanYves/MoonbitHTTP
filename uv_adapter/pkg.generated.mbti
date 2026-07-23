@@ -1,0 +1,32 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/uv_adapter"
+
+import {
+  "moonbitlang/async/io",
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+pub(all) suberror CallbackTransportClosed {
+  CallbackTransportClosed
+} derive(Eq, @debug.Debug)
+
+// Types and methods
+pub struct CallbackTransport {
+  reader_buffer : @io.ReaderBuffer
+  read_callback : async (FixedArray[Byte], Int, Int) -> Int
+  write_callback : async (Bytes, Int, Int) -> Int
+  close_callback : () -> Unit
+  mut closed : Bool
+}
+pub fn CallbackTransport::close(Self) -> Unit
+pub fn CallbackTransport::new(async (FixedArray[Byte], Int, Int) -> Int, async (Bytes, Int, Int) -> Int, close_callback? : () -> Unit) -> Self
+pub impl @io.Reader for CallbackTransport
+pub impl @io.Writer for CallbackTransport
+
+// Type aliases
+
+// Traits
+

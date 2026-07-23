@@ -1,0 +1,11 @@
+import {
+  "moonbitlang/async/io" @aio,
+}
+
+import {
+  "moonbitlang/async",
+} for "test"
+
+options(
+  "is-main": false,
+)

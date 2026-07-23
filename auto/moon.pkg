@@ -1,0 +1,7 @@
+import {
+  "ZSeanYves/MoonbitHTTP/types",
+}
+
+options(
+  "is-main": false,
+)

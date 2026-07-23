@@ -1,0 +1,54 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/service"
+
+import {
+  "ZSeanYves/MoonbitHTTP/http1",
+  "ZSeanYves/MoonbitHTTP/types",
+  "moonbitlang/async/io",
+}
+
+// Values
+pub async fn[R : @io.Reader] drive_http1_events(R, async (@http1.RequestEvent) -> Unit, config? : ServerConfig) -> Unit
+
+pub async fn[R : @io.Reader, W : @io.Writer] serve_auto_connection(R, W, async (@types.Request[Bytes]) -> @types.Response[Bytes], config? : ServerConfig) -> Unit
+
+pub async fn[R : @io.Reader, W : @io.Writer] serve_http1_connection(R, W, async (@types.Request[Bytes]) -> @types.Response[Bytes], config? : ServerConfig) -> Unit
+
+pub async fn[R : @io.Reader, W : @io.Writer] serve_http1_or_h2c_connection(R, W, async (@types.Request[Bytes]) -> @types.Response[Bytes], config? : ServerConfig) -> Unit
+
+pub async fn[R : @io.Reader, W : @io.Writer] serve_http1_with_error_responder(R, W, async (@types.Request[Bytes]) -> @types.Response[Bytes], (Error) -> @types.Response[Bytes], config? : ServerConfig) -> Unit
+
+pub async fn[R : @io.Reader, W : @io.Writer] serve_http2_connection(R, W, async (@types.Request[Bytes]) -> @types.Response[Bytes], limits? : @types.Limits, upgraded_request? : @types.Request[Bytes]?, upgrade_settings? : Bytes?, read_timeout_ms? : Int, write_timeout_ms? : Int) -> Unit
+
+// Errors
+
+// Types and methods
+pub struct ClientConnection[R, W] {
+  reader : R
+  writer : W
+  limits : @types.Limits
+  read_size : Int
+  read_timeout_ms : Int?
+  write_timeout_ms : Int?
+  mut closed : Bool
+}
+pub fn[R, W] ClientConnection::new(R, W, limits? : @types.Limits, read_size? : Int, read_timeout_ms? : Int, write_timeout_ms? : Int) -> Self[R, W]
+pub async fn[R : @io.Reader, W : @io.Writer] ClientConnection::send(Self[R, W], @types.Request[Bytes]) -> ClientResponse
+
+pub(all) struct ClientResponse {
+  response : @types.Response[Bytes]
+  trailers : @types.HeaderMap?
+}
+
+pub(all) struct ServerConfig {
+  limits : @types.Limits
+  read_size : Int
+  read_timeout_ms : Int?
+  write_timeout_ms : Int?
+}
+pub fn ServerConfig::defaults() -> Self
+
+// Type aliases
+
+// Traits
+

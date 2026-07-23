@@ -1,0 +1,11 @@
+import {
+  "ZSeanYves/MoonbitHTTP/types",
+}
+
+import {
+  "moonbitlang/async",
+} for "test"
+
+options(
+  "is-main": false,
+)

@@ -1,0 +1,35 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/codec"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+pub(all) suberror CodecError {
+  NeedMore
+  LimitExceeded(kind~ : String, limit~ : Int)
+  Malformed(String)
+  UnexpectedEof(String)
+} derive(Eq, @debug.Debug)
+
+// Types and methods
+pub struct Buffer {
+  mut bytes : Array[Byte]
+  max_bytes : Int
+}
+pub fn Buffer::feed(Self, BytesView) -> Result[Unit, CodecError]
+pub fn Buffer::find_crlf(Self) -> Int?
+pub fn Buffer::length(Self) -> Int
+pub fn Buffer::new(max_bytes? : Int) -> Self
+pub fn Buffer::peek(Self) -> Bytes
+pub fn Buffer::read_line(Self, Int) -> Result[Bytes, CodecError]
+pub fn Buffer::starts_with(Self, BytesView) -> Bool
+pub fn Buffer::take(Self, Int) -> Bytes
+
+// Type aliases
+
+// Traits
+

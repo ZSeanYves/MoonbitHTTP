@@ -1,0 +1,42 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/test_support"
+
+import {
+  "moonbitlang/async/io",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn fragment(BytesView, Array[Int]) -> Array[Bytes]
+
+// Errors
+pub(all) suberror InjectedIoError {
+  InjectedReadFailure
+  InjectedWriteFailure
+} derive(Eq, @debug.Debug)
+
+// Types and methods
+pub struct FaultReader {
+  reader_buffer : @io.ReaderBuffer
+  chunks : Array[Bytes]
+  mut chunk_index : Int
+  mut chunk_offset : Int
+  mut reads : Int
+  fail_after : Int?
+}
+pub fn FaultReader::new(Array[Bytes], fail_after? : Int?) -> Self
+pub impl @io.Reader for FaultReader
+
+pub struct RecordingWriter {
+  bytes : Array[Byte]
+  mut writes : Int
+  fail_after : Int?
+}
+pub fn RecordingWriter::contents(Self) -> Bytes
+pub fn RecordingWriter::new(fail_after? : Int?) -> Self
+pub impl @io.Writer for RecordingWriter
+
+// Type aliases
+
+// Traits
+

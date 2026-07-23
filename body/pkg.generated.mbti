@@ -1,0 +1,56 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/body"
+
+import {
+  "ZSeanYves/MoonbitHTTP/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub async fn[B : Body] collect(B, max_bytes? : Int) -> (Bytes, @types.HeaderMap?)
+
+// Errors
+pub(all) suberror BodyLimitExceeded {
+  BodyLimitExceeded(limit~ : Int)
+} derive(Eq, @debug.Debug)
+
+// Types and methods
+pub struct EmptyBody(Unit)
+pub fn EmptyBody::new() -> Self
+pub impl Body for EmptyBody
+
+pub(all) enum Frame {
+  Data(Bytes)
+  Trailers(@types.HeaderMap)
+}
+
+pub struct FullBody {
+  data : Bytes
+  mut sent : Bool
+}
+pub fn FullBody::new(Bytes) -> Self
+pub impl Body for FullBody
+
+pub struct QueueBody {
+  frames : Array[Frame]
+  mut cursor : Int
+  hint : SizeHint
+}
+pub fn QueueBody::new(Array[Frame]) -> Self
+pub impl Body for QueueBody
+
+pub(all) struct SizeHint {
+  lower : Int
+  upper : Int?
+}
+pub fn SizeHint::exact(Int) -> Self
+pub fn SizeHint::unknown() -> Self
+
+// Type aliases
+
+// Traits
+pub(open) trait Body {
+  async fn next_frame(Self) -> Frame?
+  fn size_hint(Self) -> SizeHint
+}
+

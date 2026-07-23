@@ -17,19 +17,37 @@ jobs:
       - name: Setup MoonBit
         uses: hustcer/setup-moonbit@v1
 
-      - name: Install dependencies
-        run: |
-          moon update
-          moon install
+      - name: Update package registry
+        run: moon update
+
+      - name: Check formatting
+        run: moon fmt --check
 
       - name: Check code (deny warnings)
-        run: moon check --deny-warn
+        run: moon check --target all --deny-warn --warn-list +73
 
       - name: Run tests
-        run: moon test --target native
+        run: moon test --target all --deny-warn --warn-list +73
+
+      - name: Run async integration tests
+        run: moon test service body test_support uv_adapter --target native --deny-warn --warn-list +73
+
+      - name: Install HTTP/2 interoperability client
+        run: sudo apt-get update && sudo apt-get install -y nghttp2-client
+
+      - name: Run socket interoperability checks
+        run: bash scripts/interoperability.sh
+
+      - name: Build benchmarks
+        run: moon bench --build-only --target native --deny-warn --warn-list +73
+
+      - name: Generate coverage report
+        run: moon coverage analyze -- -f cobertura -o coverage.xml
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: ZSeanYves/MoonbitHTTP
+          files: ./coverage.xml
+          fail_ci_if_error: true

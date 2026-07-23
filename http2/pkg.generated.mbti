@@ -1,0 +1,210 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/http2"
+
+import {
+  "ZSeanYves/MoonbitHTTP/codec",
+  "ZSeanYves/MoonbitHTTP/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub const H2_CLIENT_PREFACE : String = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+
+pub const H2_DEFAULT_MAX_FRAME_SIZE : Int = 16384
+
+pub const H2_FLAGS_ACK : Int = 0x1
+
+pub const H2_FLAGS_END_HEADERS : Int = 0x4
+
+pub const H2_FLAGS_END_STREAM : Int = 0x1
+
+pub const H2_FLAGS_PADDED : Int = 0x8
+
+pub const H2_FLAGS_PRIORITY : Int = 0x20
+
+pub const H2_FRAME_CONTINUATION : Int = 0x9
+
+pub const H2_FRAME_DATA : Int = 0x0
+
+pub const H2_FRAME_GOAWAY : Int = 0x7
+
+pub const H2_FRAME_HEADERS : Int = 0x1
+
+pub const H2_FRAME_PING : Int = 0x6
+
+pub const H2_FRAME_PRIORITY : Int = 0x2
+
+pub const H2_FRAME_PUSH_PROMISE : Int = 0x5
+
+pub const H2_FRAME_RST_STREAM : Int = 0x3
+
+pub const H2_FRAME_SETTINGS : Int = 0x4
+
+pub const H2_FRAME_WINDOW_UPDATE : Int = 0x8
+
+pub fn encode_data_frames(Int, Bytes, Bool, max_frame_size? : Int) -> Result[Bytes, H2ProtocolError]
+
+pub fn encode_ping_ack(Array[Byte]) -> Result[Bytes, H2ProtocolError]
+
+pub fn encode_request_frames(HpackContext, Int, @types.Request[Bytes], scheme? : String, max_frame_size? : Int) -> Result[Bytes, H2ProtocolError]
+
+pub fn encode_response_frames(HpackContext, Int, @types.Response[Bytes], max_frame_size? : Int) -> Result[Bytes, H2ProtocolError]
+
+pub fn encode_response_headers(HpackContext, Int, @types.Response[Bytes], Bool, max_frame_size? : Int) -> Result[Bytes, H2ProtocolError]
+
+pub fn encode_rst_stream(Int, H2ErrorCode) -> Result[Bytes, H2ProtocolError]
+
+pub fn encode_settings_frame(Array[H2Setting], Bool) -> Array[Byte]
+
+pub fn encode_window_update(Int, Int) -> Result[Bytes, H2ProtocolError]
+
+pub fn header_fragment(H2Frame) -> Result[Bytes, H2ProtocolError]
+
+pub fn hpack_huffman_decode(Array[Byte]) -> Result[Array[Byte], String]
+
+pub fn hpack_huffman_encode(Array[Byte]) -> Result[Array[Byte], String]
+
+// Errors
+pub(all) suberror H2ProtocolError {
+  ConnectionError(H2ErrorCode, String)
+  StreamError(Int, H2ErrorCode, String)
+} derive(Eq, @debug.Debug)
+
+// Types and methods
+pub struct FrameDecoder {
+  buffer : @codec.Buffer
+  mut pending : H2FrameHeader?
+  max_frame_size : Int
+}
+pub fn FrameDecoder::feed(Self, BytesView) -> Result[Unit, H2ProtocolError]
+pub fn FrameDecoder::new(max_frame_size? : Int, max_buffer_size? : Int) -> Self
+pub fn FrameDecoder::next(Self) -> Result[H2Frame?, H2ProtocolError]
+
+pub(all) enum H2Action {
+  SendSettingsAck
+  SendPingAck(Array[Byte])
+  HeadersStarted(Int, Bool)
+  HeadersContinued(Int, Bool)
+  DataReceived(Int, Array[Byte], Bool)
+  StreamResetReceived(Int, Int)
+  GoawayReceived(Int, Int)
+  WindowAvailable(Int, Int)
+  SendWindowUpdate(Int, Int)
+}
+
+pub struct H2Connection {
+  role : H2Role
+  local_settings : H2Settings
+  peer_settings : H2Settings
+  streams : Map[Int, H2Stream]
+  mut connection_send_window : Int
+  mut connection_recv_window : Int
+  mut highest_remote_stream : Int
+  mut next_local_stream : Int
+  mut continuation_stream : Int?
+  mut goaway_received : Bool
+}
+pub fn H2Connection::accept_upgraded_stream1(Self) -> Result[Unit, H2ProtocolError]
+pub fn H2Connection::apply_settings_payload(Self, BytesView) -> Result[Unit, H2ProtocolError]
+pub fn H2Connection::finish_local_stream(Self, Int) -> Result[Unit, H2ProtocolError]
+pub fn H2Connection::new(H2Role) -> Self
+pub fn H2Connection::open_local_stream(Self, end_stream? : Bool) -> Result[Int, H2ProtocolError]
+pub fn H2Connection::receive(Self, H2Frame) -> Result[Array[H2Action], H2ProtocolError]
+pub fn H2Connection::release_capacity(Self, Int, Int) -> Result[Array[H2Action], H2ProtocolError]
+pub fn H2Connection::reserve_send_capacity(Self, Int, Int) -> Result[Int, H2ProtocolError]
+pub fn H2Connection::reset_stream(Self, Int) -> Result[Unit, H2ProtocolError]
+pub fn H2Connection::stream_state(Self, Int) -> H2StreamState?
+
+pub(all) enum H2ErrorCode {
+  NoError
+  ProtocolError
+  InternalError
+  FlowControlError
+  SettingsTimeout
+  StreamClosed
+  FrameSizeError
+  RefusedStream
+  Cancel
+  CompressionError
+  ConnectError
+  EnhanceYourCalm
+  InadequateSecurity
+  Http11Required
+} derive(Eq, @debug.Debug)
+
+pub(all) struct H2Frame {
+  header : H2FrameHeader
+  payload : Array[Byte]
+}
+
+pub(all) struct H2FrameHeader {
+  length : Int
+  typ : Int
+  flags : Int
+  stream_id : Int
+}
+
+pub(all) enum H2Role {
+  Client
+  Server
+} derive(Eq, @debug.Debug)
+
+pub(all) struct H2Setting {
+  id : Int
+  value : Int
+}
+
+pub(all) struct H2Settings {
+  mut header_table_size : Int
+  mut enable_push : Bool
+  mut max_concurrent_streams : Int
+  mut initial_window_size : Int
+  mut max_frame_size : Int
+  mut max_header_list_size : Int
+}
+pub fn H2Settings::defaults() -> Self
+
+pub(all) struct H2Stream {
+  id : Int
+  mut state : H2StreamState
+  mut send_window : Int
+  mut recv_window : Int
+}
+
+pub(all) enum H2StreamState {
+  Idle
+  Open
+  HalfClosedLocal
+  HalfClosedRemote
+  Closed
+} derive(Eq, @debug.Debug)
+
+pub struct HpackContext {
+  table : HpackTable
+  max_allowed_table_size : Int
+  max_header_list_size : Int
+}
+pub fn HpackContext::decode(Self, BytesView) -> Result[Array[HpackHeader], H2ProtocolError]
+pub fn HpackContext::encode_incremental(Self, Array[HpackHeader]) -> Result[Bytes, H2ProtocolError]
+pub fn HpackContext::new(max_table_size? : Int, max_header_list_size? : Int) -> Self
+pub fn HpackContext::table_length(Self) -> Int
+
+pub(all) struct HpackHeader {
+  name : String
+  value : String
+}
+
+pub struct HpackTable {
+  mut entries : Array[HpackHeader]
+  mut size : Int
+  mut max_size : Int
+}
+pub fn HpackTable::insert(Self, HpackHeader) -> Unit
+pub fn HpackTable::length(Self) -> Int
+pub fn HpackTable::new(max_size? : Int) -> Self
+pub fn HpackTable::resize(Self, Int) -> Unit
+
+// Type aliases
+
+// Traits
+

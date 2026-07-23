@@ -1,0 +1,112 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/types"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn response_allows_body(Method, Int) -> Bool
+
+pub fn status_allows_body(Int) -> Bool
+
+// Errors
+pub(all) suberror HeaderError {
+  InvalidName(String)
+  InvalidValue(String)
+} derive(Eq, @debug.Debug)
+
+pub(all) suberror UriError {
+  InvalidUri(String)
+} derive(Eq, @debug.Debug)
+
+// Types and methods
+pub(all) struct HeaderField {
+  name : HeaderName
+  value : HeaderValue
+} derive(Eq, @debug.Debug)
+
+pub struct HeaderMap {
+  mut entries : Array[HeaderField]
+}
+pub fn HeaderMap::append(Self, HeaderName, HeaderValue) -> Unit
+pub fn HeaderMap::append_string(Self, String, String) -> Result[Unit, HeaderError]
+pub fn HeaderMap::contains(Self, HeaderName) -> Bool
+pub fn HeaderMap::fields(Self) -> Array[HeaderField]
+pub fn HeaderMap::get(Self, HeaderName) -> HeaderValue?
+pub fn HeaderMap::get_all(Self, HeaderName) -> Array[HeaderValue]
+pub fn HeaderMap::get_all_string(Self, String) -> Array[HeaderValue]
+pub fn HeaderMap::get_string(Self, String) -> HeaderValue?
+pub fn HeaderMap::is_empty(Self) -> Bool
+pub fn HeaderMap::length(Self) -> Int
+pub fn HeaderMap::new() -> Self
+pub fn HeaderMap::remove(Self, HeaderName) -> Unit
+pub fn HeaderMap::set(Self, HeaderName, HeaderValue) -> Unit
+
+pub(all) struct HeaderName {
+  value : String
+} derive(Compare, Eq, Hash, @debug.Debug)
+pub fn HeaderName::parse(String) -> Result[Self, HeaderError]
+
+pub(all) struct HeaderValue {
+  bytes : Bytes
+} derive(Eq, @debug.Debug)
+pub fn HeaderValue::from_bytes(Bytes) -> Result[Self, HeaderError]
+pub fn HeaderValue::from_string(String) -> Result[Self, HeaderError]
+pub fn HeaderValue::to_string_lossy(Self) -> String
+
+pub(all) struct Limits {
+  max_start_line : Int
+  max_header_line : Int
+  max_header_count : Int
+  max_header_bytes : Int
+  max_body_bytes : Int
+  max_buffer_bytes : Int
+}
+pub fn Limits::defaults() -> Self
+
+pub(all) enum Method {
+  Get
+  Post
+  Put
+  Delete
+  Head
+  Options
+  Patch
+  Trace
+  Connect
+  Extension(String)
+} derive(Eq, @debug.Debug)
+
+pub(all) struct Request[B] {
+  http_method : Method
+  uri : Uri
+  version : Version
+  headers : HeaderMap
+  body : B
+}
+pub fn[A, B] Request::map_body(Self[A], (A) -> B) -> Self[B]
+
+pub(all) struct Response[B] {
+  status : Int
+  version : Version
+  headers : HeaderMap
+  body : B
+}
+pub fn[A, B] Response::map_body(Self[A], (A) -> B) -> Self[B]
+
+pub(all) struct Uri {
+  value : String
+} derive(Eq, @debug.Debug)
+pub fn Uri::parse(String) -> Result[Self, UriError]
+
+pub(all) enum Version {
+  Http10
+  Http11
+  Http2
+} derive(Eq, @debug.Debug)
+
+// Type aliases
+
+// Traits
+

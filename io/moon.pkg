@@ -1,0 +1,8 @@
+import {
+  "moonbitlang/async/io" @aio,
+  "ZSeanYves/MoonbitHTTP/codec",
+}
+
+options(
+  "is-main": false,
+)

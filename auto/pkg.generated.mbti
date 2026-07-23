@@ -1,0 +1,39 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/auto"
+
+import {
+  "ZSeanYves/MoonbitHTTP/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn detect_h2c_upgrade(@types.HeaderMap) -> Bool
+
+pub fn select_protocol(String?, BytesView) -> Detection
+
+// Errors
+
+// Types and methods
+pub(all) enum Detection {
+  Undetermined
+  Detected(Protocol)
+} derive(Eq, @debug.Debug)
+
+pub struct Detector {
+  prefix : Array[Byte]
+  mut decision : Detection
+}
+pub fn Detector::buffered(Self) -> Bytes
+pub fn Detector::feed(Self, BytesView) -> Detection
+pub fn Detector::new() -> Self
+
+pub(all) enum Protocol {
+  Http1
+  Http2PriorKnowledge
+  Http2Upgrade
+} derive(Eq, @debug.Debug)
+
+// Type aliases
+
+// Traits
+

@@ -1,78 +1,67 @@
 # ZSeanYves/MoonbitHTTP
 
-## 概览
+MoonbitHTTP 0.4.0 是一个传输层无关、可流式驱动的 MoonBit HTTP 协议库。
+核心 codec 是纯增量状态机，可在四个稳定后端运行；异步连接层直接使用
+`moonbitlang/async/io.Reader` 与 `Writer`，可接 TCP、内存 pipe 或外部运行时。
 
-**MoonbitHTTP** 是一个基于 [MoonBit](https://www.moonbitlang.com/) 的 HTTP 协议工具库集合，目标是模块化、可测试、可扩展。
-它分为多个子包，每个子包有独立的说明文档和 API：
+## 包结构
 
-* [`http/core`](./src/core/README.md)：HTTP 核心数据结构（请求/响应、状态码、消息体、限制参数）
-* [`http/transport`](./src/transport/README.md)：轻量的内存传输层和缓冲游标，方便测试与增量解析
-* [`http/http1`](./src/http1/README.md)：HTTP/1.1 协议解析与编解码（请求/响应、服务端/客户端工具）
-* [`http/http2`](./src/http2/README.md)：HTTP/2（规划中/开发中）
+| 包 | 职责 |
+| --- | --- |
+| `types` | 多值 HeaderMap、Method、Uri、Version、泛型 Request/Response、Limits |
+| `body` | 异步 `Body` trait、Data/Trailers frame、SizeHint、收集与限制 |
+| `codec` | 与协议无关的增量字节缓冲和结构化 codec 错误 |
+| `http1` | RFC 9110/9112 framing、流式事件、pipeline、请求/响应编码 |
+| `http2` | 帧、完整 HPACK Huffman/动态表、连接/流状态和流量控制 |
+| `service` | 异步 HTTP/1、HTTP/2、自动协议 server，以及 HTTP/1 client connection |
+| `auto` | HTTP/2 prior knowledge、h2c 和外部 ALPN 选择 |
+| `uv_adapter` | callback/uv 风格 I/O 到官方 Reader/Writer 的薄适配 |
+| `test_support` | 分片、故障注入和录制 I/O 测试工具 |
 
-每个子包的详细说明、使用示例和 API 请查看各自目录下的 **README.md**。
-
----
-
-## 特性
-
-* **模块化设计**：核心、传输层、HTTP/1.1、HTTP/2 相互解耦
-* **易于测试**：全部支持在内存中模拟，不依赖真实网络（后续会加入真实网络）
-* **渐进增强**：从简单的 `Content-Length` 响应到 `chunked`，再到多路复用的 HTTP/2
-* **生态兼容**：依赖 [`bufferutils`](https://github.com/ZSeanYves/BufferUtils) 等工具库
-
----
-
-## 下载
-
-```bash
-moon add ZSeanYves/MoonbitHTTP
-```
-
-或编辑 `moon.mod.json`：
-
-```json
-"import": ["ZSeanYves/MoonbitHTTP"]
-```
-
----
-
-## 示例
-
-最简单的例子：启动一个内存传输的服务端，解析请求并返回响应。
+## 异步 HTTP/1 服务端
 
 ```moonbit
-use http/core
-use http/http1 { serve_once, StatusCode }
-use @tsp = @ZSeanYves/MoonbitHTTP/transport
-use @buf = @ZSeanYves/bufferutils
-
-fn hello(_req: Request) -> (StatusCode, Map[String,String], Array[Byte], Bool) {
-  let hs : Map[String,String] = Map::new()
-  hs.set("Content-Type", "text/plain")
-  let body = @buf.string_to_utf8_bytes("Hello from MoonbitHTTP!").to_array()
-  (StatusCode::OK, hs, body, false)
+async fn serve_connection[R : @io.Reader, W : @io.Writer](reader : R, writer : W) {
+  @service.serve_http1_connection(reader, writer, async fn(request) {
+    let headers = @types.HeaderMap::new()
+    ignore(headers.append_string("content-type", "text/plain"))
+    {
+      status: 200,
+      version: request.version,
+      headers,
+      body: b"Hello from MoonbitHTTP!",
+    }
+  })
 }
-
-let rx = @buf.string_to_utf8_bytes("GET / HTTP/1.1\r\nHost: a\r\n\r\n").to_array()
-let io = @tsp.from_inmemory(rx)
-let _  = serve_once(io, hello, 32, 1024, 4096)
-//println(Bytes::from_array(io.take_tx()).to_string())
 ```
 
----
+用户 service 抛出的错误默认原样向上传播。只有调用
+`serve_http1_with_error_responder` 并显式提供映射策略时，库才会把错误转换为
+HTTP 响应。
 
-## 路线图
+## 真实 socket 验证
 
-* [x] `http/core`：核心类型
-* [x] `http/transport`：内存传输层
-* [x] `http/http1`：HTTP/1.1 协议支持
-* [ ] `http/http2`：HTTP/2 协议支持
+仓库提供 native smoke server，可同时处理 HTTP/1.1、HTTP/2 prior knowledge
+和 h2c Upgrade：
 
----
+```bash
+bash scripts/interoperability.sh
+```
+
+脚本使用 curl 和 nghttp2 对真实 TCP 连接做互操作验证。
+
+## 开发验证
+
+```bash
+moon fmt --check
+moon check --target all --deny-warn --warn-list +73
+moon test --target all --deny-warn --warn-list +73
+moon bench --build-only --target native --deny-warn --warn-list +73
+```
+
+当前架构、协议覆盖范围和验证基线见
+[维护实施报告](./docs/maintenance-plan.md)。
 
 ## 许可证
 
-MIT License. 详见 [LICENSE](./LICENSE)。
-
----
+Apache License 2.0，见 [LICENSE](./LICENSE)。

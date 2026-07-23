@@ -1,0 +1,10 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/socket",
+  "ZSeanYves/MoonbitHTTP/service",
+  "ZSeanYves/MoonbitHTTP/types",
+}
+
+supported_targets = "+native"
+
+pkgtype(kind: "executable")

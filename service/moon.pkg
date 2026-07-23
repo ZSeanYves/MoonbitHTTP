@@ -1,0 +1,13 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/io" @aio,
+  "ZSeanYves/MoonbitHTTP/types",
+  "ZSeanYves/MoonbitHTTP/http1",
+  "ZSeanYves/MoonbitHTTP/http2",
+  "ZSeanYves/MoonbitHTTP/auto",
+  "moonbitlang/x/codec/base64",
+}
+
+options(
+  "is-main": false,
+)
