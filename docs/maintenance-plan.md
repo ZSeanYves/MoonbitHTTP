@@ -1,4 +1,4 @@
-# MoonbitHTTP 0.5.0 维护实施报告
+# MoonbitHTTP 0.6.0 维护实施报告
 
 日期：2026-07-23
 
@@ -18,18 +18,22 @@ TCP / memory pipe / callback runtime
 `Request[B]`/`Response[B]`；`body` 持有统一的异步 body 抽象；`http1`、
 `http2` 只负责协议状态机和帧编码；`service` 负责传输驱动和错误边界。
 
-## 2. 0.5.0 流式 API
+## 2. 0.6.0 流式 API
 
 - `BodyStream` 使用有界异步队列，默认容量为 8；`push` 在队列满时挂起，
   `finish` 表示正常结束，`fail` 保留原始终止错误。
-- `ServerConfig.body_queue_capacity` 控制 HTTP/1 request body 队列容量。
+- `ServerConfig` 统一控制所有 server 入口的 limits、读写超时、有界 body 队列和
+  `close_callback`；`body_queue_capacity` 同时作用于 HTTP/1、h2c 和 HTTP/2。
 - `serve_http1_connection`、`serve_http1_or_h2c_connection`、
   `serve_http2_connection` 和 `serve_auto_connection` 的 handler 统一为
   `Request[BodyStream] -> Response[B]`，其中 `B : Body`。
-- HTTP/1 `ClientConnection::send` 和 HTTP/2
-  `H2ClientConnection::send` 接受任意 `Body`，返回 `Response[BodyStream]`。
-- 旧的高层 `Request[Bytes]`、`Response[Bytes]` 和 `ClientResponse` 已删除，
-  不提供兼容别名。
+- HTTP/1 `ClientConnection::send` 接受任意 `Body`，返回 `Response[BodyStream]`。
+- HTTP/2 client 使用 `with_h2_client_connection(reader, writer, run, config?)`；
+  作用域内部 reader pump、多路 stream、request producer 和 response dispatcher
+  由同一个 task group 管理。`H2Client::send` 在 response HEADERS 到达后返回，
+  response body 通过 bounded `BodyStream` 逐 frame 消费。
+- 高层 service/client 只使用泛型 `Request[B]`、`Response[B]` 和
+  `Response[BodyStream]`，底层 codec 仍可按需使用字节专家 API。
 
 `FullBody` 适合已知长度的小 body；`QueueBody` 适合固定 frame 序列；
 `BodyStream` 用于协议连接与 producer/consumer 并发。`body.collect` 是调用方
@@ -67,12 +71,11 @@ reader 继续处理。消费者取得 DATA 后才发送 WINDOW_UPDATE。response
 window 分片发送，窗口为零时等待 WINDOW_UPDATE 信号；trailers 使用 trailing
 HEADERS，body 或 handler 失败发送 `RST_STREAM(CANCEL)`。
 
-`H2ClientConnection` 负责 client preface、SETTINGS、HPACK 上下文、stream id、
-GOAWAY/RST 和 request/response frame 编解码。当前公开 `send` 对同一传输执行
-串行驱动，以保证只使用 `moonbitlang/async` 公开的结构化并发 API 时不存在孤儿
-reader task；response 仍通过统一的 `BodyStream` 类型交付。需要真正多 stream
-并发 reader pump 的下一步 API 应由调用方提供 `TaskGroup` 生命周期，或等待
-async runtime 提供公开的可持有 background task handle。
+`with_h2_client_connection` 负责 client preface、SETTINGS、HPACK 上下文、stream
+id、GOAWAY/RST、并发 slot、连接/stream flow control 和 reader pump。多个
+`send` 可以在 callback 作用域内并发运行；GOAWAY 后禁止新 stream，已有 stream
+继续完成。callback 结束时未消费的 response body 以取消错误关闭，不保留 detached
+reader task。
 
 ## 5. 协议一致性与错误
 
@@ -102,6 +105,7 @@ moon coverage analyze -- -f cobertura -o coverage.xml
 moon info
 ```
 
-0.5.0 本地基线：wasm 49/49、wasm-gc 37/37、JavaScript 49/49、native
-49/49。`pkg.generated.mbti` 由 `moon info` 生成；`service` 接口中不再存在高层
-`Request[Bytes]`、`Response[Bytes]` 或 `ClientResponse`。
+0.6.0 本地基线：wasm 55/55、wasm-gc 37/37、JavaScript 55/55、native
+55/55。
+`pkg.generated.mbti` 由 `moon info` 生成；service 接口只暴露 Body trait、
+`BodyStream`、泛型 response 和作用域化 H2 client。

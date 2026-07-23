@@ -1,6 +1,6 @@
 # ZSeanYves/MoonbitHTTP
 
-MoonbitHTTP 0.5.0 是一个传输层无关、端到端流式驱动的 MoonBit HTTP 协议库。
+MoonbitHTTP 0.6.0 是一个传输层无关、端到端流式驱动的 MoonBit HTTP 协议库。
 核心 codec 是纯增量状态机，可在四个稳定后端运行；异步连接层直接使用
 `moonbitlang/async/io.Reader` 与 `Writer`，可接 TCP、内存 pipe 或外部运行时。
 
@@ -17,6 +17,12 @@ MoonbitHTTP 0.5.0 是一个传输层无关、端到端流式驱动的 MoonBit HT
 | `auto` | HTTP/2 prior knowledge、h2c 和外部 ALPN 选择 |
 | `uv_adapter` | callback/uv 风格 I/O 到官方 Reader/Writer 的薄适配 |
 | `test_support` | 分片、故障注入和录制 I/O 测试工具 |
+
+service 层不会隐式聚合请求或响应 body。服务 handler 接收
+`Request[BodyStream]`，返回任意 `B : Body` 的 `Response[B]`；
+`ServerConfig.body_queue_capacity` 提供有界背压，`close_callback` 用于连接到
+传输适配器的关闭路径。HTTP/2 client 使用 `with_h2_client_connection` 作用域
+助手，callback 返回前必须消费完需要的响应 body。
 
 ## 异步 HTTP/1 服务端
 
