@@ -1,0 +1,14 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/async/io" @aio,
+  "moonbitlang/async/tls" @atls,
+  "ZSeanYves/MoonbitHTTP/tls",
+  "ZSeanYves/MoonbitHTTP/transport",
+}
+
+supported_targets = "+native"
+
+options(
+  "is-main": false,
+)

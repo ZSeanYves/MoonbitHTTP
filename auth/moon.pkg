@@ -1,0 +1,14 @@
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/core/encoding/base64",
+  "moonbitlang/core/encoding/utf8",
+  "moonbit-community/normalization",
+  "cc06b/mooncry/lib" @mooncry,
+  "ZSeanYves/MoonbitHTTP/types",
+}
+
+supported_targets = "js+native+wasm+wasm-gc"
+
+options(
+  "is-main": false,
+)

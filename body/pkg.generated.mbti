@@ -11,9 +11,22 @@ import {
 pub async fn[B : Body] collect(B, max_bytes? : Int) -> (Bytes, @types.HeaderMap?)
 
 // Errors
+pub(all) suberror BodyError {
+  DataAfterTrailers
+  DuplicateTrailers
+  InvalidLimit(Int)
+  Cancelled
+} derive(Eq, @debug.Debug)
+pub fn BodyError::equal(Self, Self) -> Bool
+pub fn BodyError::not_equal(Self, Self) -> Bool
+pub fn BodyError::to_repr(Self) -> @debug.Repr
+
 pub(all) suberror BodyLimitExceeded {
   BodyLimitExceeded(limit~ : Int)
 } derive(Eq, @debug.Debug)
+pub fn BodyLimitExceeded::equal(Self, Self) -> Bool
+pub fn BodyLimitExceeded::not_equal(Self, Self) -> Bool
+pub fn BodyLimitExceeded::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub struct BodyStream {
@@ -21,20 +34,29 @@ pub struct BodyStream {
   space_available : @aqueue.Queue[Unit]
   hint : SizeHint
   on_data_consumed : async (Int) -> Unit
+  on_terminate : (Error?) -> Unit
   pull : (async () -> Frame?)?
   mut finished : Bool
   mut failure : Error?
+  mut trailers_seen : Bool
 }
+pub fn BodyStream::cancel(Self, Error) -> Unit
 pub fn BodyStream::fail(Self, Error) -> Unit
 pub fn BodyStream::finish(Self) -> Unit
-pub fn BodyStream::from_pull(async () -> Frame?, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit) -> Self
-pub fn BodyStream::new(capacity? : Int, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit) -> Self
+pub fn BodyStream::from_pull(async () -> Frame?, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit) -> Self
+pub fn BodyStream::new(capacity? : Int, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit) -> Self
+pub async fn BodyStream::next_frame(Self) -> Frame?
 pub async fn BodyStream::push(Self, Frame) -> Unit
+pub fn BodyStream::size_hint(Self) -> SizeHint
+pub fn BodyStream::try_new(capacity? : Int, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit) -> Result[Self, BodyError]
 pub fn BodyStream::try_push(Self, Frame) -> Bool raise
 pub impl Body for BodyStream
 
 pub struct EmptyBody(Unit)
+pub fn EmptyBody::cancel(Self, Error) -> Unit
 pub fn EmptyBody::new() -> Self
+pub async fn EmptyBody::next_frame(Self) -> Frame?
+pub fn EmptyBody::size_hint(Self) -> SizeHint
 pub impl Body for EmptyBody
 
 pub(all) enum Frame {
@@ -46,15 +68,22 @@ pub struct FullBody {
   data : Bytes
   mut sent : Bool
 }
+pub fn FullBody::cancel(Self, Error) -> Unit
 pub fn FullBody::new(Bytes) -> Self
+pub async fn FullBody::next_frame(Self) -> Frame?
+pub fn FullBody::size_hint(Self) -> SizeHint
 pub impl Body for FullBody
 
 pub struct QueueBody {
   frames : Array[Frame]
   mut cursor : Int
   hint : SizeHint
+  mut trailers_seen : Bool
 }
+pub fn QueueBody::cancel(Self, Error) -> Unit
 pub fn QueueBody::new(Array[Frame]) -> Self
+pub async fn QueueBody::next_frame(Self) -> Frame?
+pub fn QueueBody::size_hint(Self) -> SizeHint
 pub impl Body for QueueBody
 
 pub(all) struct SizeHint {
@@ -73,5 +102,5 @@ pub fn SizeHint::upper_bound(Self) -> Int?
 pub(open) trait Body {
   async fn next_frame(Self) -> Frame?
   fn size_hint(Self) -> SizeHint
+  fn cancel(Self, Error) -> Unit = _
 }
-

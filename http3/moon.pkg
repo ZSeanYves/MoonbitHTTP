@@ -1,0 +1,12 @@
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/int",
+  "ZSeanYves/MoonbitHTTP/http2",
+  "ZSeanYves/MoonbitHTTP/quic",
+  "ZSeanYves/MoonbitHTTP/types",
+}
+
+options(
+  "is-main": false,
+)

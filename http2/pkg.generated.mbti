@@ -73,12 +73,16 @@ pub(all) suberror H2ProtocolError {
   ConnectionError(H2ErrorCode, String)
   StreamError(Int, H2ErrorCode, String)
 } derive(Eq, @debug.Debug)
+pub fn H2ProtocolError::equal(Self, Self) -> Bool
+pub fn H2ProtocolError::not_equal(Self, Self) -> Bool
+pub fn H2ProtocolError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub struct FrameDecoder {
   buffer : @codec.Buffer
   mut pending : H2FrameHeader?
   max_frame_size : Int
+  mut failure : H2ProtocolError?
 }
 pub fn FrameDecoder::feed(Self, BytesView) -> Result[Unit, H2ProtocolError]
 pub fn FrameDecoder::new(max_frame_size? : Int, max_buffer_size? : Int) -> Self
@@ -98,24 +102,30 @@ pub(all) enum H2Action {
 
 pub struct H2Connection {
   role : H2Role
+  limits : @types.Limits
   local_settings : H2Settings
   peer_settings : H2Settings
   streams : Map[Int, H2Stream]
+  closed_streams : Array[Int]
   mut connection_send_window : Int
   mut connection_recv_window : Int
   mut highest_remote_stream : Int
   mut next_local_stream : Int
   mut continuation_stream : Int?
+  mut continuation_bytes : Int
   mut goaway_received : Bool
+  mut goaway_last_stream : Int?
+  mut failure : H2ProtocolError?
 }
 pub fn H2Connection::accept_upgraded_stream1(Self) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::apply_settings_payload(Self, BytesView) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::finish_local_stream(Self, Int) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::increase_connection_receive_window(Self, Int) -> Result[Unit, H2ProtocolError]
-pub fn H2Connection::new(H2Role) -> Self
+pub fn H2Connection::new(H2Role, limits? : @types.Limits) -> Self
 pub fn H2Connection::open_local_stream(Self, end_stream? : Bool) -> Result[Int, H2ProtocolError]
 pub fn H2Connection::receive(Self, H2Frame) -> Result[Array[H2Action], H2ProtocolError]
 pub fn H2Connection::release_capacity(Self, Int, Int) -> Result[Array[H2Action], H2ProtocolError]
+pub fn H2Connection::release_connection_capacity(Self, Int) -> Result[H2Action, H2ProtocolError]
 pub fn H2Connection::reserve_send_capacity(Self, Int, Int) -> Result[Int, H2ProtocolError]
 pub fn H2Connection::reset_stream(Self, Int) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::set_local_initial_window(Self, Int) -> Result[Unit, H2ProtocolError]
@@ -137,6 +147,9 @@ pub(all) enum H2ErrorCode {
   InadequateSecurity
   Http11Required
 } derive(Eq, @debug.Debug)
+pub fn H2ErrorCode::equal(Self, Self) -> Bool
+pub fn H2ErrorCode::not_equal(Self, Self) -> Bool
+pub fn H2ErrorCode::to_repr(Self) -> @debug.Repr
 
 pub(all) struct H2Frame {
   header : H2FrameHeader
@@ -154,6 +167,9 @@ pub(all) enum H2Role {
   Client
   Server
 } derive(Eq, @debug.Debug)
+pub fn H2Role::equal(Self, Self) -> Bool
+pub fn H2Role::not_equal(Self, Self) -> Bool
+pub fn H2Role::to_repr(Self) -> @debug.Repr
 
 pub(all) struct H2Setting {
   id : Int
@@ -184,6 +200,9 @@ pub(all) enum H2StreamState {
   HalfClosedRemote
   Closed
 } derive(Eq, @debug.Debug)
+pub fn H2StreamState::equal(Self, Self) -> Bool
+pub fn H2StreamState::not_equal(Self, Self) -> Bool
+pub fn H2StreamState::to_repr(Self) -> @debug.Repr
 
 pub struct HpackContext {
   table : HpackTable
@@ -197,8 +216,13 @@ pub fn HpackContext::table_length(Self) -> Int
 
 pub(all) struct HpackHeader {
   name : String
-  value : String
-}
+  value : Bytes
+} derive(Eq, @debug.Debug)
+pub fn HpackHeader::equal(Self, Self) -> Bool
+pub fn HpackHeader::from_strings(String, String) -> Self
+pub fn HpackHeader::not_equal(Self, Self) -> Bool
+pub fn HpackHeader::to_repr(Self) -> @debug.Repr
+pub fn HpackHeader::value_text(Self) -> Result[String, H2ProtocolError]
 
 pub struct HpackTable {
   mut entries : Array[HpackHeader]
@@ -213,4 +237,3 @@ pub fn HpackTable::resize(Self, Int) -> Unit
 // Type aliases
 
 // Traits
-

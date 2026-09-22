@@ -1,0 +1,173 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/auth"
+
+import {
+  "ZSeanYves/MoonbitHTTP/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn select_digest_challenge(Array[@types.HeaderValue], policy? : DigestPolicy, limits? : AuthLimits) -> Result[DigestChallenge, AuthError]
+
+// Errors
+pub(all) suberror AuthError {
+  InvalidAuthLimits
+  InvalidBasicCredentials
+  InvalidBearerToken
+  InvalidChallenge
+  TooManyChallengeParameters
+  ChallengeParameterTooLarge
+  MissingDigestRealm
+  MissingDigestNonce
+  UnsupportedDigestAlgorithm
+  WeakDigestAlgorithmDenied
+  UnsupportedDigestQop
+  UnsupportedDigestCharset
+  InvalidDigestCredentials
+  InvalidDigestCnonce
+  DigestNonceCountExhausted
+  DigestOriginMismatch
+  DigestEntityHashRequired
+  DigestEntityHashMismatch
+  DigestChallengeNotStale
+  DigestRealmChanged
+  InvalidDigestRequestUri
+  InvalidDigestAuthenticationInfo
+  MissingDigestResponseAuth
+  DigestResponseAuthMismatch
+  DigestAuthenticationContextMismatch
+  DigestNextNonceRace
+} derive(Eq, @debug.Debug)
+pub fn AuthError::equal(Self, Self) -> Bool
+pub fn AuthError::not_equal(Self, Self) -> Bool
+pub fn AuthError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub(all) struct AuthLimits {
+  max_challenge_bytes : Int
+  max_parameters : Int
+  max_parameter_bytes : Int
+  max_credential_bytes : Int
+  max_token_bytes : Int
+} derive(Eq, @debug.Debug)
+pub fn AuthLimits::defaults() -> Self
+pub fn AuthLimits::equal(Self, Self) -> Bool
+pub fn AuthLimits::not_equal(Self, Self) -> Bool
+pub fn AuthLimits::to_repr(Self) -> @debug.Repr
+pub fn AuthLimits::validate(Self) -> Result[Unit, AuthError]
+
+pub struct BasicCredentials {
+  username : String
+  password : String
+  limits : AuthLimits
+}
+pub fn BasicCredentials::authorization(Self, utf8_charset? : Bool) -> Result[@types.HeaderValue, AuthError]
+pub fn BasicCredentials::new(String, String, limits? : AuthLimits) -> Result[Self, AuthError]
+
+pub struct BearerToken {
+  value : String
+}
+pub fn BearerToken::authorization(Self) -> Result[@types.HeaderValue, AuthError]
+pub fn BearerToken::new(String, limits? : AuthLimits) -> Result[Self, AuthError]
+
+pub(all) enum DigestAlgorithm {
+  DigestMd5
+  DigestMd5Sess
+  DigestSha256
+  DigestSha256Sess
+  DigestSha512256
+  DigestSha512256Sess
+} derive(Eq, @debug.Debug)
+pub fn DigestAlgorithm::equal(Self, Self) -> Bool
+pub fn DigestAlgorithm::not_equal(Self, Self) -> Bool
+pub fn DigestAlgorithm::to_repr(Self) -> @debug.Repr
+
+pub struct DigestAuthenticationInfo {
+  next_nonce : String?
+  response_authenticated : Bool
+}
+pub fn DigestAuthenticationInfo::next_nonce(Self) -> String?
+pub fn DigestAuthenticationInfo::response_authenticated(Self) -> Bool
+
+pub struct DigestAuthorization {
+  header : @types.HeaderValue
+  algorithm : DigestAlgorithm
+  origin : String
+  realm : String
+  nonce : String
+  qop : DigestQop?
+  cnonce : String
+  nonce_count : Int64
+  nonce_count_text : String
+  request_target : String
+  ha1 : String
+}
+pub fn DigestAuthorization::header(Self) -> @types.HeaderValue
+pub fn DigestAuthorization::verify_authentication_info(Self, @types.HeaderValue, response_entity_hash? : DigestEntityHash?, limits? : AuthLimits) -> Result[DigestAuthenticationInfo, AuthError]
+
+pub struct DigestChallenge {
+  realm : String
+  nonce : String
+  opaque_value : String?
+  algorithm : DigestAlgorithm
+  qops : Array[DigestQop]
+  utf8 : Bool
+  userhash : Bool
+  stale : Bool
+}
+pub fn DigestChallenge::algorithm(Self) -> DigestAlgorithm
+pub fn DigestChallenge::parse(@types.HeaderValue, limits? : AuthLimits) -> Result[Self, AuthError]
+pub fn DigestChallenge::parse_string(String, limits? : AuthLimits) -> Result[Self, AuthError]
+pub fn DigestChallenge::stale(Self) -> Bool
+pub fn DigestChallenge::supports_qop(Self, DigestQop) -> Bool
+
+pub struct DigestCredentials {
+  username : String
+  password : String
+}
+pub fn DigestCredentials::new(String, String, limits? : AuthLimits) -> Result[Self, AuthError]
+
+pub struct DigestEntityHash {
+  algorithm : DigestAlgorithm
+  hexadecimal : String
+}
+pub fn DigestEntityHash::compute(DigestAlgorithm, BytesView) -> Self
+
+pub(all) struct DigestPolicy {
+  allow_md5 : Bool
+  allow_legacy_no_qop : Bool
+  prefer_auth_int : Bool
+  max_nonce_uses : Int64
+} derive(Eq, @debug.Debug)
+pub fn DigestPolicy::defaults() -> Self
+pub fn DigestPolicy::equal(Self, Self) -> Bool
+pub fn DigestPolicy::not_equal(Self, Self) -> Bool
+pub fn DigestPolicy::to_repr(Self) -> @debug.Repr
+pub fn DigestPolicy::validate(Self) -> Result[Unit, AuthError]
+
+pub(all) enum DigestQop {
+  DigestAuth
+  DigestAuthInt
+} derive(Eq, @debug.Debug)
+pub fn DigestQop::equal(Self, Self) -> Bool
+pub fn DigestQop::not_equal(Self, Self) -> Bool
+pub fn DigestQop::to_repr(Self) -> @debug.Repr
+
+pub struct DigestSession {
+  mut challenge : DigestChallenge
+  credentials : DigestCredentials
+  origin : String
+  policy : DigestPolicy
+  limits : AuthLimits
+  mut nonce_count : Int64
+}
+pub fn DigestSession::authorization(Self, String, @types.Method, String, String, entity_hash? : DigestEntityHash?) -> Result[@types.HeaderValue, AuthError]
+pub fn DigestSession::authorize(Self, String, @types.Method, String, String, entity_hash? : DigestEntityHash?) -> Result[DigestAuthorization, AuthError]
+pub fn DigestSession::new(DigestChallenge, DigestCredentials, String, policy? : DigestPolicy, limits? : AuthLimits) -> Result[Self, AuthError]
+pub fn DigestSession::nonce_count(Self) -> Int64
+pub fn DigestSession::replace_stale_challenge(Self, DigestChallenge) -> Result[Unit, AuthError]
+pub fn DigestSession::verify_authentication_info(Self, DigestAuthorization, @types.HeaderValue, response_entity_hash? : DigestEntityHash?, limits? : AuthLimits) -> Result[DigestAuthenticationInfo, AuthError]
+
+// Type aliases
+
+// Traits

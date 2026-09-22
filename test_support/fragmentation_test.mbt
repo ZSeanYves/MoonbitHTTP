@@ -33,7 +33,7 @@ test "http-test: HTTP/1 request parses at every single split boundary" {
 
 ///|
 async test "http-test: fault reader raises at configured boundary" {
-  let reader = FaultReader::new([b"a", b"b"], fail_after=Some(1))
+  let reader = @test_support.FaultReader::new([b"a", b"b"], fail_after=Some(1))
   assert_eq(reader.read_some(), Some(b"a"))
   let raised = try {
     ignore(reader.read_some())

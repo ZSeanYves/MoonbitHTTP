@@ -1,6 +1,6 @@
 # MoonbitHTTP 0.6.0 维护实施报告
 
-日期：2026-07-23
+日期：2026-09-22
 
 ## 1. 当前架构
 
@@ -105,7 +105,26 @@ moon coverage analyze -- -f cobertura -o coverage.xml
 moon info
 ```
 
-0.6.0 本地基线：wasm 55/55、wasm-gc 37/37、JavaScript 55/55、native
-55/55。
+早期 0.6.0 流式 API 基线曾为 wasm 55/55、wasm-gc 37/37、JavaScript 55/55、
+native 55/55；当前路线树的严格全目标运行已达到 wasm 266/266、wasm-gc
+207/207、JavaScript 267/267、native 280/280，详见
+`docs/release-evidence-2026-09-22.md`。
 `pkg.generated.mbti` 由 `moon info` 生成；service 接口只暴露 Body trait、
 `BodyStream`、泛型 response 和作用域化 H2 client。
+
+## 7. 生产路线增量
+
+当前树已增加 `client`、`server`、`cookie`、`cache`、`auth`、
+`content_coding`、`transport`、`tls`、`quic` 和 `http3` 包。Native adapter
+位于对应的 `/native` 子包，协议包不直接导入 socket、文件或宿主 TLS API。
+
+原生客户端已经接入数字地址优先的 TCP/DNS、系统根证书、单调/墙上时钟、
+HTTP/1.1-only ALPN 默认和 HTTP/1 连接池；原生服务端提供 capability-bound
+TCP listener，可交给 `server.ServerSupervisor` 管理 accept 错误、连接上限、
+优雅关闭和 observer 事件。客户端层的 Basic/Digest/Bearer、重定向、重试、
+Cookie、缓存和有界内容解码均有包级测试覆盖。
+
+以下能力仍明确是 release gate，而不是当前版本的完成声明：Native TLS 自定义
+trust anchor/client certificate/server handshake，QUIC 上的真实 TLS 1.3 CRYPTO
+接入，独立 HTTP/3 互操作，长时间压力/性能阈值和完整证书负向测试。宿主 API
+不支持的配置会返回 `Unsupported`，不会降级为未验证连接。

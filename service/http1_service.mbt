@@ -14,8 +14,8 @@ pub fn ServerConfig::defaults() -> ServerConfig {
     limits: @types.Limits::defaults(),
     read_size: 8192,
     body_queue_capacity: 8,
-    read_timeout_ms: None,
-    write_timeout_ms: None,
+    read_timeout_ms: Some(30000),
+    write_timeout_ms: Some(30000),
     close_callback: None,
   }
 }
@@ -95,11 +95,34 @@ fn header_has_token(
 }
 
 ///|
+/// RFC 9110 only defines `100-continue` for Expect. Unknown expectations are
+/// not silently ignored by the server driver; the caller receives 417.
+fn has_unsupported_expectation(headers : @types.HeaderMap) -> Bool {
+  for value in headers.get_all_string("expect") {
+    for part in value.to_string_lossy().split(",") {
+      let token = part.trim().to_lower()
+      if !token.is_empty() && token != "100-continue" {
+        return true
+      }
+    }
+  }
+  false
+}
+
+///|
+fn expects_request_body(request : @types.Request[Unit]) -> Bool {
+  match request.headers.content_length() {
+    Ok(Some(size)) if size > 0 => true
+    _ => !request.headers.get_all_string("transfer-encoding").is_empty()
+  }
+}
+
+///|
 fn[A] should_keep_alive(request : @types.Request[A]) -> Bool {
   match request.version {
     Http11 => !header_has_token(request.headers, "connection", "close")
     Http10 => header_has_token(request.headers, "connection", "keep-alive")
-    Http2 => true
+    Http2 | Http3 => true
   }
 }
 
@@ -109,6 +132,10 @@ pub async fn[R : @aio.Reader] drive_http1_events(
   on_event : async (@http1.RequestEvent) -> Unit,
   config? : ServerConfig = ServerConfig::defaults(),
 ) -> Unit {
+  match config.validate() {
+    Ok(_) => ()
+    Err(error) => raise error
+  }
   let decoder = @http1.RequestDecoder::new(limits=config.limits)
   while read_some_with_timeout(reader, config.read_size, config.read_timeout_ms)
         is Some(bytes) {
@@ -135,15 +162,20 @@ pub async fn[R : @aio.Reader] drive_http1_events(
 }
 
 ///|
-pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connection(
+async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connection_inner(
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   config? : ServerConfig = ServerConfig::defaults(),
 ) -> Unit {
+  match config.validate() {
+    Ok(_) => ()
+    Err(error) => raise error
+  }
   let mut active : @async.Task[Unit]? = None
   let mut active_stream : @body.BodyStream? = None
   let mut handler_done = false
+  let mut connection_upgraded = false
   @async.with_task_group(async fn(group) {
     group.add_defer(fn() {
       if active_stream is Some(stream) && !handler_done {
@@ -157,7 +189,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_conne
         stream.finish()
       }
     }
-    try {
+    let drive_result : Result[Unit, Error] = try {
       let decoder = @http1.RequestDecoder::new(limits=config.limits)
       while read_some_with_timeout(
               reader,
@@ -177,10 +209,40 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_conne
           }
           match event {
             RequestHead(request) => {
+              if has_unsupported_expectation(request.headers) {
+                let response_head : @types.Response[Unit] = {
+                  status: 417,
+                  version: request.version,
+                  headers: @types.HeaderMap::new(),
+                  body: (),
+                }
+                let encoded = match
+                  @http1.encode_response_head(
+                    response_head,
+                    request.http_method,
+                    NoBody,
+                  ) {
+                  Ok(value) => value
+                  Err(error) => raise error
+                }
+                write_with_timeout(writer, encoded, config.write_timeout_ms)
+                return ()
+              }
+              if request.version == Http11 &&
+                header_has_token(request.headers, "expect", "100-continue") &&
+                expects_request_body(request) {
+                write_with_timeout(
+                  writer,
+                  b"HTTP/1.1 100 Continue\r\n\r\n",
+                  config.write_timeout_ms,
+                )
+              }
               handler_done = false
-              let stream = @body.BodyStream::new(
-                capacity=config.body_queue_capacity,
-              )
+              let stream = match
+                @body.BodyStream::try_new(capacity=config.body_queue_capacity) {
+                Ok(value) => value
+                Err(error) => raise error
+              }
               active_stream = Some(stream)
               let request = request.map_body(fn(_) { stream })
               active = Some(
@@ -192,10 +254,8 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_conne
                   let request_method = request.http_method
                   let version = request.version
                   let mut framing = @http1.NoBody
-                  if @types.response_allows_body(
-                      request_method,
-                      response.status,
-                    ) {
+                  if response.status != 101 &&
+                    @types.response_allows_body(request_method, response.status) {
                     match response.body.size_hint().exact_size() {
                       Some(size) => framing = ContentLength(size)
                       None =>
@@ -206,11 +266,23 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_conne
                         }
                     }
                   }
+                  if response.status == 101 {
+                    connection_upgraded = true
+                    framing = NoBody
+                  }
+                  if !response.headers.get_all_string("upgrade").is_empty() {
+                    connection_upgraded = true
+                  }
                   if !should_keep_alive(request) || framing == CloseDelimited {
-                    response.headers.set(
-                      @types.HeaderName::parse("connection").unwrap(),
-                      @types.HeaderValue::from_string("close").unwrap(),
-                    )
+                    let name = match @types.HeaderName::parse("connection") {
+                      Ok(value) => value
+                      Err(error) => raise error
+                    }
+                    let value = match @types.HeaderValue::from_string("close") {
+                      Ok(value) => value
+                      Err(error) => raise error
+                    }
+                    response.headers.set(name, value)
                   }
                   let response_head : @types.Response[Unit] = {
                     status: response.status,
@@ -318,6 +390,9 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_conne
               task.wait()
               active = None
               active_stream = None
+              if connection_upgraded {
+                return ()
+              }
             }
           }
         }
@@ -350,25 +425,40 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_conne
             raise @http1.Http1Error::UnexpectedEof("request body")
         }
       }
+      Ok(())
     } catch {
-      error => {
+      error => Err(error)
+    }
+    match drive_result {
+      Ok(_) => ()
+      Err(error) => {
         if active_stream is Some(stream) {
           stream.fail(error)
         }
         raise error
       }
     }
-  }) catch {
-    error => {
-      if config.close_callback is Some(callback) {
-        callback(Some(error))
-      }
-      raise error
-    }
-  }
-  if config.close_callback is Some(callback) {
-    callback(None)
-  }
+  })
+}
+
+///|
+pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connection(
+  reader : R,
+  writer : W,
+  service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
+  config? : ServerConfig = ServerConfig::defaults(),
+) -> Unit {
+  run_connection_scope(
+    () => {
+      serve_http1_connection_inner(
+        reader,
+        writer,
+        service,
+        config=config.without_close_callback(),
+      )
+    },
+    config.close_callback,
+  )
 }
 
 ///|
@@ -427,11 +517,11 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_with_
         }
       }
       if !sent_end {
-        write_with_timeout(
-          writer,
-          @http1.encode_body_end(framing).unwrap(),
-          config.write_timeout_ms,
-        )
+        let encoded = match @http1.encode_body_end(framing) {
+          Ok(value) => value
+          Err(codec_error) => raise codec_error
+        }
+        write_with_timeout(writer, encoded, config.write_timeout_ms)
       }
     }
   }

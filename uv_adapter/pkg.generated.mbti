@@ -12,6 +12,9 @@ import {
 pub(all) suberror CallbackTransportClosed {
   CallbackTransportClosed
 } derive(Eq, @debug.Debug)
+pub fn CallbackTransportClosed::equal(Self, Self) -> Bool
+pub fn CallbackTransportClosed::not_equal(Self, Self) -> Bool
+pub fn CallbackTransportClosed::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub struct CallbackTransport {
@@ -21,12 +24,22 @@ pub struct CallbackTransport {
   close_callback : () -> Unit
   mut closed : Bool
 }
+pub async fn CallbackTransport::_direct_read(Self, FixedArray[Byte], offset~ : Int, max_len~ : Int) -> Int
+pub fn CallbackTransport::_get_internal_buffer(Self) -> @io.ReaderBuffer
 pub fn CallbackTransport::close(Self) -> Unit
+pub async fn CallbackTransport::drop(Self, Int) -> Int
 pub fn CallbackTransport::new(async (FixedArray[Byte], Int, Int) -> Int, async (Bytes, Int, Int) -> Int, close_callback? : () -> Unit) -> Self
+pub async fn CallbackTransport::read(Self, FixedArray[Byte], offset? : Int, max_len? : Int) -> Int
+pub async fn CallbackTransport::read_all(Self) -> &@io.Data
+pub async fn CallbackTransport::read_exactly(Self, Int) -> Bytes
+pub async fn CallbackTransport::read_some(Self, max_len? : Int) -> Bytes?
+pub async fn CallbackTransport::read_until(Self, StringView) -> String?
+pub async fn CallbackTransport::write(Self, &@io.Data) -> Unit
+pub async fn CallbackTransport::write_once(Self, Bytes, offset~ : Int, len~ : Int) -> Int
+pub async fn CallbackTransport::write_reader(Self, &@io.Reader) -> Unit
 pub impl @io.Reader for CallbackTransport
 pub impl @io.Writer for CallbackTransport
 
 // Type aliases
 
 // Traits
-

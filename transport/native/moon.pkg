@@ -1,0 +1,13 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/socket",
+  "moonbitlang/core/bench",
+  "moonbitlang/core/env",
+  "ZSeanYves/MoonbitHTTP/transport",
+}
+
+supported_targets = "+native"
+
+options(
+  "is-main": false,
+)

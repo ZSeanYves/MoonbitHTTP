@@ -3,7 +3,7 @@ async test "uv adapter: callback transport implements official IO traits" {
   let source = b"input"
   let mut source_offset = 0
   let written : Array[Byte] = []
-  let transport = CallbackTransport::new(
+  let transport = @uv_adapter.CallbackTransport::new(
     async fn(destination, offset, max_len) {
       @async.pause()
       let remaining = source.length() - source_offset

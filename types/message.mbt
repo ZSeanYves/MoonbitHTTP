@@ -13,35 +13,76 @@ pub(all) enum Method {
 } derive(Debug, Eq)
 
 ///|
+pub(all) suberror MethodError {
+  EmptyMethod
+  InvalidMethodToken
+  NonCanonicalMethod
+} derive(Debug, Eq)
+
+///|
+pub fn Method::parse_bytes(raw : BytesView) -> Result[Method, MethodError] {
+  if raw.is_empty() {
+    return Err(EmptyMethod)
+  }
+  for byte in raw {
+    if !is_token_byte(byte) {
+      return Err(InvalidMethodToken)
+    }
+  }
+  let value = @utf8.decode(raw) catch { _ => return Err(InvalidMethodToken) }
+  Ok(
+    match value {
+      "GET" => Get
+      "POST" => Post
+      "PUT" => Put
+      "DELETE" => Delete
+      "HEAD" => Head
+      "OPTIONS" => Options
+      "PATCH" => Patch
+      "TRACE" => Trace
+      "CONNECT" => Connect
+      extension => Extension(extension)
+    },
+  )
+}
+
+///|
+pub fn Method::parse(raw : String) -> Result[Method, MethodError] {
+  Method::parse_bytes(@utf8.encode(raw))
+}
+
+///|
+pub fn Method::as_str(self : Method) -> String {
+  match self {
+    Get => "GET"
+    Post => "POST"
+    Put => "PUT"
+    Delete => "DELETE"
+    Head => "HEAD"
+    Options => "OPTIONS"
+    Patch => "PATCH"
+    Trace => "TRACE"
+    Connect => "CONNECT"
+    Extension(value) => value
+  }
+}
+
+///|
+pub fn Method::validate(self : Method) -> Result[Unit, MethodError] {
+  match Method::parse(self.as_str()) {
+    Ok(parsed) if parsed == self => Ok(())
+    Ok(_) => Err(NonCanonicalMethod)
+    Err(error) => Err(error)
+  }
+}
+
+///|
 pub(all) enum Version {
   Http10
   Http11
   Http2
+  Http3
 } derive(Debug, Eq)
-
-///|
-pub(all) struct Uri {
-  value : String
-} derive(Debug, Eq)
-
-///|
-pub(all) suberror UriError {
-  InvalidUri(String)
-} derive(Debug, Eq)
-
-///|
-pub fn Uri::parse(value : String) -> Result[Uri, UriError] {
-  if value.length() == 0 {
-    return Err(InvalidUri("URI is empty"))
-  }
-  let bytes = @utf8.encode(value)
-  for b in bytes {
-    if b <= b' ' || b == b'\x7f' {
-      return Err(InvalidUri("URI contains whitespace or control bytes"))
-    }
-  }
-  Ok({ value, })
-}
 
 ///|
 pub(all) struct Request[B] {
@@ -97,26 +138,4 @@ pub fn response_allows_body(http_method : Method, status : Int) -> Bool {
   http_method != Head &&
   !(http_method == Connect && status >= 200 && status < 300) &&
   status_allows_body(status)
-}
-
-///|
-pub(all) struct Limits {
-  max_start_line : Int
-  max_header_line : Int
-  max_header_count : Int
-  max_header_bytes : Int
-  max_body_bytes : Int
-  max_buffer_bytes : Int
-}
-
-///|
-pub fn Limits::defaults() -> Limits {
-  {
-    max_start_line: 8192,
-    max_header_line: 8192,
-    max_header_count: 100,
-    max_header_bytes: 64 * 1024,
-    max_body_bytes: 16 * 1024 * 1024,
-    max_buffer_bytes: 256 * 1024,
-  }
 }

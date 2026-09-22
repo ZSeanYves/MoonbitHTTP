@@ -14,6 +14,9 @@ pub(all) suberror InjectedIoError {
   InjectedReadFailure
   InjectedWriteFailure
 } derive(Eq, @debug.Debug)
+pub fn InjectedIoError::equal(Self, Self) -> Bool
+pub fn InjectedIoError::not_equal(Self, Self) -> Bool
+pub fn InjectedIoError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub struct FaultReader {
@@ -24,7 +27,15 @@ pub struct FaultReader {
   mut reads : Int
   fail_after : Int?
 }
+pub async fn FaultReader::_direct_read(Self, FixedArray[Byte], offset~ : Int, max_len~ : Int) -> Int
+pub fn FaultReader::_get_internal_buffer(Self) -> @io.ReaderBuffer
+pub async fn FaultReader::drop(Self, Int) -> Int
 pub fn FaultReader::new(Array[Bytes], fail_after? : Int?) -> Self
+pub async fn FaultReader::read(Self, FixedArray[Byte], offset? : Int, max_len? : Int) -> Int
+pub async fn FaultReader::read_all(Self) -> &@io.Data
+pub async fn FaultReader::read_exactly(Self, Int) -> Bytes
+pub async fn FaultReader::read_some(Self, max_len? : Int) -> Bytes?
+pub async fn FaultReader::read_until(Self, StringView) -> String?
 pub impl @io.Reader for FaultReader
 
 pub struct RecordingWriter {
@@ -34,9 +45,11 @@ pub struct RecordingWriter {
 }
 pub fn RecordingWriter::contents(Self) -> Bytes
 pub fn RecordingWriter::new(fail_after? : Int?) -> Self
+pub async fn RecordingWriter::write(Self, &@io.Data) -> Unit
+pub async fn RecordingWriter::write_once(Self, Bytes, offset~ : Int, len~ : Int) -> Int
+pub async fn RecordingWriter::write_reader(Self, &@io.Reader) -> Unit
 pub impl @io.Writer for RecordingWriter
 
 // Type aliases
 
 // Traits
-

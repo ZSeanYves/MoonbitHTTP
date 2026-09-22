@@ -16,8 +16,8 @@ pub fn H2ClientConfig::defaults() -> H2ClientConfig {
     max_concurrent_streams: 100,
     body_queue_capacity: 8,
     read_size: 8192,
-    read_timeout_ms: None,
-    write_timeout_ms: None,
+    read_timeout_ms: Some(30000),
+    write_timeout_ms: Some(30000),
     close_callback: None,
   }
 }
@@ -176,11 +176,6 @@ fn decode_client_response(
   let mut regular = false
   let headers = @types.HeaderMap::new()
   for field in fields {
-    if field.name != field.name.to_lower() {
-      return Err(
-        StreamError(stream_id, ProtocolError, "uppercase response header"),
-      )
-    }
     if field.name.has_prefix(":") {
       if regular || field.name != ":status" || saw_status {
         return Err(
@@ -192,7 +187,14 @@ fn decode_client_response(
         )
       }
       saw_status = true
-      status = @string.parse_int(field.value) catch {
+      let value = match h2_field_text(field.value) {
+        Some(value) => value
+        None =>
+          return Err(
+            StreamError(stream_id, ProtocolError, "invalid response status"),
+          )
+      }
+      status = @string.parse_int(value) catch {
         _ =>
           return Err(
             StreamError(stream_id, ProtocolError, "invalid response status"),
@@ -200,10 +202,7 @@ fn decode_client_response(
       }
     } else {
       regular = true
-      if field.name == "connection" ||
-        field.name == "upgrade" ||
-        field.name == "keep-alive" ||
-        field.name == "transfer-encoding" {
+      if h2_connection_specific(field.name) {
         return Err(
           StreamError(
             stream_id,
@@ -212,12 +211,10 @@ fn decode_client_response(
           ),
         )
       }
-      match headers.append_string(field.name, field.value) {
-        Ok(_) => ()
-        Err(_) =>
-          return Err(
-            StreamError(stream_id, ProtocolError, "invalid response header"),
-          )
+      if !append_h2_regular_header(headers, field) {
+        return Err(
+          StreamError(stream_id, ProtocolError, "invalid response header"),
+        )
       }
     }
   }
@@ -234,7 +231,7 @@ fn decode_client_trailers(
 ) -> Result[@types.HeaderMap, @http2.H2ProtocolError] {
   let headers = @types.HeaderMap::new()
   for field in fields {
-    if field.name.has_prefix(":") {
+    if field.name.has_prefix(":") || h2_forbidden_trailer(field.name) {
       return Err(
         StreamError(
           stream_id,
@@ -243,12 +240,10 @@ fn decode_client_trailers(
         ),
       )
     }
-    match headers.append_string(field.name, field.value) {
-      Ok(_) => ()
-      Err(_) =>
-        return Err(
-          StreamError(stream_id, ProtocolError, "invalid response trailers"),
-        )
+    if !append_h2_regular_header(headers, field) {
+      return Err(
+        StreamError(stream_id, ProtocolError, "invalid response trailers"),
+      )
     }
   }
   Ok(headers)
@@ -352,7 +347,7 @@ async fn H2ClientShared::deliver_headers(
       return
     }
     stream.response_started = true
-    stream.head.put({ status, version: Http2, headers, body: () })
+    stream.head.put({ status, version: Http2, headers, body: (), })
     if end_stream {
       stream.response_finished = true
       stream.body.finish()
@@ -475,7 +470,13 @@ async fn h2_client_reader_pump(shared : H2ClientShared) -> Unit {
       shared.runtime_lock.acquire()
       let actions = match shared.runtime.receive(frame) {
         Ok(value) => value
-        Err(error) => {
+        Err(StreamError(stream_id, code, message)) => {
+          shared.runtime_lock.release()
+          shared.reset_stream(stream_id, code, "peer stream error: " + message)
+          continue
+        }
+        Err(ConnectionError(code, message)) => {
+          let error = @http2.H2ProtocolError::ConnectionError(code, message)
           shared.runtime_lock.release()
           shared.close_with(Some(error))
           raise error
@@ -534,7 +535,11 @@ async fn h2_client_reader_pump(shared : H2ClientShared) -> Unit {
                 id,
                 header_block.copy(),
                 header_end_stream,
-              )
+              ) catch {
+                @http2.H2ProtocolError::StreamError(error_id, code, message) =>
+                  shared.reset_stream(error_id, code, message)
+                error => raise error
+              }
               header_stream = 0
             }
           }
@@ -553,7 +558,11 @@ async fn h2_client_reader_pump(shared : H2ClientShared) -> Unit {
                 id,
                 header_block.copy(),
                 header_end_stream,
-              )
+              ) catch {
+                @http2.H2ProtocolError::StreamError(error_id, code, message) =>
+                  shared.reset_stream(error_id, code, message)
+                error => raise error
+              }
               header_stream = 0
             }
           }
@@ -585,61 +594,31 @@ async fn[B : @body.Body] send_h2_request_body(
   body : B,
 ) -> Unit {
   let mut sent_trailers = false
-  try {
-    while body.next_frame() is Some(frame) {
-      match frame {
-        Data(data) => {
-          if sent_trailers {
-            raise @http2.H2ProtocolError::StreamError(
-              stream.id,
-              ProtocolError,
-              "request data follows trailers",
-            )
-          }
-          let mut offset = 0
-          while offset < data.length() {
-            shared.runtime_lock.acquire()
-            let capacity = match
-              shared.runtime.reserve_send_capacity(
-                stream.id,
-                data.length() - offset,
-              ) {
-              Ok(value) => value
-              Err(error) => {
-                shared.runtime_lock.release()
-                raise error
-              }
-            }
-            shared.runtime_lock.release()
-            if capacity == 0 {
-              stream.window_signal.get()
-              continue
-            }
-            let encoded = match
-              @http2.encode_data_frames(
-                stream.id,
-                data[offset:offset + capacity].to_owned(),
-                false,
-              ) {
-              Ok(value) => value
-              Err(error) => raise error
-            }
-            shared.write_bytes(encoded)
-            offset += capacity
-          }
+  errdefer (shared.reset_stream(
+    stream.id,
+    Cancel,
+    "request body producer failed",
+  ) catch {
+    _ => ()
+  })
+  while body.next_frame() is Some(frame) {
+    match frame {
+      Data(data) => {
+        if sent_trailers {
+          raise @http2.H2ProtocolError::StreamError(
+            stream.id,
+            ProtocolError,
+            "request data follows trailers",
+          )
         }
-        Trailers(trailers) => {
-          if sent_trailers {
-            raise @http2.H2ProtocolError::StreamError(
-              stream.id,
-              ProtocolError,
-              "duplicate request trailers",
-            )
-          }
-          sent_trailers = true
+        let mut offset = 0
+        while offset < data.length() {
           shared.runtime_lock.acquire()
-          let encoded = match
-            @http2.encode_trailers(shared.encoder, stream.id, trailers) {
+          let capacity = match
+            shared.runtime.reserve_send_capacity(
+              stream.id,
+              data.length() - offset,
+            ) {
             Ok(value) => value
             Err(error) => {
               shared.runtime_lock.release()
@@ -647,32 +626,62 @@ async fn[B : @body.Body] send_h2_request_body(
             }
           }
           shared.runtime_lock.release()
+          if capacity == 0 {
+            stream.window_signal.get()
+            continue
+          }
+          let encoded = match
+            @http2.encode_data_frames(
+              stream.id,
+              data[offset:offset + capacity].to_owned(),
+              false,
+            ) {
+            Ok(value) => value
+            Err(error) => raise error
+          }
           shared.write_bytes(encoded)
+          offset += capacity
         }
       }
-    }
-    if !sent_trailers {
-      let encoded = match @http2.encode_data_frames(stream.id, b"", true) {
-        Ok(value) => value
-        Err(error) => raise error
+      Trailers(trailers) => {
+        if sent_trailers {
+          raise @http2.H2ProtocolError::StreamError(
+            stream.id,
+            ProtocolError,
+            "duplicate request trailers",
+          )
+        }
+        sent_trailers = true
+        shared.runtime_lock.acquire()
+        let encoded = match
+          @http2.encode_trailers(shared.encoder, stream.id, trailers) {
+          Ok(value) => value
+          Err(error) => {
+            shared.runtime_lock.release()
+            raise error
+          }
+        }
+        shared.runtime_lock.release()
+        shared.write_bytes(encoded)
       }
-      shared.write_bytes(encoded)
-    }
-    shared.runtime_lock.acquire()
-    let result = shared.runtime.finish_local_stream(stream.id)
-    shared.runtime_lock.release()
-    match result {
-      Ok(_) => ()
-      Err(error) => raise error
-    }
-    stream.request_finished = true
-    shared.release_stream(stream)
-  } catch {
-    error => {
-      shared.reset_stream(stream.id, Cancel, "request body producer failed")
-      raise error
     }
   }
+  if !sent_trailers {
+    let encoded = match @http2.encode_data_frames(stream.id, b"", true) {
+      Ok(value) => value
+      Err(error) => raise error
+    }
+    shared.write_bytes(encoded)
+  }
+  shared.runtime_lock.acquire()
+  let result = shared.runtime.finish_local_stream(stream.id)
+  shared.runtime_lock.release()
+  match result {
+    Ok(_) => ()
+    Err(error) => raise error
+  }
+  stream.request_finished = true
+  shared.release_stream(stream)
 }
 
 ///|
@@ -701,17 +710,26 @@ pub async fn[B : @body.Body] H2Client::send(
       raise error
     }
   }
-  let body = @body.BodyStream::new(
-    capacity=self.shared.config.body_queue_capacity,
-    on_data_consumed=async fn(amount) {
-      self.shared.release_capacity(stream_id, amount) catch {
-        error => {
-          self.shared.reset_stream_with_error(stream_id, Cancel, error)
-          raise error
-        }
-      }
-    },
-  )
+  let body = match
+    @body.BodyStream::try_new(capacity=self.shared.config.body_queue_capacity, on_data_consumed=async fn(
+      amount,
+    ) {
+      errdefer (self.shared.reset_stream(
+        stream_id,
+        Cancel,
+        "response body consumption callback failed",
+      ) catch {
+        _ => ()
+      })
+      self.shared.release_capacity(stream_id, amount)
+    }) {
+    Ok(value) => value
+    Err(error) => {
+      self.shared.runtime_lock.release()
+      ignore(self.shared.slots.try_put(()) catch { _ => false })
+      raise error
+    }
+  }
   let stream : H2ClientStream = {
     id: stream_id,
     head: Queue(kind=Blocking(1)),
@@ -761,8 +779,9 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, X] with_h2_client_connection(
   run : async (H2Client) -> X,
   config? : H2ClientConfig = H2ClientConfig::defaults(),
 ) -> X {
-  if config.max_concurrent_streams < 1 || config.body_queue_capacity < 1 {
-    abort("HTTP/2 client queue and concurrency limits must be positive")
+  match config.validate() {
+    Ok(_) => ()
+    Err(error) => raise error
   }
   @async.with_task_group(async fn(group) {
     let slots : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
@@ -771,11 +790,13 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, X] with_h2_client_connection(
     }
     let shared : H2ClientShared = {
       config,
-      runtime: @http2.H2Connection::new(Client),
+      runtime: @http2.H2Connection::new(Client, limits=config.limits),
       encoder: @http2.HpackContext::new(
+        max_table_size=config.limits.max_dynamic_table_bytes,
         max_header_list_size=config.limits.max_header_bytes,
       ),
       decoder: @http2.HpackContext::new(
+        max_table_size=config.limits.max_dynamic_table_bytes,
         max_header_list_size=config.limits.max_header_bytes,
       ),
       frames: @http2.FrameDecoder::new(
@@ -804,7 +825,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, X] with_h2_client_connection(
     let receive_window = config.body_queue_capacity + 1
     shared.write_bytes(
       Bytes::from_array(
-        @http2.encode_settings_frame([{ id: 4, value: receive_window }], false),
+        @http2.encode_settings_frame([{ id: 4, value: receive_window, }], false),
       ),
     )
     match shared.runtime.set_local_initial_window(receive_window) {
@@ -817,7 +838,11 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, X] with_h2_client_connection(
         Ok(_) => ()
         Err(error) => raise error
       }
-      shared.write_bytes(@http2.encode_window_update(0, increment).unwrap())
+      let encoded = match @http2.encode_window_update(0, increment) {
+        Ok(value) => value
+        Err(error) => raise error
+      }
+      shared.write_bytes(encoded)
     }
     group.spawn_bg(async fn() { h2_client_reader_pump(shared) }, no_wait=true)
     group.spawn_bg(

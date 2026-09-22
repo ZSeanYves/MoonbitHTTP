@@ -1,0 +1,20 @@
+///|
+pub extend CallbackTransport with @aio.Reader::{
+  read,
+  read_some,
+  _direct_read,
+  drop,
+  read_all,
+  read_until,
+  read_exactly,
+  _get_internal_buffer,
+}
+
+///|
+pub extend CallbackTransport with @aio.Writer::{write_once, write, write_reader}
+
+///|
+pub extend CallbackTransportClosed with Eq::{equal, not_equal}
+
+///|
+pub extend CallbackTransportClosed with @debug.Debug::{to_repr}

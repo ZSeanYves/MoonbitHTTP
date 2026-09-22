@@ -35,9 +35,9 @@ async test "service: HTTP/2 dispatches two streams on one connection" {
   let reader = @aio.MemoryReader(async fn(writer) {
     writer.write(Bytes::from_array(input))
   })
-  let writer = CaptureWriter::{ bytes: [] }
+  let writer = CaptureWriter::{ bytes: [], }
   let mut calls = 0
-  serve_http2_connection(reader, writer, async fn(request) {
+  @service.serve_http2_connection(reader, writer, async fn(request) {
     calls += 1
     @async.pause()
     let response_headers = @types.HeaderMap::new()
@@ -104,8 +104,8 @@ async test "service: HTTP/2 response honors flow-control windows" {
   let reader = @aio.MemoryReader(async fn(writer) {
     writer.write(Bytes::from_array(input))
   })
-  let writer : CaptureWriter = { bytes: [] }
-  serve_http2_connection(reader, writer, fn(_) {
+  let writer : CaptureWriter = { bytes: [], }
+  @service.serve_http2_connection(reader, writer, fn(_) {
     let body : Array[Byte] = []
     body.resize(70000, b'x')
     {
@@ -164,9 +164,9 @@ async test "service: stream errors reset only the offending stream" {
   let reader = @aio.MemoryReader(async fn(writer) {
     writer.write(Bytes::from_array(input))
   })
-  let writer : CaptureWriter = { bytes: [] }
+  let writer : CaptureWriter = { bytes: [], }
   let mut calls = 0
-  serve_http2_connection(reader, writer, fn(_) {
+  @service.serve_http2_connection(reader, writer, fn(_) {
     calls += 1
     {
       status: 200,

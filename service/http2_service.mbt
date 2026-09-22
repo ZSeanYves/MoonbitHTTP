@@ -5,6 +5,7 @@ priv struct H2PendingRequest {
   headers : @types.HeaderMap
   body : @body.BodyStream
   mut body_bytes : Int
+  expected_body_bytes : Int?
   mut dispatched : Bool
   mut handler_done : Bool
 }
@@ -16,18 +17,10 @@ priv struct H2BlockedData {
 }
 
 ///|
-fn parse_method(value : String) -> @types.Method {
-  match value {
-    "GET" => Get
-    "POST" => Post
-    "PUT" => Put
-    "DELETE" => Delete
-    "HEAD" => Head
-    "OPTIONS" => Options
-    "PATCH" => Patch
-    "TRACE" => Trace
-    "CONNECT" => Connect
-    other => Extension(other)
+fn H2PendingRequest::has_expected_length(self : H2PendingRequest) -> Bool {
+  match self.expected_body_bytes {
+    Some(value) => value == self.body_bytes
+    None => true
   }
 }
 
@@ -45,18 +38,10 @@ fn decode_h2_request(
   let mut saw_path = false
   let mut saw_scheme = false
   let mut saw_authority = false
+  let mut regular_host : @types.Authority? = None
   let mut saw_regular = false
   let headers = @types.HeaderMap::new()
   for field in fields {
-    if field.name != field.name.to_lower() {
-      return Err(
-        StreamError(
-          stream_id,
-          ProtocolError,
-          "HTTP/2 header names must be lowercase",
-        ),
-      )
-    }
     if field.name.has_prefix(":") {
       if saw_regular {
         return Err(
@@ -75,14 +60,24 @@ fn decode_h2_request(
             )
           }
           saw_method = true
-          meth_text = field.value
+          meth_text = match h2_field_text(field.value) {
+            Some(value) => value
+            None =>
+              return Err(
+                StreamError(stream_id, ProtocolError, "invalid :method"),
+              )
+          }
         }
         ":path" => {
           if saw_path {
             return Err(StreamError(stream_id, ProtocolError, "duplicate :path"))
           }
           saw_path = true
-          path = field.value
+          path = match h2_field_text(field.value) {
+            Some(value) => value
+            None =>
+              return Err(StreamError(stream_id, ProtocolError, "invalid :path"))
+          }
         }
         ":scheme" => {
           if saw_scheme {
@@ -91,7 +86,13 @@ fn decode_h2_request(
             )
           }
           saw_scheme = true
-          scheme = field.value
+          scheme = match h2_field_text(field.value) {
+            Some(value) => value
+            None =>
+              return Err(
+                StreamError(stream_id, ProtocolError, "invalid :scheme"),
+              )
+          }
         }
         ":authority" => {
           if saw_authority {
@@ -100,7 +101,13 @@ fn decode_h2_request(
             )
           }
           saw_authority = true
-          authority = field.value
+          authority = match h2_field_text(field.value) {
+            Some(value) => value
+            None =>
+              return Err(
+                StreamError(stream_id, ProtocolError, "invalid :authority"),
+              )
+          }
         }
         _ =>
           return Err(
@@ -113,10 +120,7 @@ fn decode_h2_request(
       }
     } else {
       saw_regular = true
-      if field.name == "connection" ||
-        field.name == "upgrade" ||
-        field.name == "keep-alive" ||
-        field.name == "transfer-encoding" {
+      if h2_connection_specific(field.name) {
         return Err(
           StreamError(
             stream_id,
@@ -125,7 +129,7 @@ fn decode_h2_request(
           ),
         )
       }
-      if field.name == "te" && field.value.to_lower() != "trailers" {
+      if field.name == "te" && !h2_ascii_equal_fold(field.value, b"trailers") {
         return Err(
           StreamError(
             stream_id,
@@ -134,12 +138,26 @@ fn decode_h2_request(
           ),
         )
       }
-      match headers.append_string(field.name, field.value) {
-        Ok(_) => ()
-        Err(_) =>
-          return Err(
-            StreamError(stream_id, ProtocolError, "invalid request header"),
-          )
+      if field.name == "host" {
+        if regular_host is Some(_) {
+          return Err(StreamError(stream_id, ProtocolError, "duplicate Host"))
+        }
+        let text = match h2_field_text(field.value) {
+          Some(value) => value
+          None =>
+            return Err(StreamError(stream_id, ProtocolError, "invalid Host"))
+        }
+        regular_host = match @types.Authority::parse_endpoint(text) {
+          Ok(value) => Some(value)
+          Err(_) =>
+            return Err(StreamError(stream_id, ProtocolError, "invalid Host"))
+        }
+        continue
+      }
+      if !append_h2_regular_header(headers, field) {
+        return Err(
+          StreamError(stream_id, ProtocolError, "invalid request header"),
+        )
       }
     }
   }
@@ -168,16 +186,63 @@ fn decode_h2_request(
       ),
     )
   }
-  let uri = match @types.Uri::parse(if path == "" { "/" } else { path }) {
+  let parsed_authority = match @types.Authority::parse_endpoint(authority) {
     Ok(value) => value
-    Err(_) => return Err(StreamError(stream_id, ProtocolError, "invalid :path"))
+    Err(_) =>
+      return Err(StreamError(stream_id, ProtocolError, "invalid :authority"))
+  }
+  if regular_host is Some(host) &&
+    (
+      host.host != parsed_authority.host ||
+      host.port != parsed_authority.port ||
+      host.ip_literal != parsed_authority.ip_literal
+    ) {
+    return Err(
+      StreamError(stream_id, ProtocolError, "Host/:authority mismatch"),
+    )
+  }
+  if meth_text != "CONNECT" && scheme != "http" && scheme != "https" {
+    return Err(StreamError(stream_id, ProtocolError, "invalid :scheme"))
+  }
+  let http_method = match @types.Method::parse(meth_text) {
+    Ok(value) => value
+    Err(_) =>
+      return Err(StreamError(stream_id, ProtocolError, "invalid :method"))
+  }
+  let uri = if http_method == Connect {
+    match @types.Uri::parse_request_target(authority, http_method) {
+      Ok(value) => value
+      Err(_) =>
+        return Err(StreamError(stream_id, ProtocolError, "invalid :authority"))
+    }
+  } else {
+    match @types.Uri::parse_request_target(path, http_method) {
+      Ok(value) if value.form == OriginForm || value.form == AsteriskForm =>
+        value
+      Err(_) =>
+        return Err(StreamError(stream_id, ProtocolError, "invalid :path"))
+      _ => return Err(StreamError(stream_id, ProtocolError, "invalid :path"))
+    }
+  }
+  match headers.append_string("host", authority) {
+    Ok(_) => ()
+    Err(_) =>
+      return Err(StreamError(stream_id, ProtocolError, "invalid :authority"))
+  }
+  let expected_body_bytes = match headers.content_length() {
+    Ok(value) => value
+    Err(_) =>
+      return Err(
+        StreamError(stream_id, ProtocolError, "invalid content-length"),
+      )
   }
   Ok({
-    http_method: parse_method(meth_text),
+    http_method,
     uri,
     headers,
     body,
     body_bytes: 0,
+    expected_body_bytes,
     dispatched: false,
     handler_done: false,
   })
@@ -204,6 +269,10 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
   upgraded_request? : @types.Request[@body.BodyStream]? = None,
   upgrade_settings? : Bytes? = None,
 ) -> Unit {
+  match config.validate() {
+    Ok(_) => ()
+    Err(error) => raise error
+  }
   let preface = read_exactly_with_timeout(reader, 24, config.read_timeout_ms)
   if preface != b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" {
     raise @http2.H2ProtocolError::ConnectionError(
@@ -215,11 +284,11 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
   write_with_timeout(
     writer,
     Bytes::from_array(
-      @http2.encode_settings_frame([{ id: 4, value: receive_window }], false),
+      @http2.encode_settings_frame([{ id: 4, value: receive_window, }], false),
     ),
     config.write_timeout_ms,
   )
-  let connection = @http2.H2Connection::new(Server)
+  let connection = @http2.H2Connection::new(Server, limits=config.limits)
   match connection.set_local_initial_window(receive_window) {
     Ok(_) => ()
     Err(error) => raise error
@@ -230,11 +299,11 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
       Ok(_) => ()
       Err(error) => raise error
     }
-    write_with_timeout(
-      writer,
-      @http2.encode_window_update(0, increment).unwrap(),
-      config.write_timeout_ms,
-    )
+    let encoded = match @http2.encode_window_update(0, increment) {
+      Ok(value) => value
+      Err(error) => raise error
+    }
+    write_with_timeout(writer, encoded, config.write_timeout_ms)
   }
   if upgrade_settings is Some(payload) {
     match connection.apply_settings_payload(payload) {
@@ -246,9 +315,11 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
     max_buffer_size=config.limits.max_buffer_bytes,
   )
   let decoder = @http2.HpackContext::new(
+    max_table_size=config.limits.max_dynamic_table_bytes,
     max_header_list_size=config.limits.max_header_bytes,
   )
   let encoder = @http2.HpackContext::new(
+    max_table_size=config.limits.max_dynamic_table_bytes,
     max_header_list_size=config.limits.max_header_bytes,
   )
   let pending : Map[Int, H2PendingRequest] = Map([])
@@ -297,6 +368,22 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
           stream_id, code, "HTTP/2 stream reset",
         ),
       )
+    }
+    let release_discarded_data = async fn(amount : Int) {
+      if amount <= 0 {
+        return
+      }
+      let update = match connection.release_connection_capacity(amount) {
+        Ok(value) => value
+        Err(error) => raise error
+      }
+      if update is SendWindowUpdate(id, increment) {
+        let encoded = match @http2.encode_window_update(id, increment) {
+          Ok(value) => value
+          Err(error) => raise error
+        }
+        write_h2_frame(write_lock, writer, encoded, config.write_timeout_ms)
+      }
     }
     let send_response = async fn(
       stream_id : Int,
@@ -411,36 +498,95 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         body: value.body,
       }
       group.spawn_bg(async fn() {
-        send_response(stream_id, request) catch {
-          error => {
-            reset_stream_with_error(stream_id, Cancel, error)
-            raise error
-          }
-        }
+        errdefer (reset_stream(stream_id, Cancel) catch { _ => () })
+        send_response(stream_id, request)
       })
     }
-    let make_body = fn(stream_id : Int) -> @body.BodyStream {
-      @body.BodyStream::new(capacity=config.body_queue_capacity, on_data_consumed=async fn(
-        amount,
-      ) {
-        let updates = match connection.release_capacity(stream_id, amount) {
-          Ok(value) => value
-          Err(error) => {
-            reset_stream_with_error(stream_id, Cancel, error)
-            raise error
-          }
-        }
-        for update in updates {
-          if update is SendWindowUpdate(id, value) {
-            let encoded = match @http2.encode_window_update(id, value) {
-              Ok(value) => value
-              Err(error) => raise error
+    let make_body = fn(stream_id : Int) -> @body.BodyStream raise {
+      match
+        @body.BodyStream::try_new(capacity=config.body_queue_capacity, on_data_consumed=async fn(
+          amount,
+        ) {
+          let updates = match connection.release_capacity(stream_id, amount) {
+            Ok(value) => value
+            Err(error) => {
+              reset_stream_with_error(stream_id, Cancel, error)
+              raise error
             }
-            write_h2_frame(write_lock, writer, encoded, config.write_timeout_ms)
+          }
+          for update in updates {
+            if update is SendWindowUpdate(id, value) {
+              let encoded = match @http2.encode_window_update(id, value) {
+                Ok(value) => value
+                Err(error) => raise error
+              }
+              write_h2_frame(
+                write_lock,
+                writer,
+                encoded,
+                config.write_timeout_ms,
+              )
+            }
+          }
+          blocked_signal.put(())
+        }) {
+        Ok(value) => value
+        Err(error) => raise error
+      }
+    }
+    let complete_headers = async fn(
+      stream_id : Int,
+      block : Array[Byte],
+      end_stream : Bool,
+    ) {
+      let fields = match decoder.decode(Bytes::from_array(block)) {
+        Ok(value) => value
+        Err(error) => raise error
+      }
+      if pending.get(stream_id) is Some(request) {
+        if !end_stream {
+          reset_stream(stream_id, ProtocolError)
+          return
+        }
+        let trailers = @types.HeaderMap::new()
+        for field in fields {
+          if field.name.has_prefix(":") ||
+            h2_forbidden_trailer(field.name) ||
+            !append_h2_regular_header(trailers, field) {
+            reset_stream(stream_id, ProtocolError)
+            return
           }
         }
-        blocked_signal.put(())
-      })
+        if !request.has_expected_length() {
+          reset_stream(stream_id, ProtocolError)
+          return
+        }
+        if !request.handler_done {
+          request.body.push(Trailers(trailers))
+        } else {
+          request.body.finish()
+        }
+        dispatch(stream_id)
+        return
+      }
+      let body = make_body(stream_id)
+      let request = match decode_h2_request(stream_id, fields, body~) {
+        Ok(value) => value
+        Err(StreamError(error_stream, code, _)) => {
+          reset_stream(error_stream, code)
+          return
+        }
+        Err(error) => raise error
+      }
+      pending.set(stream_id, request)
+      if end_stream && !request.has_expected_length() {
+        reset_stream(stream_id, ProtocolError)
+        return
+      }
+      dispatch(stream_id)
+      if end_stream {
+        request.body.finish()
+      }
     }
     let drain_blocked = fn() {
       for stream_id, value in blocked {
@@ -486,6 +632,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         headers: request.headers,
         body: request.body,
         body_bytes: 0,
+        expected_body_bytes: None,
         dispatched: false,
         handler_done: false,
       })
@@ -554,54 +701,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
                 header_block.push(byte)
               }
               if (frame.header.flags & @http2.H2_FLAGS_END_HEADERS) != 0 {
-                let fields = match
-                  decoder.decode(Bytes::from_array(header_block)) {
-                  Ok(value) => value
-                  Err(error) => raise error
-                }
-                if pending.get(stream_id) is Some(request) {
-                  let trailers = @types.HeaderMap::new()
-                  for field in fields {
-                    if field.name.has_prefix(":") {
-                      raise @http2.H2ProtocolError::StreamError(
-                        stream_id,
-                        ProtocolError,
-                        "pseudo-header in request trailers",
-                      )
-                    }
-                    match trailers.append_string(field.name, field.value) {
-                      Ok(_) => ()
-                      Err(_) =>
-                        raise @http2.H2ProtocolError::StreamError(
-                          stream_id,
-                          ProtocolError,
-                          "invalid request trailer",
-                        )
-                    }
-                  }
-                  request.body.push(Trailers(trailers))
-                  request.body.finish()
-                  dispatch(stream_id)
-                } else {
-                  let body = make_body(stream_id)
-                  let request = match
-                    decode_h2_request(stream_id, fields, body~) {
-                    Ok(value) => value
-                    Err(StreamError(error_stream, code, _)) => {
-                      reset_stream(error_stream, code)
-                      header_stream = 0
-                      continue
-                    }
-                    Err(error) => raise error
-                  }
-                  pending.set(stream_id, request)
-                  dispatch(stream_id)
-                  if end_stream {
-                    if pending.get(stream_id) is Some(value) {
-                      value.body.finish()
-                    }
-                  }
-                }
+                complete_headers(stream_id, header_block.copy(), end_stream)
                 header_stream = 0
               }
             }
@@ -616,24 +716,11 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
                 header_block.push(byte)
               }
               if end_headers {
-                let fields = match
-                  decoder.decode(Bytes::from_array(header_block)) {
-                  Ok(value) => value
-                  Err(error) => raise error
-                }
-                let body = make_body(stream_id)
-                let request = match
-                  decode_h2_request(stream_id, fields, body~) {
-                  Ok(value) => value
-                  Err(error) => raise error
-                }
-                pending.set(stream_id, request)
-                dispatch(stream_id)
-                if header_end_stream {
-                  if pending.get(stream_id) is Some(value) {
-                    value.body.finish()
-                  }
-                }
+                complete_headers(
+                  stream_id,
+                  header_block.copy(),
+                  header_end_stream,
+                )
                 header_stream = 0
               }
             }
@@ -642,12 +729,38 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
                 reset_stream(stream_id, ProtocolError)
                 continue
               }
-              if request.body_bytes + data.length() >
-                config.limits.max_body_bytes {
-                reset_stream(stream_id, EnhanceYourCalm)
+              let exceeds_limit = request.body_bytes >
+                config.limits.max_body_bytes ||
+                data.length() >
+                config.limits.max_body_bytes - request.body_bytes
+              let exceeds_declared = match request.expected_body_bytes {
+                Some(expected) =>
+                  request.body_bytes > expected ||
+                  data.length() > expected - request.body_bytes
+                None => false
+              }
+              let next_body_bytes = if exceeds_limit {
+                request.body_bytes
+              } else {
+                request.body_bytes + data.length()
+              }
+              let ends_short = !exceeds_limit &&
+                end_stream &&
+                request.expected_body_bytes is Some(expected) &&
+                next_body_bytes != expected
+              if exceeds_limit || exceeds_declared || ends_short {
+                release_discarded_data(flow_size)
+                reset_stream(
+                  stream_id,
+                  if exceeds_limit {
+                    EnhanceYourCalm
+                  } else {
+                    ProtocolError
+                  },
+                )
                 continue
               }
-              request.body_bytes += data.length()
+              request.body_bytes = next_body_bytes
               if request.handler_done {
                 let updates = match
                   connection.release_capacity(stream_id, flow_size) {
@@ -685,10 +798,15 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
                 }
                 for update in updates {
                   if update is SendWindowUpdate(id, amount) {
+                    let encoded = match
+                      @http2.encode_window_update(id, amount) {
+                      Ok(value) => value
+                      Err(error) => raise error
+                    }
                     write_h2_frame(
                       write_lock,
                       writer,
-                      @http2.encode_window_update(id, amount).unwrap(),
+                      encoded,
                       config.write_timeout_ms,
                     )
                   }
@@ -700,7 +818,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
                 if blocked.get(stream_id) is Some(_) {
                   reset_stream(stream_id, EnhanceYourCalm)
                 } else {
-                  blocked.set(stream_id, { data, end_stream })
+                  blocked.set(stream_id, { data, end_stream, })
                 }
               } else if end_stream {
                 request.body.finish()
@@ -749,22 +867,17 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_conne
   upgraded_request? : @types.Request[@body.BodyStream]? = None,
   upgrade_settings? : Bytes? = None,
 ) -> Unit {
-  serve_http2_connection_inner(
-    reader,
-    writer,
-    service,
-    config~,
-    upgraded_request~,
-    upgrade_settings~,
-  ) catch {
-    error => {
-      if config.close_callback is Some(callback) {
-        callback(Some(error))
-      }
-      raise error
-    }
-  }
-  if config.close_callback is Some(callback) {
-    callback(None)
-  }
+  run_connection_scope(
+    () => {
+      serve_http2_connection_inner(
+        reader,
+        writer,
+        service,
+        config=config.without_close_callback(),
+        upgraded_request~,
+        upgrade_settings~,
+      )
+    },
+    config.close_callback,
+  )
 }

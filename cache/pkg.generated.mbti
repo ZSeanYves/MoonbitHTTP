@@ -1,0 +1,156 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/cache"
+
+import {
+  "ZSeanYves/MoonbitHTTP/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn cache_control_value(CacheControl, String) -> Bool
+
+pub fn conditional_request_headers(@types.HeaderMap, CacheHit) -> @types.HeaderMap
+
+pub fn etag_matches(String, String, weak? : Bool) -> CacheCondition
+
+pub fn evaluate_request_condition(@types.Request[Unit], CacheHit, Int64) -> Result[CacheCondition, CacheError]
+
+pub fn parse_age(@types.HeaderMap) -> Result[Int64, CacheError]
+
+pub fn parse_cache_control(@types.HeaderMap, max_directives? : Int) -> Result[CacheControl, CacheError]
+
+pub fn parse_vary(@types.HeaderMap, max_fields? : Int) -> Result[(Bool, Array[String]), CacheError]
+
+// Errors
+pub(all) suberror CacheError {
+  InvalidLimits
+  InvalidCacheControl
+  InvalidAge
+  InvalidVary
+  InvalidRequest
+  InvalidResponse
+  EntryTooLarge(Int)
+  CacheFull
+  NotCacheable(String)
+  InvalidDate
+  InvalidValidator
+} derive(Eq, @debug.Debug)
+pub fn CacheError::equal(Self, Self) -> Bool
+pub fn CacheError::not_equal(Self, Self) -> Bool
+pub fn CacheError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub(all) enum CacheCondition {
+  ConditionMatches
+  ConditionDoesNotMatch
+  ConditionAbsent
+  ConditionMalformed
+} derive(Eq, @debug.Debug)
+pub fn CacheCondition::equal(Self, Self) -> Bool
+pub fn CacheCondition::not_equal(Self, Self) -> Bool
+pub fn CacheCondition::to_repr(Self) -> @debug.Repr
+
+pub(all) struct CacheConfig {
+  limits : CacheLimits
+  shared : Bool
+  allow_heuristic_freshness : Bool
+  allow_set_cookie : Bool
+}
+pub fn CacheConfig::defaults() -> Self
+pub fn CacheConfig::validate(Self) -> Result[Unit, CacheError]
+
+pub(all) struct CacheControl {
+  mut no_cache : Bool
+  mut no_store : Bool
+  mut max_age : Int64?
+  mut s_maxage : Int64?
+  mut max_stale : Int64?
+  mut max_stale_any : Bool
+  mut min_fresh : Int64?
+  mut stale_while_revalidate : Int64?
+  mut stale_if_error : Int64?
+  mut must_revalidate : Bool
+  mut proxy_revalidate : Bool
+  mut public : Bool
+  mut private : Bool
+  mut immutable : Bool
+  mut no_transform : Bool
+  mut only_if_cached : Bool
+} derive(Eq, @debug.Debug)
+pub fn CacheControl::empty() -> Self
+pub fn CacheControl::equal(Self, Self) -> Bool
+pub fn CacheControl::not_equal(Self, Self) -> Bool
+pub fn CacheControl::to_repr(Self) -> @debug.Repr
+
+type CacheEntry
+
+pub(all) struct CacheHit {
+  response : @types.Response[Unit]
+  body : Bytes
+  age_seconds : Int64
+  freshness_lifetime : Int64
+  stale_seconds : Int64
+  stale_if_error : Int64
+  etag : String?
+  last_modified : String?
+}
+pub fn CacheHit::age_seconds(Self) -> Int64
+pub fn CacheHit::body(Self) -> Bytes
+pub fn CacheHit::etag(Self) -> String?
+pub fn CacheHit::freshness_lifetime(Self) -> Int64
+pub fn CacheHit::last_modified(Self) -> String?
+pub fn CacheHit::response(Self) -> @types.Response[Unit]
+pub fn CacheHit::stale_if_error(Self) -> Int64
+pub fn CacheHit::stale_seconds(Self) -> Int64
+
+pub(all) struct CacheLimits {
+  max_entries : Int
+  max_total_bytes : Int
+  max_entry_bytes : Int
+  max_metadata_bytes : Int
+  max_vary_fields : Int
+  max_directives : Int
+  heuristic_max_age_seconds : Int64
+} derive(Eq, @debug.Debug)
+pub fn CacheLimits::defaults() -> Self
+pub fn CacheLimits::equal(Self, Self) -> Bool
+pub fn CacheLimits::not_equal(Self, Self) -> Bool
+pub fn CacheLimits::to_repr(Self) -> @debug.Repr
+pub fn CacheLimits::validate(Self) -> Result[Unit, CacheError]
+
+pub(all) enum CacheLookup {
+  CacheMiss
+  OnlyIfCachedMiss
+  CacheFresh(CacheHit)
+  CacheStale(CacheHit)
+  CacheRevalidate(CacheHit)
+}
+
+pub(all) enum CacheStoreOutcome {
+  CacheStored
+  CacheReplaced
+  CacheNotStored(CacheError)
+} derive(Eq, @debug.Debug)
+pub fn CacheStoreOutcome::equal(Self, Self) -> Bool
+pub fn CacheStoreOutcome::not_equal(Self, Self) -> Bool
+pub fn CacheStoreOutcome::to_repr(Self) -> @debug.Repr
+
+pub struct HttpCache {
+  entries : Array[CacheEntry]
+  config : CacheConfig
+  mut total_bytes : Int
+  mut next_order : Int64
+}
+pub fn HttpCache::clear(Self) -> Unit
+pub fn HttpCache::invalidate(Self, @types.Request[Unit]) -> Result[Unit, CacheError]
+pub fn HttpCache::invalidate_response(Self, @types.Request[Unit], @types.Response[Unit]) -> Result[Unit, CacheError]
+pub fn HttpCache::len(Self) -> Int
+pub fn HttpCache::lookup(Self, @types.Request[Unit], Int64) -> Result[CacheLookup, CacheError]
+pub fn HttpCache::new(config? : CacheConfig) -> Result[Self, CacheError]
+pub fn HttpCache::revalidate(Self, @types.Request[Unit], @types.Response[Unit], Int64) -> Result[CacheHit, CacheError]
+pub fn HttpCache::store(Self, @types.Request[Unit], @types.Response[Unit], Bytes, Int64) -> Result[CacheStoreOutcome, CacheError]
+pub fn HttpCache::total_bytes(Self) -> Int
+
+// Type aliases
+
+// Traits

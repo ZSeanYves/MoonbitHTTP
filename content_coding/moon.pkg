@@ -1,0 +1,18 @@
+import {
+  "moonbitlang/async",
+} for "test"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/core/encoding/utf8",
+  "moonbit-community/flate",
+  "moonbit-community/flate/gzip",
+  "moonbit-community/flate/zlib",
+  "hustcer/fbr",
+  "ZSeanYves/MoonbitHTTP/body",
+  "ZSeanYves/MoonbitHTTP/types",
+}
+
+options(
+  "is-main": false,
+)

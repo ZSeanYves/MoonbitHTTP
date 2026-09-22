@@ -18,6 +18,9 @@ pub(all) enum Detection {
   Undetermined
   Detected(Protocol)
 } derive(Eq, @debug.Debug)
+pub fn Detection::equal(Self, Self) -> Bool
+pub fn Detection::not_equal(Self, Self) -> Bool
+pub fn Detection::to_repr(Self) -> @debug.Repr
 
 pub struct Detector {
   prefix : Array[Byte]
@@ -32,8 +35,10 @@ pub(all) enum Protocol {
   Http2PriorKnowledge
   Http2Upgrade
 } derive(Eq, @debug.Debug)
+pub fn Protocol::equal(Self, Self) -> Bool
+pub fn Protocol::not_equal(Self, Self) -> Bool
+pub fn Protocol::to_repr(Self) -> @debug.Repr
 
 // Type aliases
 
 // Traits
-

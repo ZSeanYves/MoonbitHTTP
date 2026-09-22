@@ -1,0 +1,247 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/transport"
+
+import {
+  "moonbitlang/async/aqueue",
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+pub(all) suberror ConnectOptionsError {
+  InvalidTimeout
+  InvalidLocalPort
+  InvalidLocalHost
+} derive(Eq, @debug.Debug)
+pub fn ConnectOptionsError::equal(Self, Self) -> Bool
+pub fn ConnectOptionsError::not_equal(Self, Self) -> Bool
+pub fn ConnectOptionsError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror EndpointError {
+  InvalidScheme
+  InvalidHost
+  InvalidPort
+} derive(Eq, @debug.Debug)
+pub fn EndpointError::equal(Self, Self) -> Bool
+pub fn EndpointError::not_equal(Self, Self) -> Bool
+pub fn EndpointError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror EntropyError {
+  Unavailable
+  Failed(String)
+  InvalidBuffer
+} derive(Eq, @debug.Debug)
+pub fn EntropyError::equal(Self, Self) -> Bool
+pub fn EntropyError::not_equal(Self, Self) -> Bool
+pub fn EntropyError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror PolicyError {
+  Denied(PolicyOperation, String)
+  InvalidRule(String)
+} derive(Eq, @debug.Debug)
+pub fn PolicyError::equal(Self, Self) -> Bool
+pub fn PolicyError::not_equal(Self, Self) -> Bool
+pub fn PolicyError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror TransportError {
+  InvalidEndpoint(EndpointError)
+  InvalidOptions(ConnectOptionsError)
+  Failed(TransportOperation, String)
+  Closed
+  Timeout(TransportOperation)
+  Cancelled
+  Unsupported(TransportOperation)
+  InvalidDatagramSize
+  InvalidResolveOptions
+} derive(Eq, @debug.Debug)
+pub fn TransportError::equal(Self, Self) -> Bool
+pub fn TransportError::not_equal(Self, Self) -> Bool
+pub fn TransportError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub struct AllowAllPolicy(Unit)
+pub fn AllowAllPolicy::authorize(Self, Endpoint, PolicyOperation) -> Result[Unit, PolicyError]
+pub fn AllowAllPolicy::new() -> Self
+pub impl NetworkPolicy for AllowAllPolicy
+
+pub(all) struct ConnectOptions {
+  timeout_ms : Int?
+  idle_timeout_ms : Int?
+  local_host : String?
+  local_port : Int?
+} derive(Eq, @debug.Debug)
+pub fn ConnectOptions::defaults() -> Self
+pub fn ConnectOptions::equal(Self, Self) -> Bool
+pub fn ConnectOptions::not_equal(Self, Self) -> Bool
+pub fn ConnectOptions::to_repr(Self) -> @debug.Repr
+pub fn ConnectOptions::validate(Self) -> Result[Unit, ConnectOptionsError]
+
+pub(all) struct Datagram {
+  payload : Bytes
+  endpoint : Endpoint
+} derive(Eq, @debug.Debug)
+pub fn Datagram::endpoint(Self) -> Endpoint
+pub fn Datagram::equal(Self, Self) -> Bool
+pub fn Datagram::new(Bytes, Endpoint) -> Self
+pub fn Datagram::not_equal(Self, Self) -> Bool
+pub fn Datagram::payload(Self) -> Bytes
+pub fn Datagram::to_repr(Self) -> @debug.Repr
+
+pub struct DenyAllPolicy(Unit)
+pub fn DenyAllPolicy::authorize(Self, Endpoint, PolicyOperation) -> Result[Unit, PolicyError]
+pub fn DenyAllPolicy::new() -> Self
+pub impl NetworkPolicy for DenyAllPolicy
+
+pub(all) struct Endpoint {
+  scheme : String
+  host : String
+  port : Int
+} derive(Compare, Eq, Hash, @debug.Debug)
+pub fn Endpoint::authority(Self) -> String
+pub fn Endpoint::compare(Self, Self) -> Int
+pub fn Endpoint::equal(Self, Self) -> Bool
+pub fn Endpoint::hash(Self) -> Int
+pub fn Endpoint::hash_combine(Self, Hasher) -> Unit
+pub fn Endpoint::host(Self) -> String
+pub fn Endpoint::new(String, String, Int) -> Result[Self, EndpointError]
+pub fn Endpoint::not_equal(Self, Self) -> Bool
+pub fn Endpoint::op_ge(Self, Self) -> Bool
+pub fn Endpoint::op_gt(Self, Self) -> Bool
+pub fn Endpoint::op_le(Self, Self) -> Bool
+pub fn Endpoint::op_lt(Self, Self) -> Bool
+pub fn Endpoint::port(Self) -> Int
+pub fn Endpoint::scheme(Self) -> String
+pub fn Endpoint::to_repr(Self) -> @debug.Repr
+
+pub(all) struct FixedClock {
+  mut monotonic : Int64
+  mut wall_seconds : Int64
+} derive(Eq, @debug.Debug)
+pub fn FixedClock::advance(Self, Int64) -> Result[Unit, String]
+pub fn FixedClock::equal(Self, Self) -> Bool
+pub fn FixedClock::monotonic_millis(Self) -> Int64
+pub fn FixedClock::new(Int64, Int64) -> Self
+pub fn FixedClock::not_equal(Self, Self) -> Bool
+pub fn FixedClock::to_repr(Self) -> @debug.Repr
+pub fn FixedClock::wall_clock_seconds(Self) -> Int64
+pub impl Clock for FixedClock
+
+pub(all) struct IpAddress {
+  value : String
+} derive(Compare, Eq, @debug.Debug)
+pub fn IpAddress::compare(Self, Self) -> Int
+pub fn IpAddress::equal(Self, Self) -> Bool
+pub fn IpAddress::not_equal(Self, Self) -> Bool
+pub fn IpAddress::op_ge(Self, Self) -> Bool
+pub fn IpAddress::op_gt(Self, Self) -> Bool
+pub fn IpAddress::op_le(Self, Self) -> Bool
+pub fn IpAddress::op_lt(Self, Self) -> Bool
+pub fn IpAddress::parse(String) -> Result[Self, TransportError]
+pub fn IpAddress::to_repr(Self) -> @debug.Repr
+pub fn IpAddress::value(Self) -> String
+
+pub struct MemoryDatagramSocket {
+  inbound : @aqueue.Queue[Datagram]
+  sent : Array[Datagram]
+  max_datagram_size : Int
+  mut closed : Bool
+}
+pub fn MemoryDatagramSocket::close(Self) -> Unit
+pub fn MemoryDatagramSocket::inject(Self, Datagram) -> Result[Unit, TransportError]
+pub fn MemoryDatagramSocket::new(max_datagram_size? : Int) -> Result[Self, TransportError]
+pub async fn MemoryDatagramSocket::receive(Self, Int) -> Result[Datagram, TransportError]
+pub async fn MemoryDatagramSocket::send(Self, Endpoint, Bytes) -> Result[Unit, TransportError]
+pub fn MemoryDatagramSocket::sent(Self) -> Array[Datagram]
+pub impl DatagramSocket for MemoryDatagramSocket
+
+pub(all) enum PolicyOperation {
+  Resolve
+  Connect
+  Redirect
+  ProxyConnect
+  QuicEndpoint
+} derive(Eq, @debug.Debug)
+pub fn PolicyOperation::equal(Self, Self) -> Bool
+pub fn PolicyOperation::not_equal(Self, Self) -> Bool
+pub fn PolicyOperation::to_repr(Self) -> @debug.Repr
+
+pub(all) struct ResolveOptions {
+  timeout_ms : Int?
+  max_results : Int
+} derive(Eq, @debug.Debug)
+pub fn ResolveOptions::defaults() -> Self
+pub fn ResolveOptions::equal(Self, Self) -> Bool
+pub fn ResolveOptions::not_equal(Self, Self) -> Bool
+pub fn ResolveOptions::to_repr(Self) -> @debug.Repr
+pub fn ResolveOptions::validate(Self) -> Result[Unit, TransportError]
+
+pub struct StaticResolver {
+  entries : Map[String, Array[IpAddress]]
+}
+pub fn StaticResolver::new(Array[(String, Array[IpAddress])]) -> Self
+pub async fn StaticResolver::resolve(Self, String, ResolveOptions) -> Result[Array[IpAddress], TransportError]
+pub impl NameResolver for StaticResolver
+
+pub(all) struct StreamConnection {
+  read_fn : async (Int) -> Result[Bytes?, TransportError]
+  write_fn : async (Bytes) -> Result[Unit, TransportError]
+  close_fn : () -> Unit
+  endpoint : Endpoint
+  mut closed : Bool
+}
+pub fn StreamConnection::close(Self) -> Unit
+pub fn StreamConnection::endpoint(Self) -> Endpoint
+pub fn StreamConnection::is_closed(Self) -> Bool
+pub fn StreamConnection::new(Endpoint, async (Int) -> Result[Bytes?, TransportError], async (Bytes) -> Result[Unit, TransportError], () -> Unit) -> Self
+pub async fn StreamConnection::read(Self, Int) -> Result[Bytes?, TransportError]
+pub async fn StreamConnection::write(Self, Bytes) -> Result[Unit, TransportError]
+
+pub(all) enum TransportOperation {
+  Resolve
+  Connect
+  Accept
+  Send
+  Receive
+  Close
+  ProxyConnect
+  QuicEndpoint
+} derive(Eq, @debug.Debug)
+pub fn TransportOperation::equal(Self, Self) -> Bool
+pub fn TransportOperation::not_equal(Self, Self) -> Bool
+pub fn TransportOperation::to_repr(Self) -> @debug.Repr
+
+pub struct ZeroEntropy(Unit)
+pub fn ZeroEntropy::fill(Self, FixedArray[Byte]) -> Result[Unit, EntropyError]
+pub fn ZeroEntropy::new() -> Self
+pub impl Entropy for ZeroEntropy
+
+// Type aliases
+
+// Traits
+pub(open) trait Clock {
+  fn monotonic_millis(Self) -> Int64
+  fn wall_clock_seconds(Self) -> Int64
+}
+
+pub(open) trait DatagramSocket {
+  async fn send(Self, Endpoint, Bytes) -> Result[Unit, TransportError]
+  async fn receive(Self, Int) -> Result[Datagram, TransportError]
+  fn close(Self) -> Unit
+}
+
+pub(open) trait Entropy {
+  fn fill(Self, FixedArray[Byte]) -> Result[Unit, EntropyError]
+}
+
+pub(open) trait NameResolver {
+  async fn resolve(Self, String, ResolveOptions) -> Result[Array[IpAddress], TransportError]
+}
+
+pub(open) trait NetworkPolicy {
+  fn authorize(Self, Endpoint, PolicyOperation) -> Result[Unit, PolicyError]
+}
+
+pub(open) trait StreamConnector {
+  async fn connect(Self, Endpoint, ConnectOptions) -> Result[StreamConnection, TransportError]
+}

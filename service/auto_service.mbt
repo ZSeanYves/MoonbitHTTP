@@ -67,20 +67,15 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_auto_connec
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   config? : ServerConfig = ServerConfig::defaults(),
 ) -> Unit {
-  serve_auto_connection_inner(
-    reader,
-    writer,
-    service,
-    config=config.without_close_callback(),
-  ) catch {
-    error => {
-      if config.close_callback is Some(callback) {
-        callback(Some(error))
-      }
-      raise error
-    }
-  }
-  if config.close_callback is Some(callback) {
-    callback(None)
-  }
+  run_connection_scope(
+    () => {
+      serve_auto_connection_inner(
+        reader,
+        writer,
+        service,
+        config=config.without_close_callback(),
+      )
+    },
+    config.close_callback,
+  )
 }

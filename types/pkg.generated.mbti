@@ -11,20 +11,88 @@ pub fn response_allows_body(Method, Int) -> Bool
 pub fn status_allows_body(Int) -> Bool
 
 // Errors
+pub(all) suberror AuthorityError {
+  EmptyAuthority
+  InvalidAuthority
+  InvalidHost
+  InvalidPort
+} derive(Eq, @debug.Debug)
+pub fn AuthorityError::equal(Self, Self) -> Bool
+pub fn AuthorityError::not_equal(Self, Self) -> Bool
+pub fn AuthorityError::to_repr(Self) -> @debug.Repr
+
 pub(all) suberror HeaderError {
   InvalidName(String)
   InvalidValue(String)
+  InvalidContentLength
+  ConflictingContentLength
+  ContentLengthOverflow
 } derive(Eq, @debug.Debug)
+pub fn HeaderError::equal(Self, Self) -> Bool
+pub fn HeaderError::not_equal(Self, Self) -> Bool
+pub fn HeaderError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror HttpDateError {
+  InvalidHttpDate
+  ObsoleteDateRequiresCurrentTime
+  HttpDateOutOfRange
+} derive(Eq, @debug.Debug)
+pub fn HttpDateError::equal(Self, Self) -> Bool
+pub fn HttpDateError::not_equal(Self, Self) -> Bool
+pub fn HttpDateError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror LimitsError {
+  InvalidLimit(field~ : String, value~ : Int)
+} derive(Eq, @debug.Debug)
+pub fn LimitsError::equal(Self, Self) -> Bool
+pub fn LimitsError::not_equal(Self, Self) -> Bool
+pub fn LimitsError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror MethodError {
+  EmptyMethod
+  InvalidMethodToken
+  NonCanonicalMethod
+} derive(Eq, @debug.Debug)
+pub fn MethodError::equal(Self, Self) -> Bool
+pub fn MethodError::not_equal(Self, Self) -> Bool
+pub fn MethodError::to_repr(Self) -> @debug.Repr
 
 pub(all) suberror UriError {
   InvalidUri(String)
+  EmptyUri
+  InvalidCharacter(offset~ : Int)
+  InvalidPercentEncoding(offset~ : Int)
+  InvalidScheme
+  InvalidAuthority(AuthorityError)
+  InvalidRequestTarget
+  FragmentNotAllowed
+  UserinfoNotAllowed
 } derive(Eq, @debug.Debug)
+pub fn UriError::equal(Self, Self) -> Bool
+pub fn UriError::not_equal(Self, Self) -> Bool
+pub fn UriError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
+pub(all) struct Authority {
+  value : String
+  userinfo : String?
+  host : String
+  port : Int?
+  ip_literal : Bool
+} derive(Eq, @debug.Debug)
+pub fn Authority::equal(Self, Self) -> Bool
+pub fn Authority::not_equal(Self, Self) -> Bool
+pub fn Authority::parse(String) -> Result[Self, AuthorityError]
+pub fn Authority::parse_endpoint(String) -> Result[Self, AuthorityError]
+pub fn Authority::to_repr(Self) -> @debug.Repr
+
 pub(all) struct HeaderField {
   name : HeaderName
   value : HeaderValue
 } derive(Eq, @debug.Debug)
+pub fn HeaderField::equal(Self, Self) -> Bool
+pub fn HeaderField::not_equal(Self, Self) -> Bool
+pub fn HeaderField::to_repr(Self) -> @debug.Repr
 
 pub struct HeaderMap {
   mut entries : Array[HeaderField]
@@ -32,6 +100,8 @@ pub struct HeaderMap {
 pub fn HeaderMap::append(Self, HeaderName, HeaderValue) -> Unit
 pub fn HeaderMap::append_string(Self, String, String) -> Result[Unit, HeaderError]
 pub fn HeaderMap::contains(Self, HeaderName) -> Bool
+pub fn HeaderMap::content_length(Self) -> Result[Int?, HeaderError]
+pub fn HeaderMap::copy(Self) -> Self
 pub fn HeaderMap::fields(Self) -> Array[HeaderField]
 pub fn HeaderMap::get(Self, HeaderName) -> HeaderValue?
 pub fn HeaderMap::get_all(Self, HeaderName) -> Array[HeaderValue]
@@ -46,14 +116,44 @@ pub fn HeaderMap::set(Self, HeaderName, HeaderValue) -> Unit
 pub(all) struct HeaderName {
   value : String
 } derive(Compare, Eq, Hash, @debug.Debug)
+pub fn HeaderName::compare(Self, Self) -> Int
+pub fn HeaderName::equal(Self, Self) -> Bool
+pub fn HeaderName::hash(Self) -> Int
+pub fn HeaderName::hash_combine(Self, Hasher) -> Unit
+pub fn HeaderName::not_equal(Self, Self) -> Bool
+pub fn HeaderName::op_ge(Self, Self) -> Bool
+pub fn HeaderName::op_gt(Self, Self) -> Bool
+pub fn HeaderName::op_le(Self, Self) -> Bool
+pub fn HeaderName::op_lt(Self, Self) -> Bool
 pub fn HeaderName::parse(String) -> Result[Self, HeaderError]
+pub fn HeaderName::to_repr(Self) -> @debug.Repr
 
 pub(all) struct HeaderValue {
   bytes : Bytes
 } derive(Eq, @debug.Debug)
+pub fn HeaderValue::equal(Self, Self) -> Bool
 pub fn HeaderValue::from_bytes(Bytes) -> Result[Self, HeaderError]
 pub fn HeaderValue::from_string(String) -> Result[Self, HeaderError]
+pub fn HeaderValue::not_equal(Self, Self) -> Bool
+pub fn HeaderValue::to_repr(Self) -> @debug.Repr
 pub fn HeaderValue::to_string_lossy(Self) -> String
+
+pub(all) struct HttpDate {
+  unix_seconds : Int64
+} derive(Compare, Eq, @debug.Debug)
+pub fn HttpDate::compare(Self, Self) -> Int
+pub fn HttpDate::equal(Self, Self) -> Bool
+pub fn HttpDate::format(Self) -> Result[String, HttpDateError]
+pub fn HttpDate::from_components(Int, Int, Int, Int, Int, Int) -> Result[Self, HttpDateError]
+pub fn HttpDate::from_unix_seconds(Int64) -> Result[Self, HttpDateError]
+pub fn HttpDate::not_equal(Self, Self) -> Bool
+pub fn HttpDate::op_ge(Self, Self) -> Bool
+pub fn HttpDate::op_gt(Self, Self) -> Bool
+pub fn HttpDate::op_le(Self, Self) -> Bool
+pub fn HttpDate::op_lt(Self, Self) -> Bool
+pub fn HttpDate::parse(String, now_seconds? : Int64?) -> Result[Self, HttpDateError]
+pub fn HttpDate::to_repr(Self) -> @debug.Repr
+pub fn HttpDate::unix_seconds(Self) -> Int64
 
 pub(all) struct Limits {
   max_start_line : Int
@@ -62,8 +162,17 @@ pub(all) struct Limits {
   max_header_bytes : Int
   max_body_bytes : Int
   max_buffer_bytes : Int
-}
+  max_streams : Int
+  max_concurrent_requests : Int
+  max_dynamic_table_bytes : Int
+  max_datagram_bytes : Int
+} derive(Eq, @debug.Debug)
 pub fn Limits::defaults() -> Self
+pub fn Limits::equal(Self, Self) -> Bool
+pub fn Limits::new(max_start_line? : Int, max_header_line? : Int, max_header_count? : Int, max_header_bytes? : Int, max_body_bytes? : Int, max_buffer_bytes? : Int, max_streams? : Int, max_concurrent_requests? : Int, max_dynamic_table_bytes? : Int, max_datagram_bytes? : Int) -> Result[Self, LimitsError]
+pub fn Limits::not_equal(Self, Self) -> Bool
+pub fn Limits::to_repr(Self) -> @debug.Repr
+pub fn Limits::validate(Self) -> Result[Unit, LimitsError]
 
 pub(all) enum Method {
   Get
@@ -77,6 +186,13 @@ pub(all) enum Method {
   Connect
   Extension(String)
 } derive(Eq, @debug.Debug)
+pub fn Method::as_str(Self) -> String
+pub fn Method::equal(Self, Self) -> Bool
+pub fn Method::not_equal(Self, Self) -> Bool
+pub fn Method::parse(String) -> Result[Self, MethodError]
+pub fn Method::parse_bytes(BytesView) -> Result[Self, MethodError]
+pub fn Method::to_repr(Self) -> @debug.Repr
+pub fn Method::validate(Self) -> Result[Unit, MethodError]
 
 pub(all) struct Request[B] {
   http_method : Method
@@ -97,16 +213,44 @@ pub fn[A, B] Response::map_body(Self[A], (A) -> B) -> Self[B]
 
 pub(all) struct Uri {
   value : String
+  scheme : String?
+  authority : Authority?
+  path : String
+  query : String?
+  fragment : String?
+  form : UriForm
 } derive(Eq, @debug.Debug)
+pub fn Uri::equal(Self, Self) -> Bool
+pub fn Uri::not_equal(Self, Self) -> Bool
+pub fn Uri::origin_form(Self) -> Result[String, UriError]
 pub fn Uri::parse(String) -> Result[Self, UriError]
+pub fn Uri::parse_request_target(String, Method) -> Result[Self, UriError]
+pub fn Uri::resolve_reference(Self, String) -> Result[Self, UriError]
+pub fn Uri::to_repr(Self) -> @debug.Repr
+pub fn Uri::validate(Self) -> Result[Unit, UriError]
+pub fn Uri::validate_request_target(Self, Method) -> Result[Unit, UriError]
+pub fn Uri::without_fragment(Self) -> Result[Self, UriError]
+
+pub(all) enum UriForm {
+  AsteriskForm
+  OriginForm
+  AbsoluteForm
+  AuthorityForm
+} derive(Eq, @debug.Debug)
+pub fn UriForm::equal(Self, Self) -> Bool
+pub fn UriForm::not_equal(Self, Self) -> Bool
+pub fn UriForm::to_repr(Self) -> @debug.Repr
 
 pub(all) enum Version {
   Http10
   Http11
   Http2
+  Http3
 } derive(Eq, @debug.Debug)
+pub fn Version::equal(Self, Self) -> Bool
+pub fn Version::not_equal(Self, Self) -> Bool
+pub fn Version::to_repr(Self) -> @debug.Repr
 
 // Type aliases
 
 // Traits
-

@@ -17,7 +17,7 @@ async fn main {
         stream.finish()
         stream
       }
-      { status: 200, version: request.version, headers, body }
+      { status: 200, version: request.version, headers, body, }
     }) catch {
       error => println("connection error: \{error}")
     }

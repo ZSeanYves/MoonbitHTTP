@@ -1,0 +1,13 @@
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/core/encoding/utf8",
+  "moonbit-community/idna",
+  "mizchi/crater-browser-http/psl" @crater_psl,
+  "ZSeanYves/MoonbitHTTP/types",
+}
+
+supported_targets = "js+native+wasm+wasm-gc"
+
+options(
+  "is-main": false,
+)

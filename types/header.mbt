@@ -2,6 +2,9 @@
 pub(all) suberror HeaderError {
   InvalidName(String)
   InvalidValue(String)
+  InvalidContentLength
+  ConflictingContentLength
+  ContentLengthOverflow
 } derive(Debug, Eq)
 
 ///|
@@ -77,8 +80,9 @@ pub fn HeaderValue::from_bytes(
   bytes : Bytes,
 ) -> Result[HeaderValue, HeaderError] {
   for b in bytes {
-    if b == b'\r' || b == b'\n' || b == b'\x00' {
-      return Err(InvalidValue("header value contains CR, LF, or NUL"))
+    let value = b.to_int()
+    if (value < 0x20 && b != b'\t') || value == 0x7f {
+      return Err(InvalidValue("header value contains a control byte"))
     }
   }
   Ok({ bytes, })
@@ -98,7 +102,12 @@ pub fn HeaderValue::to_string_lossy(self : HeaderValue) -> String {
 
 ///|
 pub fn HeaderMap::new() -> HeaderMap {
-  { entries: [] }
+  { entries: [], }
+}
+
+///|
+pub fn HeaderMap::copy(self : HeaderMap) -> HeaderMap {
+  { entries: self.entries.copy(), }
 }
 
 ///|
@@ -117,7 +126,7 @@ pub fn HeaderMap::append(
   name : HeaderName,
   value : HeaderValue,
 ) -> Unit {
-  self.entries.push({ name, value })
+  self.entries.push({ name, value, })
 }
 
 ///|
@@ -210,4 +219,64 @@ pub fn HeaderMap::contains(self : HeaderMap, name : HeaderName) -> Bool {
 ///|
 pub fn HeaderMap::fields(self : HeaderMap) -> Array[HeaderField] {
   self.entries.copy()
+}
+
+///|
+fn parse_decimal_bytes(value : BytesView) -> Result[Int, HeaderError] {
+  if value.is_empty() {
+    return Err(InvalidContentLength)
+  }
+  let mut result = 0
+  for byte in value {
+    if byte < b'0' || byte > b'9' {
+      return Err(InvalidContentLength)
+    }
+    let digit = byte.to_int() - 48
+    if result > (0x7fffffff - digit) / 10 {
+      return Err(ContentLengthOverflow)
+    }
+    result = result * 10 + digit
+  }
+  Ok(result)
+}
+
+///|
+/// Parses all Content-Length field lines and comma-separated members. Repeated
+/// values are accepted only when their decimal values are identical.
+pub fn HeaderMap::content_length(self : HeaderMap) -> Result[Int?, HeaderError] {
+  let mut expected : Int? = None
+  for value in self.get_all_string("content-length") {
+    let bytes = value.bytes
+    let mut start = 0
+    while start <= bytes.length() {
+      let mut end = start
+      while end < bytes.length() && bytes[end] != b',' {
+        end += 1
+      }
+      let mut item_start = start
+      let mut item_end = end
+      while item_start < item_end &&
+            (bytes[item_start] == b' ' || bytes[item_start] == b'\t') {
+        item_start += 1
+      }
+      while item_end > item_start &&
+            (bytes[item_end - 1] == b' ' || bytes[item_end - 1] == b'\t') {
+        item_end -= 1
+      }
+      let parsed = match parse_decimal_bytes(bytes[item_start:item_end]) {
+        Ok(value) => value
+        Err(error) => return Err(error)
+      }
+      match expected {
+        Some(value) if value != parsed => return Err(ConflictingContentLength)
+        None => expected = Some(parsed)
+        _ => ()
+      }
+      if end == bytes.length() {
+        break
+      }
+      start = end + 1
+    }
+  }
+  Ok(expected)
 }

@@ -70,7 +70,7 @@ fn BodyDecoder::new(
     Chunked => BodyChunkSize
     CloseDelimited => BodyClose
   }
-  { state, total: 0, limits, eof: false }
+  { state, total: 0, limits, eof: false, }
 }
 
 ///|
@@ -79,11 +79,121 @@ fn BodyDecoder::finish_input(self : BodyDecoder) -> Unit {
 }
 
 ///|
+fn http1_is_tchar(byte : Byte) -> Bool {
+  let value = byte.to_int()
+  (value >= 48 && value <= 57) ||
+  (value >= 65 && value <= 90) ||
+  (value >= 97 && value <= 122) ||
+  byte == b'!' ||
+  byte == b'#' ||
+  byte == b'$' ||
+  byte == b'%' ||
+  byte == b'&' ||
+  byte == b'\'' ||
+  byte == b'*' ||
+  byte == b'+' ||
+  byte == b'-' ||
+  byte == b'.' ||
+  byte == b'^' ||
+  byte == b'_' ||
+  byte == b'`' ||
+  byte == b'|' ||
+  byte == b'~'
+}
+
+///|
+/// RFC 9112 chunk extensions are intentionally parsed rather than ignored.
+/// This prevents malformed extension bytes from becoming a second framing
+/// interpretation in a downstream proxy.
+fn parse_chunk_extension(
+  input : BytesView,
+  start : Int,
+) -> Result[Unit, Http1Error] {
+  let mut index = start
+  while index < input.length() {
+    while index < input.length() &&
+          (input[index] == b' ' || input[index] == b'\t') {
+      index += 1
+    }
+    if index >= input.length() || input[index] != b';' {
+      return Err(InvalidFraming("invalid chunk extension"))
+    }
+    index += 1
+    while index < input.length() &&
+          (input[index] == b' ' || input[index] == b'\t') {
+      index += 1
+    }
+    let name_start = index
+    while index < input.length() && http1_is_tchar(input[index]) {
+      index += 1
+    }
+    if index == name_start {
+      return Err(InvalidFraming("invalid chunk extension name"))
+    }
+    while index < input.length() &&
+          (input[index] == b' ' || input[index] == b'\t') {
+      index += 1
+    }
+    if index < input.length() && input[index] == b'=' {
+      index += 1
+      while index < input.length() &&
+            (input[index] == b' ' || input[index] == b'\t') {
+        index += 1
+      }
+      if index >= input.length() {
+        return Err(InvalidFraming("chunk extension value is missing"))
+      }
+      if input[index] == b'"' {
+        index += 1
+        let mut closed = false
+        while index < input.length() {
+          let byte = input[index]
+          if byte == b'\\' {
+            if index + 1 >= input.length() || input[index + 1] < 0x20 {
+              return Err(InvalidFraming("invalid quoted chunk extension"))
+            }
+            index += 2
+          } else if byte == b'"' {
+            index += 1
+            closed = true
+            break
+          } else if byte < 0x20 || byte == 0x7f {
+            return Err(InvalidFraming("invalid quoted chunk extension"))
+          } else {
+            index += 1
+          }
+        }
+        if !closed {
+          return Err(InvalidFraming("unterminated chunk extension"))
+        }
+      } else {
+        let value_start = index
+        while index < input.length() && http1_is_tchar(input[index]) {
+          index += 1
+        }
+        if index == value_start {
+          return Err(InvalidFraming("invalid chunk extension value"))
+        }
+      }
+      while index < input.length() &&
+            (input[index] == b' ' || input[index] == b'\t') {
+        index += 1
+      }
+    }
+  }
+  Ok(())
+}
+
+///|
 fn parse_hex_size(line : Bytes) -> Result[Int, Http1Error] {
   let mut size = 0
   let mut digits = 0
   for byte in line {
     if byte == b';' {
+      break
+    }
+    if byte == b' ' || byte == b'\t' {
+      // OWS before the first extension delimiter is permitted.
       break
     }
     let value = if byte >= b'0' && byte <= b'9' {
@@ -104,6 +214,19 @@ fn parse_hex_size(line : Bytes) -> Result[Int, Http1Error] {
   if digits == 0 {
     Err(InvalidFraming("empty chunk size"))
   } else {
+    let mut end = digits
+    while end < line.length() && (line[end] == b' ' || line[end] == b'\t') {
+      end += 1
+    }
+    if end < line.length() {
+      if line[end] != b';' {
+        return Err(InvalidFraming("invalid chunk size extension"))
+      }
+      match parse_chunk_extension(line, end) {
+        Ok(_) => ()
+        Err(error) => return Err(error)
+      }
+    }
     Ok(size)
   }
 }
@@ -144,6 +267,76 @@ fn decode_header_line(
     Err(_) => return Err(InvalidHeader("invalid header value"))
   }
   headers.append(name, value)
+  Ok(())
+}
+
+///|
+fn http1_forbidden_trailer(name : String) -> Bool {
+  name == "content-length" ||
+  name == "transfer-encoding" ||
+  name == "host" ||
+  name == "trailer" ||
+  name == "connection" ||
+  name == "keep-alive" ||
+  name == "upgrade" ||
+  name == "te" ||
+  name == "proxy-authenticate" ||
+  name == "proxy-authorization"
+}
+
+///|
+fn http1_validate_trailer_fields(
+  headers : @types.HeaderMap,
+) -> Result[Unit, Http1Error] {
+  for field in headers.fields() {
+    if http1_forbidden_trailer(field.name.value) {
+      return Err(InvalidHeader("forbidden trailer field"))
+    }
+  }
+  Ok(())
+}
+
+///|
+fn http1_validate_host(headers : @types.HeaderMap) -> Result[Unit, Http1Error] {
+  let hosts = headers.get_all_string("host")
+  if hosts.length() > 1 {
+    return Err(InvalidHeader("request contains multiple Host fields"))
+  }
+  match hosts {
+    [] => Ok(())
+    [value] =>
+      match
+        @types.Authority::parse_endpoint(
+          value.to_string_lossy().trim().to_owned(),
+        ) {
+        Ok(_) => Ok(())
+        Err(_) => Err(InvalidHeader("invalid Host field"))
+      }
+    _ => Err(InvalidHeader("request contains multiple Host fields"))
+  }
+}
+
+///|
+fn http1_validate_connection_headers(
+  headers : @types.HeaderMap,
+) -> Result[Unit, Http1Error] {
+  for value in headers.get_all_string("te") {
+    for token in value.to_string_lossy().split(",") {
+      let normalized = token.trim().to_owned().to_lower()
+      if normalized != "trailers" && !normalized.is_empty() {
+        return Err(InvalidHeader("unsupported TE request coding"))
+      }
+    }
+  }
+  for value in headers.get_all_string("trailer") {
+    for token in value.to_string_lossy().split(",") {
+      let name = token.trim().to_owned()
+      match @types.HeaderName::parse(name) {
+        Ok(parsed) if !http1_forbidden_trailer(parsed.value) => ()
+        _ => return Err(InvalidHeader("invalid Trailer declaration"))
+      }
+    }
+  }
   Ok(())
 }
 
@@ -198,7 +391,8 @@ fn BodyDecoder::next(
         Ok(value) => value
         Err(error) => return Err(error)
       }
-      if self.total + size > self.limits.max_body_bytes {
+      if self.total > self.limits.max_body_bytes ||
+        size > self.limits.max_body_bytes - self.total {
         return Err(LimitExceeded("message body"))
       }
       self.state = if size == 0 {
@@ -254,6 +448,10 @@ fn BodyDecoder::next(
         Err(_) => return Err(LimitExceeded("trailer line"))
       }
       if line.is_empty() {
+        match http1_validate_trailer_fields(headers) {
+          Ok(_) => ()
+          Err(error) => return Err(error)
+        }
         self.state = BodyEnd
         if headers.is_empty() {
           self.next(buffer)
@@ -275,11 +473,13 @@ fn BodyDecoder::next(
     }
     BodyClose => {
       if buffer.length() > 0 {
-        let data = buffer.take(buffer.length())
-        self.total += data.length()
-        if self.total > self.limits.max_body_bytes {
+        let count = buffer.length()
+        if self.total > self.limits.max_body_bytes ||
+          count > self.limits.max_body_bytes - self.total {
           return Err(LimitExceeded("close-delimited body"))
         }
+        let data = buffer.take(count)
+        self.total += count
         return Ok(Some(Data(data)))
       }
       if self.eof {
@@ -312,6 +512,7 @@ pub struct RequestDecoder {
   mut state : RequestState
   limits : @types.Limits
   mut eof : Bool
+  mut failure : Http1Error?
 }
 
 ///|
@@ -323,6 +524,7 @@ pub fn RequestDecoder::new(
     state: RequestStart,
     limits,
     eof: false,
+    failure: None,
   }
 }
 
@@ -331,9 +533,16 @@ pub fn RequestDecoder::feed(
   self : RequestDecoder,
   bytes : BytesView,
 ) -> Result[Unit, Http1Error] {
+  if self.failure is Some(error) {
+    return Err(error)
+  }
   match self.buffer.feed(bytes) {
     Ok(_) => Ok(())
-    Err(_) => Err(LimitExceeded("connection buffer"))
+    Err(_) => {
+      let error = LimitExceeded("connection buffer")
+      self.failure = Some(error)
+      Err(error)
+    }
   }
 }
 
@@ -381,27 +590,10 @@ fn split_start_line(line : Bytes) -> Result[(Bytes, Bytes, Bytes), Http1Error] {
 
 ///|
 fn parse_method(bytes : Bytes) -> Result[@types.Method, Http1Error] {
-  let value = @utf8.decode(bytes) catch {
-    _ => return Err(InvalidStartLine("method is not ASCII"))
+  match @types.Method::parse_bytes(bytes) {
+    Ok(value) => Ok(value)
+    Err(_) => Err(InvalidStartLine("invalid method token"))
   }
-  let name = match @types.HeaderName::parse(value) {
-    Ok(name) => name.value
-    Err(_) => return Err(InvalidStartLine("invalid method token"))
-  }
-  Ok(
-    match name {
-      "get" => Get
-      "post" => Post
-      "put" => Put
-      "delete" => Delete
-      "head" => Head
-      "options" => Options
-      "patch" => Patch
-      "trace" => Trace
-      "connect" => Connect
-      _ => Extension(value)
-    },
-  )
 }
 
 ///|
@@ -428,7 +620,7 @@ fn parse_request_line(
   let target = @utf8.decode(target) catch {
     _ => return Err(InvalidStartLine("request target is not UTF-8"))
   }
-  let uri = match @types.Uri::parse(target) {
+  let uri = match @types.Uri::parse_request_target(target, http_method) {
     Ok(value) => value
     Err(_) => return Err(InvalidStartLine("invalid request target"))
   }
@@ -467,35 +659,23 @@ fn comma_values(values : Array[@types.HeaderValue]) -> Array[String] {
 }
 
 ///|
-fn parse_content_length_value(value : String) -> Result[Int, Http1Error] {
-  let bytes = @utf8.encode(value)
-  if bytes.is_empty() {
-    return Err(InvalidFraming("invalid content-length"))
-  }
-  let mut result = 0
-  for byte in bytes {
-    if byte < b'0' || byte > b'9' {
-      return Err(InvalidFraming("invalid content-length"))
-    }
-    let digit = byte.to_int() - b'0'.to_int()
-    if result > (0x7fffffff - digit) / 10 {
-      return Err(InvalidFraming("content-length overflow"))
-    }
-    result = result * 10 + digit
-  }
-  Ok(result)
-}
-
-///|
 fn determine_request_framing(
   headers : @types.HeaderMap,
+  version : @types.Version,
 ) -> Result[BodyFraming, Http1Error] {
   let transfer = comma_values(headers.get_all_string("transfer-encoding"))
-  let lengths = comma_values(headers.get_all_string("content-length"))
-  if !transfer.is_empty() && !lengths.is_empty() {
+  let length = match headers.content_length() {
+    Ok(value) => value
+    Err(_) =>
+      return Err(InvalidFraming("invalid or conflicting content-length"))
+  }
+  if !transfer.is_empty() && length is Some(_) {
     return Err(InvalidFraming("transfer-encoding and content-length conflict"))
   }
   if !transfer.is_empty() {
+    if version == Http10 {
+      return Err(InvalidFraming("HTTP/1.0 does not support Transfer-Encoding"))
+    }
     if transfer[transfer.length() - 1].to_lower() != "chunked" {
       return Err(InvalidFraming("final transfer coding is not chunked"))
     }
@@ -504,25 +684,14 @@ fn determine_request_framing(
     }
     return Ok(Chunked)
   }
-  if lengths.is_empty() {
-    return Ok(NoBody)
+  match length {
+    None => Ok(NoBody)
+    Some(value) => Ok(ContentLength(value))
   }
-  let mut length = -1
-  for value in lengths {
-    let parsed = match parse_content_length_value(value) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    if parsed < 0 || (length >= 0 && parsed != length) {
-      return Err(InvalidFraming("inconsistent content-length"))
-    }
-    length = parsed
-  }
-  Ok(ContentLength(length))
 }
 
 ///|
-pub fn RequestDecoder::next(
+fn RequestDecoder::next_impl(
   self : RequestDecoder,
 ) -> Result[RequestEvent?, Http1Error] {
   match self.state {
@@ -549,7 +718,7 @@ pub fn RequestDecoder::next(
         0,
         0,
       )
-      self.next()
+      self.next_impl()
     }
     RequestHeaders(http_method, uri, version, headers, count, bytes) => {
       let line = match self.buffer.read_line(self.limits.max_header_line) {
@@ -563,10 +732,18 @@ pub fn RequestDecoder::next(
         Err(_) => return Err(LimitExceeded("request header line"))
       }
       if line.is_empty() {
-        if version == Http11 && headers.get_string("host") is None {
+        match http1_validate_host(headers) {
+          Ok(_) => ()
+          Err(error) => return Err(error)
+        }
+        if version == Http11 && headers.get_all_string("host").is_empty() {
           return Err(InvalidHeader("HTTP/1.1 request requires Host"))
         }
-        let framing = match determine_request_framing(headers) {
+        match http1_validate_connection_headers(headers) {
+          Ok(_) => ()
+          Err(error) => return Err(error)
+        }
+        let framing = match determine_request_framing(headers, version) {
           Ok(value) => value
           Err(error) => return Err(error)
         }
@@ -574,7 +751,7 @@ pub fn RequestDecoder::next(
           return Err(LimitExceeded("message body"))
         }
         self.state = RequestBody(BodyDecoder::new(framing, self.limits))
-        Ok(Some(RequestHead({ http_method, uri, version, headers, body: () })))
+        Ok(Some(RequestHead({ http_method, uri, version, headers, body: (), })))
       } else {
         if count + 1 > self.limits.max_header_count ||
           bytes + line.length() + 2 > self.limits.max_header_bytes {
@@ -592,7 +769,7 @@ pub fn RequestDecoder::next(
           count + 1,
           bytes + line.length() + 2,
         )
-        self.next()
+        self.next_impl()
       }
     }
     RequestBody(body) => {
@@ -614,6 +791,22 @@ pub fn RequestDecoder::next(
 }
 
 ///|
+pub fn RequestDecoder::next(
+  self : RequestDecoder,
+) -> Result[RequestEvent?, Http1Error] {
+  if self.failure is Some(error) {
+    return Err(error)
+  }
+  match self.next_impl() {
+    Err(error) => {
+      self.failure = Some(error)
+      Err(error)
+    }
+    value => value
+  }
+}
+
+///|
 pub enum ResponseState {
   ResponseStart
   ResponseHeaders(Int, @types.Version, @types.HeaderMap, Int, Int)
@@ -627,6 +820,7 @@ pub struct ResponseDecoder {
   limits : @types.Limits
   request_method : @types.Method
   mut eof : Bool
+  mut failure : Http1Error?
 }
 
 ///|
@@ -640,6 +834,7 @@ pub fn ResponseDecoder::new(
     limits,
     request_method,
     eof: false,
+    failure: None,
   }
 }
 
@@ -648,9 +843,16 @@ pub fn ResponseDecoder::feed(
   self : ResponseDecoder,
   bytes : BytesView,
 ) -> Result[Unit, Http1Error] {
+  if self.failure is Some(error) {
+    return Err(error)
+  }
   match self.buffer.feed(bytes) {
     Ok(_) => Ok(())
-    Err(_) => Err(LimitExceeded("connection buffer"))
+    Err(_) => {
+      let error = LimitExceeded("connection buffer")
+      self.failure = Some(error)
+      Err(error)
+    }
   }
 }
 
@@ -661,6 +863,13 @@ pub fn ResponseDecoder::finish_input(self : ResponseDecoder) -> Unit {
     ResponseBodyState(body) => body.finish_input()
     _ => ()
   }
+}
+
+///|
+/// Returns bytes read past `ResponseEnd`; only use this when changing
+/// protocols, such as after a successful CONNECT or 101 response.
+pub fn ResponseDecoder::take_buffered(self : ResponseDecoder) -> Bytes {
+  self.buffer.take(self.buffer.length())
 }
 
 ///|
@@ -708,32 +917,56 @@ fn determine_response_framing(
   headers : @types.HeaderMap,
   http_method : @types.Method,
   status : Int,
+  version : @types.Version,
 ) -> Result[BodyFraming, Http1Error] {
-  if !@types.response_allows_body(http_method, status) {
-    return Ok(NoBody)
-  }
   let transfer = comma_values(headers.get_all_string("transfer-encoding"))
-  let lengths = comma_values(headers.get_all_string("content-length"))
-  if !transfer.is_empty() && !lengths.is_empty() {
+  let length = match headers.content_length() {
+    Ok(value) => value
+    Err(_) =>
+      return Err(InvalidFraming("invalid or conflicting content-length"))
+  }
+  if !transfer.is_empty() && length is Some(_) {
     return Err(InvalidFraming("transfer-encoding and content-length conflict"))
   }
+  let content_length_forbidden = (status >= 100 && status < 200) ||
+    status == 204 ||
+    (http_method == Connect && status >= 200 && status < 300)
+  if content_length_forbidden {
+    if length is Some(_) || !transfer.is_empty() {
+      return Err(
+        InvalidFraming("body framing header is forbidden for this response"),
+      )
+    }
+    return Ok(NoBody)
+  }
+  if !@types.response_allows_body(http_method, status) {
+    if !transfer.is_empty() {
+      return Err(
+        InvalidFraming("Transfer-Encoding is forbidden without a body"),
+      )
+    }
+    return Ok(NoBody)
+  }
   if !transfer.is_empty() {
+    if version == Http10 {
+      return Err(InvalidFraming("HTTP/1.0 does not support Transfer-Encoding"))
+    }
     if transfer[transfer.length() - 1].to_lower() != "chunked" {
-      return Ok(CloseDelimited)
+      return Err(InvalidFraming("unsupported transfer coding"))
     }
     if transfer.length() != 1 {
       return Err(InvalidFraming("unsupported transfer coding"))
     }
     return Ok(Chunked)
   }
-  if lengths.is_empty() {
+  if length is None {
     return Ok(CloseDelimited)
   }
-  determine_request_framing(headers)
+  determine_request_framing(headers, version)
 }
 
 ///|
-pub fn ResponseDecoder::next(
+fn ResponseDecoder::next_impl(
   self : ResponseDecoder,
 ) -> Result[ResponseEvent?, Http1Error] {
   match self.state {
@@ -759,7 +992,7 @@ pub fn ResponseDecoder::next(
         0,
         0,
       )
-      self.next()
+      self.next_impl()
     }
     ResponseHeaders(status, version, headers, count, bytes) => {
       let line = match self.buffer.read_line(self.limits.max_header_line) {
@@ -774,7 +1007,12 @@ pub fn ResponseDecoder::next(
       }
       if line.is_empty() {
         let framing = match
-          determine_response_framing(headers, self.request_method, status) {
+          determine_response_framing(
+            headers,
+            self.request_method,
+            status,
+            version,
+          ) {
           Ok(value) => value
           Err(error) => return Err(error)
         }
@@ -782,7 +1020,7 @@ pub fn ResponseDecoder::next(
           return Err(LimitExceeded("message body"))
         }
         self.state = ResponseBodyState(BodyDecoder::new(framing, self.limits))
-        Ok(Some(ResponseHead({ status, version, headers, body: () })))
+        Ok(Some(ResponseHead({ status, version, headers, body: (), })))
       } else {
         if count + 1 > self.limits.max_header_count ||
           bytes + line.length() + 2 > self.limits.max_header_bytes {
@@ -799,7 +1037,7 @@ pub fn ResponseDecoder::next(
           count + 1,
           bytes + line.length() + 2,
         )
-        self.next()
+        self.next_impl()
       }
     }
     ResponseBodyState(body) => {
@@ -821,6 +1059,22 @@ pub fn ResponseDecoder::next(
 }
 
 ///|
+pub fn ResponseDecoder::next(
+  self : ResponseDecoder,
+) -> Result[ResponseEvent?, Http1Error] {
+  if self.failure is Some(error) {
+    return Err(error)
+  }
+  match self.next_impl() {
+    Err(error) => {
+      self.failure = Some(error)
+      Err(error)
+    }
+    value => value
+  }
+}
+
+///|
 fn push_bytes(out : Array[Byte], bytes : BytesView) -> Unit {
   for byte in bytes {
     out.push(byte)
@@ -833,27 +1087,12 @@ fn push_text(out : Array[Byte], text : String) -> Unit {
 }
 
 ///|
-fn method_text(http_method : @types.Method) -> String {
-  match http_method {
-    Get => "GET"
-    Post => "POST"
-    Put => "PUT"
-    Delete => "DELETE"
-    Head => "HEAD"
-    Options => "OPTIONS"
-    Patch => "PATCH"
-    Trace => "TRACE"
-    Connect => "CONNECT"
-    Extension(value) => value
-  }
-}
-
-///|
 fn version_text(version : @types.Version) -> String {
   match version {
     Http10 => "HTTP/1.0"
     Http11 => "HTTP/1.1"
     Http2 => "HTTP/2"
+    Http3 => "HTTP/3"
   }
 }
 
@@ -862,10 +1101,12 @@ fn append_headers(
   out : Array[Byte],
   headers : @types.HeaderMap,
   framing : BodyFraming,
+  preserve_content_length : Bool,
 ) -> Result[Unit, Http1Error] {
   for field in headers.fields() {
     let name = field.name.value
-    if name == "content-length" || name == "transfer-encoding" {
+    if name == "transfer-encoding" ||
+      (name == "content-length" && !preserve_content_length) {
       continue
     }
     push_text(out, name)
@@ -883,6 +1124,67 @@ fn append_headers(
 }
 
 ///|
+/// Validates caller-supplied framing metadata before the encoder replaces the
+/// wire-managed Content-Length/Transfer-Encoding fields. Silently discarding
+/// contradictory metadata is a request-smuggling footgun.
+fn validate_outgoing_framing(
+  headers : @types.HeaderMap,
+  framing : BodyFraming,
+  version : @types.Version,
+  allow_nonzero_content_length_without_body? : Bool = false,
+) -> Result[Unit, Http1Error] {
+  let transfer = comma_values(headers.get_all_string("transfer-encoding"))
+  let length = match headers.content_length() {
+    Ok(value) => value
+    Err(_) =>
+      return Err(InvalidFraming("invalid or conflicting content-length"))
+  }
+  if !transfer.is_empty() && length is Some(_) {
+    return Err(InvalidFraming("transfer-encoding and content-length conflict"))
+  }
+  if version == Http10 && !transfer.is_empty() {
+    return Err(InvalidFraming("HTTP/1.0 does not support Transfer-Encoding"))
+  }
+  match framing {
+    NoBody =>
+      if !transfer.is_empty() {
+        return Err(InvalidFraming("Transfer-Encoding is not valid for no body"))
+      } else {
+        match length {
+          Some(value) if value != 0 &&
+            !allow_nonzero_content_length_without_body =>
+            return Err(
+              InvalidFraming("non-zero Content-Length requires a body"),
+            )
+          _ => ()
+        }
+      }
+    ContentLength(size) =>
+      match length {
+        Some(value) if value != size =>
+          return Err(
+            InvalidFraming("Content-Length does not match body framing"),
+          )
+        _ => ()
+      }
+    Chunked => {
+      if length is Some(_) {
+        return Err(InvalidFraming("chunked body cannot include Content-Length"))
+      }
+      if !transfer.is_empty() &&
+        (transfer.length() != 1 || transfer[0].to_lower() != "chunked") {
+        return Err(InvalidFraming("unsupported transfer coding"))
+      }
+    }
+    CloseDelimited =>
+      if !transfer.is_empty() || length is Some(_) {
+        return Err(InvalidFraming("close-delimited body has explicit framing"))
+      }
+  }
+  Ok(())
+}
+
+///|
 pub fn encode_request_head(
   request : @types.Request[Unit],
   framing : BodyFraming,
@@ -890,17 +1192,42 @@ pub fn encode_request_head(
   if framing is CloseDelimited {
     return Err(InvalidFraming("requests cannot be close-delimited"))
   }
+  if request.version == Http2 || request.version == Http3 {
+    return Err(InvalidStartLine("non-HTTP/1 version in HTTP/1 wire encoding"))
+  }
+  if request.http_method.validate() is Err(_) {
+    return Err(InvalidStartLine("invalid request method"))
+  }
+  if request.uri.validate_request_target(request.http_method) is Err(_) {
+    return Err(InvalidStartLine("invalid request target"))
+  }
+  match http1_validate_host(request.headers) {
+    Ok(_) => ()
+    Err(error) => return Err(error)
+  }
+  if request.version == Http11 &&
+    request.headers.get_all_string("host").is_empty() {
+    return Err(InvalidHeader("HTTP/1.1 request requires Host"))
+  }
+  match http1_validate_connection_headers(request.headers) {
+    Ok(_) => ()
+    Err(error) => return Err(error)
+  }
+  match validate_outgoing_framing(request.headers, framing, request.version) {
+    Ok(_) => ()
+    Err(error) => return Err(error)
+  }
   let out : Array[Byte] = []
   push_text(
     out,
-    method_text(request.http_method) +
+    request.http_method.as_str() +
     " " +
     request.uri.value +
     " " +
     version_text(request.version) +
     "\r\n",
   )
-  match append_headers(out, request.headers, framing) {
+  match append_headers(out, request.headers, framing, false) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
@@ -933,11 +1260,42 @@ pub fn encode_response_head(
   request_method : @types.Method,
   framing : BodyFraming,
 ) -> Result[Bytes, Http1Error] {
+  if response.version == Http2 || response.version == Http3 {
+    return Err(InvalidStartLine("non-HTTP/1 version in HTTP/1 wire encoding"))
+  }
+  if response.status < 100 || response.status > 999 {
+    return Err(InvalidStartLine("status code is out of range"))
+  }
   if !@types.response_allows_body(request_method, response.status) &&
     framing != NoBody {
     return Err(
       InvalidFraming("response status or request method forbids a body"),
     )
+  }
+  if (response.status >= 100 && response.status < 200) ||
+    response.status == 204 ||
+    (
+      request_method == Connect &&
+      response.status >= 200 &&
+      response.status < 300
+    ) {
+    if response.headers.content_length() is Ok(Some(_)) ||
+      !response.headers.get_all_string("transfer-encoding").is_empty() {
+      return Err(
+        InvalidFraming("body framing header is forbidden for this response"),
+      )
+    }
+  }
+  let permit_head_length = request_method == Head || response.status == 304
+  match
+    validate_outgoing_framing(
+      response.headers,
+      framing,
+      response.version,
+      allow_nonzero_content_length_without_body=permit_head_length,
+    ) {
+    Ok(_) => ()
+    Err(error) => return Err(error)
   }
   let out : Array[Byte] = []
   push_text(
@@ -949,7 +1307,9 @@ pub fn encode_response_head(
     default_reason(response.status) +
     "\r\n",
   )
-  match append_headers(out, response.headers, framing) {
+  let preserve_content_length = request_method == Head || response.status == 304
+  match
+    append_headers(out, response.headers, framing, preserve_content_length) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
@@ -997,9 +1357,7 @@ pub fn encode_body_end(
   let out : Array[Byte] = []
   push_text(out, "0\r\n")
   for field in trailers.fields() {
-    if field.name.value == "content-length" ||
-      field.name.value == "transfer-encoding" ||
-      field.name.value == "host" {
+    if http1_forbidden_trailer(field.name.value) {
       return Err(InvalidHeader("forbidden trailer field"))
     }
     push_text(out, field.name.value + ": ")

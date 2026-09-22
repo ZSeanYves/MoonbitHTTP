@@ -1,0 +1,146 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/cookie"
+
+import {
+  "ZSeanYves/MoonbitHTTP/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn is_public_suffix(String) -> Result[Bool, DomainError]
+
+pub fn normalize_domain(String) -> Result[String, DomainError]
+
+pub fn public_suffix(String) -> Result[String, DomainError]
+
+pub fn registrable_domain(String) -> Result[String, DomainError]
+
+// Errors
+pub(all) suberror CookieError {
+  InvalidCookieLimits
+  InvalidCookieRequestUri
+  CookieHeaderLimitExceeded
+} derive(Eq, @debug.Debug)
+pub fn CookieError::equal(Self, Self) -> Bool
+pub fn CookieError::not_equal(Self, Self) -> Bool
+pub fn CookieError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror DomainError {
+  InvalidDomain
+  IpAddressHasNoPublicSuffix
+  PublicSuffixHasNoRegistrableDomain
+} derive(Eq, @debug.Debug)
+pub fn DomainError::equal(Self, Self) -> Bool
+pub fn DomainError::not_equal(Self, Self) -> Bool
+pub fn DomainError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub struct Cookie {
+  name : Bytes
+  value : Bytes
+  domain : String
+  path : Bytes
+  expiry_seconds : Int64?
+  persistent : Bool
+  host_only : Bool
+  secure : Bool
+  http_only : Bool
+  same_site : CookieSameSite
+  creation_order : Int64
+  mut last_access_order : Int64
+}
+
+pub(all) enum CookieApi {
+  HttpCookieApi
+  NonHttpCookieApi
+} derive(Eq, @debug.Debug)
+pub fn CookieApi::equal(Self, Self) -> Bool
+pub fn CookieApi::not_equal(Self, Self) -> Bool
+pub fn CookieApi::to_repr(Self) -> @debug.Repr
+
+pub(all) struct CookieContext {
+  http_method : @types.Method
+  api : CookieApi
+  same_site : Bool
+  top_level_navigation : Bool
+} derive(Eq, @debug.Debug)
+pub fn CookieContext::equal(Self, Self) -> Bool
+pub fn CookieContext::http(@types.Method, same_site? : Bool, top_level_navigation? : Bool) -> Self
+pub fn CookieContext::non_http(same_site? : Bool) -> Self
+pub fn CookieContext::not_equal(Self, Self) -> Bool
+pub fn CookieContext::to_repr(Self) -> @debug.Repr
+
+pub struct CookieJar {
+  mut cookies : Array[Cookie]
+  limits : CookieLimits
+  mut enabled : Bool
+  mut next_order : Int64
+}
+pub fn CookieJar::clear(Self) -> Unit
+pub fn CookieJar::clear_session(Self) -> Unit
+pub fn CookieJar::cookie_header(Self, @types.Uri, Int64, context? : CookieContext) -> Result[@types.HeaderValue?, CookieError]
+pub fn CookieJar::is_enabled(Self) -> Bool
+pub fn CookieJar::new(enabled? : Bool, limits? : CookieLimits) -> Result[Self, CookieError]
+pub fn CookieJar::set_enabled(Self, Bool) -> Unit
+pub fn CookieJar::size(Self, now_seconds? : Int64) -> Int
+pub fn CookieJar::store(Self, @types.HeaderValue, @types.Uri, Int64, context? : CookieContext) -> Result[CookieStoreOutcome, CookieError]
+pub fn CookieJar::store_string(Self, String, @types.Uri, Int64, context? : CookieContext) -> Result[CookieStoreOutcome, CookieError]
+
+pub(all) struct CookieLimits {
+  max_set_cookie_bytes : Int
+  max_cookie_bytes : Int
+  max_attribute_bytes : Int
+  max_cookie_header_bytes : Int
+  max_cookies : Int
+  max_cookies_per_domain : Int
+  max_lifetime_seconds : Int64
+} derive(Eq, @debug.Debug)
+pub fn CookieLimits::defaults() -> Self
+pub fn CookieLimits::equal(Self, Self) -> Bool
+pub fn CookieLimits::not_equal(Self, Self) -> Bool
+pub fn CookieLimits::to_repr(Self) -> @debug.Repr
+pub fn CookieLimits::validate(Self) -> Result[Unit, CookieError]
+
+pub(all) enum CookieRejection {
+  CookieJarDisabled
+  MalformedSetCookie
+  CookieTooLarge
+  CookieAttributeTooLarge
+  InvalidCookieDomain
+  CookieDomainMismatch
+  CookiePublicSuffix
+  SecureCookieFromInsecureOrigin
+  SecureCookieOverlay
+  HttpOnlyFromNonHttpApi
+  SameSiteContextRejected
+  SameSiteNoneWithoutSecure
+  CookiePrefixViolation
+  PartitionedCookieUnsupported
+} derive(Eq, @debug.Debug)
+pub fn CookieRejection::equal(Self, Self) -> Bool
+pub fn CookieRejection::not_equal(Self, Self) -> Bool
+pub fn CookieRejection::to_repr(Self) -> @debug.Repr
+
+pub(all) enum CookieSameSite {
+  SameSiteDefault
+  SameSiteStrict
+  SameSiteLax
+  SameSiteNone
+} derive(Eq, @debug.Debug)
+pub fn CookieSameSite::equal(Self, Self) -> Bool
+pub fn CookieSameSite::not_equal(Self, Self) -> Bool
+pub fn CookieSameSite::to_repr(Self) -> @debug.Repr
+
+pub(all) enum CookieStoreOutcome {
+  CookieStored
+  CookieReplaced
+  CookieDeleted
+  CookieIgnored(CookieRejection)
+} derive(Eq, @debug.Debug)
+pub fn CookieStoreOutcome::equal(Self, Self) -> Bool
+pub fn CookieStoreOutcome::not_equal(Self, Self) -> Bool
+pub fn CookieStoreOutcome::to_repr(Self) -> @debug.Repr
+
+// Type aliases
+
+// Traits

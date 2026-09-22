@@ -19,7 +19,7 @@ pub struct Detector {
 
 ///|
 pub fn Detector::new() -> Detector {
-  { prefix: [], decision: Undetermined }
+  { prefix: [], decision: Undetermined, }
 }
 
 ///|

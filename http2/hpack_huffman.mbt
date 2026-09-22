@@ -49,7 +49,7 @@ fn table_init() -> Map[Int, HuffmanSymbol] {
     30,
   ]
   for index in 0..<codes.length() {
-    t.set(index, { code: codes[index], bits: lengths[index] })
+    t.set(index, { code: codes[index], bits: lengths[index], })
   }
   t
 }
@@ -60,7 +60,7 @@ fn table_init() -> Map[Int, HuffmanSymbol] {
 fn build_trie(tbl : Map[Int, HuffmanSymbol]) -> Array[HuffmanNode] {
   let nodes : Array[HuffmanNode] = []
   // root
-  nodes.push({ left: -1, right: -1, sym: -1 })
+  nodes.push({ left: -1, right: -1, sym: -1, })
   for sym in tbl.keys() {
     let hs = match tbl.get(sym) {
       Some(x) => x
@@ -76,28 +76,28 @@ fn build_trie(tbl : Map[Int, HuffmanSymbol]) -> Array[HuffmanNode] {
       let parent = nodes[cur]
       if bit == 0 {
         let next = if parent.left == -1 {
-          nodes.push({ left: -1, right: -1, sym: -1 })
+          nodes.push({ left: -1, right: -1, sym: -1, })
           nodes.length() - 1
         } else {
           parent.left
         }
-        nodes[cur] = { left: next, right: parent.right, sym: parent.sym }
+        nodes[cur] = { left: next, right: parent.right, sym: parent.sym, }
         cur = next
       } else {
         let next = if parent.right == -1 {
-          nodes.push({ left: -1, right: -1, sym: -1 })
+          nodes.push({ left: -1, right: -1, sym: -1, })
           nodes.length() - 1
         } else {
           parent.right
         }
-        nodes[cur] = { left: parent.left, right: next, sym: parent.sym }
+        nodes[cur] = { left: parent.left, right: next, sym: parent.sym, }
         cur = next
       }
     }
 
     // Replace the complete node when marking a leaf.
     let leaf = nodes[cur]
-    nodes[cur] = { left: leaf.left, right: leaf.right, sym }
+    nodes[cur] = { left: leaf.left, right: leaf.right, sym, }
   }
   nodes
 }

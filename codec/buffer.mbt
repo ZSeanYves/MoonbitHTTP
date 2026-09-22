@@ -14,7 +14,7 @@ pub struct Buffer {
 
 ///|
 pub fn Buffer::new(max_bytes? : Int = 256 * 1024) -> Buffer {
-  { bytes: [], max_bytes }
+  { bytes: [], max_bytes, }
 }
 
 ///|
@@ -27,7 +27,8 @@ pub fn Buffer::feed(
   self : Buffer,
   input : BytesView,
 ) -> Result[Unit, CodecError] {
-  if self.bytes.length() + input.length() > self.max_bytes {
+  if self.max_bytes < self.bytes.length() ||
+    input.length() > self.max_bytes - self.bytes.length() {
     return Err(LimitExceeded(kind="connection buffer", limit=self.max_bytes))
   }
   for byte in input {

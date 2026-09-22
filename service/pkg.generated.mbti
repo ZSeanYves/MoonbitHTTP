@@ -6,6 +6,7 @@ import {
   "ZSeanYves/MoonbitHTTP/http1",
   "ZSeanYves/MoonbitHTTP/types",
   "moonbitlang/async/io",
+  "moonbitlang/core/debug",
 }
 
 // Values
@@ -24,6 +25,23 @@ pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http2_connect
 pub async fn[R : @io.Reader, W : @io.Writer, X] with_h2_client_connection(R, W, async (H2Client) -> X, config? : H2ClientConfig) -> X
 
 // Errors
+pub(all) suberror ClientConnectionTimeout {
+  ClientConnectionTimeout(ClientConnectionPhase)
+} derive(Eq, @debug.Debug)
+pub fn ClientConnectionTimeout::equal(Self, Self) -> Bool
+pub fn ClientConnectionTimeout::not_equal(Self, Self) -> Bool
+pub fn ClientConnectionTimeout::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror ServiceConfigError {
+  InvalidLimits(@types.LimitsError)
+  InvalidReadSize(Int)
+  InvalidBodyQueueCapacity(Int)
+  InvalidConcurrentStreams(Int)
+  InvalidTimeout(String, Int)
+} derive(Eq, @debug.Debug)
+pub fn ServiceConfigError::equal(Self, Self) -> Bool
+pub fn ServiceConfigError::not_equal(Self, Self) -> Bool
+pub fn ServiceConfigError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub struct ClientConnection[R, W] {
@@ -31,14 +49,30 @@ pub struct ClientConnection[R, W] {
   writer : W
   limits : @types.Limits
   read_size : Int
-  read_timeout_ms : Int?
-  write_timeout_ms : Int?
+  request_headers_timeout_ms : Int?
+  request_body_timeout_ms : Int?
+  response_headers_timeout_ms : Int?
+  response_body_timeout_ms : Int?
   mut closed : Bool
   mut busy : Bool
 }
 pub fn[R, W] ClientConnection::close(Self[R, W]) -> Unit
+pub fn[R, W] ClientConnection::is_closed(Self[R, W]) -> Bool
+pub fn[R, W] ClientConnection::is_reusable(Self[R, W]) -> Bool
 pub fn[R, W] ClientConnection::new(R, W, limits? : @types.Limits, read_size? : Int, read_timeout_ms? : Int, write_timeout_ms? : Int) -> Self[R, W]
 pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] ClientConnection::send(Self[R, W], @types.Request[B]) -> @types.Response[@body.BodyStream]
+pub fn[R, W] ClientConnection::try_new(R, W, limits? : @types.Limits, read_size? : Int, read_timeout_ms? : Int, write_timeout_ms? : Int) -> Result[Self[R, W], ServiceConfigError]
+pub fn[R, W] ClientConnection::try_new_with_phase_timeouts(R, W, limits? : @types.Limits, read_size? : Int, request_headers_timeout_ms~ : Int?, request_body_timeout_ms~ : Int?, response_headers_timeout_ms~ : Int?, response_body_timeout_ms~ : Int?) -> Result[Self[R, W], ServiceConfigError]
+
+pub(all) enum ClientConnectionPhase {
+  RequestHeaders
+  RequestBody
+  ResponseHeaders
+  ResponseBody
+} derive(Eq, @debug.Debug)
+pub fn ClientConnectionPhase::equal(Self, Self) -> Bool
+pub fn ClientConnectionPhase::not_equal(Self, Self) -> Bool
+pub fn ClientConnectionPhase::to_repr(Self) -> @debug.Repr
 
 pub struct H2Client {
   // private fields
@@ -56,6 +90,7 @@ pub(all) struct H2ClientConfig {
   close_callback : ((Error?) -> Unit)?
 }
 pub fn H2ClientConfig::defaults() -> Self
+pub fn H2ClientConfig::validate(Self) -> Result[Unit, ServiceConfigError]
 
 pub(all) struct ServerConfig {
   limits : @types.Limits
@@ -66,8 +101,8 @@ pub(all) struct ServerConfig {
   close_callback : ((Error?) -> Unit)?
 }
 pub fn ServerConfig::defaults() -> Self
+pub fn ServerConfig::validate(Self) -> Result[Unit, ServiceConfigError]
 
 // Type aliases
 
 // Traits
-

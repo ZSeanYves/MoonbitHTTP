@@ -17,4 +17,3 @@ pub async fn[W : @moonbitlang/async/io.Writer] write_bytes(W, Bytes) -> Unit
 // Type aliases
 
 // Traits
-

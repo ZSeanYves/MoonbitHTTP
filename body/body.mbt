@@ -12,12 +12,12 @@ pub(all) struct SizeHint {
 
 ///|
 pub fn SizeHint::exact(size : Int) -> SizeHint {
-  { lower: size, upper: Some(size) }
+  { lower: size, upper: Some(size), }
 }
 
 ///|
 pub fn SizeHint::unknown() -> SizeHint {
-  { lower: 0, upper: None }
+  { lower: 0, upper: None, }
 }
 
 ///|
@@ -42,6 +42,15 @@ pub fn SizeHint::exact_size(self : SizeHint) -> Int? {
 pub(open) trait Body {
   async fn next_frame(Self) -> Frame?
   fn size_hint(Self) -> SizeHint
+  fn cancel(Self, Error) -> Unit = _
+}
+
+///|
+/// The default cancellation hook is intentionally a no-op for compatibility
+/// with bodies that do not own asynchronous resources. Resource-owning bodies
+/// should override it so consumers such as `collect` can stop upstream work.
+impl Body with fn cancel(_self, _error) {
+  ()
 }
 
 ///|
@@ -70,7 +79,7 @@ pub struct FullBody {
 
 ///|
 pub fn FullBody::new(data : Bytes) -> FullBody {
-  { data, sent: false }
+  { data, sent: false, }
 }
 
 ///|
@@ -79,7 +88,11 @@ pub impl Body for FullBody with fn next_frame(self) {
     None
   } else {
     self.sent = true
-    Some(Data(self.data))
+    if self.data.is_empty() {
+      None
+    } else {
+      Some(Data(self.data))
+    }
   }
 }
 
@@ -93,6 +106,7 @@ pub struct QueueBody {
   frames : Array[Frame]
   mut cursor : Int
   hint : SizeHint
+  mut trailers_seen : Bool
 }
 
 ///|
@@ -111,20 +125,27 @@ pub fn QueueBody::new(frames : Array[Frame]) -> QueueBody {
     hint: if exact {
       SizeHint::exact(size)
     } else {
-      { lower: size, upper: None }
+      { lower: size, upper: None, }
     },
+    trailers_seen: false,
   }
 }
 
 ///|
 pub impl Body for QueueBody with fn next_frame(self) {
-  if self.cursor >= self.frames.length() {
-    None
-  } else {
+  while self.cursor < self.frames.length() {
     let frame = self.frames[self.cursor]
     self.cursor += 1
-    Some(frame)
+    match validate_frame(frame, self.trailers_seen) {
+      Err(error) => raise error
+      Ok(SkipFrame) => continue
+      Ok(DeliverFrame(trailers_seen)) => {
+        self.trailers_seen = trailers_seen
+        return Some(frame)
+      }
+    }
   }
+  None
 }
 
 ///|
@@ -134,6 +155,45 @@ pub impl Body for QueueBody with fn size_hint(self) {
 
 ///|
 priv suberror BodyStreamEnded derive(Debug)
+
+///|
+/// Stable body state errors. These errors describe violations of the body
+/// frame contract and never include body bytes or sensitive header values.
+pub(all) suberror BodyError {
+  DataAfterTrailers
+  DuplicateTrailers
+  InvalidLimit(Int)
+  Cancelled
+} derive(Debug, Eq)
+
+///|
+priv enum FrameDisposition {
+  SkipFrame
+  DeliverFrame(Bool)
+}
+
+///|
+fn validate_frame(
+  frame : Frame,
+  trailers_seen : Bool,
+) -> Result[FrameDisposition, BodyError] {
+  match frame {
+    Data(data) =>
+      if trailers_seen {
+        Err(DataAfterTrailers)
+      } else if data.is_empty() {
+        Ok(SkipFrame)
+      } else {
+        Ok(DeliverFrame(false))
+      }
+    Trailers(_) =>
+      if trailers_seen {
+        Err(DuplicateTrailers)
+      } else {
+        Ok(DeliverFrame(true))
+      }
+  }
+}
 
 ///|
 /// A bounded asynchronous body stream.
@@ -146,28 +206,70 @@ pub struct BodyStream {
   space_available : @aqueue.Queue[Unit]
   hint : SizeHint
   on_data_consumed : async (Int) -> Unit
+  on_terminate : (Error?) -> Unit
   pull : (async () -> Frame?)?
   mut finished : Bool
   mut failure : Error?
+  mut trailers_seen : Bool
 }
 
 ///|
+fn body_stream_new_unchecked(
+  capacity : Int,
+  size_hint : SizeHint,
+  on_data_consumed : async (Int) -> Unit,
+  on_terminate : (Error?) -> Unit,
+) -> BodyStream {
+  {
+    queue: Queue(kind=Blocking(capacity)),
+    // A wake-up is a level signal, not an event log. One token is enough to
+    // release a blocked producer, and bounding this queue prevents consumers
+    // from accumulating one stale token per body frame.
+    space_available: Queue(kind=Blocking(1)),
+    hint: size_hint,
+    on_data_consumed,
+    on_terminate,
+    pull: None,
+    finished: false,
+    failure: None,
+    trailers_seen: false,
+  }
+}
+
+///|
+pub fn BodyStream::try_new(
+  capacity? : Int = 8,
+  size_hint? : SizeHint = SizeHint::unknown(),
+  on_data_consumed? : async (Int) -> Unit = fn(_) { () },
+  on_terminate? : (Error?) -> Unit = fn(_) { () },
+) -> Result[BodyStream, BodyError] {
+  if capacity < 1 {
+    return Err(InvalidLimit(capacity))
+  }
+  if size_hint.lower < 0 ||
+    (size_hint.upper is Some(upper) && upper < size_hint.lower) {
+    return Err(InvalidLimit(size_hint.lower))
+  }
+  Ok(
+    body_stream_new_unchecked(
+      capacity, size_hint, on_data_consumed, on_terminate,
+    ),
+  )
+}
+
+///|
+/// Compatibility constructor. New code that accepts caller configuration
+/// should use `try_new`; this wrapper aborts only for invalid local arguments.
 pub fn BodyStream::new(
   capacity? : Int = 8,
   size_hint? : SizeHint = SizeHint::unknown(),
   on_data_consumed? : async (Int) -> Unit = fn(_) { () },
+  on_terminate? : (Error?) -> Unit = fn(_) { () },
 ) -> BodyStream {
-  if capacity < 1 {
-    abort("body stream capacity must be positive")
-  }
-  {
-    queue: Queue(kind=Blocking(capacity)),
-    space_available: Queue(kind=Unbounded),
-    hint: size_hint,
-    on_data_consumed,
-    pull: None,
-    finished: false,
-    failure: None,
+  match
+    BodyStream::try_new(capacity~, size_hint~, on_data_consumed~, on_terminate~) {
+    Ok(stream) => stream
+    Err(_) => abort("invalid body stream configuration")
   }
 }
 
@@ -178,40 +280,71 @@ pub fn BodyStream::from_pull(
   pull : async () -> Frame?,
   size_hint? : SizeHint = SizeHint::unknown(),
   on_data_consumed? : async (Int) -> Unit = fn(_) { () },
+  on_terminate? : (Error?) -> Unit = fn(_) { () },
 ) -> BodyStream {
   {
     queue: Queue(kind=Blocking(1)),
-    space_available: Queue(kind=Unbounded),
+    space_available: Queue(kind=Blocking(1)),
     hint: size_hint,
     on_data_consumed,
+    on_terminate,
     pull: Some(pull),
     finished: false,
     failure: None,
+    trailers_seen: false,
   }
+}
+
+///|
+fn BodyStream::terminal_error(self : BodyStream) -> Error {
+  match self.failure {
+    Some(error) => error
+    None => BodyStreamEnded
+  }
+}
+
+///|
+fn BodyStream::terminate(
+  self : BodyStream,
+  error : Error?,
+  clear : Bool,
+) -> Unit {
+  if self.finished {
+    return
+  }
+  self.finished = true
+  self.failure = error
+  if self.pull is None {
+    let queue_error = error.unwrap_or(BodyStreamEnded)
+    self.queue.close(error=queue_error, clear~)
+    self.space_available.close(error=queue_error, clear=true)
+  }
+  (self.on_terminate)(error)
 }
 
 ///|
 pub async fn BodyStream::push(self : BodyStream, frame : Frame) -> Unit {
   if self.pull is Some(_) {
-    raise match self.failure {
-      Some(error) => error
-      None => BodyStreamEnded
-    }
+    raise self.terminal_error()
+  }
+  match validate_frame(frame, self.trailers_seen) {
+    Err(error) => raise error
+    Ok(SkipFrame) => return
+    Ok(DeliverFrame(_)) => ()
   }
   if self.finished {
-    raise match self.failure {
-      Some(error) => error
-      None => BodyStreamEnded
-    }
+    raise self.terminal_error()
   }
+  errdefer self.cancel(BodyError::Cancelled)
   while true {
     if self.finished {
-      raise match self.failure {
-        Some(error) => error
-        None => BodyStreamEnded
-      }
+      raise self.terminal_error()
     }
     if self.queue.try_put(frame) {
+      if frame is Trailers(_) {
+        self.trailers_seen = true
+        self.finish()
+      }
       return
     }
     self.space_available.get()
@@ -223,39 +356,66 @@ pub async fn BodyStream::push(self : BodyStream, frame : Frame) -> Unit {
 /// bounded queue is full.
 pub fn BodyStream::try_push(self : BodyStream, frame : Frame) -> Bool raise {
   if self.pull is Some(_) {
-    raise match self.failure {
-      Some(error) => error
-      None => BodyStreamEnded
-    }
+    raise self.terminal_error()
+  }
+  match validate_frame(frame, self.trailers_seen) {
+    Err(error) => raise error
+    Ok(SkipFrame) => return true
+    Ok(DeliverFrame(_)) => ()
   }
   if self.finished {
-    raise match self.failure {
-      Some(error) => error
-      None => BodyStreamEnded
-    }
+    raise self.terminal_error()
   }
-  self.queue.try_put(frame)
+  if self.queue.try_put(frame) {
+    if frame is Trailers(_) {
+      self.trailers_seen = true
+      self.finish()
+    }
+    true
+  } else {
+    false
+  }
 }
 
 ///|
 pub fn BodyStream::finish(self : BodyStream) -> Unit {
-  if !self.finished {
-    self.finished = true
-    if self.pull is None {
-      self.queue.close(error=BodyStreamEnded)
-      self.space_available.close(error=BodyStreamEnded)
-    }
-  }
+  self.terminate(None, false)
 }
 
 ///|
 pub fn BodyStream::fail(self : BodyStream, error : Error) -> Unit {
-  if !self.finished {
-    self.finished = true
-    self.failure = Some(error)
-    if self.pull is None {
-      self.queue.close(error~)
-      self.space_available.close(error~)
+  self.terminate(Some(error), false)
+}
+
+///|
+/// Cancels the stream, preserving the first terminal reason and immediately
+/// releasing buffered frames and blocked producers.
+pub fn BodyStream::cancel(self : BodyStream, error : Error) -> Unit {
+  self.terminate(Some(error), true)
+}
+
+///|
+pub impl Body for BodyStream with fn cancel(self, error) {
+  self.cancel(error)
+}
+
+///|
+async fn BodyStream::notify_data_consumed(
+  self : BodyStream,
+  amount : Int,
+) -> Unit {
+  errdefer self.cancel(BodyError::Cancelled)
+  let outcome : Result[Unit, Error] = try {
+    (self.on_data_consumed)(amount)
+    Ok(())
+  } catch {
+    error => Err(error)
+  }
+  match outcome {
+    Ok(_) => ()
+    Err(error) => {
+      self.cancel(error)
+      raise error
     }
   }
 }
@@ -269,39 +429,46 @@ pub impl Body for BodyStream with fn next_frame(self) {
         None => None
       }
     }
-    let output = pull() catch {
-      error => {
-        self.finished = true
-        self.failure = Some(error)
-        raise error
+    while true {
+      errdefer self.cancel(BodyError::Cancelled)
+      let outcome : Result[Frame?, Error] = Ok(pull()) catch {
+        error => Err(error)
       }
-    }
-    if output is None {
-      self.finished = true
-    } else if output is Some(Data(data)) {
-      (self.on_data_consumed)(data.length()) catch {
-        error => {
-          self.fail(error)
+      let output = match outcome {
+        Ok(value) => value
+        Err(error) => {
+          self.cancel(error)
           raise error
         }
       }
+      guard output is Some(frame) else {
+        self.finish()
+        return None
+      }
+      match validate_frame(frame, self.trailers_seen) {
+        Err(error) => {
+          self.cancel(error)
+          raise error
+        }
+        Ok(SkipFrame) => continue
+        Ok(DeliverFrame(trailers_seen)) => {
+          self.trailers_seen = trailers_seen
+          if frame is Data(data) {
+            self.notify_data_consumed(data.length())
+          } else {
+            self.finish()
+          }
+          return Some(frame)
+        }
+      }
     }
-    if output is Some(_) {
-      ignore(self.space_available.try_put(()) catch { _ => false })
-    }
-    return output
   }
   let output = Some(self.queue.get()) catch {
     BodyStreamEnded => None
     error => raise error
   }
   if output is Some(Data(data)) {
-    (self.on_data_consumed)(data.length()) catch {
-      error => {
-        self.fail(error)
-        raise error
-      }
-    }
+    self.notify_data_consumed(data.length())
   }
   if output is Some(_) {
     ignore(self.space_available.try_put(()) catch { _ => false })
@@ -324,19 +491,49 @@ pub async fn[B : Body] collect(
   body : B,
   max_bytes? : Int = 16 * 1024 * 1024,
 ) -> (Bytes, @types.HeaderMap?) {
+  if max_bytes < 0 {
+    let error = BodyError::InvalidLimit(max_bytes)
+    body.cancel(error)
+    raise error
+  }
   let data : Array[Byte] = []
   let mut trailers : @types.HeaderMap? = None
-  while body.next_frame() is Some(frame) {
-    match frame {
-      Data(chunk) => {
-        if data.length() + chunk.length() > max_bytes {
-          raise BodyLimitExceeded(limit=max_bytes)
-        }
-        for byte in chunk {
-          data.push(byte)
+  let mut trailers_seen = false
+  errdefer body.cancel(BodyError::Cancelled)
+  while true {
+    let outcome : Result[Frame?, Error] = Ok(body.next_frame()) catch {
+      error => Err(error)
+    }
+    let next = match outcome {
+      Ok(value) => value
+      Err(error) => {
+        body.cancel(error)
+        raise error
+      }
+    }
+    guard next is Some(frame) else { break }
+    match validate_frame(frame, trailers_seen) {
+      Err(error) => {
+        body.cancel(error)
+        raise error
+      }
+      Ok(SkipFrame) => ()
+      Ok(DeliverFrame(next_trailers_seen)) => {
+        trailers_seen = next_trailers_seen
+        match frame {
+          Data(chunk) => {
+            if chunk.length() > max_bytes - data.length() {
+              let error = BodyLimitExceeded(limit=max_bytes)
+              body.cancel(error)
+              raise error
+            }
+            for byte in chunk {
+              data.push(byte)
+            }
+          }
+          Trailers(value) => trailers = Some(value)
         }
       }
-      Trailers(value) => trailers = Some(value)
     }
   }
   (Bytes::from_array(data), trailers)

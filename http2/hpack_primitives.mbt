@@ -252,20 +252,24 @@ fn decode_integer(
   if val < prefix_max {
     return Ok((val, used))
   }
-  let mut m = 0
+  let mut multiplier = 1
   let mut i = pos + 1
   while i < buf.length() {
     let b = buf[i].to_int() & 0xFF
-    val += (b & 0x7F) << m
+    let digit = b & 0x7F
+    if digit > (0x7fffffff - val) / multiplier {
+      return Err("hpack int: overflow")
+    }
+    val += digit * multiplier
     used += 1
     if (b & 0x80) == 0 {
       return Ok((val, used))
     }
-    m += 7
-    i += 1
-    if used > 5_000 {
-      return Err("hpack int: too long")
+    if multiplier > 0x7fffffff / 128 {
+      return Err("hpack int: overflow")
     }
+    multiplier *= 128
+    i += 1
   }
   Err("hpack int: truncated")
 }
@@ -273,7 +277,7 @@ fn decode_integer(
 // String literals with the RFC 7541 section 5.2 Huffman flag in the high bit.
 
 ///|
-fn decode_string(buf : Array[Byte], pos : Int) -> Result[(String, Int), String] {
+fn decode_string(buf : Array[Byte], pos : Int) -> Result[(Bytes, Int), String] {
   if pos >= buf.length() {
     return Err("hpack str: OOB")
   }
@@ -286,10 +290,10 @@ fn decode_string(buf : Array[Byte], pos : Int) -> Result[(String, Int), String] 
     Err(e) => return Err(e)
   }
   let start = pos + used1
-  let end = start + len
-  if end > buf.length() {
+  if start > buf.length() || len > buf.length() - start {
     return Err("hpack str: truncated")
   }
+  let end = start + len
   let data = Bytes::from_array(buf)[start:end].to_owned().to_array()
   let raw = if huff {
     match hpack_huffman_decode(data) {
@@ -299,8 +303,7 @@ fn decode_string(buf : Array[Byte], pos : Int) -> Result[(String, Int), String] 
   } else {
     data
   }
-  let s = @utf8.decode(Bytes::from_array(raw)) catch { _ => "" }
-  Ok((s, used1 + len))
+  Ok((Bytes::from_array(raw), used1 + len))
 }
 
 // Encodes an integer with an N-bit prefix.
@@ -326,8 +329,8 @@ fn encode_integer(n : Int, value : Int) -> Array[Byte] {
 // Encodes a string; callers opt into Huffman encoding explicitly.
 
 ///|
-fn encode_string(s : String, use_huffman? : Bool = false) -> Array[Byte] {
-  let raw = @utf8.encode(s).to_array()
+fn encode_string(raw : BytesView, use_huffman? : Bool = false) -> Array[Byte] {
+  let raw = raw.to_owned().to_array()
   let (payload, hflag) = if use_huffman {
     match hpack_huffman_encode(raw) {
       Ok(x) =>

@@ -24,6 +24,9 @@ pub(all) suberror Http1Error {
   LimitExceeded(String)
   UnexpectedEof(String)
 } derive(Eq, @debug.Debug)
+pub fn Http1Error::equal(Self, Self) -> Bool
+pub fn Http1Error::not_equal(Self, Self) -> Bool
+pub fn Http1Error::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub struct BodyDecoder {
@@ -39,6 +42,9 @@ pub(all) enum BodyFraming {
   Chunked
   CloseDelimited
 } derive(Eq, @debug.Debug)
+pub fn BodyFraming::equal(Self, Self) -> Bool
+pub fn BodyFraming::not_equal(Self, Self) -> Bool
+pub fn BodyFraming::to_repr(Self) -> @debug.Repr
 
 pub enum BodyState {
   BodyNone
@@ -56,6 +62,7 @@ pub struct RequestDecoder {
   mut state : RequestState
   limits : @types.Limits
   mut eof : Bool
+  mut failure : Http1Error?
 }
 pub fn RequestDecoder::feed(Self, BytesView) -> Result[Unit, Http1Error]
 pub fn RequestDecoder::finish_input(Self) -> Unit
@@ -82,11 +89,13 @@ pub struct ResponseDecoder {
   limits : @types.Limits
   request_method : @types.Method
   mut eof : Bool
+  mut failure : Http1Error?
 }
 pub fn ResponseDecoder::feed(Self, BytesView) -> Result[Unit, Http1Error]
 pub fn ResponseDecoder::finish_input(Self) -> Unit
 pub fn ResponseDecoder::new(@types.Method, limits? : @types.Limits) -> Self
 pub fn ResponseDecoder::next(Self) -> Result[ResponseEvent?, Http1Error]
+pub fn ResponseDecoder::take_buffered(Self) -> Bytes
 
 pub(all) enum ResponseEvent {
   ResponseHead(@types.Response[Unit])
@@ -104,4 +113,3 @@ pub enum ResponseState {
 // Type aliases
 
 // Traits
-

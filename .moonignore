@@ -1,0 +1,7 @@
+_build/
+target/
+.mooncakes/
+.DS_Store
+coverage.xml
+docs/release-evidence-2026-09-22.md
+docs/task-handoff-*.zh-CN.md

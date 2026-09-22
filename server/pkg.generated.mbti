@@ -1,0 +1,133 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/server"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+pub(all) suberror ServerError {
+  InvalidConfig(String)
+  AlreadyRunning
+  NotRunning
+  ConnectionLimit
+  AcceptFailed(String)
+  AcceptErrorLimitExceeded
+  HandlerFailed(String)
+  ShutdownTimeout
+  Closed
+} derive(Eq, @debug.Debug)
+pub fn ServerError::equal(Self, Self) -> Bool
+pub fn ServerError::not_equal(Self, Self) -> Bool
+pub fn ServerError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub(all) struct AcceptedConnection {
+  run : async () -> Result[Unit, Error]
+  close : () -> Unit
+}
+pub fn AcceptedConnection::new(async () -> Result[Unit, Error], () -> Unit) -> Self
+
+pub struct ServerConfig {
+  limits : ServerLimits
+  observer : (ServerEvent) -> Unit
+  error_responder : (Error) -> Unit
+}
+pub fn ServerConfig::defaults() -> Self
+pub fn ServerConfig::validate(Self) -> Result[Unit, ServerError]
+pub fn ServerConfig::with_error_responder(Self, (Error) -> Unit) -> Self
+pub fn ServerConfig::with_limits(Self, ServerLimits) -> Self
+pub fn ServerConfig::with_observer(Self, (ServerEvent) -> Unit) -> Self
+
+pub(all) enum ServerEvent {
+  StateChanged(ServerState)
+  Accepted(Int)
+  RejectedAtCapacity
+  AcceptError(Int)
+  ConnectionStarted(Int)
+  ConnectionFinished(Int)
+  HandlerError(Int)
+  ShutdownStarted
+  ShutdownFinished
+} derive(Eq, @debug.Debug)
+pub fn ServerEvent::equal(Self, Self) -> Bool
+pub fn ServerEvent::not_equal(Self, Self) -> Bool
+pub fn ServerEvent::to_repr(Self) -> @debug.Repr
+
+pub(all) struct ServerLimits {
+  max_connections : Int
+  max_accept_errors : Int
+  graceful_timeout_ms : Int?
+} derive(Eq, @debug.Debug)
+pub fn ServerLimits::defaults() -> Self
+pub fn ServerLimits::equal(Self, Self) -> Bool
+pub fn ServerLimits::not_equal(Self, Self) -> Bool
+pub fn ServerLimits::to_repr(Self) -> @debug.Repr
+pub fn ServerLimits::validate(Self) -> Result[Unit, ServerError]
+
+pub(all) struct ServerMetrics {
+  mut accepted : Int64
+  mut rejected : Int64
+  mut accept_errors : Int64
+  mut completed : Int64
+  mut handler_errors : Int64
+} derive(Eq, @debug.Debug)
+pub fn ServerMetrics::accept_errors(Self) -> Int64
+pub fn ServerMetrics::accepted(Self) -> Int64
+pub fn ServerMetrics::completed(Self) -> Int64
+pub fn ServerMetrics::equal(Self, Self) -> Bool
+pub fn ServerMetrics::handler_errors(Self) -> Int64
+pub fn ServerMetrics::new() -> Self
+pub fn ServerMetrics::not_equal(Self, Self) -> Bool
+pub fn ServerMetrics::rejected(Self) -> Int64
+pub fn ServerMetrics::to_repr(Self) -> @debug.Repr
+
+pub(all) enum ServerPhase {
+  Accept
+  Connection
+  Handler
+  Shutdown
+} derive(Eq, @debug.Debug)
+pub fn ServerPhase::equal(Self, Self) -> Bool
+pub fn ServerPhase::not_equal(Self, Self) -> Bool
+pub fn ServerPhase::to_repr(Self) -> @debug.Repr
+
+pub(all) enum ServerState {
+  Starting
+  Running
+  Draining
+  Stopped
+} derive(Eq, @debug.Debug)
+pub fn ServerState::equal(Self, Self) -> Bool
+pub fn ServerState::not_equal(Self, Self) -> Bool
+pub fn ServerState::to_repr(Self) -> @debug.Repr
+
+pub struct ServerSupervisor {
+  config : ServerConfig
+  mut state : ServerState
+  mut active : Int
+  mut accept_errors : Int
+  mut next_connection_id : Int
+  metrics : ServerMetrics
+}
+pub fn ServerSupervisor::active_connections(Self) -> Int
+pub fn ServerSupervisor::begin_shutdown(Self) -> Result[Unit, ServerError]
+pub fn ServerSupervisor::finish_shutdown(Self) -> Result[Unit, ServerError]
+pub fn ServerSupervisor::metrics(Self) -> ServerMetrics
+pub fn ServerSupervisor::new(config? : ServerConfig) -> Result[Self, ServerError]
+pub fn ServerSupervisor::record_accept_error(Self) -> Result[Unit, ServerError]
+pub fn ServerSupervisor::release(Self, Int, Error?) -> Unit
+pub async fn[L : Listener] ServerSupervisor::serve(Self, L) -> Result[Unit, ServerError]
+pub fn ServerSupervisor::start(Self) -> Result[Unit, ServerError]
+pub fn ServerSupervisor::state(Self) -> ServerState
+pub fn ServerSupervisor::try_acquire(Self) -> Result[Int, ServerError]
+
+// Type aliases
+
+// Traits
+pub(open) trait Listener {
+  async fn accept(Self) -> Result[AcceptedConnection?, ServerError]
+  fn close(Self) -> Unit
+}

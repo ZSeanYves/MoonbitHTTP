@@ -38,6 +38,19 @@ pub(all) enum H2StreamState {
 } derive(Debug, Eq)
 
 ///|
+/// Maximum positive HTTP/2 flow-control window.
+const H2_MAX_WINDOW : Int = 0x7fffffff
+
+///|
+/// Minimum signed stream window after a SETTINGS decrease.
+const H2_MIN_WINDOW : Int = -0x80000000
+
+///|
+/// Closed stream IDs are retained only long enough to preserve precise
+/// post-close errors; flow-control records themselves are reclaimed.
+const H2_CLOSED_STREAM_HISTORY : Int = 1024
+
+///|
 pub(all) struct H2Settings {
   mut header_table_size : Int
   mut enable_push : Bool
@@ -56,6 +69,20 @@ pub fn H2Settings::defaults() -> H2Settings {
     initial_window_size: 65535,
     max_frame_size: H2_DEFAULT_MAX_FRAME_SIZE,
     max_header_list_size: 64 * 1024,
+  }
+}
+
+///|
+fn H2Settings::from_limits(limits : @types.Limits) -> H2Settings {
+  {
+    header_table_size: limits.max_dynamic_table_bytes,
+    enable_push: true,
+    max_concurrent_streams: limits.max_streams.min(
+      limits.max_concurrent_requests,
+    ),
+    initial_window_size: 65535,
+    max_frame_size: H2_DEFAULT_MAX_FRAME_SIZE,
+    max_header_list_size: limits.max_header_bytes,
   }
 }
 
@@ -83,24 +110,34 @@ pub(all) enum H2Action {
 ///|
 pub struct H2Connection {
   role : H2Role
+  limits : @types.Limits
   local_settings : H2Settings
   peer_settings : H2Settings
   streams : Map[Int, H2Stream]
+  closed_streams : Array[Int]
   mut connection_send_window : Int
   mut connection_recv_window : Int
   mut highest_remote_stream : Int
   mut next_local_stream : Int
   mut continuation_stream : Int?
+  mut continuation_bytes : Int
   mut goaway_received : Bool
+  mut goaway_last_stream : Int?
+  mut failure : H2ProtocolError?
 }
 
 ///|
-pub fn H2Connection::new(role : H2Role) -> H2Connection {
+pub fn H2Connection::new(
+  role : H2Role,
+  limits? : @types.Limits = @types.Limits::defaults(),
+) -> H2Connection {
   {
     role,
-    local_settings: H2Settings::defaults(),
+    limits,
+    local_settings: H2Settings::from_limits(limits),
     peer_settings: H2Settings::defaults(),
     streams: Map([]),
+    closed_streams: [],
     connection_send_window: 65535,
     connection_recv_window: 65535,
     highest_remote_stream: 0,
@@ -110,7 +147,10 @@ pub fn H2Connection::new(role : H2Role) -> H2Connection {
       2
     },
     continuation_stream: None,
+    continuation_bytes: 0,
     goaway_received: false,
+    goaway_last_stream: None,
+    failure: None,
   }
 }
 
@@ -129,6 +169,14 @@ pub fn H2Connection::set_local_initial_window(
       ),
     )
   }
+  if !self.streams.is_empty() {
+    return Err(
+      ConnectionError(
+        ProtocolError,
+        "initial receive window must be set before opening streams",
+      ),
+    )
+  }
   self.local_settings.initial_window_size = window
   Ok(())
 }
@@ -141,7 +189,7 @@ pub fn H2Connection::increase_connection_receive_window(
   self : H2Connection,
   increment : Int,
 ) -> Result[Unit, H2ProtocolError] {
-  if increment <= 0 || self.connection_recv_window + increment > 0x7fffffff {
+  if increment <= 0 || self.connection_recv_window > 0x7fffffff - increment {
     return Err(
       ConnectionError(
         FlowControlError,
@@ -181,10 +229,79 @@ fn close_local_side(stream : H2Stream) -> Unit {
 }
 
 ///|
+/// Closed stream records no longer carry flow-control state. The stream ID
+/// monotonicity fields below retain enough history to distinguish an already
+/// created stream from an idle future stream after its record is reclaimed.
+fn H2Connection::was_created_stream_id(self : H2Connection, id : Int) -> Bool {
+  if id < 0 {
+    false
+  } else if self.is_remote_stream_id(id) {
+    id <= self.highest_remote_stream
+  } else {
+    self.next_local_stream == -1 || id < self.next_local_stream
+  }
+}
+
+///|
+fn H2Connection::remember_closed_stream(self : H2Connection, id : Int) -> Unit {
+  if self.closed_streams.contains(id) {
+    return
+  }
+  self.closed_streams.push(id)
+  if self.closed_streams.length() > H2_CLOSED_STREAM_HISTORY {
+    self.closed_streams.remove(0) |> ignore
+  }
+}
+
+///|
+fn H2Connection::remove_closed_stream(self : H2Connection, id : Int) -> Unit {
+  match self.streams.get(id) {
+    Some(stream) if stream.state == Closed => {
+      self.streams.remove(id)
+      self.remember_closed_stream(id)
+    }
+    _ => ()
+  }
+}
+
+///|
+fn h2_validate_frame_flags(
+  typ : Int,
+  flags : Int,
+) -> Result[Unit, H2ProtocolError] {
+  let allowed = match typ {
+    H2_FRAME_DATA => H2_FLAGS_END_STREAM | H2_FLAGS_PADDED
+    H2_FRAME_HEADERS =>
+      H2_FLAGS_END_STREAM |
+      H2_FLAGS_END_HEADERS |
+      H2_FLAGS_PADDED |
+      H2_FLAGS_PRIORITY
+    H2_FRAME_PRIORITY => 0
+    H2_FRAME_RST_STREAM => 0
+    H2_FRAME_SETTINGS => H2_FLAGS_ACK
+    H2_FRAME_PUSH_PROMISE => H2_FLAGS_END_HEADERS | H2_FLAGS_PADDED
+    H2_FRAME_PING => H2_FLAGS_ACK
+    H2_FRAME_GOAWAY => 0
+    H2_FRAME_WINDOW_UPDATE => 0
+    H2_FRAME_CONTINUATION => H2_FLAGS_END_HEADERS
+    _ => 0xff
+  }
+  if typ < 0 || typ > 0xff || (flags & allowed) != flags {
+    return Err(
+      ConnectionError(ProtocolError, "frame contains unsupported flags"),
+    )
+  }
+  Ok(())
+}
+
+///|
 pub fn H2Connection::open_local_stream(
   self : H2Connection,
   end_stream? : Bool = false,
 ) -> Result[Int, H2ProtocolError] {
+  if self.failure is Some(error) {
+    return Err(error)
+  }
   if self.goaway_received {
     return Err(
       ConnectionError(ProtocolError, "cannot open a stream after GOAWAY"),
@@ -196,13 +313,19 @@ pub fn H2Connection::open_local_stream(
       active += 1
     }
   }
-  if active >= self.peer_settings.max_concurrent_streams {
+  if active >= self.peer_settings.max_concurrent_streams ||
+    active >= self.limits.max_streams {
     return Err(
       ConnectionError(RefusedStream, "peer concurrent stream limit reached"),
     )
   }
+  if self.next_local_stream <= 0 || self.next_local_stream > 0x7fffffff {
+    return Err(
+      ConnectionError(RefusedStream, "local stream identifiers are exhausted"),
+    )
+  }
   let id = self.next_local_stream
-  self.next_local_stream += 2
+  self.next_local_stream = if id > 0x7fffffff - 2 { -1 } else { id + 2 }
   let stream : H2Stream = {
     id,
     state: if end_stream {
@@ -288,7 +411,12 @@ fn H2Connection::apply_setting(
   value : Int,
 ) -> Result[Unit, H2ProtocolError] {
   match id {
-    1 => self.peer_settings.header_table_size = value
+    1 =>
+      self.peer_settings.header_table_size = if value < 0 {
+        self.limits.max_dynamic_table_bytes
+      } else {
+        value.min(self.limits.max_dynamic_table_bytes)
+      }
     2 => {
       if self.role == Client {
         return Err(
@@ -305,7 +433,12 @@ fn H2Connection::apply_setting(
       }
       self.peer_settings.enable_push = value == 1
     }
-    3 => self.peer_settings.max_concurrent_streams = value
+    3 =>
+      self.peer_settings.max_concurrent_streams = if value < 0 {
+        self.limits.max_streams
+      } else {
+        value.min(self.limits.max_streams)
+      }
     4 => {
       if value < 0 || value > 0x7fffffff {
         return Err(
@@ -313,8 +446,23 @@ fn H2Connection::apply_setting(
         )
       }
       let delta = value - self.peer_settings.initial_window_size
+      // Check every stream before mutating any stream so a bad SETTINGS
+      // update cannot leave a partially changed connection.
       for stream in self.streams.values() {
-        if stream.send_window + delta > 0x7fffffff {
+        if (
+            delta > 0 &&
+            (
+              delta > H2_MAX_WINDOW ||
+              stream.send_window > H2_MAX_WINDOW - delta
+            )
+          ) ||
+          (
+            delta < 0 &&
+            (
+              delta < H2_MIN_WINDOW ||
+              stream.send_window < H2_MIN_WINDOW - delta
+            )
+          ) {
           return Err(
             ConnectionError(
               FlowControlError,
@@ -322,6 +470,8 @@ fn H2Connection::apply_setting(
             ),
           )
         }
+      }
+      for stream in self.streams.values() {
         stream.send_window += delta
       }
       self.peer_settings.initial_window_size = value
@@ -332,7 +482,12 @@ fn H2Connection::apply_setting(
       }
       self.peer_settings.max_frame_size = value
     }
-    6 => self.peer_settings.max_header_list_size = value
+    6 =>
+      self.peer_settings.max_header_list_size = if value < 0 {
+        self.limits.max_header_bytes
+      } else {
+        value.min(self.limits.max_header_bytes)
+      }
     _ => ()
   }
   Ok(())
@@ -345,7 +500,17 @@ fn H2Connection::get_open_stream(
 ) -> Result[H2Stream, H2ProtocolError] {
   match self.streams.get(id) {
     None =>
-      Err(StreamError(id, StreamClosed, "frame references an idle stream"))
+      Err(
+        StreamError(
+          id,
+          StreamClosed,
+          if self.was_created_stream_id(id) {
+            "frame references a closed stream"
+          } else {
+            "frame references an idle stream"
+          },
+        ),
+      )
     Some(stream) if stream.state == Closed || stream.state == HalfClosedRemote =>
       Err(StreamError(id, StreamClosed, "frame received after remote end"))
     Some(stream) => Ok(stream)
@@ -353,14 +518,27 @@ fn H2Connection::get_open_stream(
 }
 
 ///|
-pub fn H2Connection::receive(
+fn H2Connection::receive_impl(
   self : H2Connection,
   frame : H2Frame,
 ) -> Result[Array[H2Action], H2ProtocolError] {
   let h = frame.header
   if h.length != frame.payload.length() ||
+    h.length < 0 ||
     h.length > self.local_settings.max_frame_size {
     return Err(ConnectionError(FrameSizeError, "invalid frame payload length"))
+  }
+  if h.typ < 0 ||
+    h.typ > 0xff ||
+    h.flags < 0 ||
+    h.flags > 0xff ||
+    h.stream_id < 0 ||
+    h.stream_id > H2_MAX_WINDOW {
+    return Err(ConnectionError(ProtocolError, "invalid HTTP/2 frame header"))
+  }
+  match h2_validate_frame_flags(h.typ, h.flags) {
+    Ok(_) => ()
+    Err(error) => return Err(error)
   }
   if self.continuation_stream is Some(expected) &&
     (h.typ != H2_FRAME_CONTINUATION || h.stream_id != expected) {
@@ -377,13 +555,15 @@ pub fn H2Connection::receive(
       return Err(ConnectionError(FrameSizeError, "invalid DATA padding"))
     }
   }
+  let mut header_fragment_length = 0
   if h.typ == H2_FRAME_HEADERS {
     let mut offset = 0
+    let mut padding = 0
     if (h.flags & H2_FLAGS_PADDED) != 0 {
       if frame.payload.is_empty() {
         return Err(ConnectionError(FrameSizeError, "invalid HEADERS padding"))
       }
-      let padding = frame.payload[0].to_int()
+      padding = frame.payload[0].to_int()
       offset = 1
       if padding + offset > frame.payload.length() {
         return Err(ConnectionError(FrameSizeError, "invalid HEADERS padding"))
@@ -401,6 +581,7 @@ pub fn H2Connection::receive(
         return Err(ConnectionError(ProtocolError, "HEADERS depends on itself"))
       }
     }
+    header_fragment_length = frame.payload.length() - offset - padding
   }
   let actions : Array[H2Action] = []
   match h.typ {
@@ -446,8 +627,22 @@ pub fn H2Connection::receive(
       if h.stream_id != 0 || frame.payload.length() < 8 {
         return Err(ConnectionError(FrameSizeError, "invalid GOAWAY frame"))
       }
+      if (frame.payload[0].to_int() & 0x80) != 0 {
+        return Err(
+          ConnectionError(ProtocolError, "GOAWAY stream id has reserved bit"),
+        )
+      }
+      let last_stream = u31(frame.payload, 0)
+      match self.goaway_last_stream {
+        Some(previous) if last_stream > previous =>
+          return Err(
+            ConnectionError(ProtocolError, "GOAWAY last stream id increased"),
+          )
+        _ => ()
+      }
       self.goaway_received = true
-      actions.push(GoawayReceived(u31(frame.payload, 0), u32(frame.payload, 4)))
+      self.goaway_last_stream = Some(last_stream)
+      actions.push(GoawayReceived(last_stream, u32(frame.payload, 4)))
     }
     H2_FRAME_WINDOW_UPDATE => {
       if frame.payload.length() != 4 {
@@ -470,7 +665,7 @@ pub fn H2Connection::receive(
         )
       }
       if h.stream_id == 0 {
-        if self.connection_send_window + increment > 0x7fffffff {
+        if self.connection_send_window > 0x7fffffff - increment {
           return Err(
             ConnectionError(FlowControlError, "connection window overflow"),
           )
@@ -488,7 +683,7 @@ pub fn H2Connection::receive(
               ),
             )
         }
-        if stream.send_window + increment > 0x7fffffff {
+        if stream.send_window > 0x7fffffff - increment {
           return Err(
             StreamError(h.stream_id, FlowControlError, "stream window overflow"),
           )
@@ -510,7 +705,8 @@ pub fn H2Connection::receive(
               active += 1
             }
           }
-          if active >= self.local_settings.max_concurrent_streams {
+          if active >= self.local_settings.max_concurrent_streams ||
+            active >= self.limits.max_streams {
             return Err(
               StreamError(
                 h.stream_id,
@@ -521,8 +717,25 @@ pub fn H2Connection::receive(
           }
           if !self.is_remote_stream_id(h.stream_id) ||
             h.stream_id <= self.highest_remote_stream {
+            if self.closed_streams.contains(h.stream_id) {
+              return Err(
+                StreamError(
+                  h.stream_id,
+                  StreamClosed,
+                  "HEADERS on closed stream",
+                ),
+              )
+            }
             return Err(
               ConnectionError(ProtocolError, "invalid new remote stream id"),
+            )
+          }
+          if self.goaway_last_stream is Some(last) && h.stream_id > last {
+            return Err(
+              ConnectionError(
+                ProtocolError,
+                "new stream was opened after GOAWAY",
+              ),
             )
           }
           self.highest_remote_stream = h.stream_id
@@ -544,8 +757,22 @@ pub fn H2Connection::receive(
       let end_stream = (h.flags & H2_FLAGS_END_STREAM) != 0
       if end_stream {
         close_remote_side(stream)
+        self.remove_closed_stream(h.stream_id)
       }
       let end_headers = (h.flags & H2_FLAGS_END_HEADERS) != 0
+      if header_fragment_length > self.limits.max_header_bytes {
+        return Err(
+          ConnectionError(
+            EnhanceYourCalm,
+            "HTTP/2 header block exceeds configured limit",
+          ),
+        )
+      }
+      self.continuation_bytes = if end_headers {
+        0
+      } else {
+        header_fragment_length
+      }
       if !end_headers {
         self.continuation_stream = Some(h.stream_id)
       }
@@ -556,8 +783,18 @@ pub fn H2Connection::receive(
         return Err(ConnectionError(ProtocolError, "unexpected CONTINUATION"))
       }
       let end_headers = (h.flags & H2_FLAGS_END_HEADERS) != 0
+      if h.length > self.limits.max_header_bytes - self.continuation_bytes {
+        return Err(
+          ConnectionError(
+            EnhanceYourCalm,
+            "HTTP/2 header block exceeds configured limit",
+          ),
+        )
+      }
+      self.continuation_bytes += h.length
       if end_headers {
         self.continuation_stream = None
+        self.continuation_bytes = 0
       }
       actions.push(HeadersContinued(h.stream_id, end_headers))
     }
@@ -591,6 +828,7 @@ pub fn H2Connection::receive(
       let end_stream = (h.flags & H2_FLAGS_END_STREAM) != 0
       if end_stream {
         close_remote_side(stream)
+        self.remove_closed_stream(h.stream_id)
       }
       let data = if (h.flags & H2_FLAGS_PADDED) != 0 {
         let padding = frame.payload[0].to_int()
@@ -608,10 +846,19 @@ pub fn H2Connection::receive(
         Some(value) => value
         None =>
           return Err(
-            ConnectionError(ProtocolError, "RST_STREAM on idle stream"),
+            if self.was_created_stream_id(h.stream_id) {
+              StreamError(
+                h.stream_id,
+                StreamClosed,
+                "RST_STREAM on closed stream",
+              )
+            } else {
+              ConnectionError(ProtocolError, "RST_STREAM on idle stream")
+            },
           )
       }
       stream.state = Closed
+      self.remove_closed_stream(h.stream_id)
       actions.push(StreamResetReceived(h.stream_id, u32(frame.payload, 0)))
     }
     H2_FRAME_PRIORITY =>
@@ -635,12 +882,60 @@ pub fn H2Connection::receive(
         return Err(
           ConnectionError(ProtocolError, "PUSH_PROMISE is not permitted"),
         )
-      } else if frame.payload.length() < 4 {
-        return Err(ConnectionError(FrameSizeError, "invalid PUSH_PROMISE"))
+      } else {
+        let mut offset = 0
+        let mut padding = 0
+        if (h.flags & H2_FLAGS_PADDED) != 0 {
+          if frame.payload.is_empty() {
+            return Err(ConnectionError(FrameSizeError, "invalid PUSH_PROMISE"))
+          }
+          padding = frame.payload[0].to_int()
+          offset = 1
+        }
+        if offset + 4 + padding > frame.payload.length() {
+          return Err(
+            ConnectionError(FrameSizeError, "invalid PUSH_PROMISE padding"),
+          )
+        }
+        let promised = ((frame.payload[offset].to_int() & 0x7f) << 24) |
+          ((frame.payload[offset + 1].to_int() & 0xff) << 16) |
+          ((frame.payload[offset + 2].to_int() & 0xff) << 8) |
+          (frame.payload[offset + 3].to_int() & 0xff)
+        if promised == 0 ||
+          promised > H2_MAX_WINDOW ||
+          !self.is_remote_stream_id(promised) {
+          return Err(
+            ConnectionError(ProtocolError, "invalid promised stream id"),
+          )
+        }
       }
     _ => ()
   }
   Ok(actions)
+}
+
+///|
+pub fn H2Connection::receive(
+  self : H2Connection,
+  frame : H2Frame,
+) -> Result[Array[H2Action], H2ProtocolError] {
+  if self.failure is Some(error) {
+    return Err(error)
+  }
+  match self.receive_impl(frame) {
+    Err(error) => {
+      match error {
+        ConnectionError(_, _) => self.failure = Some(error)
+        StreamError(stream_id, _, _) =>
+          if self.streams.get(stream_id) is Some(stream) {
+            stream.state = Closed
+            self.remove_closed_stream(stream_id)
+          }
+      }
+      Err(error)
+    }
+    value => value
+  }
 }
 
 ///|
@@ -656,13 +951,23 @@ pub fn H2Connection::release_capacity(
   }
   let stream = match self.streams.get(stream_id) {
     Some(value) => value
+    None if self.was_created_stream_id(stream_id) => {
+      // A closed stream record may already be reclaimed. Its stream-level
+      // window no longer needs an update, but consumed bytes still restore
+      // the connection-level receive window.
+      if self.connection_recv_window > 0x7fffffff - amount {
+        return Err(ConnectionError(FlowControlError, "receive window overflow"))
+      }
+      self.connection_recv_window += amount
+      return Ok([SendWindowUpdate(0, amount)])
+    }
     None =>
       return Err(
         StreamError(stream_id, StreamClosed, "capacity for unknown stream"),
       )
   }
-  if self.connection_recv_window + amount > 0x7fffffff ||
-    stream.recv_window + amount > 0x7fffffff {
+  if self.connection_recv_window > 0x7fffffff - amount ||
+    stream.recv_window > 0x7fffffff - amount {
     return Err(ConnectionError(FlowControlError, "receive window overflow"))
   }
   self.connection_recv_window += amount
@@ -671,15 +976,41 @@ pub fn H2Connection::release_capacity(
 }
 
 ///|
+/// Releases only connection-level receive capacity after bytes for a reset or
+/// otherwise discarded stream have been accounted for.
+pub fn H2Connection::release_connection_capacity(
+  self : H2Connection,
+  amount : Int,
+) -> Result[H2Action, H2ProtocolError] {
+  if amount <= 0 || self.connection_recv_window > 0x7fffffff - amount {
+    return Err(
+      ConnectionError(FlowControlError, "connection receive window overflow"),
+    )
+  }
+  self.connection_recv_window += amount
+  Ok(SendWindowUpdate(0, amount))
+}
+
+///|
 pub fn H2Connection::reserve_send_capacity(
   self : H2Connection,
   stream_id : Int,
   requested : Int,
 ) -> Result[Int, H2ProtocolError] {
+  if requested < 0 {
+    return Err(
+      StreamError(stream_id, FlowControlError, "negative send capacity request"),
+    )
+  }
   let stream = match self.streams.get(stream_id) {
     Some(value) => value
     None =>
       return Err(StreamError(stream_id, StreamClosed, "send on unknown stream"))
+  }
+  if stream.state == HalfClosedLocal || stream.state == Closed {
+    return Err(
+      StreamError(stream_id, StreamClosed, "stream send side is closed"),
+    )
   }
   let amount = requested
     .min(self.connection_send_window)
@@ -702,6 +1033,7 @@ pub fn H2Connection::finish_local_stream(
     None => Err(StreamError(stream_id, StreamClosed, "unknown stream"))
     Some(stream) => {
       close_local_side(stream)
+      self.remove_closed_stream(stream_id)
       Ok(())
     }
   }
@@ -716,6 +1048,7 @@ pub fn H2Connection::reset_stream(
     None => Err(StreamError(stream_id, StreamClosed, "unknown stream"))
     Some(stream) => {
       stream.state = Closed
+      self.remove_closed_stream(stream_id)
       Ok(())
     }
   }
@@ -726,5 +1059,9 @@ pub fn H2Connection::stream_state(
   self : H2Connection,
   stream_id : Int,
 ) -> H2StreamState? {
-  self.streams.get(stream_id).map(fn(stream) { stream.state })
+  match self.streams.get(stream_id) {
+    Some(stream) => Some(stream.state)
+    None if self.closed_streams.contains(stream_id) => Some(Closed)
+    None => None
+  }
 }

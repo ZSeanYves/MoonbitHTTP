@@ -86,7 +86,21 @@ pub(all) struct H2Setting {
 ///|
 pub(all) struct HpackHeader {
   name : String
-  value : String
+  value : Bytes
+} derive(Debug, Eq)
+
+///|
+pub fn HpackHeader::from_strings(name : String, value : String) -> HpackHeader {
+  { name, value: @utf8.encode(value), }
+}
+
+///|
+pub fn HpackHeader::value_text(
+  self : HpackHeader,
+) -> Result[String, H2ProtocolError] {
+  Ok(@utf8.decode(self.value)) catch {
+    _ => Err(ConnectionError(ProtocolError, "header value is not valid UTF-8"))
+  }
 }
 
 ///|

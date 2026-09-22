@@ -1,0 +1,123 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/tls"
+
+import {
+  "ZSeanYves/MoonbitHTTP/transport",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn derive_quic_packet_keys(Bytes, suite? : QuicTlsCipherSuite) -> Result[QuicPacketKeys, TlsError]
+
+pub fn quic_v1_initial_keys(Bytes) -> Result[(QuicPacketKeys, QuicPacketKeys), TlsError]
+
+// Errors
+pub(all) suberror TlsError {
+  InvalidOptions(TlsOptionsError)
+  VerificationFailed(String)
+  HostnameMismatch
+  Alert(Int)
+  HandshakeFailed(String)
+  InvalidTrafficSecret
+  InvalidPacketNumber
+  PacketProtectionFailed
+  PacketAuthenticationFailed
+  UnsupportedCipherSuite
+  Unsupported
+  Closed
+} derive(Eq, @debug.Debug)
+pub fn TlsError::equal(Self, Self) -> Bool
+pub fn TlsError::not_equal(Self, Self) -> Bool
+pub fn TlsError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror TlsOptionsError {
+  MissingServerName
+  InvalidAlpn
+  InvalidVersionRange
+  EarlyDataRequiresReplayPolicy
+  IncompleteClientCertificate
+} derive(Eq, @debug.Debug)
+pub fn TlsOptionsError::equal(Self, Self) -> Bool
+pub fn TlsOptionsError::not_equal(Self, Self) -> Bool
+pub fn TlsOptionsError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub struct QuicPacketKeys {
+  suite : QuicTlsCipherSuite
+  secret : Bytes
+  key : Bytes
+  iv : Bytes
+  hp : Bytes
+}
+pub fn QuicPacketKeys::cipher_suite(Self) -> QuicTlsCipherSuite
+pub fn QuicPacketKeys::header_protection_mask(Self, Bytes) -> Result[Bytes, TlsError]
+pub fn QuicPacketKeys::open(Self, Int64, Bytes, Bytes) -> Result[Bytes, TlsError]
+pub fn QuicPacketKeys::seal(Self, Int64, Bytes, Bytes) -> Result[Bytes, TlsError]
+
+pub(all) enum QuicTlsCipherSuite {
+  TlsAes128GcmSha256
+  TlsAes256GcmSha384
+} derive(Eq, @debug.Debug)
+pub fn QuicTlsCipherSuite::equal(Self, Self) -> Bool
+pub fn QuicTlsCipherSuite::not_equal(Self, Self) -> Bool
+pub fn QuicTlsCipherSuite::to_repr(Self) -> @debug.Repr
+
+pub(all) struct SecureConnection {
+  transport : @transport.StreamConnection
+  version : TlsVersion
+  cipher_suite : String
+  alpn : String?
+  peer_identity : String?
+  authenticated : Bool
+}
+pub fn SecureConnection::alpn(Self) -> String?
+pub fn SecureConnection::cipher_suite(Self) -> String
+pub fn SecureConnection::close(Self) -> Unit
+pub fn SecureConnection::is_authenticated(Self) -> Bool
+pub fn SecureConnection::is_closed(Self) -> Bool
+pub fn SecureConnection::new(@transport.StreamConnection, TlsVersion, String, String?, String?, Bool) -> Self
+pub fn SecureConnection::peer_identity(Self) -> String?
+pub async fn SecureConnection::read(Self, Int) -> Result[Bytes?, @transport.TransportError]
+pub fn SecureConnection::version(Self) -> TlsVersion
+pub async fn SecureConnection::write(Self, Bytes) -> Result[Unit, @transport.TransportError]
+
+pub(all) struct TlsOptions {
+  verify_peer : Bool
+  server_name : String?
+  alpn : Array[String]
+  min_version : TlsVersion
+  max_version : TlsVersion?
+  enable_early_data : Bool
+  trust_anchors : Bytes?
+  client_certificate : Bytes?
+  client_private_key : Bytes?
+}
+pub fn TlsOptions::defaults() -> Self
+pub fn TlsOptions::for_quic(String) -> Self
+pub fn TlsOptions::for_server_name(Self, String) -> Self
+pub fn TlsOptions::validate(Self) -> Result[Unit, TlsOptionsError]
+pub fn TlsOptions::validate_client(Self) -> Result[Unit, TlsOptionsError]
+pub fn TlsOptions::validate_common(Self) -> Result[Unit, TlsOptionsError]
+pub fn TlsOptions::validate_server(Self) -> Result[Unit, TlsOptionsError]
+
+pub(all) enum TlsVersion {
+  Tls12
+  Tls13
+} derive(Eq, @debug.Debug)
+pub fn TlsVersion::equal(Self, Self) -> Bool
+pub fn TlsVersion::not_equal(Self, Self) -> Bool
+pub fn TlsVersion::to_repr(Self) -> @debug.Repr
+
+pub struct UnsupportedProvider(Unit)
+pub async fn UnsupportedProvider::client_handshake(Self, @transport.StreamConnection, TlsOptions) -> Result[SecureConnection, TlsError]
+pub fn UnsupportedProvider::new() -> Self
+pub async fn UnsupportedProvider::server_handshake(Self, @transport.StreamConnection, TlsOptions) -> Result[SecureConnection, TlsError]
+pub impl TlsProvider for UnsupportedProvider
+
+// Type aliases
+
+// Traits
+pub(open) trait TlsProvider {
+  async fn client_handshake(Self, @transport.StreamConnection, TlsOptions) -> Result[SecureConnection, TlsError]
+  async fn server_handshake(Self, @transport.StreamConnection, TlsOptions) -> Result[SecureConnection, TlsError]
+}

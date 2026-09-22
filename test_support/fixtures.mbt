@@ -93,7 +93,7 @@ pub struct RecordingWriter {
 
 ///|
 pub fn RecordingWriter::new(fail_after? : Int? = None) -> RecordingWriter {
-  { bytes: [], writes: 0, fail_after }
+  { bytes: [], writes: 0, fail_after, }
 }
 
 ///|

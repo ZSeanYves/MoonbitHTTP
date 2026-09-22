@@ -1,0 +1,19 @@
+import {
+  "ZSeanYves/MoonbitHTTP/client",
+  "ZSeanYves/MoonbitHTTP/content_coding",
+  "ZSeanYves/MoonbitHTTP/tls",
+  "ZSeanYves/MoonbitHTTP/tls/native" @tls_native,
+  "ZSeanYves/MoonbitHTTP/transport",
+  "ZSeanYves/MoonbitHTTP/transport/native" @transport_native,
+}
+
+import {
+  "moonbitlang/async",
+  "ZSeanYves/MoonbitHTTP/types",
+} for "test"
+
+supported_targets = "+native"
+
+options(
+  "is-main": false,
+)

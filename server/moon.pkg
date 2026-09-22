@@ -1,0 +1,8 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/core/debug",
+}
+
+options(
+  "is-main": false,
+)
