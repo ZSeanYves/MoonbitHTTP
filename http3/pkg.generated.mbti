@@ -270,6 +270,7 @@ pub fn Http3Frame::to_repr(Self) -> @debug.Repr
 
 pub struct Http3FrameDecoder {
   mut buffer : Array[Byte]
+  mut start : Int
   max_buffer_bytes : Int
   max_payload_bytes : Int
   mut failure : Http3Error?
