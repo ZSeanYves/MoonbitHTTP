@@ -678,7 +678,9 @@ async fn main {
       no_wait=true,
     )
     defer server.cancel()
-    @async.sleep(200)
+    // Native OpenSSL QUIC initialization can take longer on a cold CI runner.
+    // Wait for the process to finish starting before the first UDP client.
+    @async.sleep(1000)
     if server.try_wait() is Some(_) {
       fail("HTTP/3 smoke server exited before testing")
     }

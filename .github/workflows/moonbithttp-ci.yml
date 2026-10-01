@@ -106,7 +106,7 @@ jobs:
 
   build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 240
 
     steps:
       - name: Checkout repository
@@ -169,6 +169,18 @@ jobs:
 
       - name: Run independent HTTP/3 and QUIC TLS loss/reorder interoperability
         run: moon run repo-tools/tools/http3_interoperability.mbtx --impair --duration-seconds 60 --concurrent-requests 8
+
+      - name: Run multi-hour independent QUIC/TLS peer pressure interoperability
+        timeout-minutes: 195
+        run: |
+          set -euo pipefail
+          for batch in 1 2 3; do
+            echo "=== independent QUIC/TLS peer pressure batch ${batch}/3 ==="
+            moon run repo-tools/tools/http3_interoperability.mbtx \
+              --impair \
+              --concurrent-requests 8 \
+              --duration-seconds 3600
+          done
 
       - name: Execute native release benchmarks
         run: moon run repo-tools/tools/benchmarks.mbtx
