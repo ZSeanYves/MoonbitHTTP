@@ -240,7 +240,8 @@ async test "body: cancelling a blocked producer terminates the stream" {
     @async.pause()
     producer.cancel()
     try producer.wait() catch {
-      error => assert_true(@async.is_cancellation_error(error))
+      @async.WaitedTaskAlreadyCancelled => ()
+      _ => fail("cancelled producer changed its terminal state")
     } noraise {
       _ => fail("cancelled producer completed normally")
     }

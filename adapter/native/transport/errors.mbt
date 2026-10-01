@@ -5,9 +5,6 @@ fn native_transport_error(
   operation : @transport_api.TransportOperation,
   error : Error,
 ) -> @transport_api.TransportError {
-  if @async.is_cancellation_error(error) {
-    return Cancelled
-  }
   match error {
     @async.TimeoutError => Timeout(operation)
     @os_error.OSError(code, ..) => SystemFailure(operation, code, "\{error}")

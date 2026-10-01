@@ -75,9 +75,15 @@ async test "native TCP: caller cancellation remains distinct from an idle timeou
         })
         @async.sleep(5)
         task.cancel()
+        try task.wait() catch {
+          @async.WaitedTaskAlreadyCancelled => ()
+          _ => fail("caller cancellation changed its task result")
+        } noraise {
+          _ => fail("cancelled TCP read completed normally")
+        }
       })
     })
-    assert_eq(observed.val, Some(Err(Cancelled)))
+    assert_eq(observed.val, None)
     assert_true(connection.is_closed())
   }
 }

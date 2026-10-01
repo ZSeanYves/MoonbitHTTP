@@ -1,77 +1,62 @@
 # ZSeanYves/MoonbitHTTP
 
-MoonbitHTTP is a streaming HTTP protocol library for MoonBit. Version `0.7.0`
-is the alpha line for the v1 architecture and deliberately breaks the 0.6 API;
-it is not a production release declaration.
+MoonbitHTTP is a streaming HTTP foundation for MoonBit. Version `0.7.0` is
+the breaking v1 architecture line and an alpha development release; it is not
+yet a production-readiness claim.
 
-Start with the [documentation index](docs/README.md). The short paths are:
+## What it provides
 
-- [getting started](docs/guide/getting-started.md) for the first client or server;
-- [package map](docs/concepts/packages.md) for package ownership and stability;
-- [architecture](docs/concepts/architecture.md) for dependency direction;
-- [current validation](docs/release/current.md) and [release gates](docs/release/gates.md)
-  for evidence and unfinished production work.
+- HTTP/1.1 and HTTP/2 framing, state machines and client/server orchestration.
+- HTTP/3 and QUIC packet, stream and connection state, with TLS 1.3 integration
+  points and explicit migration/interop gates.
+- Shared `Request`, `Response`, `HeaderMap`, URI/authority, limits and layered
+  errors in `core/types`.
+- Streaming bodies with cancellation, backpressure and lifecycle ownership in
+  `core/body`.
+- Opt-in authentication, cookies, cache and content-coding policies.
+- Explicit transport capabilities: resolver, stream/datagram I/O, clock,
+  entropy, TLS and `NetworkPolicy`. Protocol code never opens a socket or does
+  hidden DNS resolution.
 
-## Quick start
+The layering follows the shape of mature libraries such as Go `net/http` and
+Hyper: protocol codecs and state machines are separated from transport and
+application policy, and streaming is part of the request/response contract.
+HTTP/1.1 and HTTP/2 have the broadest current coverage. HTTP/3/QUIC, complete
+TLS credential and negative suites, long-duration interoperability, performance
+thresholds and the final security review remain release gates, so this project
+should be treated as a well-tested development foundation rather than a
+finished standard-library replacement.
 
-Native HTTP/1 clients receive every host capability explicitly. A resolver is
-used before connecting, a policy authorizes each endpoint, and the TLS provider
-is selected by the application:
+## Native and Wasm
 
-```moonbit
-import {
-  "ZSeanYves/MoonbitHTTP/adapter/native/client" @client_native,
-  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @tls_native,
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
-  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @transport_native,
-  "ZSeanYves/MoonbitHTTP/core/types" @types,
-}
+The portable packages (`core/*`, `protocol/*`, `runtime/*`, `application/*` and
+`policy/*`) compile for Native, Wasm, Wasm-GC and JS. They contain protocol and
+policy logic, but do not provide operating-system networking by themselves.
 
-async fn main {
-  let client = @client_native.new_http1_client(
-    @transport_native.NativeResolver::new(),
-    @transport.AllowAllPolicy::new(),
-    @transport_native.NativeClock::new(),
-    @tls_native.NativeTlsProvider::new(),
-  ).unwrap()
-  // Build a @types.Request[Bytes] and call client.send(request) here.
-  client.close()
-}
-```
+Native applications can use `adapter/native/*` for TCP/UDP sockets, resolver,
+clock and OpenSSL-backed TLS; QUIC TLS requires OpenSSL 3.5 or newer. These
+adapters are deliberately outside the portable import graph.
 
-The Native TLS adapter requires OpenSSL 3; QUIC TLS requires OpenSSL 3.5 or
-newer. The portable protocol core builds for Native, Wasm, Wasm-GC and JS.
-Native TLS and QUIC evidence is collected separately on Ubuntu, macOS and
-Windows. `examples/cmd`, `internal/test_support`, `repo-tools/tools` and
-`repo-tools/scripts` are development components, not runtime entry points.
+Wasm applications can use the same protocol and client APIs when the host
+injects stream, datagram, resolver and TLS capabilities. MoonbitHTTP does not
+assume browser sockets, DNS, UDP or TLS in Wasm, and a Wasm build must not
+import `adapter/native/*`. A host such as MoonX may supply those capabilities;
+the available network features then depend on that host.
 
-## Package families
+## Where to go next
 
-Package identity is the module name plus the directory containing `moon.pkg`.
-These canonical paths define the 0.7.0 alpha API; moving a package changes its
-import identity and is a breaking change.
+- [Getting started](docs/guide/getting-started.md) — construct a client with
+  explicit capabilities.
+- [Package map](docs/concepts/packages.md) — package ownership and target
+  support.
+- [Architecture](docs/concepts/architecture.md) — dependency and state-machine
+  boundaries.
+- [Validation and release gates](docs/release/current.md) — current evidence
+  and unfinished production work.
 
-| Family | Packages |
-| --- | --- |
-| Core data | `core/types`, `core/body`, `core/codec` |
-| Protocol engines | `protocol/http1`, `protocol/http2`, `protocol/http3`, `protocol/quic`, `protocol/tls` |
-| Runtime contracts | `runtime/transport`, `runtime/service`, `runtime/detection` |
-| Application facades | `application/client`, `application/server` |
-| Optional policies | `policy/auth`, `policy/cache`, `policy/cookie`, `policy/content_coding` |
-| Host adapters | `adapter/native/client`, `adapter/native/server`, `adapter/native/tls`, `adapter/native/transport`, `adapter/uv` |
-| Development | `internal/test_support`, `examples/cmd/*`, `repo-tools/tools`, `repo-tools/scripts` |
-
-See the [package map](docs/concepts/packages.md) for public versus development
-stability and target support. Protocol packages do not create sockets; drivers
-consume the capability contracts from `runtime/transport`.
-
-## Verification
-
-Run Moon commands serially because they share the module build lock. The
-canonical validation layers and CI commands live in
-[development/testing](docs/development/testing.md). Current test counts,
-interoperability artifacts, package digests and open production gates belong in
-[release/current](docs/release/current.md), not in this entry page.
+The canonical package paths are listed in the [package map](docs/concepts/packages.md).
+Moving a package changes its import identity and is a breaking change during
+the `0.7.0` alpha line.
 
 ## License
 

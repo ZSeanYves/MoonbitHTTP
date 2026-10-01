@@ -535,7 +535,8 @@ async test "service: HTTP/1 reserves connection before waiting for response head
       assert_eq(writer.bytes.length(), bytes_written)
       first.cancel()
       try first.wait() catch {
-        error => assert_true(@async.is_cancellation_error(error))
+        @async.WaitedTaskAlreadyCancelled => ()
+        _ => fail("blocked request changed its terminal state")
       } noraise {
         _ => fail("blocked first request completed normally")
       }

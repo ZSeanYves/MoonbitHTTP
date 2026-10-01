@@ -73,7 +73,8 @@ async test "service connection scope reports asynchronous cancellation" {
     started.get()
     task.cancel()
     try task.wait() catch {
-      error => assert_true(@async.is_cancellation_error(error))
+      @async.WaitedTaskAlreadyCancelled => ()
+      _ => fail("cancelled connection scope changed its terminal state")
     } noraise {
       _ => fail("cancelled connection scope completed normally")
     }

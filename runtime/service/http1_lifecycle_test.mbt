@@ -33,7 +33,7 @@ fn http1_lifecycle_error_label(error : Error) -> String {
     Http1LifecycleFailure(message) => message
     @http1.Http1Error::InvalidStartLine(_) => "invalid head"
     @body.BodyError::Cancelled => "cancelled"
-    _ => if @async.is_cancellation_error(error) { "cancelled" } else { "other" }
+    _ => "other"
   }
 }
 
@@ -253,7 +253,8 @@ async test "service: cancelling HTTP/1 error response closes once and cancels it
       started.get()
       task.cancel()
       try task.wait() catch {
-        error => assert_true(@async.is_cancellation_error(error))
+        @async.WaitedTaskAlreadyCancelled => ()
+        _ => fail("cancelled error response changed its terminal state")
       } noraise {
         _ => fail("cancelled error response completed normally")
       }
