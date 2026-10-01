@@ -42,7 +42,7 @@ async fn main {
   println(output.text())
   if @env.get_env_var("GITHUB_ENV") is Some(path) {
     let existing = @fs.read_file(path).text()
-    @fs.write_file(path, existing + "\nLD_LIBRARY_PATH=" + libraries + "\nOPENSSL_MODULES=" + libraries + "/ossl-modules\nOPENSSL_ROOT_DIR=" + directory + "\n")
+    @fs.write_file(path, existing + "\nLD_LIBRARY_PATH=" + libraries + "\nOPENSSL_MODULES=" + libraries + "/ossl-modules\nOPENSSL_ROOT_DIR=" + prefix + "\n")
   }
   if @env.get_env_var("GITHUB_PATH") is Some(path) {
     let existing = @fs.read_file(path).text()
