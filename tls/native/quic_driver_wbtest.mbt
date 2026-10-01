@@ -84,10 +84,20 @@ async test "native QUIC driver: real TLS CRYPTO packets establish h3, exchange d
   let client = @quic.QuicTlsDriver::new(client_packets, client_tls).unwrap()
   let server = @quic.QuicTlsDriver::new(server_packets, server_tls).unwrap()
   let actions : Array[(@quic.QuicDriverAction, Bool)] = []
-  for action in client.start({ ..client_options, alpn: ["h3"], }, 0L).unwrap() {
+  let client_start = match
+    client.start({ ..client_options, alpn: ["h3"], }, 0L) {
+    Ok(actions) => actions
+    Err(error) => fail("native QUIC client start failed: \{Repr(error)}")
+  }
+  for action in client_start {
     actions.push((action, true))
   }
-  for action in server.start({ ..server_options, alpn: ["h3"], }, 0L).unwrap() {
+  let server_start = match
+    server.start({ ..server_options, alpn: ["h3"], }, 0L) {
+    Ok(actions) => actions
+    Err(error) => fail("native QUIC server start failed: \{Repr(error)}")
+  }
+  for action in server_start {
     actions.push((action, false))
   }
   ignore(exchange_quic_packets(client, server, endpoint, actions, 1L).unwrap())
