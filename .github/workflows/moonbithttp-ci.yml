@@ -55,8 +55,19 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install openssl.light --no-progress --yes
-          "OPENSSL_ROOT_DIR=C:\Program Files\OpenSSL-Win64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $version = "3.5.9"
+          $root = Join-Path $env:RUNNER_TEMP "openssl-$version"
+          $installer = Join-Path $env:RUNNER_TEMP "Win64OpenSSL_Light-3_5_9.exe"
+          Invoke-WebRequest -Uri "https://slproweb.com/download/Win64OpenSSL_Light-3_5_9.exe" -OutFile $installer
+          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
+          if ($actual -ne "9f4773a32d8a5da770f57ff5ef2dfa7f6c28e9eef2f5bc2e25ac54e6ee1581dc") {
+            throw "OpenSSL installer SHA-256 mismatch: $actual"
+          }
+          Start-Process -FilePath $installer -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$root"
+          ) -Wait -NoNewWindow
+          "OPENSSL_ROOT_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "$root\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Select Homebrew OpenSSL
         if: runner.os == 'macOS'
