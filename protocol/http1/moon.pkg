@@ -1,0 +1,8 @@
+import {
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/core/codec",
+  "moonbitlang/core/debug",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/string",
+  "moonbitlang/core/bench",
+}

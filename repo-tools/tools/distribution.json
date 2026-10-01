@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "module": "ZSeanYves/MoonbitHTTP",
+  "version": "0.7.0",
+  "include": [
+    "moon.mod",
+    "LICENSE",
+    "CHANGELOG.md",
+    "README.md",
+    "README_zh.md",
+    "core/**",
+    "protocol/**",
+    "runtime/**",
+    "application/**",
+    "policy/**",
+    "adapter/**",
+    "internal/test_support/**",
+    "docs/README.md",
+    "docs/concepts/**",
+    "docs/development/**",
+    "docs/guide/**",
+    "docs/protocols/**",
+    "docs/reference/generated/**",
+    "docs/release/current.md",
+    "docs/release/gates.md",
+    "docs/release/packaging.md",
+    "docs/release/roadmap.zh-CN.md"
+  ],
+  "exclude": [
+    "docs/archive/**",
+    "docs/maintenance-plan.md",
+    "docs/performance-v1.md",
+    "docs/release-evidence-2026-09-22.md",
+    "docs/task-handoff-2026-09-22.zh-CN.md",
+    "docs/v1-baseline-2026-09-29.md",
+    "docs/v1-evidence-2026-09-30.md"
+  ],
+  "required": [
+    "moon.mod",
+    "LICENSE",
+    "README.md",
+    "core/types/moon.pkg",
+    "core/body/moon.pkg",
+    "runtime/transport/moon.pkg",
+    "protocol/http1/moon.pkg",
+    "protocol/http2/moon.pkg",
+    "protocol/http3/moon.pkg",
+    "protocol/quic/moon.pkg",
+    "protocol/tls/moon.pkg",
+    "adapter/native/tls/testdata/README.md"
+  ]
+}

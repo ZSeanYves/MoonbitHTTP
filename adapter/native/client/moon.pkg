@@ -1,0 +1,22 @@
+import {
+  "ZSeanYves/MoonbitHTTP/application/client" @client_api,
+  "ZSeanYves/MoonbitHTTP/policy/content_coding",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @transport_native,
+}
+
+import {
+  "moonbitlang/async",
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @tls_native,
+} for "test"
+
+import {
+  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @tls_native,
+} for "wbtest"
+
+supported_targets = "+native"
+
+options(
+  "is-main": false,
+)

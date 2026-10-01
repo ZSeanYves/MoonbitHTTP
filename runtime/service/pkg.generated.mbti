@@ -1,0 +1,108 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/runtime/service"
+
+import {
+  "ZSeanYves/MoonbitHTTP/core/body",
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/protocol/http1",
+  "moonbitlang/async/io",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub async fn[R : @io.Reader] drive_http1_events(R, async (@http1.RequestEvent) -> Unit, config? : ServerConfig) -> Unit
+
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_auto_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig) -> Unit
+
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http1_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig) -> Unit
+
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http1_or_h2c_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig) -> Unit
+
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http1_with_error_responder(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], (Error) -> @types.Response[B], config? : ServerConfig) -> Unit
+
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http2_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig, upgraded_request? : @types.Request[@body.BodyStream]?, upgrade_settings? : Bytes?) -> Unit
+
+pub async fn[R : @io.Reader, W : @io.Writer, X] with_h2_client_connection(R, W, async (H2Client) -> X, config? : H2ClientConfig) -> X
+
+// Errors
+pub(all) suberror ClientConnectionError {
+  ConnectionClosed
+  RequestInProgress
+} derive(Eq, @debug.Debug)
+pub fn ClientConnectionError::equal(Self, Self) -> Bool
+pub fn ClientConnectionError::not_equal(Self, Self) -> Bool
+pub fn ClientConnectionError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror ClientConnectionTimeout {
+  ClientConnectionTimeout(ClientConnectionPhase)
+} derive(Eq, @debug.Debug)
+pub fn ClientConnectionTimeout::equal(Self, Self) -> Bool
+pub fn ClientConnectionTimeout::not_equal(Self, Self) -> Bool
+pub fn ClientConnectionTimeout::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror ServiceConfigError {
+  InvalidLimits(@types.LimitsError)
+  InvalidReadSize(Int)
+  InvalidBodyQueueCapacity(Int)
+  InvalidReceiveWindow(Int)
+  InvalidConcurrentStreams(Int)
+  InvalidTimeout(String, Int)
+} derive(Eq, @debug.Debug)
+pub fn ServiceConfigError::equal(Self, Self) -> Bool
+pub fn ServiceConfigError::not_equal(Self, Self) -> Bool
+pub fn ServiceConfigError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub struct ClientConnection[R, W] {
+  // private fields
+}
+pub fn[R, W] ClientConnection::close(Self[R, W]) -> Unit
+pub fn[R, W] ClientConnection::is_closed(Self[R, W]) -> Bool
+pub fn[R, W] ClientConnection::is_reusable(Self[R, W]) -> Bool
+pub fn[R, W] ClientConnection::new(R, W, limits? : @types.Limits, read_size? : Int, request_headers_timeout_ms? : Int?, request_body_timeout_ms? : Int?, response_headers_timeout_ms? : Int?, response_body_timeout_ms? : Int?) -> Result[Self[R, W], ServiceConfigError]
+pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] ClientConnection::send(Self[R, W], @types.Request[B]) -> @types.Response[@body.BodyStream]
+
+pub(all) enum ClientConnectionPhase {
+  RequestHeaders
+  RequestBody
+  ResponseHeaders
+  ResponseBody
+} derive(Eq, @debug.Debug)
+pub fn ClientConnectionPhase::equal(Self, Self) -> Bool
+pub fn ClientConnectionPhase::not_equal(Self, Self) -> Bool
+pub fn ClientConnectionPhase::to_repr(Self) -> @debug.Repr
+
+pub struct H2Client {
+  // private fields
+}
+pub fn H2Client::close(Self) -> Unit
+pub async fn[B : @body.Body] H2Client::send(Self, @types.Request[B]) -> @types.Response[@body.BodyStream]
+
+pub(all) struct H2ClientConfig {
+  limits : @types.Limits
+  max_concurrent_streams : Int
+  body_queue_capacity : Int
+  h2_receive_window_bytes : Int
+  read_size : Int
+  read_timeout_ms : Int?
+  write_timeout_ms : Int?
+  close_callback : ((Error?) -> Unit)?
+}
+pub fn H2ClientConfig::defaults() -> Self
+pub fn H2ClientConfig::validate(Self) -> Result[Unit, ServiceConfigError]
+
+pub(all) struct ServerConfig {
+  limits : @types.Limits
+  read_size : Int
+  body_queue_capacity : Int
+  h2_receive_window_bytes : Int
+  read_timeout_ms : Int?
+  write_timeout_ms : Int?
+  close_callback : ((Error?) -> Unit)?
+}
+pub fn ServerConfig::defaults() -> Self
+pub fn ServerConfig::validate(Self) -> Result[Unit, ServiceConfigError]
+
+// Type aliases
+
+// Traits

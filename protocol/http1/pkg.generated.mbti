@@ -1,0 +1,83 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/protocol/http1"
+
+import {
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn encode_body_data(Bytes, BodyFraming) -> Result[Bytes, Http1Error]
+
+pub fn encode_body_end(BodyFraming, trailers? : @types.HeaderMap) -> Result[Bytes, Http1Error]
+
+pub fn encode_request_head(@types.Request[Unit], BodyFraming) -> Result[Bytes, Http1Error]
+
+pub fn encode_response_head(@types.Response[Unit], @types.Method, BodyFraming) -> Result[Bytes, Http1Error]
+
+// Errors
+pub(all) suberror Http1Error {
+  InvalidStartLine(String)
+  InvalidHeader(String)
+  InvalidFraming(String)
+  LimitExceeded(String)
+  UnexpectedEof(String)
+} derive(Eq, @debug.Debug)
+pub fn Http1Error::equal(Self, Self) -> Bool
+pub fn Http1Error::not_equal(Self, Self) -> Bool
+pub fn Http1Error::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub struct BodyEncoder {
+  // private fields
+}
+pub fn BodyEncoder::data(Self, Bytes) -> Result[Bytes, Http1Error]
+pub fn BodyEncoder::finish(Self) -> Result[Bytes, Http1Error]
+pub fn BodyEncoder::new(BodyFraming) -> Result[Self, Http1Error]
+pub fn BodyEncoder::trailers(Self, @types.HeaderMap) -> Result[Bytes, Http1Error]
+
+pub(all) enum BodyFraming {
+  NoBody
+  ContentLength(Int)
+  Chunked
+  CloseDelimited
+} derive(Eq, @debug.Debug)
+pub fn BodyFraming::equal(Self, Self) -> Bool
+pub fn BodyFraming::not_equal(Self, Self) -> Bool
+pub fn BodyFraming::to_repr(Self) -> @debug.Repr
+
+pub struct RequestDecoder {
+  // private fields
+}
+pub fn RequestDecoder::feed(Self, BytesView) -> Result[Unit, Http1Error]
+pub fn RequestDecoder::finish_input(Self) -> Unit
+pub fn RequestDecoder::new(limits? : @types.Limits) -> Self
+pub fn RequestDecoder::next(Self) -> Result[RequestEvent?, Http1Error]
+pub fn RequestDecoder::take_buffered(Self) -> Bytes
+
+pub(all) enum RequestEvent {
+  RequestHead(@types.Request[Unit])
+  RequestData(Bytes)
+  RequestTrailers(@types.HeaderMap)
+  RequestEnd
+}
+
+pub struct ResponseDecoder {
+  // private fields
+}
+pub fn ResponseDecoder::feed(Self, BytesView) -> Result[Unit, Http1Error]
+pub fn ResponseDecoder::finish_input(Self) -> Unit
+pub fn ResponseDecoder::new(@types.Method, limits? : @types.Limits) -> Self
+pub fn ResponseDecoder::next(Self) -> Result[ResponseEvent?, Http1Error]
+pub fn ResponseDecoder::take_buffered(Self) -> Bytes
+
+pub(all) enum ResponseEvent {
+  ResponseHead(@types.Response[Unit])
+  ResponseData(Bytes)
+  ResponseTrailers(@types.HeaderMap)
+  ResponseEnd
+}
+
+// Type aliases
+
+// Traits

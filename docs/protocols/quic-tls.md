@@ -20,7 +20,7 @@ parameters. In particular it rejects TLS KeyUpdate, EndOfEarlyData and
 post-handshake authentication with `Alert(10)`. These restrictions follow
 [RFC 9001 sections 4 and 6](https://www.rfc-editor.org/rfc/rfc9001.html).
 
-`transport.QuicTlsProvider` describes the TLS engine boundary. A concrete provider
+`runtime/transport.QuicTlsProvider` describes the TLS engine boundary. A concrete provider
 must own the transcript, (EC)DHE, certificate chain/hostname/time validation,
 ALPN, transport-parameter extension and Finished verification. The interface
 returns handshake bytes, directional traffic secrets and authenticated

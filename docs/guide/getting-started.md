@@ -14,10 +14,10 @@ The Native constructor accepts the capabilities directly:
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/client/native" @client_native,
-  "ZSeanYves/MoonbitHTTP/tls/native" @tls_native,
-  "ZSeanYves/MoonbitHTTP/transport",
-  "ZSeanYves/MoonbitHTTP/transport/native" @transport_native,
+  "ZSeanYves/MoonbitHTTP/adapter/native/client" @client_native,
+  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @tls_native,
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @transport_native,
 }
 
 let client = @client_native.new_http1_client(

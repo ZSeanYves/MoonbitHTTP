@@ -16,15 +16,15 @@ criteria belong in [release/gates.md](../release/gates.md).
 
 | Layer | Location | What it proves |
 | --- | --- | --- |
-| Incremental codecs | `http1`, `http2`, `quic`, `http3` tests | Fragmentation, malformed bytes, bounded buffers and wire encodings |
+| Incremental codecs | `protocol/http1`, `protocol/http2`, `protocol/quic`, `protocol/http3` tests | Fragmentation, malformed bytes, bounded buffers and wire encodings |
 | State transitions | Protocol state tests | Legal frames per phase, flow control, path validation, cancellation and terminal states |
-| Drivers | `service`, QUIC driver and Native TLS tests | Reader/Writer integration, multiplexing, backpressure and endpoint actions |
-| Independent sockets | `tools/interoperability.mbtx` and `tools/http3_interoperability.mbtx` | Behavior against real TCP/UDP sockets and an independent HTTP/3 implementation |
+| Drivers | `runtime/service`, QUIC driver and Native TLS tests | Reader/Writer integration, multiplexing, backpressure and endpoint actions |
+| Independent sockets | `repo-tools/tools/interoperability.mbtx` and `repo-tools/tools/http3_interoperability.mbtx` | Behavior against real TCP/UDP sockets and an independent HTTP/3 implementation |
 
-Test-only deterministic clocks, entropy and datagrams live in `test_support`.
+Test-only deterministic clocks, entropy and datagrams live in `internal/test_support`.
 They make state transitions reproducible but are not network or deployment
 evidence. Native TLS tests use the committed public fixtures in
-`tls/native/testdata`; those credentials are never application credentials.
+`adapter/native/tls/testdata`; those credentials are never application credentials.
 
 ## Local checks
 
@@ -33,14 +33,14 @@ and interface generator share the module build directory and lock.
 
 ```text
 moon fmt --check
-moon run tools/check_architecture.mbtx
+moon run repo-tools/tools/check_architecture.mbtx
 moon check --target all --deny-warn --warn-list +73
 moon build --target all --deny-warn --warn-list +73
 moon test --target all --no-parallelize --deny-warn --warn-list +73
 moon info --target all
-moon run tools/interoperability.mbtx
-moon run tools/prepare_http3_interop.mbtx
-moon run tools/http3_interoperability.mbtx --impair --concurrent-requests 8 --duration-seconds 300
+moon run repo-tools/tools/interoperability.mbtx
+moon run repo-tools/tools/prepare_http3_interop.mbtx
+moon run repo-tools/tools/http3_interoperability.mbtx --impair --concurrent-requests 8 --duration-seconds 300
 moon coverage clean
 moon coverage analyze -- -f cobertura -o coverage.xml
 ```
@@ -50,11 +50,11 @@ adapters and commands have no canonical Wasm interface; expected interface
 differences are recorded by `moon info --target all` and must not be mistaken
 for generated-interface drift.
 
-`tools/check_architecture.mbtx` reads every local `moon.pkg`, distinguishes
+`repo-tools/tools/check_architecture.mbtx` reads every local `moon.pkg`, distinguishes
 main, test and wbtest imports, checks the layer rules, and compares the result
 with the [generated dependency graph](../reference/generated/dependencies.md).
 After an intentional manifest change, regenerate the graph with
-`moon run tools/check_architecture.mbtx --write`, then review it as part of the
+`moon run repo-tools/tools/check_architecture.mbtx --write`, then review it as part of the
 same change.
 
 The socket interoperability runner requires `curl`, `wget` and `nghttp`. It
@@ -89,7 +89,7 @@ numbers. Record a new run under the current revision and link it from
 ## Release handoff
 
 Before packaging, run the clean-tree checks described in
-`tools/release_evidence.mbtx`. The release report must include the exact Git
+`repo-tools/tools/release_evidence.mbtx`. The release report must include the exact Git
 revision, generated interfaces, dependency graph, package file list, toolchain,
 resolved dependency snapshot and SHA-256. Packaging and publication are
 separate decisions; a green test matrix alone does not approve a release.

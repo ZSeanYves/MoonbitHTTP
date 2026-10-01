@@ -1,0 +1,28 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/io" @aio,
+  "moonbitlang/core/debug",
+  "moonbitlang/core/int64",
+  "moonbitlang/core/encoding/utf8",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/policy/cache",
+  "ZSeanYves/MoonbitHTTP/policy/cookie",
+  "ZSeanYves/MoonbitHTTP/protocol/http1",
+  "ZSeanYves/MoonbitHTTP/core/body",
+  "ZSeanYves/MoonbitHTTP/policy/auth",
+  "ZSeanYves/MoonbitHTTP/policy/content_coding",
+  "ZSeanYves/MoonbitHTTP/runtime/service",
+}
+
+import {
+  "moonbit-community/flate/gzip",
+  "moonbitlang/async/aqueue",
+  "ZSeanYves/MoonbitHTTP/internal/test_support",
+} for "test"
+
+supported_targets = "js+native+wasm+wasm-gc"
+
+options(
+  "is-main": false,
+)

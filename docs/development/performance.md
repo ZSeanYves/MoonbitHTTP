@@ -13,7 +13,7 @@ thresholds are tracked in [release/gates.md](../release/gates.md).
 
 ## Controlled comparison
 
-`tools/performance_comparison.mbtx` compares a frozen source revision with the
+`repo-tools/tools/performance_comparison.mbtx` compares a frozen source revision with the
 working tree under the same benchmark bytes, Moon toolchain, target and native
 release settings. It must build both arms before timing, verify a behavior
 oracle, record executable hashes and retain raw output. The timer covers only
@@ -28,13 +28,13 @@ trim, winsorize, retry a noisy run or delete a slow observation.
 Run the behavior and build checks without timing with:
 
 ```text
-moon run tools/performance_comparison.mbtx --verify-only
+moon run repo-tools/tools/performance_comparison.mbtx --verify-only
 ```
 
 Run the complete comparison with:
 
 ```text
-moon run tools/performance_comparison.mbtx
+moon run repo-tools/tools/performance_comparison.mbtx
 ```
 
 The tool reports median regression, paired ratios, geometric mean and relative

@@ -1,0 +1,50 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/core/codec"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn huffman_decode(BytesView) -> Result[Bytes, HuffmanError]
+
+pub fn huffman_encode(BytesView) -> Bytes
+
+// Errors
+pub(all) suberror CodecError {
+  NeedMore
+  LimitExceeded(kind~ : String, limit~ : Int)
+  Malformed(String)
+  UnexpectedEof(String)
+} derive(Eq, @debug.Debug)
+pub fn CodecError::equal(Self, Self) -> Bool
+pub fn CodecError::not_equal(Self, Self) -> Bool
+pub fn CodecError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub struct Buffer {
+  mut bytes : Array[Byte]
+  mut start : Int
+  max_bytes : Int
+}
+pub fn Buffer::feed(Self, BytesView) -> Result[Unit, CodecError]
+pub fn Buffer::find_crlf(Self) -> Int?
+pub fn Buffer::length(Self) -> Int
+pub fn Buffer::new(max_bytes? : Int) -> Self
+pub fn Buffer::peek(Self) -> Bytes
+pub fn Buffer::read_line(Self, Int) -> Result[Bytes, CodecError]
+pub fn Buffer::starts_with(Self, BytesView) -> Bool
+pub fn Buffer::take(Self, Int) -> Bytes
+
+pub(all) enum HuffmanError {
+  InvalidCode
+  UnexpectedEos
+  InvalidPadding
+} derive(Eq, @debug.Debug)
+pub fn HuffmanError::equal(Self, Self) -> Bool
+pub fn HuffmanError::not_equal(Self, Self) -> Bool
+pub fn HuffmanError::to_repr(Self) -> @debug.Repr
+
+// Type aliases
+
+// Traits

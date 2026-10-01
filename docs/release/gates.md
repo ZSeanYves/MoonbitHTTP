@@ -5,15 +5,16 @@
 > Source: working-tree (governed by Git)
 > Last reviewed: 2026-10-01
 
-The hosted matrix and the currently configured interoperability checks are
-passing. Production approval remains open until fresh evidence closes every
-gate below.
+The last recorded hosted matrix predates the physical package path migration.
+The first gate below therefore remains open until a fresh local and hosted run
+validates the migrated tree. Production approval remains open until fresh
+evidence closes every gate below.
 
 | Gate | State | Required evidence |
 | --- | --- | --- |
-| Four target regression matrix | closed for the recorded revision | A fresh hosted run after the next code change |
-| Native TLS Ubuntu/macOS/Windows | closed for the recorded revision | Certificate identity and negative suites must remain green |
-| HTTP/1, HTTP/2 and HTTP/3 socket interoperability | closed for the recorded revision | Independent clients and impaired UDP evidence |
+| Four target regression matrix | open after path migration | Fresh four-target check, build, interface and test run |
+| Native TLS Ubuntu/macOS/Windows | historical pass before path migration | Fresh certificate identity and negative suites on all three OSes |
+| HTTP/1, HTTP/2 and HTTP/3 socket interoperability | historical pass before path migration | Fresh independent clients and impaired UDP evidence |
 | QUIC loss, Retry, version negotiation, stream concurrency | in progress | Reproducible window with packet-space and stream evidence |
 | Certificate identity and negative suites | in progress | Hostname, expiry, chain, trust and rejected-suite cases |
 | Performance threshold and controlled old/new comparison | open | Frozen toolchain, workload, thresholds and both arms |

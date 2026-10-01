@@ -18,54 +18,54 @@ they do not require wrapper packages or a trait for every implementation.
 
 ```mermaid
 flowchart TD
-  client --> service
-  client --> policies[auth / cookie / cache / content_coding]
-  client --> transport
-  service --> http1
-  service --> http2
-  service --> body
-  http3 --> quic
-  quic --> tls
+  app[application/client and application/server] --> service[runtime/service]
+  app --> policies[policy/auth, cookie, cache, content_coding]
+  app --> transport[runtime/transport]
+  service --> h1[protocol/http1]
+  service --> h2[protocol/http2]
+  service --> body[core/body]
+  h3[protocol/http3] --> quic[protocol/quic]
+  quic --> tls[protocol/tls]
   quic --> transport
   tls --> transport
-  transport --> types
-  http1 --> codec
-  http2 --> codec
-  http3 --> codec
-  http1 --> types
-  http2 --> types
-  http3 --> types
+  transport --> types[core/types]
+  h1 --> codec[core/codec]
+  h2 --> codec
+  h3 --> codec
+  h1 --> types
+  h2 --> types
+  h3 --> types
   body --> types
   policies --> types
-  native[native adapters] --> transport
+  native[adapter/native/*] --> transport
   native --> tls
 ```
 
 The [package map](packages.md) names the public, adapter and test layers. The
 [generated dependency graph](../reference/generated/dependencies.md) records
-actual imports, including separate test dependencies. `tools/check_architecture.mbtx` checks
+actual imports, including separate test dependencies. `repo-tools/tools/check_architecture.mbtx` checks
 ownership rules and graph drift in CI. HPACK and QPACK share the Huffman codec
-in `codec`; HTTP/3 does not import HTTP/2.
+in `core/codec`; HTTP/3 does not import HTTP/2.
 
-- `types` owns public request, response, header, URI, authority, numeric IP,
+- `core/types` owns public request, response, header, URI, authority, numeric IP,
   endpoint, limit, and
   protocol-independent error values.
-- `body` owns body producers and consumers, bounded queues, backpressure,
+- `core/body` owns body producers and consumers, bounded queues, backpressure,
   cancellation, and completion. Protocol packages decide framing and only
   emit body events.
-- `codec` owns incremental byte buffering and primitive encoding helpers. It
+- `core/codec` owns incremental byte buffering and primitive encoding helpers. It
   has no network or task lifecycle dependency.
-- `http1`, `http2`, `quic`, and `http3` each expose a codec/state boundary and
+- `protocol/http1`, `protocol/http2`, `protocol/quic`, and `protocol/http3` expose codec/state boundaries and
   a driver boundary. A state object owns protocol invariants; a driver owns
   I/O, deadlines, and task cleanup.
-- `transport` owns capability traits for streams, datagrams, resolution,
+- `runtime/transport` owns capability traits for streams, datagrams, resolution,
   policy, clock, entropy, stream TLS and QUIC TLS. Native adapters implement those traits and do
   not add hidden DNS, policy, or TLS fallbacks.
-- `tls` owns pure TLS handshake framing, QUIC key derivation and packet
-  protection primitives. `tls/native` implements the transport contracts
+- `protocol/tls` owns pure TLS handshake framing, QUIC key derivation and packet
+  protection primitives. `adapter/native/tls` implements the transport contracts
   using OpenSSL; credentials, peer verification, ALPN and QUIC traffic
   secrets remain behind this adapter boundary.
-- `service` owns connection scope and shutdown. `client` and `server` own
+- `runtime/service` owns connection scope and shutdown. `application/client` and `application/server` own
   request policy and orchestration, not protocol parsing.
 
 ## State-machine rules

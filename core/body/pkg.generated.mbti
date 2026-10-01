@@ -1,0 +1,92 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/core/body"
+
+import {
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub async fn[B : Body] collect(B, max_bytes? : Int) -> (Bytes, @types.HeaderMap?)
+
+// Errors
+pub(all) suberror BodyError {
+  DataAfterTrailers
+  DuplicateTrailers
+  InvalidLimit(Int)
+  Cancelled
+} derive(Eq, @debug.Debug)
+pub fn BodyError::equal(Self, Self) -> Bool
+pub fn BodyError::not_equal(Self, Self) -> Bool
+pub fn BodyError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror BodyLimitExceeded {
+  BodyLimitExceeded(limit~ : Int)
+} derive(Eq, @debug.Debug)
+pub fn BodyLimitExceeded::equal(Self, Self) -> Bool
+pub fn BodyLimitExceeded::not_equal(Self, Self) -> Bool
+pub fn BodyLimitExceeded::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub struct BodyStream {
+  // private fields
+}
+pub fn BodyStream::cancel(Self, Error) -> Unit
+pub fn BodyStream::fail(Self, Error) -> Unit
+pub fn BodyStream::finish(Self) -> Unit
+pub fn BodyStream::from_pull(async () -> Frame?, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit) -> Self
+pub fn BodyStream::new(capacity? : Int, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit) -> Result[Self, BodyError]
+pub async fn BodyStream::next_frame(Self) -> Frame?
+pub async fn BodyStream::push(Self, Frame) -> Unit
+pub fn BodyStream::size_hint(Self) -> SizeHint
+pub fn BodyStream::try_push(Self, Frame) -> Bool raise
+pub impl Body for BodyStream
+
+pub struct EmptyBody(Unit)
+pub fn EmptyBody::cancel(Self, Error) -> Unit
+pub fn EmptyBody::new() -> Self
+pub async fn EmptyBody::next_frame(Self) -> Frame?
+pub fn EmptyBody::size_hint(Self) -> SizeHint
+pub impl Body for EmptyBody
+
+pub(all) enum Frame {
+  Data(Bytes)
+  Trailers(@types.HeaderMap)
+}
+
+pub struct FullBody {
+  // private fields
+}
+pub fn FullBody::cancel(Self, Error) -> Unit
+pub fn FullBody::new(Bytes) -> Self
+pub async fn FullBody::next_frame(Self) -> Frame?
+pub fn FullBody::size_hint(Self) -> SizeHint
+pub impl Body for FullBody
+
+pub struct QueueBody {
+  // private fields
+}
+pub fn QueueBody::cancel(Self, Error) -> Unit
+pub fn QueueBody::new(Array[Frame]) -> Self
+pub async fn QueueBody::next_frame(Self) -> Frame?
+pub fn QueueBody::size_hint(Self) -> SizeHint
+pub impl Body for QueueBody
+
+pub(all) struct SizeHint {
+  lower : Int
+  upper : Int?
+}
+pub fn SizeHint::exact(Int) -> Self
+pub fn SizeHint::exact_size(Self) -> Int?
+pub fn SizeHint::lower_bound(Self) -> Int
+pub fn SizeHint::unknown() -> Self
+pub fn SizeHint::upper_bound(Self) -> Int?
+
+// Type aliases
+
+// Traits
+pub(open) trait Body {
+  async fn next_frame(Self) -> Frame?
+  fn size_hint(Self) -> SizeHint
+  fn cancel(Self, Error) -> Unit = _
+}

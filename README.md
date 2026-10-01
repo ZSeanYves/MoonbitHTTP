@@ -20,10 +20,11 @@ is selected by the application:
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/client/native" @client_native,
-  "ZSeanYves/MoonbitHTTP/tls/native" @tls_native,
-  "ZSeanYves/MoonbitHTTP/transport",
-  "ZSeanYves/MoonbitHTTP/transport/native" @transport_native,
+  "ZSeanYves/MoonbitHTTP/adapter/native/client" @client_native,
+  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @tls_native,
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @transport_native,
+  "ZSeanYves/MoonbitHTTP/core/types" @types,
 }
 
 async fn main {
@@ -41,29 +42,28 @@ async fn main {
 The Native TLS adapter requires OpenSSL 3; QUIC TLS requires OpenSSL 3.5 or
 newer. The portable protocol core builds for Native, Wasm, Wasm-GC and JS.
 Native TLS and QUIC evidence is collected separately on Ubuntu, macOS and
-Windows. `cmd`, `test_support`, `tools` and `scripts` are development
-components, not stable runtime entry points.
+Windows. `examples/cmd`, `internal/test_support`, `repo-tools/tools` and
+`repo-tools/scripts` are development components, not runtime entry points.
 
 ## Package families
 
-The repository keeps package boundaries by responsibility. The current paths
-remain stable during this documentation and release-governance phase; a later
-v1 alpha migration may add category directories after the package map and
-generated interfaces are frozen.
+Package identity is the module name plus the directory containing `moon.pkg`.
+These canonical paths define the 0.7.0 alpha API; moving a package changes its
+import identity and is a breaking change.
 
 | Family | Packages |
 | --- | --- |
-| Core data | `types`, `body`, `codec` |
-| Protocol engines | `http1`, `http2`, `http3`, `quic`, `tls` |
-| Runtime contracts | `transport`, `service` |
-| Application facades | `client`, `server` |
-| Optional policies | `auth`, `cache`, `cookie`, `content_coding`, `auto` |
-| Host adapters | `client/native`, `server/native`, `tls/native`, `transport/native`, `uv_adapter` |
-| Development | `test_support`, `cmd/*`, `tools`, `scripts` |
+| Core data | `core/types`, `core/body`, `core/codec` |
+| Protocol engines | `protocol/http1`, `protocol/http2`, `protocol/http3`, `protocol/quic`, `protocol/tls` |
+| Runtime contracts | `runtime/transport`, `runtime/service`, `runtime/detection` |
+| Application facades | `application/client`, `application/server` |
+| Optional policies | `policy/auth`, `policy/cache`, `policy/cookie`, `policy/content_coding` |
+| Host adapters | `adapter/native/client`, `adapter/native/server`, `adapter/native/tls`, `adapter/native/transport`, `adapter/uv` |
+| Development | `internal/test_support`, `examples/cmd/*`, `repo-tools/tools`, `repo-tools/scripts` |
 
 See the [package map](docs/concepts/packages.md) for public versus development
 stability and target support. Protocol packages do not create sockets; drivers
-consume the capability contracts from `transport`.
+consume the capability contracts from `runtime/transport`.
 
 ## Verification
 

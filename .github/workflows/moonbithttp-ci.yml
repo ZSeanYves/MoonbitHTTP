@@ -41,7 +41,7 @@ jobs:
 
       - name: Build pinned OpenSSL 3.5 on Ubuntu
         if: runner.os == 'Linux'
-        run: moon run scripts/install_ci_openssl.mbtx
+        run: moon run repo-tools/scripts/install_ci_openssl.mbtx
 
       - name: Verify pinned OpenSSL on Ubuntu
         if: runner.os == 'Linux'
@@ -102,7 +102,7 @@ jobs:
           }
 
       - name: Run Native TLS certificate and identity suite
-        run: moon test quic tls/native --target native --no-parallelize --deny-warn --warn-list +73
+        run: moon test protocol/quic adapter/native/tls --target native --no-parallelize --deny-warn --warn-list +73
 
   build-and-test:
     runs-on: ubuntu-latest
@@ -127,16 +127,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: _build/ci-openssl/install
-          key: openssl-3.5.8-linux-${{ runner.arch }}-shared-${{ hashFiles('scripts/install_ci_openssl.mbtx') }}
+          key: openssl-3.5.8-linux-${{ runner.arch }}-shared-${{ hashFiles('repo-tools/scripts/install_ci_openssl.mbtx') }}
 
       - name: Build and select OpenSSL with QUIC TLS callbacks
-        run: moon run scripts/install_ci_openssl.mbtx
+        run: moon run repo-tools/scripts/install_ci_openssl.mbtx
 
       - name: Check formatting
         run: moon fmt --check
 
       - name: Check architecture boundaries and generated dependency graph
-        run: moon run tools/check_architecture.mbtx
+        run: moon run repo-tools/tools/check_architecture.mbtx
 
       - name: Check code (deny warnings)
         run: moon check --target all --deny-warn --warn-list +73
@@ -159,22 +159,22 @@ jobs:
         run: moon test --target all --no-parallelize --deny-warn --warn-list +73
 
       - name: Run async integration tests
-        run: moon test service body test_support uv_adapter --target native --no-parallelize --deny-warn --warn-list +73
+        run: moon test runtime/service core/body internal/test_support adapter/uv --target native --no-parallelize --deny-warn --warn-list +73
 
       - name: Run socket interoperability checks
-        run: moon run tools/interoperability.mbtx
+        run: moon run repo-tools/tools/interoperability.mbtx
 
       - name: Prepare independent HTTP/3 client
-        run: moon run tools/prepare_http3_interop.mbtx
+        run: moon run repo-tools/tools/prepare_http3_interop.mbtx
 
       - name: Run independent HTTP/3 and QUIC TLS loss/reorder interoperability
-        run: moon run tools/http3_interoperability.mbtx --impair --duration-seconds 60 --concurrent-requests 8
+        run: moon run repo-tools/tools/http3_interoperability.mbtx --impair --duration-seconds 60 --concurrent-requests 8
 
       - name: Execute native release benchmarks
-        run: moon run tools/benchmarks.mbtx
+        run: moon run repo-tools/tools/benchmarks.mbtx
 
       - name: Verify frozen package and release evidence
-        run: moon run tools/release_evidence.mbtx
+        run: moon run repo-tools/tools/release_evidence.mbtx
 
       - name: Generate fresh instrumented coverage report
         run: |

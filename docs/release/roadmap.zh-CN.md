@@ -37,9 +37,9 @@ HTTP/3 的 0-RTT 默认关闭，因为早期数据可被重放；只有调用方
 当前仓库已经有以下可保留的基础：
 
 ```text
-types -> body -> codec -> http1/http2 -> service
-                                      ^
-                         async/io Reader + Writer
+core/types -> core/body -> protocol/http1|http2 -> runtime/service
+      ^              ^                         ^
+      └── protocol/* └── runtime/transport ────┴── application/*
 ```
 
 `HeaderMap`、泛型 `Request[B]`/`Response[B]`、`Body` trait、`BodyStream`、有界队列、HTTP/1.1 framing、HTTP/2 HPACK 和连接级流控是现有实现的演进基线。0.6 公共 API 不再作为兼容目标；迁移按模块分阶段进行，保留行为测试，最终通过 v1 新主版本发布。
@@ -51,10 +51,10 @@ types -> body -> codec -> http1/http2 -> service
 库按四个平面组织。每个平面只能依赖自己下面的平面，不能由协议包直接调用宿主 API。
 
 ```text
-应用策略平面：client / server / cookie / cache / auth / content_coding
-协议平面：     http1 / http2 / http3 / hpack / qpack
-传输平面：     transport / tls / quic / resolver / clock / entropy
-数据平面：     types / body / codec / limits / error
+应用策略平面：application/client、application/server、policy/*
+协议平面：     protocol/http1、protocol/http2、protocol/http3、protocol/quic、protocol/tls
+传输平面：     runtime/transport、runtime/service、adapter/native/*
+数据平面：     core/types、core/body、core/codec、limits、error
 ```
 
 - **数据平面**只处理拥有的数据、视图、长度和边界，不产生 I/O。
@@ -62,28 +62,35 @@ types -> body -> codec -> http1/http2 -> service
 - **传输平面**把能力接口接到 TCP、UDP、TLS、DNS、时钟和随机数。Native 可以使用宿主实现；Wasm 使用宿主注入或受控适配器。
 - **应用策略平面**实现客户端和服务端的产品行为，例如重定向、重试、Cookie、认证和落盘。它不能绕过协议层的限制或错误。
 
-推荐的包布局如下；包名是方向约束，具体文件可以按 MoonBit 的 `///|` block 习惯拆分：
+当前规范物理目录如下；包身份由 module 名称和包含 `moon.pkg` 的相对目录组成，
+移动目录会改变 import identity，属于破坏性变更：
 
 ```text
-types/             公共请求、响应、字段、URI、版本、限制
-body/              Body trait、流式 body、背压、取消和收尾
-codec/             增量字节缓冲、整数、边界、通用 codec 错误
-http1/             HTTP/1.x parser、framing、encoder、事件
-http2/             frame、HPACK、stream/connection state、scheduler
-http3/             H3 frame、request stream、QPACK adapter、settings
-quic/              QUIC packet、ACK、丢包恢复、拥塞、stream 和 connection ID
-tls/               TLS facade、证书策略、ALPN、SNI、客户端证书
-transport/         stream/datagram/connector/resolver 的能力契约
-service/           协议连接驱动、server handler、client connection scope
-client/            URL 请求、连接池、重定向、重试、代理、认证、Cookie
-server/            listener、路由无关的请求分发、优雅关闭和并发上限
-cookie/            RFC 6265/6265bis 解析、存储、匹配和过期
-cache/             RFC 9111 的可插拔缓存策略
-auth/              Basic、Digest、Bearer、客户端证书的挑战状态机
-content_coding/    gzip、deflate、Brotli 等 Body 编解码适配
+core/types/                  公共请求、响应、字段、URI、版本、限制
+core/body/                   Body trait、流式 body、背压、取消和收尾
+core/codec/                  增量字节缓冲、整数、边界、通用 codec 错误
+protocol/http1/              HTTP/1.x parser、framing、encoder、事件
+protocol/http2/              frame、HPACK、stream/connection state、scheduler
+protocol/http3/              H3 frame、request stream、QPACK adapter、settings
+protocol/quic/               QUIC packet、ACK、丢包恢复、拥塞、stream 和 connection ID
+protocol/tls/                TLS facade、证书策略、ALPN、SNI、客户端证书
+runtime/transport/           stream/datagram/connector/resolver 能力契约
+runtime/service/             协议连接驱动、server handler、client connection scope
+application/client/          URL 请求、连接池、重定向、重试、代理、认证、Cookie
+application/server/          listener、路由无关的请求分发、优雅关闭和并发上限
+runtime/detection/            协议检测
+policy/cookie/               RFC 6265/6265bis 解析、存储、匹配和过期
+policy/cache/                RFC 9111 的可插拔缓存策略
+policy/auth/                 Basic、Digest、Bearer 等认证策略
+policy/content_coding/       gzip、deflate、Brotli 等 Body 编解码适配
+adapter/native/*             Native socket、TLS、resolver 和 clock 适配器
+adapter/uv/                  libuv 能力适配
+internal/test_support/       测试替身和确定性 fixture
+examples/cmd/                互操作用例服务器，不属于公共包层
+repo-tools/{tools,scripts}/  仓库检查、互操作和发布工具
 ```
 
-`client` 和 `server` 可以依赖 `service`，但 `http1/http2/http3` 不能依赖它们。`tls` 不能把证书验证、随机数或 socket 写死在包内；`quic` 只依赖 `transport` 的 datagram/clock/entropy 和 TLS facade。各层的公共类型要由拥有该概念的包定义，避免从 `internal` 包重新导出具体类型。
+`application/client` 和 `application/server` 可以依赖 `runtime/service`，但 `protocol/http1`, `protocol/http2`, `protocol/http3` 不能依赖应用层。`protocol/tls` 不能把证书验证、随机数或 socket 写死在包内；`protocol/quic` 只依赖 `runtime/transport` 的 datagram/clock/entropy 和 TLS facade。各层的公共类型要由拥有该概念的包定义，避免从 `internal` 包重新导出具体类型。
 
 ### 2.2 协议核心与驱动分离
 
@@ -290,7 +297,7 @@ ServerError(operation, cause)
 
 ### 阶段 A：公共契约和不变量（P0）
 
-- 冻结现有 `types/body/codec/http1/http2/service` 的兼容层，补齐构造函数、访问器、错误 kind 和 `Limits` 校验。
+- 冻结现有 `core/types`, `core/body`, `core/codec`, `protocol/http1`, `protocol/http2`, `runtime/service` 的兼容层，补齐构造函数、访问器、错误 kind 和 `Limits` 校验。
 - 建立统一 URI、字段、日期和 authority 解析器；所有 parser 采用 `BytesView`/增量输入，拒绝越界和隐式文本转换。
 - 将 `BodyStream` 的 finish/fail/cancel、消费回调和关闭行为写成可测试契约。
 - 把 `abort` 限制在调用方配置错误和不可恢复的内部不变量；网络输入路径改为 typed error。

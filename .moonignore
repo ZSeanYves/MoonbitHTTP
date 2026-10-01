@@ -1,9 +1,8 @@
-# The package is governed by tools/distribution.json. Keep repository tooling,
+# The package is governed by repo-tools/tools/distribution.json. Keep repository tooling,
 # historical evidence, and command examples out of the user distribution.
 /.github/
-/cmd/
-/scripts/
-/tools/
+/examples/
+/repo-tools/
 
 # The current package contains only the canonical v1 documents listed in the
 # distribution manifest. Re-include a document here only when it is added to

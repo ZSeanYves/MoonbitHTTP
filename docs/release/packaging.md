@@ -3,12 +3,12 @@
 Status: canonical
 Scope: the `0.7.0` MoonBit module archive
 Last reviewed: 2026-10-01
-Source of truth: [`tools/distribution.json`](https://github.com/ZSeanYves/MoonbitHTTP/blob/main/tools/distribution.json)
-Enforcement: [`tools/check_distribution.mbtx`](https://github.com/ZSeanYves/MoonbitHTTP/blob/main/tools/check_distribution.mbtx)
+Source of truth: [`repo-tools/tools/distribution.json`](https://github.com/ZSeanYves/MoonbitHTTP/blob/main/repo-tools/tools/distribution.json)
+Enforcement: [`repo-tools/tools/check_distribution.mbtx`](https://github.com/ZSeanYves/MoonbitHTTP/blob/main/repo-tools/tools/check_distribution.mbtx)
 
 The published archive is a user library distribution. It contains the library
 packages, generated public interfaces, colocated tests and benchmarks, the
-`test_support` package, Native TLS certificate fixtures, and the small set of
+`internal/test_support` package, Native TLS certificate fixtures, and the small set of
 current user documentation named by the manifest. Colocated tests stay in the
 archive because downstream users must be able to run the package's tests after
 unpacking it; test fixtures stay with the Native TLS package for the same
@@ -31,7 +31,7 @@ archive.
 Run the checker from a clean worktree:
 
 ```sh
-moon run tools/check_distribution.mbtx
+moon run repo-tools/tools/check_distribution.mbtx
 ```
 
 The checker invokes `moon package --frozen --list`; it may regenerate the

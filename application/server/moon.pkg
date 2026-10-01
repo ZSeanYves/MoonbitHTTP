@@ -1,0 +1,9 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/core/debug",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+}
+
+options(
+  "is-main": false,
+)

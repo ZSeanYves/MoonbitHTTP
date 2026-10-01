@@ -1,0 +1,60 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/process",
+  "moonbitlang/core/env",
+}
+
+async fn main {
+  let evidence = "_build/native-tls-asan"
+  if !@fs.exists(evidence) { @fs.mkdir(evidence, recursive=true) }
+  let package_path = "adapter/native/tls/moon.pkg"
+  let task_runtime_root = @env.get_env_var("MOON_HOME").unwrap_or(
+    @env.get_env_var("HOME").unwrap() + "/.moon",
+  )
+  let runtime_path = task_runtime_root + "/lib/libmoonbitrun.o"
+  let original_package = @fs.read_file(package_path).text()
+  let original_runtime = @fs.read_file(runtime_path).binary()
+  let (hash_status, hash_before, _) = @process.collect_output(
+    "shasum", ["-a", "256", package_path, runtime_path],
+  )
+  if hash_status != 0 { fail("could not hash ASan inputs") }
+  @fs.write_file(evidence + "/inputs-before.sha256", hash_before)
+  @fs.write_file(evidence + "/original-moon.pkg", original_package)
+  @fs.write_file(evidence + "/original-libmoonbitrun.o", original_runtime)
+  let dummy = evidence + "/allocator-placeholder.c"
+  @fs.write_file(dummy, "/* ASan owns malloc/free during this validation. */\n")
+  let (prefix, suffix) = original_package.split_once("options(").unwrap()
+  let asan_package = prefix.to_owned() + "options(\n" +
+    "  link: { \"native\": { \"cc-flags\": \"-g -fsanitize=address -fno-omit-frame-pointer\", \"stub-cc-flags\": \"-g -fsanitize=address -fno-omit-frame-pointer\", \"cc-link-flags\": \"-fsanitize=address\" } },\n" + suffix.to_owned()
+  let mut status = -1
+  {
+    defer {
+      @fs.write_file(package_path, original_package)
+      @fs.write_file(runtime_path, original_runtime)
+    }
+    @fs.write_file(package_path, asan_package)
+    let (compile_status, _, compile_errors) = @process.collect_output(
+      "/usr/bin/clang", ["-c", dummy, "-o", runtime_path],
+    )
+    if compile_status != 0 { fail("ASan allocator preparation failed: " + compile_errors.text()) }
+    let (result, stdout, stderr) = @process.collect_output(
+      "moon", ["test", "adapter/native/tls", "--target", "native", "--no-parallelize", "--deny-warn", "--warn-list", "+73", "-v"],
+      extra_env={ "MOON_CC": "/usr/bin/clang", "MOON_AR": "/usr/bin/ar", "ASAN_OPTIONS": "detect_leaks=0:fast_unwind_on_malloc=0" },
+    )
+    @fs.write_file(evidence + "/stdout.log", stdout)
+    @fs.write_file(evidence + "/stderr.log", stderr)
+    println(stdout.text())
+    println(stderr.text())
+    status = result
+  }
+  let (after_status, hash_after, _) = @process.collect_output(
+    "shasum", ["-a", "256", package_path, runtime_path],
+  )
+  @fs.write_file(evidence + "/inputs-after.sha256", hash_after)
+  if after_status != 0 || hash_before.text() != hash_after.text() {
+    fail("ASan input restoration hash mismatch")
+  }
+  if status != 0 { fail("Native TLS ASan tests failed with status \{status}; inputs restored") }
+  println("Native TLS ASan passed; manifest and runtime hashes restored. Leak detection unavailable with system macOS clang.")
+}

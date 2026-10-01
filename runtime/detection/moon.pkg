@@ -1,0 +1,8 @@
+import {
+  "moonbitlang/core/debug",
+  "ZSeanYves/MoonbitHTTP/core/types",
+}
+
+options(
+  "is-main": false,
+)

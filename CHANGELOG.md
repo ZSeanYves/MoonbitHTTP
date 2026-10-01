@@ -6,17 +6,18 @@ Breaking architecture migration from 0.6. This is an alpha worktree, not a
 production release declaration. The original behavior baseline and source
 snapshot are recorded in [`docs/archive/2026-09/v1-baseline-2026-09-29.md`](docs/archive/2026-09/v1-baseline-2026-09-29.md).
 
-- Move Endpoint and IP addresses into `types`; validated URI, authority and
+- Move Endpoint and IP addresses into `core/types`; validated URI, authority and
   header objects cannot be forged through public record construction.
 - Consolidate all injected capabilities, including stream and QUIC TLS, in
-  `transport`. Separate pure TLS primitives from Native OpenSSL adapters.
+  `runtime/transport`. Separate pure TLS primitives from Native OpenSSL adapters under
+  `adapter/native/tls`.
 - Remove the unused `io` facade and duplicate nonpooled HTTP/1 round tripper.
   Native client construction requires explicit resolver, policy, clock and
   TLS provider; numeric connectors never perform hidden hostname resolution.
 - Make `BodyStream::new` return a checked result. Keep terminal state in one
   enum, preserve the first failure, and isolate body framing in HTTP/1.
 - Split HTTP/1, HTTP/2, QUIC and HTTP/3 source by codec, state and driver
-  responsibility. Move shared Huffman coding to `codec`, reuse immutable
+  responsibility. Move shared Huffman coding to `core/codec`, reuse immutable
   lookup tables, and remove the HTTP/3-to-HTTP/2 dependency.
 - Propagate HTTP/2 peer table limits into the send HPACK encoder; serialize
   dynamic-table mutation with wire writes. Advertise local decoder limits.

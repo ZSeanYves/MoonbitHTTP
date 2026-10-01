@@ -11,7 +11,7 @@ replace conformance review, long-duration pressure or performance thresholds.
 
 ## TCP protocols
 
-`tools/interoperability.mbtx` requires `curl`, `wget` and `nghttp`. It builds
+`repo-tools/tools/interoperability.mbtx` requires `curl`, `wget` and `nghttp`. It builds
 the Native smoke server, rejects a pre-existing listener on the test port,
 then checks:
 
@@ -28,7 +28,7 @@ the report and cannot establish that the binary came from the current source.
 Run it from the module root with:
 
 ```text
-moon run tools/interoperability.mbtx
+moon run repo-tools/tools/interoperability.mbtx
 ```
 
 ## HTTP/3 and QUIC
@@ -36,8 +36,8 @@ moon run tools/interoperability.mbtx
 Prepare the pinned independent client and run the bounded checks with:
 
 ```text
-moon run tools/prepare_http3_interop.mbtx
-moon run tools/http3_interoperability.mbtx
+moon run repo-tools/tools/prepare_http3_interop.mbtx
+moon run repo-tools/tools/http3_interoperability.mbtx
 ```
 
 The HTTP/3 runner uses the Native smoke server, an aioquic client and OpenSSL
@@ -47,8 +47,8 @@ streams. Negative cases must use an explicitly untrusted or mismatched
 credential and must assert a failed verification outcome.
 
 The server fixture details and its non-deployment limits are documented in
-[`cmd/h3_smoke_server`](../../cmd/h3_smoke_server/README.md); Native TLS
-runtime requirements are documented in [`tls/native`](../../tls/native/README.md).
+[`examples/cmd/h3_smoke_server`](../../examples/cmd/h3_smoke_server/README.md); Native TLS
+runtime requirements are documented in [`adapter/native/tls`](../../adapter/native/tls/README.md).
 
 Impaired mode inserts controlled loss, delay and reordering in both directions
 and preserves encrypted datagram bytes. It must observe the configured packet
@@ -58,7 +58,7 @@ duration and concurrency flags to define a bounded experiment; do not describe
 that loopback experiment as WAN behavior or production capacity.
 
 ```text
-moon run tools/http3_interoperability.mbtx \
+moon run repo-tools/tools/http3_interoperability.mbtx \
   --impair --concurrent-requests 8 --duration-seconds 300
 ```
 

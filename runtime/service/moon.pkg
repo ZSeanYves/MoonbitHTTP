@@ -1,0 +1,19 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/io" @aio,
+  "moonbitlang/async/aqueue",
+  "moonbitlang/core/debug",
+  "moonbitlang/core/deque",
+  "moonbitlang/core/string",
+  "moonbitlang/core/encoding/utf8",
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/core/body",
+  "ZSeanYves/MoonbitHTTP/protocol/http1",
+  "ZSeanYves/MoonbitHTTP/protocol/http2",
+  "ZSeanYves/MoonbitHTTP/runtime/detection" @auto,
+  "moonbitlang/x/codec/base64",
+}
+
+options(
+  "is-main": false,
+)
