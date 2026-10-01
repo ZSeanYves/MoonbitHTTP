@@ -1,13 +1,19 @@
-# Migrating from 0.6 to v1
+# Migrating from 0.6 to 0.7 (toward v1)
 
-The v1 boundary intentionally breaks compatibility. No deprecated forwarding
+> Status: canonical
+> Scope: source migration from the 0.6 API to the 0.7.0 development line and
+> its v1 architecture target.
+> Source: working-tree (governed by Git)
+> Last reviewed: 2026-10-01
+
+The 0.7 boundary intentionally breaks compatibility. No deprecated forwarding
 layer is required. Existing wire behavior tests remain; a removed stub is
 replaced by real keyed-packet tests, and duplicated test fixtures move with
 their owning concepts.
 
 ## Canonical entry points
 
-| 0.6 concept | v1 location or API |
+| 0.6 concept | 0.7 location or API (v1 target) |
 | --- | --- |
 | `transport.Endpoint`, `IpAddress` | `types.Endpoint`, `types.IpAddress` |
 | TLS contracts in `tls` | `transport.TlsProvider`, `TlsOptions`, `TlsError`, `SecureConnection` |
@@ -55,10 +61,10 @@ capability packages do not export deterministic entropy substitutes.
 
 ## Validation after migration
 
-Use the [four-layer test guide](v1-testing.md) and the checked-in generated
+Use the [four-layer test guide](../development/testing.md) and the checked-in generated
 `.mbti` files. Test counts can increase as new boundary cases are added; test
 count alone is not equivalence evidence. The frozen 0.6 source archive and
-interfaces are recorded in [the baseline](v1-baseline-2026-09-29.md).
+interfaces are recorded in the [archived baseline](../archive/2026-09/v1-baseline-2026-09-29.md).
 
 Use `tools/check_architecture.mbtx --write` after intentional import changes,
 then review the generated graph. CI checks the graph without rewriting it.

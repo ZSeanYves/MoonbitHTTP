@@ -1,39 +1,26 @@
-# HTTP/3 package
+# `http3`
 
-This package has one public namespace. Its files separate byte codecs, protocol
-state, and the QUIC stream adapter; moving a declaration between these files
-does not create another API layer.
+Status: canonical
+Scope: public HTTP/3 codec, state, and driver
+Source: working-tree (governed by Git)
+Last reviewed: 2026-10-01
 
-| Responsibility | Implementation |
-| --- | --- |
-| Incremental HTTP/3 frame encoding and decoding | `frame.mbt` |
-| HTTP field semantics, pseudo-fields, CONNECT, and message metadata | `fields.mbt` |
-| SETTINGS and critical unidirectional stream rules | `control.mbt` |
-| Connection ownership, request stream dispatch, and QPACK integration | `connection.mbt` |
-| Per-message phase, body length, completion, and cancellation | `request_stream.mbt` |
-| Fragmented QUIC stream input and outgoing stream actions | `driver.mbt` |
-| QPACK public fields and limits | `qpack_fields.mbt`, `qpack_limits.mbt` |
-| QPACK integers, strings, and decoder feedback instructions | `qpack_primitives.mbt` |
-| QPACK static table and static encoding | `qpack_static.mbt` |
-| QPACK dynamic table and field section decoding | `qpack_decoder.mbt` |
-| QPACK peer encoder instruction stream | `qpack_decoder_instructions.mbt` |
-| QPACK dynamic encoding and reference lifetime | `qpack_encoder.mbt` |
-| QPACK peer decoder instruction stream | `qpack_encoder_instructions.mbt` |
+## Purpose
+Implements HTTP/3 frames, fields, SETTINGS/control streams, QPACK, request streams, connection state, and QUIC stream actions.
 
-`Http3Driver` assembles QUIC stream fragments into frames and calls
-`Http3Connection`. The connection owns request states and both QPACK contexts.
-The request state alone changes the message phase and tracks received body
-length. `validate_http3_field_section` is the shared field semantics boundary.
-The package returns actions and bytes; it does not open or write sockets.
+## Entry points
+Use Http3Connection, Http3Driver, frame types, QpackField, and QPACK encoder/decoder APIs.
 
-Extended CONNECT follows the direction defined by
-[RFC 9220 section 3](https://www.rfc-editor.org/rfc/rfc9220.html#section-3):
-the receiving server advertises support. Incoming requests use the local
-advertised setting; outgoing requests use the peer server setting. A setting
-sent by a client cannot enable the extension. Classic CONNECT uses authority
-form with an explicit port; extended CONNECT uses an origin-form path.
+## Dependencies and targets
+Depends on types, codec, and quic; protocol-core builds target Native, Wasm, Wasm-GC, and JS, while network use needs host adapters.
 
-The public API retains protocol messages, settings, limits, codecs, connection,
-and driver types. Request-state representation and dynamic-table bookkeeping
-types are private. Tests remain grouped by frame codec, QPACK, connection
-behavior, and driver integration, so file moves do not discard regression cases.
+## Usage
+Create connection state with explicit role/settings/limits, feed assigned QUIC stream events, and apply returned actions.
+
+## Invariants and scope
+Critical streams, duplicate fields, CONNECT settings gates, QPACK bounds, body lengths, and request lifecycle transitions are enforced here; sockets are outside.
+
+## Canonical docs
+- [Package map](../docs/concepts/packages.md)
+- [Architecture](../docs/concepts/architecture.md)
+- [Root guide](../README.md)

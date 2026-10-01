@@ -1,7 +1,14 @@
 # MoonbitHTTP 生产级 HTTP 协议库路线计划书
 
+> Status: canonical
+> Scope: 0.7.0 development line and the complete production acceptance scope
+> for the v1 architecture target; this is a roadmap, not a release approval.
+> Source: working-tree (governed by Git)
+> Last reviewed: 2026-10-01
+
 状态：生产验收目标；v1 的最新架构与破坏性 API 迁移决策以
-[v1 architecture](v1-architecture.md) 为准。本文件的完整生产验收范围继续保留。
+[v1 architecture](../concepts/architecture.md) 为准。本文件的完整生产验收范围继续保留。
+当前运行记录见 [current evidence](current.md)，门槛清单见 [release gates](gates.md)。
 
 本文档定义 MoonbitHTTP 从“可互操作的 HTTP/1.1、HTTP/2 流式库”扩展为“可实际部署的纯 MoonBit HTTP 协议库”的架构、公共契约、实现顺序和发布门槛。它是实现约束，不是对当前版本已经具备的能力的重新声明。
 

@@ -4,7 +4,7 @@
 
 Breaking architecture migration from 0.6. This is an alpha worktree, not a
 production release declaration. The original behavior baseline and source
-snapshot are recorded in `docs/v1-baseline-2026-09-29.md`.
+snapshot are recorded in [`docs/archive/2026-09/v1-baseline-2026-09-29.md`](docs/archive/2026-09/v1-baseline-2026-09-29.md).
 
 - Move Endpoint and IP addresses into `types`; validated URI, authority and
   header objects cannot be forged through public record construction.
@@ -42,6 +42,7 @@ snapshot are recorded in `docs/v1-baseline-2026-09-29.md`.
   fork-pull-request gate.
 
 Validation results and remaining production gates are maintained separately in
-`docs/v1-testing.md` and the production roadmap. Passing unit tests does not
-replace independent interoperability, platform, long-duration load, performance
-threshold or security review evidence.
+[`docs/release/current.md`](docs/release/current.md),
+[`docs/release/gates.md`](docs/release/gates.md), and the production roadmap.
+Passing unit tests does not replace independent interoperability, platform,
+long-duration load, performance-threshold or security-review evidence.

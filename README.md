@@ -1,86 +1,77 @@
 # ZSeanYves/MoonbitHTTP
 
-MoonbitHTTP is a streaming HTTP protocol library for MoonBit. The current
-`0.7.0` development line deliberately breaks the 0.6 API. It separates
-protocol codecs, connection state and I/O drivers, with explicit host capabilities.
-Production release gates remain defined in the
-[roadmap](docs/production-http-roadmap.zh-CN.md).
+MoonbitHTTP is a streaming HTTP protocol library for MoonBit. Version `0.7.0`
+is the alpha line for the v1 architecture and deliberately breaks the 0.6 API;
+it is not a production release declaration.
 
-[中文说明](README_zh.md) · [Architecture](docs/v1-architecture.md) ·
-[Actual dependency graph](docs/v1-dependencies.md) · [Validation](docs/v1-testing.md)
+Start with the [documentation index](docs/README.md). The short paths are:
 
-See the [0.6 to v1 migration guide](docs/v1-migration.md) for renamed types,
-required constructor arguments and source navigation.
+- [getting started](docs/guide/getting-started.md) for the first client or server;
+- [package map](docs/concepts/packages.md) for package ownership and stability;
+- [architecture](docs/concepts/architecture.md) for dependency direction;
+- [current validation](docs/release/current.md) and [release gates](docs/release/gates.md)
+  for evidence and unfinished production work.
 
-## Packages
+## Quick start
 
-| Package | Responsibility |
+Native HTTP/1 clients receive every host capability explicitly. A resolver is
+used before connecting, a policy authorizes each endpoint, and the TLS provider
+is selected by the application:
+
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/client/native" @client_native,
+  "ZSeanYves/MoonbitHTTP/tls/native" @tls_native,
+  "ZSeanYves/MoonbitHTTP/transport",
+  "ZSeanYves/MoonbitHTTP/transport/native" @transport_native,
+}
+
+async fn main {
+  let client = @client_native.new_http1_client(
+    @transport_native.NativeResolver::new(),
+    @transport.AllowAllPolicy::new(),
+    @transport_native.NativeClock::new(),
+    @tls_native.NativeTlsProvider::new(),
+  ).unwrap()
+  // Build a @types.Request[Bytes] and call client.send(request) here.
+  client.close()
+}
+```
+
+The Native TLS adapter requires OpenSSL 3; QUIC TLS requires OpenSSL 3.5 or
+newer. The portable protocol core builds for Native, Wasm, Wasm-GC and JS.
+Native TLS and QUIC evidence is collected separately on Ubuntu, macOS and
+Windows. `cmd`, `test_support`, `tools` and `scripts` are development
+components, not stable runtime entry points.
+
+## Package families
+
+The repository keeps package boundaries by responsibility. The current paths
+remain stable during this documentation and release-governance phase; a later
+v1 alpha migration may add category directories after the package map and
+generated interfaces are frozen.
+
+| Family | Packages |
 | --- | --- |
-| `types` | Requests, responses, headers, URI, authority, IP addresses, endpoints and limits |
-| `body` | Body producers, bounded streams, backpressure, cancellation and completion |
-| `codec` | Incremental buffers and the shared HPACK/QPACK Huffman codec |
-| `transport` | Stream, datagram, resolver, policy, clock, entropy and TLS capability contracts |
-| `http1` | Start lines, fields, framing, incremental decoders and body encoder |
-| `http2` | Frames, HPACK, connection/stream state, settings and flow control |
-| `quic` | Packets, frames, transport parameters, connection/path state, recovery and TLS/datagram drivers |
-| `http3` | HTTP/3 frames, QPACK, fields, control streams and request stream driver |
-| `tls` | Pure TLS handshake framing and QUIC packet/key derivation primitives |
-| `service` | HTTP/1 and HTTP/2 connection drivers and scoped lifecycle |
-| `client` / `server` | Request policy, pooling, listeners and lifecycle supervision |
-| `auth` / `cookie` / `cache` / `content_coding` | Optional application policies |
-| `*/native` | Native TCP, UDP, DNS, clock, OpenSSL TLS and listener adapters |
-| `auto` / `uv_adapter` | Protocol selection and callback I/O integration |
-| `test_support` | Fragmentation, faults, recording I/O, deterministic clocks and datagrams |
+| Core data | `types`, `body`, `codec` |
+| Protocol engines | `http1`, `http2`, `http3`, `quic`, `tls` |
+| Runtime contracts | `transport`, `service` |
+| Application facades | `client`, `server` |
+| Optional policies | `auth`, `cache`, `cookie`, `content_coding`, `auto` |
+| Host adapters | `client/native`, `server/native`, `tls/native`, `transport/native`, `uv_adapter` |
+| Development | `test_support`, `cmd/*`, `tools`, `scripts` |
 
-## Constructing clients
-
-Use `Http1Client::from_capabilities(connector, resolver, tls_provider, policy,
-clock)` from `client`. The Native factory is
-`client/native.new_http1_client(resolver, policy, clock, tls_provider)`.
-Callers choose every capability explicitly. Resolver results are authorized
-again before numeric connections; low-level connectors do not perform hidden DNS.
-The callback executor accepts a missing resolver only for numeric endpoints.
-
-The policy client aggregates byte bodies under explicit limits. Streaming
-users work with the service drivers and `BodyStream`. Server handlers receive
-`Request[BodyStream]` and return `Response[B]` for `B : Body`; service drivers
-do not implicitly collect bodies. The connection scope owns cancellation and
-shutdown. HTTP/2 uses `with_h2_client_connection`; consume required response
-bodies inside its callback.
-
-Native TLS uses OpenSSL 3 for custom CA bytes, client/server PEM credentials,
-certificate identity/validity verification and ALPN. QUIC TLS requires OpenSSL
-**3.5 or newer**. See [Native TLS](tls/native/README.md) and [QUIC TLS](tls/QUIC.md)
-for runtime requirements and supported algorithms. The adapter has Linux,
-macOS and Windows dynamic-loader paths; the CI matrix runs the certificate and
-identity suite on all three platforms. Portable codecs compile on Native,
-Wasm, Wasm-GC and JS, while platform evidence remains part of the release gate.
+See the [package map](docs/concepts/packages.md) for public versus development
+stability and target support. Protocol packages do not create sockets; drivers
+consume the capability contracts from `transport`.
 
 ## Verification
 
-Run Moon commands serially; they share a build lock.
-
-```sh
-moon fmt --check
-moon run tools/check_architecture.mbtx
-moon check --target all --deny-warn --warn-list +73
-moon build --target all --deny-warn --warn-list +73
-moon test --target all --deny-warn --warn-list +73
-moon info --target all
-moon run tools/interoperability.mbtx
-moon run tools/benchmarks.mbtx
-```
-
-The socket interoperability tool requires curl, wget and nghttp2. It tests
-HTTP/1.1 GET/POST, HTTP/2 prior knowledge and h2c against a freshly built server.
-Benchmarks execute actual release binaries and save their measurements.
-Neither test counts nor loopback throughput prove production readiness.
-
-`tools/release_evidence.mbtx` refuses a dirty checkout and verifies the archive
-against tracked Git blobs before recording release evidence. Do not treat
-`moon package --list` as read-only: it also rewrites the package archive.
-Historical 0.6 results are preserved in the
-[frozen baseline](docs/v1-baseline-2026-09-29.md).
+Run Moon commands serially because they share the module build lock. The
+canonical validation layers and CI commands live in
+[development/testing](docs/development/testing.md). Current test counts,
+interoperability artifacts, package digests and open production gates belong in
+[release/current](docs/release/current.md), not in this entry page.
 
 ## License
 

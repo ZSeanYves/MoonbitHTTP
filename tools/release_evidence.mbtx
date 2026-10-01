@@ -62,8 +62,13 @@ async fn main {
     println("PASS: worktree is clean; no package created.")
     return
   }
+  // Keep the package inventory and the release evidence on the same policy.
+  // The checker invokes moon package --list and rejects any member outside
+  // tools/distribution.json before this script reads the archive.
+  ignore(command_text("moon", ["run", "tools/check_distribution.mbtx"]))
   let revision = command_text("git", ["rev-parse", "HEAD"]).trim().to_owned()
   let source = @fs.read_file("moon.mod").text()
+  let distribution_manifest = @fs.read_file("tools/distribution.json").text()
   let name = manifest_field(source, "name")
   let version = manifest_field(source, "version")
   let archive = "_build/publish/" + name.replace(old="/", new="-") + "-" + version + ".zip"
@@ -117,8 +122,8 @@ async fn main {
     "files": files,
     "dependency_snapshot": "resolved-dependencies.json",
     "dependency_lock": "moon has no committed lockfile here; pinned moon.mod plus resolved dependency snapshot are evidence, not a resolver lock",
-    "remaining_release_gates": ["current-revision all-target tests", "independent HTTP3/TLS/QUIC interoperability",
-      "certificate negative suites", "long-duration load", "performance thresholds", "current security scan"],
+    "distribution_manifest_sha256": digest(@utf8.encode(distribution_manifest)),
+    "release_gate_assessment": "not assessed by packaging tool; consult docs/release/roadmap.zh-CN.md",
   }
   @fs.write_file(directory + "/evidence.json", evidence, create_mode=CreateOrTruncate)
   println("Frozen package verified: \{archive}\nSHA-256: \{digest(bytes)}\nEvidence: \{directory}\nProduction release gates remain separate; nothing was published.")

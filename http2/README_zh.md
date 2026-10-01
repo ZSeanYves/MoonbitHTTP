@@ -1,6 +1,26 @@
-# MoonbitHTTP/http2
+# `http2`
 
-主 API 是 `FrameDecoder`、`H2Connection`、`HpackContext` 和请求/响应帧编码器。
-它支持多流状态、SETTINGS/控制帧、连接与流两级 flow control、完整 RFC 7541
-Huffman 表、动态 HPACK 和 header-list 限制。异步并发 service 调度位于
-`service`。
+Status: canonical
+Scope: public HTTP/2 codec and state package
+Source: working-tree (governed by Git)
+Last reviewed: 2026-10-01
+
+## 用途
+实现 frame、HPACK、stream/connection state、SETTINGS、GOAWAY/RST 和有界流控，不做 I/O。
+
+## 入口
+入口是 FrameDecoder、H2Connection、HpackContext、H2Frame 和 frame encoder；并发 I/O 使用 service。
+
+## 依赖与目标
+依赖 types 和 codec，面向四个编译目标。
+
+## 使用边界
+显式设定 role 和 limits，输入 frame 并执行返回 action；body 背压留在 service 边界。
+
+## 不变量与范围
+状态改变前校验 frame 大小、stream ID、伪字段、SETTINGS 角色、HPACK 和双层流控。
+
+## 规范文档
+- [中文总览](../README_zh.md)
+- [包地图](../docs/concepts/packages.md)
+- [架构](../docs/concepts/architecture.md)

@@ -137,7 +137,7 @@ async fn main {
     output.write_string("  \{node_id(edge.source)}\{arrow}\{node_id(edge.target)}\n")
   }
   output.write_string("```\n")
-  let path = "docs/v1-dependencies.md"
+  let path = "docs/reference/generated/dependencies.md"
   if write {
     @fs.write_file(path, output.to_string(), create_mode=CreateOrTruncate)
   } else {

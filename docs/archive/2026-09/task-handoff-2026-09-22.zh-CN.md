@@ -1,5 +1,13 @@
 # MoonbitHTTP 任务交接单（2026-09-22）
 
+> Status: historical
+> Scope: 2026-09-22 的任务交接上下文
+> Original path: `docs/task-handoff-2026-09-22.zh-CN.md`
+> Archived from Git revision: `ee8496d365cf7f5aada0a4cf2cdf7a1b96b5391e`
+> Archived: 2026-10-01。下文完整保留当时的交接记录，包括当时的 Git 操作建议和暂停状态，
+> 不作为当前任务指令或当前进度。当前状态见 [验证证据](../../release/current.md) 与
+> [发布门槛](../../release/gates.md)。
+
 > 本文件是给下一轮 Codex 的本地交接资料，刻意不纳入本次 Git 提交和远端推送。源代码、测试和已有项目文档的变更仍按用户要求推送远端。
 
 ## 0. 一句话结论

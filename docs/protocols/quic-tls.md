@@ -1,5 +1,11 @@
 # QUIC and TLS boundary
 
+> Status: canonical
+> Scope: boundary between the portable QUIC driver and an injected TLS 1.3
+> provider; this page describes implemented interfaces and explicit limits.
+> Source: working-tree (governed by Git)
+> Last reviewed: 2026-10-01
+
 `QuicCryptoReassembler` in the QUIC package orders CRYPTO ranges independently
 for Initial, Handshake and Application packet-number spaces. Its `CryptoData`
 actions feed `QuicHandshakeInput`, which uses one `QuicHandshakeDecoder` per
@@ -62,8 +68,10 @@ parameters. Native regression tests verify real certificates, Finished, h3,
 transport parameters, stream delivery and a wire key update. Other backends can
 inject the same provider capability, but do not ship a concrete TLS engine.
 
-Remaining production gates include independent HTTP/3/QUIC TLS interoperability,
-long-duration UDP loss/reordering/pressure testing and cross-platform native
-coverage. Deterministic fixture keys in other driver tests are not handshake
-evidence. The native OpenSSL callback boundary is covered by scoped ASan tests;
-that result does not replace those protocol and deployment gates.
+Independent HTTP/3/QUIC TLS interoperability, long-duration UDP
+loss/reordering/pressure testing and cross-platform native coverage remain
+release gates. Deterministic fixture keys in other driver tests are not
+handshake evidence. The native OpenSSL callback boundary is covered by scoped
+ASan tests; that result does not replace those protocol and deployment gates.
+Track the current state in [release evidence](../release/current.md) and the
+complete acceptance criteria in the [roadmap](../release/roadmap.zh-CN.md).

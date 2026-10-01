@@ -1,5 +1,13 @@
 # Release Evidence: 2026-09-22
 
+> Status: historical
+> Scope: development evidence captured on 2026-09-22
+> Original path: `docs/release-evidence-2026-09-22.md`
+> Archived from Git revision: `ee8496d365cf7f5aada0a4cf2cdf7a1b96b5391e`
+> Archived: 2026-10-01. The original record below is retained as historical evidence;
+> its references to current state apply to its original context. See
+> [current evidence](../../release/current.md) and [release gates](../../release/gates.md).
+
 This record describes the local worktree and artifact produced on 2026-09-22.
 It is evidence for review, not a production approval.
 

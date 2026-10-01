@@ -1,5 +1,14 @@
 # v1 performance gate
 
+> Status: historical
+> Scope: HTTP/1 comparison method and measurements recorded on 2026-09-30
+> Original path: `docs/performance-v1.md`
+> Archived from Git revision: `ee8496d365cf7f5aada0a4cf2cdf7a1b96b5391e`
+> Archived: 2026-10-01. The original record below is retained as historical evidence;
+> its references to current state apply to its original context. See the
+> [maintained performance guide](../../development/performance.md),
+> [current evidence](../../release/current.md) and [release gates](../../release/gates.md).
+
 `tools/performance_comparison.mbtx` compares a frozen source snapshot at
 `77024d99398981806b9ca57fc374fd96832eec59` with the current worktree. It
 creates a complete source manifest through MoonBit filesystem APIs, injects

@@ -1,0 +1,138 @@
+import {
+  "moonbitlang/async@0.20.2",
+  "moonbitlang/async@0.20.2/fs",
+  "moonbitlang/async@0.20.2/process",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+///|
+async fn command(program : String, arguments : Array[String]) -> (Bytes, Bytes) {
+  let (status, output, errors) = @async.with_timeout(60000, async fn() {
+    @process.collect_output(program, arguments)
+  })
+  guard status == 0 else {
+    fail("\{program} \{arguments.join(" ")}: exit \{status}; \{errors.text()}")
+  }
+  (output.binary(), errors.binary())
+}
+
+///|
+async fn command_text(program : String, arguments : Array[String]) -> String {
+  let (output, errors) = command(program, arguments)
+  let text = @utf8.decode(output)
+  if text.is_empty() { @utf8.decode(errors) } else { text }
+}
+
+///|
+fn manifest_strings(manifest : Json, field : String) -> Array[String] raise {
+  let values = match field {
+    "include" => match manifest {
+      { "include": Array(values), .. } => values
+      _ => fail("distribution manifest has no include array")
+    }
+    "exclude" => match manifest {
+      { "exclude": Array(values), .. } => values
+      _ => fail("distribution manifest has no exclude array")
+    }
+    "required" => match manifest {
+      { "required": Array(values), .. } => values
+      _ => fail("distribution manifest has no required array")
+    }
+    _ => fail("unsupported distribution manifest field: \{field}")
+  }
+  let result : Array[String] = []
+  for value in values {
+    guard value is String(path) && !path.is_empty() else {
+      fail("distribution manifest \{field} contains a non-string path")
+    }
+    result.push(path)
+  }
+  result
+}
+
+///|
+fn matches(path : String, pattern : String) -> Bool {
+  if pattern.has_suffix("/**") {
+    let prefix = pattern[:(pattern.length() - 3)]
+    path.has_prefix(prefix + "/")
+  } else {
+    path == pattern
+  }
+}
+
+///|
+fn included(path : String, includes : Array[String], excludes : Array[String]) -> Bool {
+  includes.any(fn(pattern) { matches(path, pattern) }) &&
+    !excludes.any(fn(pattern) { matches(path, pattern) })
+}
+
+///|
+fn safe_member(path : String) -> Bool {
+  !path.is_empty() && !path.has_prefix("/") && !path.has_prefix("-") &&
+    !path.split("/").any(fn(part) {
+      part == "" || part == "." || part == ".." || part == ".git" ||
+        part == "_build" || part == "target" || part == ".mooncakes"
+    }) && !path.has_suffix(".zip") && path != "coverage.xml"
+}
+
+///|
+async fn main {
+  let arguments = @env.args()
+  guard arguments.length() == 1 else {
+    fail("usage: moon run tools/check_distribution.mbtx")
+  }
+  let manifest_source = @fs.read_file("tools/distribution.json").text()
+  let manifest = @json.parse(manifest_source)
+  let includes = manifest_strings(manifest, "include")
+  let excludes = manifest_strings(manifest, "exclude")
+  let required = manifest_strings(manifest, "required")
+  guard manifest is { "schema_version": Number(schema, ..), .. } && schema == 1.0 else {
+    fail("unsupported distribution manifest schema")
+  }
+  guard manifest is { "module": String(module_name), "version": String(version), .. } else {
+    fail("distribution manifest must identify module and version")
+  }
+  let module_source = @fs.read_file("moon.mod").text()
+  guard module_source.contains("name = \"\{module_name}\"") &&
+    module_source.contains("version = \"\{version}\"") else {
+    fail("distribution manifest module/version differs from moon.mod")
+  }
+
+  let listed = command_text("moon", ["package", "--frozen", "--list"])
+  let actual : Array[String] = []
+  for raw in listed.split("\n") {
+    let path = raw.trim().to_owned()
+    if path.is_empty() { continue }
+    if path.has_prefix("Package to ") || path == "Check passed" ||
+      path.has_prefix("Running moon check") || path.has_prefix("Finished.") {
+      continue
+    }
+    guard !actual.contains(path) else { fail("duplicate package member: \{path}") }
+    guard safe_member(path) else { fail("unsafe package member: \{path}") }
+    actual.push(path)
+  }
+  actual.sort()
+  guard !actual.is_empty() else { fail("moon package produced an empty archive") }
+
+  for path in actual {
+    guard included(path, includes, excludes) else {
+      fail("archive member is outside the explicit distribution allowlist: \{path}")
+    }
+  }
+  for pattern in includes {
+    guard actual.any(fn(path) { matches(path, pattern) }) else {
+      fail("distribution allowlist entry matched no archive member: \{pattern}")
+    }
+  }
+  for path in required {
+    guard actual.contains(path) else { fail("required distribution member is missing: \{path}") }
+  }
+  for path in excludes {
+    guard !actual.any(fn(entry) { matches(entry, path) }) else {
+      fail("excluded distribution member was packaged: \{path}")
+    }
+  }
+  println("PASS: distribution allowlist verified (\{actual.length()} archive members, module \{module_name}@\{version}).")
+}

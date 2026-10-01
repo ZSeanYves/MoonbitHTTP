@@ -1,4 +1,11 @@
-# MoonbitHTTP v1 architecture
+# MoonbitHTTP 0.7 architecture target
+
+> Status: canonical
+> Scope: package ownership, capability boundaries and state-machine rules for
+> the 0.7.0 development line; “v1” names the target architecture, not a 1.0
+> release.
+> Source: working-tree (governed by Git)
+> Last reviewed: 2026-10-01
 
 This document is the implementation boundary for the v1 restructuring. It
 describes ownership and data flow; it is not a production approval.
@@ -34,8 +41,9 @@ flowchart TD
   native --> tls
 ```
 
-The [generated dependency graph](v1-dependencies.md) records actual imports,
-including separate test dependencies. `tools/check_architecture.mbtx` checks
+The [package map](packages.md) names the public, adapter and test layers. The
+[generated dependency graph](../reference/generated/dependencies.md) records
+actual imports, including separate test dependencies. `tools/check_architecture.mbtx` checks
 ownership rules and graph drift in CI. HPACK and QPACK share the Huffman codec
 in `codec`; HTTP/3 does not import HTTP/2.
 

@@ -1,0 +1,35 @@
+# The package is governed by tools/distribution.json. Keep repository tooling,
+# historical evidence, and command examples out of the user distribution.
+/.github/
+/cmd/
+/scripts/
+/tools/
+
+# The current package contains only the canonical v1 documents listed in the
+# distribution manifest. Re-include a document here only when it is added to
+# that manifest as well.
+/docs/*
+!/docs/README.md
+!/docs/concepts/
+!/docs/concepts/**
+!/docs/development/
+!/docs/development/**
+!/docs/guide/
+!/docs/guide/**
+!/docs/protocols/
+!/docs/protocols/**
+!/docs/reference/
+!/docs/reference/generated/
+!/docs/reference/generated/**
+!/docs/release/
+!/docs/release/current.md
+!/docs/release/gates.md
+!/docs/release/packaging.md
+!/docs/release/roadmap.zh-CN.md
+
+# Moon always excludes _build; these rules make the policy explicit for other
+# generated and local-only paths as well.
+/_build/
+/target/
+/.mooncakes/
+/coverage.xml

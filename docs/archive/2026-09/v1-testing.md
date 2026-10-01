@@ -1,5 +1,14 @@
 # v1 validation and release evidence
 
+> Status: historical
+> Scope: validation guide and development measurements for the 2026-09-30 worktree
+> Original path: `docs/v1-testing.md`
+> Archived from Git revision: `ee8496d365cf7f5aada0a4cf2cdf7a1b96b5391e`
+> Archived: 2026-10-01. The original record below is retained as historical evidence;
+> its commands, paths and references to current state apply to its original context.
+> Use the [maintained testing guide](../../development/testing.md),
+> [current evidence](../../release/current.md) and [release gates](../../release/gates.md).
+
 Run Moon commands serially. The compiler, test runner, benchmark runner and
 interface generator share the module build directory. A green unit-test
 matrix establishes behavior on those targets; it does not establish external
@@ -173,7 +182,7 @@ timings are retained with no trimming or retry. This closes the gate for one
 local HTTP/1 codec workload only; it does not measure HTTP/2, HTTP/3, TLS,
 QUIC, sockets or cross-platform performance. The prior method-v1 result at
 `moonbithttp-performance.19299.a1890263` remains `inconclusive-noisy` and is
-retained separately; see [performance methodology](performance-v1.md).
+retained separately; see the archived [performance methodology](performance-v1.md).
 
 Coverage behavior was verified with the installed CLI's help: `analyze` runs
 instrumented tests; `report` consumes artifacts. Cleaning before analysis

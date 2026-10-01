@@ -1,5 +1,26 @@
-# MoonbitHTTP/http1
+# `http1`
 
-主 API 是增量 `RequestDecoder`/`ResponseDecoder` 事件模型和 framing encoder。
-它保留连接 over-read 数据，支持 pipeline、定长/chunked/close-delimited body
-与 trailers，并拒绝歧义 framing。异步连接请使用 `service`。
+Status: canonical
+Scope: public HTTP/1 codec and state package
+Source: working-tree (governed by Git)
+Last reviewed: 2026-10-01
+
+## 用途
+实现增量 request/response decoder、start-line/字段校验、body framing、trailers 和 encoder，不做 I/O。
+
+## 入口
+入口是 RequestDecoder、ResponseDecoder、事件类型和 framing encoder；异步 Reader/Writer 使用 service。
+
+## 依赖与目标
+依赖 types 和 codec，面向四个编译目标。
+
+## 使用边界
+输入任意分片并消费所有事件，保留 over-read；依据 Body SizeHint 选择 framing。
+
+## 不变量与范围
+拒绝歧义长度、非法 trailer、请求走私组合和非法 method/target/header；生命周期由 service/client 负责。
+
+## 规范文档
+- [中文总览](../README_zh.md)
+- [包地图](../docs/concepts/packages.md)
+- [架构](../docs/concepts/architecture.md)
