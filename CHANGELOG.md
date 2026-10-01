@@ -1,63 +1,47 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — development
 
-This worktree contains the roadmap-driven production hardening for the 0.6.x
-line. The public surface now includes bounded client policy, connection pooling,
-cookies, cache policy, authentication, content coding, transport/TLS contracts,
-QUIC/HTTP/3 state machines, and Native capability adapters.
+Breaking architecture migration from 0.6. This is an alpha worktree, not a
+production release declaration. The original behavior baseline and source
+snapshot are recorded in `docs/v1-baseline-2026-09-29.md`.
 
-Notable safety behavior:
+- Move Endpoint and IP addresses into `types`; validated URI, authority and
+  header objects cannot be forged through public record construction.
+- Consolidate all injected capabilities, including stream and QUIC TLS, in
+  `transport`. Separate pure TLS primitives from Native OpenSSL adapters.
+- Remove the unused `io` facade and duplicate nonpooled HTTP/1 round tripper.
+  Native client construction requires explicit resolver, policy, clock and
+  TLS provider; numeric connectors never perform hidden hostname resolution.
+- Make `BodyStream::new` return a checked result. Keep terminal state in one
+  enum, preserve the first failure, and isolate body framing in HTTP/1.
+- Split HTTP/1, HTTP/2, QUIC and HTTP/3 source by codec, state and driver
+  responsibility. Move shared Huffman coding to `codec`, reuse immutable
+  lookup tables, and remove the HTTP/3-to-HTTP/2 dependency.
+- Propagate HTTP/2 peer table limits into the send HPACK encoder; serialize
+  dynamic-table mutation with wire writes. Advertise local decoder limits.
+- Validate classic and extended HTTP/3 CONNECT through one field validator;
+  apply the appropriate endpoint's SETTINGS before encoding or accepting
+  extended CONNECT.
+- Enforce QUIC frame legality by packet space and connection phase. Require
+  authenticated peer transport parameters and application keys before opening
+  streams. Model path validation as challenge/response output actions.
+- Add bounded CRYPTO reassembly, a real TLS 1.3 traffic-secret driver, packet
+  key updates, and key retirement. Native QUIC TLS uses OpenSSL 3.5+ callbacks.
+- Support Native TLS CA bytes, client and server credentials, ALPN, mTLS and
+  structured certificate failures. Add certificate negative cases and ASan
+  validation for the Native boundary.
+- Add policy-controlled Native UDP listeners. Reject unauthorized endpoints
+  before socket creation and detect oversized datagrams without silent truncation.
+- Generate and check the actual package dependency graph. Replace shell
+  interoperability automation with mandatory-tool `.mbtx` runners, execute
+  release benchmarks, and require a clean Git snapshot for release packaging.
+- Pin the CI MoonBit toolchain, check generated interfaces and architecture
+  drift, verify OpenSSL selection on Linux/macOS/Windows, and retain coverage,
+  package and interoperability artifacts without making Codecov availability a
+  fork-pull-request gate.
 
-- HTTP/1 connection pools re-check policy after DNS resolution and before each
-  numeric connect, keep response-body leases tied to physical sessions, and
-  close sessions on cancellation or failed framing.
-- Proxy-routed origins are now resolved and every numeric candidate is checked
-  by `NetworkPolicy` before a forward request or CONNECT tunnel is opened;
-  denied origin addresses cannot reach the proxy as a confused deputy.
-- Redirects remove library-managed `Authorization` across origins; Basic,
-  Bearer, and Digest state is scoped by origin, and Digest retries require a
-  replayable body.
-- Content decoding is bounded independently for encoded and decoded bytes, and
-  stale `Content-Encoding`/`Content-Length` metadata is removed after decoding.
-- QUIC `CryptoData` actions now report the CRYPTO stream offset rather than the
-  enclosing packet number, preserving TLS handshake reassembly across packet
-  reordering.
-- HTTP/3 bounds QPACK-blocked frame memory by `max_buffer_bytes` and reclaims
-  completed non-critical unidirectional stream records; QPACK encoder pending
-  dynamic-section metadata is also bounded and released on ACK/cancellation.
-- HTTP/2 bounds cumulative CONTINUATION header blocks, reclaims closed stream
-  flow-control records, and restores connection-level capacity after a body is
-  consumed from a reclaimed stream.
-- Connection-pool eviction notifications are bounded by `max_total`; a full
-  close-notification queue returns `AtCapacity` instead of dropping a physical
-  session ID.
-- BodyStream wake-up notifications are bounded to one level-triggered token;
-  repeated consumption cannot accumulate an unbounded event queue.
-- HTTP/3 request field sections now require a validated `:authority`, restrict
-  `:scheme` to HTTP schemes, parse the method and request target, reject
-  duplicate or malformed `Host`, and enforce `Host/:authority` equality.
-- URI authorities now accept bracketed hosts only when they are valid IPv6 or
-  RFC 3986 IPvFuture literals; malformed bracketed names are rejected before
-  HTTP/2 or HTTP/3 protocol handling.
-- HTTP/1 response decoders reject `Content-Length` and `Transfer-Encoding` on
-  1xx, 204, and successful CONNECT responses while preserving the legal
-  `Content-Length` metadata on HEAD and 304 responses.
-- QUIC path validation authorizes the initial and every migrated endpoint with
-  `NetworkPolicy::QuicEndpoint`; rejected candidates do not mutate path state.
-  Application streams, application packets, and 0-RTT remain fail-closed until
-  an established connection with installed application keys exists.
-- The Native HTTP/1 convenience layer now exposes
-  `new_http1_client_with_policy`, so callers can inject an explicit DNS,
-  connect, redirect, and proxy policy instead of relying on `AllowAllPolicy`.
-- Transport endpoints reject embedded ports and malformed bracketed hosts;
-  colon-containing hosts must be valid IPv6 literals before they reach a
-  resolver or connector.
-- Native TLS fails closed for unsupported custom trust-anchor bytes, client
-  certificate/key bytes, server handshakes, and ALPN offers other than
-  `http/1.1`.
-
-This is not a production release declaration. Native HTTP/3 interoperability,
-QUIC TLS 1.3 CRYPTO integration, native certificate identity configuration,
-long-run/pressure/performance thresholds, and independent protocol/security
-review remain release gates.
+Validation results and remaining production gates are maintained separately in
+`docs/v1-testing.md` and the production roadmap. Passing unit tests does not
+replace independent interoperability, platform, long-duration load, performance
+threshold or security review evidence.

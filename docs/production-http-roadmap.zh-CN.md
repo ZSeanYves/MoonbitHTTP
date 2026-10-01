@@ -1,6 +1,7 @@
 # MoonbitHTTP 生产级 HTTP 协议库路线计划书
 
-状态：设计基线，面向 `0.6.0` 之后的实现工作。
+状态：生产验收目标；v1 的最新架构与破坏性 API 迁移决策以
+[v1 architecture](v1-architecture.md) 为准。本文件的完整生产验收范围继续保留。
 
 本文档定义 MoonbitHTTP 从“可互操作的 HTTP/1.1、HTTP/2 流式库”扩展为“可实际部署的纯 MoonBit HTTP 协议库”的架构、公共契约、实现顺序和发布门槛。它是实现约束，不是对当前版本已经具备的能力的重新声明。
 
@@ -34,7 +35,7 @@ types -> body -> codec -> http1/http2 -> service
                          async/io Reader + Writer
 ```
 
-`HeaderMap`、泛型 `Request[B]`/`Response[B]`、`Body` trait、`BodyStream`、有界队列、HTTP/1.1 framing、HTTP/2 HPACK 和连接级流控是现有实现的演进基线。现有同步或异步调用方应通过兼容层逐步迁移，不在一次变更中重写全部公共 API。
+`HeaderMap`、泛型 `Request[B]`/`Response[B]`、`Body` trait、`BodyStream`、有界队列、HTTP/1.1 framing、HTTP/2 HPACK 和连接级流控是现有实现的演进基线。0.6 公共 API 不再作为兼容目标；迁移按模块分阶段进行，保留行为测试，最终通过 v1 新主版本发布。
 
 ## 2. 架构方向
 
@@ -379,8 +380,8 @@ Native socket 互操作、Wasm policy 测试、长时间流测试、资源限制
 - 默认配置必须安全且有限：验证 TLS、有限 body/header/stream、有限重定向和无自动非幂等重试。放宽限制的选项使用清晰名称并写入文档。
 - 不保存跨客户端的可变 Cookie、认证、缓存、连接池或动态压缩表。全局注册表只允许只读常量。
 - 不在错误、日志、trace 或 metrics 中输出密钥、Authorization、Cookie、完整用户信息 URL、请求 body 或证书私钥材料。
-- 新增公共类型先在拥有它的 public package 定义，再由 facade 显式 wrapper/re-export；不从 `internal` 包公开具体类型。
-- 现有 `0.6.0` 调用方通过 deprecated wrapper 迁移；删除或改变 framing、错误类型和默认安全行为必须提升 major 版本，并在 `README`、`.mbti` 和 changelog 中同步说明。
+- 新增公共类型只在拥有它的 public package 定义；避免重复 facade 和重新导出实现类型。
+- v1 允许直接删除或改变 `0.6.0` API，不保留仅用于兼容的 wrapper；行为变化在 `README`、`.mbti` 和 changelog 中同步说明。
 - 协议版本、TLS 后端、压缩算法、代理和重试策略在结果中可观测；库不以“自动尝试所有后端”隐藏平台差异。
 
 ## 8. 生产发布门槛

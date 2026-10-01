@@ -99,10 +99,12 @@ moon fmt --check
 moon check --target all --deny-warn --warn-list +73
 moon test --target all --deny-warn --warn-list +73
 moon build --target all --deny-warn --warn-list +73
-moon bench --build-only --target native --deny-warn --warn-list +73
-bash scripts/interoperability.sh
+moon run tools/benchmarks.mbtx
+moon run tools/interoperability.mbtx
+moon coverage clean
 moon coverage analyze -- -f cobertura -o coverage.xml
-moon info
+moon info --target all
+moon run tools/release_evidence.mbtx
 ```
 
 早期 0.6.0 流式 API 基线曾为 wasm 55/55、wasm-gc 37/37、JavaScript 55/55、

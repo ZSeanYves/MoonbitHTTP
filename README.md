@@ -1,74 +1,87 @@
 # ZSeanYves/MoonbitHTTP
 
-MoonbitHTTP 0.6.0 is a transport-independent, streaming HTTP protocol library
-for MoonBit. Its protocol codecs are pure incremental state machines; client,
-server, policy, authentication, caching, and content-coding behavior live in
-separate packages. Async connection drivers use
-`moonbitlang/async/io.Reader` and `Writer` directly, so they work with TCP,
-memory pipes, and callback-based runtimes.
+MoonbitHTTP is a streaming HTTP protocol library for MoonBit. The current
+`0.7.0` development line deliberately breaks the 0.6 API. It separates
+protocol codecs, connection state and I/O drivers, with explicit host capabilities.
+Production release gates remain defined in the
+[roadmap](docs/production-http-roadmap.zh-CN.md).
+
+[中文说明](README_zh.md) · [Architecture](docs/v1-architecture.md) ·
+[Actual dependency graph](docs/v1-dependencies.md) · [Validation](docs/v1-testing.md)
+
+See the [0.6 to v1 migration guide](docs/v1-migration.md) for renamed types,
+required constructor arguments and source navigation.
 
 ## Packages
 
 | Package | Responsibility |
 | --- | --- |
-| `types` | Multi-value headers, generic Request/Response, Method, Uri, Version, limits |
-| `body` | Async Body trait, bounded BodyStream, Data/Trailers frames and SizeHint |
-| `codec` | Protocol-independent incremental byte buffering and codec errors |
-| `http1` | RFC 9110/9112 framing, streaming events, pipelining and encoding |
-| `http2` | Frames, complete HPACK Huffman/dynamic table, streams and flow control |
-| `http3` | HTTP/3 frame, settings, request-stream and QPACK state machines |
-| `quic` | QUIC varint/frame/packet protection, recovery, paths and datagram driver contracts |
-| `service` | Scoped streaming HTTP/1, HTTP/2 and auto-detect servers plus HTTP/1 and HTTP/2 clients |
-| `client` | Bounded HTTP/1 pooling, proxy/CONNECT, redirect/retry, cookies, cache, auth and decoding policy |
-| `server` | Listener contract, lifecycle supervisor, concurrency limits and redacted observer events |
-| `cookie` / `cache` | Per-client cookie state and pluggable bounded RFC 9111 cache policy |
-| `auth` / `content_coding` | Basic/Digest/Bearer challenge state and bounded gzip/deflate/Brotli decoding |
-| `transport` / `tls` | Endpoint, resolver, clock, policy and TLS capability contracts |
-| `client/native` / `server/native` / `transport/native` / `tls/native` | Native TCP, DNS, clock, UDP, TLS and listener adapters |
-| `auto` | Prior knowledge, h2c and externally supplied ALPN selection |
-| `uv_adapter` | Callback/uv-style I/O bridge to the official Reader/Writer traits |
-| `test_support` | Fragmentation, fault injection and recording I/O fixtures |
+| `types` | Requests, responses, headers, URI, authority, IP addresses, endpoints and limits |
+| `body` | Body producers, bounded streams, backpressure, cancellation and completion |
+| `codec` | Incremental buffers and the shared HPACK/QPACK Huffman codec |
+| `transport` | Stream, datagram, resolver, policy, clock, entropy and TLS capability contracts |
+| `http1` | Start lines, fields, framing, incremental decoders and body encoder |
+| `http2` | Frames, HPACK, connection/stream state, settings and flow control |
+| `quic` | Packets, frames, transport parameters, connection/path state, recovery and TLS/datagram drivers |
+| `http3` | HTTP/3 frames, QPACK, fields, control streams and request stream driver |
+| `tls` | Pure TLS handshake framing and QUIC packet/key derivation primitives |
+| `service` | HTTP/1 and HTTP/2 connection drivers and scoped lifecycle |
+| `client` / `server` | Request policy, pooling, listeners and lifecycle supervision |
+| `auth` / `cookie` / `cache` / `content_coding` | Optional application policies |
+| `*/native` | Native TCP, UDP, DNS, clock, OpenSSL TLS and listener adapters |
+| `auto` / `uv_adapter` | Protocol selection and callback I/O integration |
+| `test_support` | Fragmentation, faults, recording I/O, deterministic clocks and datagrams |
 
-## Interoperability
+## Constructing clients
 
-The native smoke server handles HTTP/1.1, HTTP/2 prior knowledge, and h2c on a
-real TCP socket. Run the curl/nghttp2 checks with:
+Use `Http1Client::from_capabilities(connector, resolver, tls_provider, policy,
+clock)` from `client`. The Native factory is
+`client/native.new_http1_client(resolver, policy, clock, tls_provider)`.
+Callers choose every capability explicitly. Resolver results are authorized
+again before numeric connections; low-level connectors do not perform hidden DNS.
+The callback executor accepts a missing resolver only for numeric endpoints.
 
-```bash
-bash scripts/interoperability.sh
-```
+The policy client aggregates byte bodies under explicit limits. Streaming
+users work with the service drivers and `BodyStream`. Server handlers receive
+`Request[BodyStream]` and return `Response[B]` for `B : Body`; service drivers
+do not implicitly collect bodies. The connection scope owns cancellation and
+shutdown. HTTP/2 uses `with_h2_client_connection`; consume required response
+bodies inside its callback.
 
-The service layer never collects request or response bodies implicitly. Server
-handlers receive `Request[BodyStream]` and return `Response[B]` for any `B : Body`.
-Use `ServerConfig.body_queue_capacity` to tune bounded backpressure and
-`close_callback` to connect protocol shutdown to the transport adapter. HTTP/2
-clients are scoped with `with_h2_client_connection`; the callback owns the
-client and must consume response bodies before it returns.
-
-The native TLS adapter deliberately fails closed for custom trust-anchor bytes,
-client certificate/key bytes, server handshakes, and ALPN offers other than
-`http/1.1` because the current host TLS API does not expose those capabilities.
-The portable TLS facade and QUIC/HTTP/3 state machines are available for injected
-providers, but native HTTP/3 interoperability and certificate-path validation
-remain release gates in the production roadmap.
+Native TLS uses OpenSSL 3 for custom CA bytes, client/server PEM credentials,
+certificate identity/validity verification and ALPN. QUIC TLS requires OpenSSL
+**3.5 or newer**. See [Native TLS](tls/native/README.md) and [QUIC TLS](tls/QUIC.md)
+for runtime requirements and supported algorithms. The adapter has Linux,
+macOS and Windows dynamic-loader paths; the CI matrix runs the certificate and
+identity suite on all three platforms. Portable codecs compile on Native,
+Wasm, Wasm-GC and JS, while platform evidence remains part of the release gate.
 
 ## Verification
 
-```bash
+Run Moon commands serially; they share a build lock.
+
+```sh
 moon fmt --check
+moon run tools/check_architecture.mbtx
 moon check --target all --deny-warn --warn-list +73
+moon build --target all --deny-warn --warn-list +73
 moon test --target all --deny-warn --warn-list +73
-moon bench --build-only --target native --deny-warn --warn-list +73
-bash scripts/interoperability.sh
-moon package --list
+moon info --target all
+moon run tools/interoperability.mbtx
+moon run tools/benchmarks.mbtx
 ```
 
-See the [maintenance implementation report](./docs/maintenance-plan.md) for
-the current architecture, protocol coverage, and verification baseline. The
-[release evidence record](./docs/release-evidence-2026-09-22.md) lists the exact
-toolchain, test matrix, and artifact hash for the current worktree. See
-[CHANGELOG.md](./CHANGELOG.md) for behavior changes and remaining release gates.
+The socket interoperability tool requires curl, wget and nghttp2. It tests
+HTTP/1.1 GET/POST, HTTP/2 prior knowledge and h2c against a freshly built server.
+Benchmarks execute actual release binaries and save their measurements.
+Neither test counts nor loopback throughput prove production readiness.
+
+`tools/release_evidence.mbtx` refuses a dirty checkout and verifies the archive
+against tracked Git blobs before recording release evidence. Do not treat
+`moon package --list` as read-only: it also rewrites the package archive.
+Historical 0.6 results are preserved in the
+[frozen baseline](docs/v1-baseline-2026-09-29.md).
 
 ## License
 
-Apache License 2.0. See [LICENSE](./LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE).
