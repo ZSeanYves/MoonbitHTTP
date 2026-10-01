@@ -114,7 +114,10 @@ fn pump_quic_tls(
 ///|
 async test "native QUIC TLS: OpenSSL raw handshake verifies certificates, h3 and transport parameters" {
   let (client, server) = fixture_options()
-  let result = pump_quic_tls(client, server).unwrap()
+  let result = match pump_quic_tls(client, server) {
+    Ok(value) => value
+    Err(error) => fail("native QUIC TLS handshake failed: \{Repr(error)}")
+  }
   assert_true(result.0 && result.1)
   assert_eq(result.2, 8)
 }

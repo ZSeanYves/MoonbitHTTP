@@ -46,7 +46,8 @@ async test "native QUIC Retry replays ClientHello and completes TLS" {
   }
   let client = @quic.QuicTlsDriver::new(client_packets, client_provider).unwrap()
   let server = @quic.QuicTlsDriver::new(server_packets, server_provider).unwrap()
-  let client_start = match client.start({ ..client_options, alpn: ["h3"], }, 0L) {
+  let client_start = match
+    client.start({ ..client_options, alpn: ["h3"], }, 0L) {
     Ok(actions) => actions
     Err(error) => fail("client QUIC TLS start failed: \{Repr(error)}")
   }
