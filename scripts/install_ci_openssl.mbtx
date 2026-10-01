@@ -18,7 +18,9 @@ async fn main {
   let root = @env.current_dir().unwrap()
   let directory = root + "/_build/ci-openssl"
   let prefix = directory + "/install"
-  @fs.mkdir(directory, recursive=true)
+  if !@fs.exists(directory) {
+    @fs.mkdir(directory, recursive=true)
+  }
   let archive = directory + "/openssl-3.5.8.tar.gz"
   if !@fs.exists(prefix + "/lib/libssl.so.3") {
     run("curl", ["--fail", "--location", "--retry", "3", "--output", archive,
