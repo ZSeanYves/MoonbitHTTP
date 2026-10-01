@@ -21,11 +21,15 @@ yet a production-readiness claim.
 The layering follows the shape of mature libraries such as Go `net/http` and
 Hyper: protocol codecs and state machines are separated from transport and
 application policy, and streaming is part of the request/response contract.
-HTTP/1.1 and HTTP/2 have the broadest current coverage. HTTP/3/QUIC, complete
-TLS credential and negative suites, long-duration interoperability, performance
-thresholds and the final security review remain release gates, so this project
-should be treated as a well-tested development foundation rather than a
-finished standard-library replacement.
+HTTP/1.1 and HTTP/2 have the broadest current coverage. HTTP/3/QUIC has passed
+multi-hour independent QUIC/TLS pressure interoperability with controlled loss,
+delay, reordering, recovery and concurrent streams. Cross-platform Native TLS
+certificate identity and negative suites have also passed. This pressure run
+uses a loopback peer and repeated connections, so it does not establish public-
+network behavior or single-connection capacity. Performance thresholds, the
+final security review and CRL/OCSP support remain release gates, so this project
+should be treated as a well-tested development foundation rather than a finished
+standard-library replacement.
 
 ## Native and Wasm
 

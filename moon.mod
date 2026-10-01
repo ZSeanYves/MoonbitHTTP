@@ -20,6 +20,6 @@ repository = "https://github.com/ZSeanYves/MoonbitHTTP"
 
 license = "Apache-2.0"
 
-keywords = [ "http", "http1", "http2", "protocol" ]
+keywords = [ "http", "http1", "http2", "http3", "quic", "tls", "networking" ]
 
-description = "Modular HTTP protocol codecs and connection utilities for MoonBit."
+description = "Streaming HTTP protocol suite for MoonBit with HTTP/1.1, HTTP/2, HTTP/3, QUIC, TLS integration, and policy-driven transports."
