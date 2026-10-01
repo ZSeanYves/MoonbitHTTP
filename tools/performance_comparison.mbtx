@@ -1,0 +1,583 @@
+///|
+import {
+  "moonbitlang/async@0.20.2",
+  "moonbitlang/async@0.20.2/fs",
+  "moonbitlang/async@0.20.2/process",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/math",
+  "moonbitlang/x@0.4.47/crypto",
+}
+
+///|
+let baseline_revision = "77024d99398981806b9ca57fc374fd96832eec59"
+
+///|
+let pair_count = 6
+
+///|
+let sample_count = 8
+
+///|
+let sample_iterations = 100000
+
+///|
+let max_sample_noise = 0.10
+
+///|
+let max_median_regression = 0.15
+
+///|
+let max_pair_regression = 0.20
+
+///|
+struct Measurement {
+  arm : String
+  pair : Int
+  raw_sample_ns : Array[Double]
+  mean_ns : Double
+  sigma_ns : Double
+}
+
+///|
+fn measurement_json(value : Measurement) -> Json {
+  {
+    "arm": value.arm,
+    "pair": value.pair,
+    "raw_sample_ns": value.raw_sample_ns,
+    "mean_ns": value.mean_ns,
+    "sigma_ns": value.sigma_ns,
+    "relative_sigma": value.sigma_ns / value.mean_ns,
+  }
+}
+
+///|
+fn digest(bytes : Bytes) -> String {
+  @crypto.bytes_to_hex_string(@crypto.sha256(bytes))
+}
+
+///|
+async fn run_recorded(
+  evidence : String,
+  label : String,
+  program : String,
+  args : Array[String],
+  cwd : String,
+) -> String {
+  let command_record : Json = {
+    "program": program,
+    "arguments": args,
+    "cwd": cwd,
+  }
+  @fs.write_file(
+    evidence + "/" + label + ".command.json",
+    command_record,
+    create_mode=CreateNew,
+  )
+  let result = @async.with_timeout_opt(120000, async fn() {
+    @process.collect_output(program, args, cwd=cwd[:])
+  })
+  guard result is Some((status, output, errors)) else {
+    let timeout : Json = { "timeout_ms": 120000 }
+    @fs.write_file(
+      evidence + "/" + label + ".timeout.json",
+      timeout,
+      create_mode=CreateNew,
+    )
+    fail("\{label} timed out; partial evidence remains in \{evidence}")
+  }
+  @fs.write_file(
+    evidence + "/" + label + ".stdout",
+    output.binary(),
+    create_mode=CreateNew,
+  )
+  @fs.write_file(
+    evidence + "/" + label + ".stderr",
+    errors.binary(),
+    create_mode=CreateNew,
+  )
+  let exit : Json = { "exit": status }
+  @fs.write_file(
+    evidence + "/" + label + ".exit.json",
+    exit,
+    create_mode=CreateNew,
+  )
+  guard status == 0 else {
+    fail("\{label} exited \{status}; see retained stderr in \{evidence}")
+  }
+  output.text()
+}
+
+///|
+/// All source files, manifests, C stubs, fixtures and documents are frozen.
+/// The manifest hashes contents and relative paths, so a rename changes it.
+async fn collect_source_files(
+  root : String,
+  relative : String,
+  files : Array[String],
+) -> Unit {
+  let directory = if relative.is_empty() { root } else { root + "/" + relative }
+  for name in @fs.readdir(directory) {
+    if name == ".git" ||
+      name == ".mooncakes" ||
+      name == "_build" ||
+      name == "target" ||
+      name == ".DS_Store" ||
+      name == "coverage.xml" {
+      continue
+    }
+    let path = if relative.is_empty() { name } else { relative + "/" + name }
+    match @fs.kind(root + "/" + path, follow_symlink=false) {
+      Directory => collect_source_files(root, path, files)
+      Regular => files.push(path)
+      _ => fail("source snapshot rejects non-regular file: \{path}")
+    }
+  }
+}
+
+///|
+async fn source_manifest(root : String, copy_to? : String) -> String {
+  let paths : Array[String] = []
+  collect_source_files(root, "", paths)
+  paths.sort()
+  let entries : Array[String] = []
+  for path in paths {
+    let bytes = @fs.read_file(root + "/" + path).binary()
+    entries.push(digest(bytes) + "  " + path)
+    if copy_to is Some(destination) {
+      let parts = path.split("/").map(fn(part) { part.to_owned() }).to_array()
+      ignore(parts.pop())
+      if !parts.is_empty() {
+        let parent = destination + "/" + parts.join("/")
+        if !@fs.exists(parent) {
+          @fs.mkdir(parent, recursive=true)
+        }
+      }
+      @fs.write_file(destination + "/" + path, bytes, create_mode=CreateNew)
+    }
+  }
+  entries.join("\n") + "\n"
+}
+
+///|
+/// Identical workload and raw timing program are injected into both snapshots.
+/// Core bench's monotonic timer is used, but its 100ms calibration, rounded
+/// console summary and winsorization are deliberately not used.
+fn workload_source() -> String {
+  (
+    #|///|
+    #|fn decode_request(input : Bytes) -> Int {
+    #|  let decoder = @http1.RequestDecoder::new()
+    #|  decoder.feed(input).unwrap()
+    #|  let mut heads = 0
+    #|  let mut ends = 0
+    #|  let mut body_bytes = 0
+    #|  while true {
+    #|    match decoder.next().unwrap() {
+    #|      Some(RequestHead(_)) => heads += 1
+    #|      Some(RequestData(bytes)) => body_bytes += bytes.length()
+    #|      Some(RequestEnd) => ends += 1
+    #|      Some(RequestTrailers(_)) => abort("unexpected trailers")
+    #|      None => break
+    #|    }
+    #|  }
+    #|  if heads != 1 || ends != 1 || body_bytes != 1024 {
+    #|    abort("HTTP/1 decoder behavior changed during performance measurement")
+    #|  }
+    #|  heads + ends + body_bytes
+    #|}
+    #|
+    #|///|
+    #|fn main {
+    #|  let input = b"POST /upload HTTP/1.1\r\nHost: example.test\r\nContent-Length: 1024\r\n\r\n" + Bytes::make(1024, b'a')
+    #|  let keeper = @bench.Bench()
+    #|  let args = @env.args()
+    #|  let verify_only = args.length() == 2 && args[1] == "--verify-only"
+    #|  if verify_only {
+    #|    println(decode_request(input))
+    #|    return
+    #|  }
+    #|  // A fixed warmup precedes every arm, independently of measured outcomes.
+    #|  for _ in 0..<10000 { keeper.keep(decode_request(input)) }
+    #|  let elapsed_us : Array[Double] = []
+    #|  for _ in 0..<8 {
+    #|    let started = @bench.monotonic_clock_start()
+    #|    for _ in 0..<100000 { keeper.keep(decode_request(input)) }
+    #|    elapsed_us.push(@bench.monotonic_clock_end(started))
+    #|  }
+    #|  let result : Json = {
+    #|    "operation": "http1-decode-post-1024", "warmup_iterations": 10000,
+    #|    "sample_iterations": 100000, "sample_elapsed_us": elapsed_us,
+    #|    "oracle": 1026,
+    #|  }
+    #|  println(result.stringify())
+    #|}
+  )
+}
+
+///|
+fn workload_package() -> String {
+  (
+    #|import {
+    #|  "ZSeanYves/MoonbitHTTP/http1",
+    #|  "moonbitlang/core/bench",
+    #|  "moonbitlang/core/env",
+    #|}
+    #|pkgtype(kind: "executable")
+  )
+}
+
+///|
+async fn install_workload(
+  root : String,
+  source : String,
+  pkg_source : String,
+) -> Unit {
+  let path = root + "/performance_gate"
+  guard !@fs.exists(path) else {
+    fail("reserved workload package already exists: \{path}")
+  }
+  @fs.mkdir(path)
+  @fs.write_file(path + "/main.mbt", source, create_mode=CreateNew)
+  @fs.write_file(path + "/moon.pkg", pkg_source, create_mode=CreateNew)
+}
+
+///|
+fn measurement(output : String, arm : String, pair : Int) -> Measurement raise {
+  let json = @json.parse(output)
+  guard json
+    is {
+      "operation": "http1-decode-post-1024",
+      "sample_iterations": Number(iterations, ..),
+      "sample_elapsed_us": Array(samples),
+      "oracle": 1026,
+      ..
+    } &&
+    iterations == sample_iterations.to_double() &&
+    samples.length() == sample_count else {
+    fail("invalid benchmark output or changed workload settings")
+  }
+  let values : Array[Double] = []
+  for sample in samples {
+    guard sample is Number(elapsed, ..) && elapsed >= 500000.0 else {
+      fail(
+        "timing sample shorter than 500ms; sample duration requires a new predeclared method",
+      )
+    }
+    values.push(elapsed * 1000.0 / iterations)
+  }
+  let mean = values.fold(init=0.0, fn(sum, value) { sum + value }) /
+    values.length().to_double()
+  let variance = values.fold(init=0.0, fn(sum, value) {
+      sum + (value - mean) * (value - mean)
+    }) /
+    (values.length() - 1).to_double()
+  {
+    arm,
+    pair,
+    raw_sample_ns: values,
+    mean_ns: mean,
+    sigma_ns: @math.pow(variance, 0.5),
+  }
+}
+
+///|
+fn median(values : Array[Double]) -> Double {
+  let sorted = values.copy()
+  sorted.sort()
+  let middle = sorted.length() / 2
+  if sorted.length() % 2 == 0 {
+    (sorted[middle - 1] + sorted[middle]) / 2.0
+  } else {
+    sorted[middle]
+  }
+}
+
+///|
+fn sample_for(
+  values : Array[Measurement],
+  arm : String,
+  pair : Int,
+) -> Double raise {
+  for value in values {
+    if value.arm == arm && value.pair == pair {
+      return value.mean_ns
+    }
+  }
+  fail("missing \{arm} measurement for pair \{pair}")
+}
+
+///|
+async fn compare(directory : String, root : String, verify_only : Bool) -> Unit {
+  let baseline_source = directory + "/baseline-source"
+  let current_source = directory + "/current-source"
+  @fs.mkdir(baseline_source)
+  @fs.mkdir(current_source)
+  let archive = directory + "/baseline.tar"
+  ignore(
+    run_recorded(
+      directory,
+      "baseline-archive",
+      "git",
+      ["archive", "--format=tar", "--output=" + archive, baseline_revision],
+      root,
+    ),
+  )
+  ignore(
+    run_recorded(
+      directory,
+      "baseline-extract",
+      "tar",
+      ["-xf", archive, "-C", baseline_source],
+      root,
+    ),
+  )
+  let current_manifest = source_manifest(root, copy_to=current_source)
+  guard source_manifest(root) == current_manifest &&
+    source_manifest(current_source) == current_manifest else {
+    fail("working source changed during snapshot; no measurements were taken")
+  }
+  let baseline_manifest = source_manifest(baseline_source)
+  @fs.write_file(
+    directory + "/baseline-source-manifest.sha256",
+    baseline_manifest,
+    create_mode=CreateNew,
+  )
+  @fs.write_file(
+    directory + "/current-source-manifest.sha256",
+    current_manifest,
+    create_mode=CreateNew,
+  )
+  let source = workload_source()
+  let pkg_source = workload_package()
+  @fs.write_file(
+    directory + "/benchmark-workload.mbt",
+    source,
+    create_mode=CreateNew,
+  )
+  @fs.write_file(
+    directory + "/benchmark-workload.pkg",
+    pkg_source,
+    create_mode=CreateNew,
+  )
+  install_workload(baseline_source, source, pkg_source)
+  install_workload(current_source, source, pkg_source)
+  let plan : Json = {
+    "method_version": 2,
+    "pairs": pair_count,
+    "order": "AB BA AB BA AB BA",
+    "raw_samples_per_arm": sample_count,
+    "sample_iterations": sample_iterations,
+    "warmup_iterations": 10000,
+    "minimum_sample_duration_ms": 500,
+    "max_sample_relative_sigma": max_sample_noise,
+    "max_median_regression": max_median_regression,
+    "max_pair_and_geomean_regression": max_pair_regression,
+    "outlier_policy": "retain every raw sample; no winsorization, trimming or retries",
+    "baseline_revision": baseline_revision,
+    "baseline_source_manifest_sha256": digest(@utf8.encode(baseline_manifest)),
+    "current_source_manifest_sha256": digest(@utf8.encode(current_manifest)),
+    "workload_source_sha256": digest(@utf8.encode(source)),
+    "workload_package_sha256": digest(@utf8.encode(pkg_source)),
+  }
+  @fs.write_file(directory + "/plan.json", plan, create_mode=CreateNew)
+  ignore(
+    run_recorded(directory, "toolchain", "moon", ["version", "--all"], root),
+  )
+  ignore(run_recorded(directory, "system", "uname", ["-a"], root))
+  ignore(
+    run_recorded(directory, "revision", "git", ["rev-parse", "HEAD"], root),
+  )
+  ignore(
+    run_recorded(
+      directory,
+      "worktree",
+      "git",
+      ["status", "--porcelain=v1", "--untracked-files=all"],
+      root,
+    ),
+  )
+  let binaries : Map[String, String] = Map([])
+  let binary_hashes : Map[String, String] = Map([])
+  // Both complete builds precede all measurements. Each binary is then run
+  // directly from its isolated source snapshot, so no recompile or shared
+  // working-tree edit can alter one arm mid-window.
+  for
+    (arm, snapshot) in [
+      ("baseline", baseline_source),
+      ("current", current_source),
+    ] {
+    ignore(
+      run_recorded(
+        directory,
+        arm + "-build",
+        "moon",
+        [
+          "build", "performance_gate", "--target", "native", "--release", "--deny-warn",
+          "--warn-list", "+73",
+        ],
+        snapshot,
+      ),
+    )
+    ignore(
+      run_recorded(
+        directory,
+        arm + "-dependencies",
+        "moon",
+        ["tree", "--json"],
+        snapshot,
+      ),
+    )
+    let executable = snapshot +
+      "/_build/native/release/build/performance_gate/performance_gate.exe"
+    binary_hashes[arm] = digest(@fs.read_file(executable).binary())
+    binaries[arm] = executable
+    let oracle = run_recorded(
+      directory,
+      arm + "-oracle",
+      executable,
+      ["--verify-only"],
+      snapshot,
+    )
+    guard oracle.trim() == "1026" else {
+      fail("\{arm} benchmark failed its behavior oracle")
+    }
+  }
+  @fs.write_file(
+    directory + "/compiled-binaries.json",
+    binary_hashes.to_json(),
+    create_mode=CreateNew,
+  )
+  if verify_only {
+    let verify_result : Json = {
+      "status": "build-and-oracle-only",
+      "timing_samples_taken": 0,
+    }
+    @fs.write_file(
+      directory + "/result.json",
+      verify_result,
+      create_mode=CreateNew,
+    )
+    println(
+      "PASS: benchmark builds and behavior oracles; no timing conclusion: \{directory}",
+    )
+    return
+  }
+  let measurements : Array[Measurement] = []
+  for pair in 0..<pair_count {
+    let order = if pair % 2 == 0 {
+      ["baseline", "current"]
+    } else {
+      ["current", "baseline"]
+    }
+    for arm in order {
+      let snapshot = if arm == "baseline" {
+        baseline_source
+      } else {
+        current_source
+      }
+      let executable = binaries[arm]
+      guard digest(@fs.read_file(executable).binary()) == binary_hashes[arm] else {
+        fail("benchmark binary changed")
+      }
+      println("Performance pair \{pair + 1}/\{pair_count}: \{arm}")
+      let output = run_recorded(
+        directory,
+        "pair-\{pair}-\{arm}",
+        executable,
+        [],
+        snapshot,
+      )
+      measurements.push(measurement(output, arm, pair))
+    }
+  }
+  let baseline_median = median(
+    measurements
+    .filter(fn(value) { value.arm == "baseline" })
+    .map(fn(value) { value.mean_ns }),
+  )
+  let current_median = median(
+    measurements
+    .filter(fn(value) { value.arm == "current" })
+    .map(fn(value) { value.mean_ns }),
+  )
+  let ratios = Array::makei(pair_count, fn(pair) raise {
+    sample_for(measurements, "current", pair) /
+    sample_for(measurements, "baseline", pair)
+  })
+  let geomean_ratio = @math.exp(
+    ratios.fold(init=0.0, fn(sum, ratio) { sum + @math.ln(ratio) }) /
+    ratios.length().to_double(),
+  )
+  let noisy = measurements.any(fn(value) {
+    value.sigma_ns / value.mean_ns > max_sample_noise
+  })
+  let passed_ratios = current_median / baseline_median - 1.0 <=
+    max_median_regression &&
+    geomean_ratio - 1.0 <= max_pair_regression &&
+    ratios.all(fn(ratio) { ratio - 1.0 <= max_pair_regression })
+  let status = if noisy {
+    "inconclusive-noisy"
+  } else if passed_ratios {
+    "pass-threshold"
+  } else {
+    "fail-regression-threshold"
+  }
+  let result : Json = {
+    "status": status,
+    "method_version": 2,
+    "operation": "HTTP/1 POST request decode, 1024-byte body",
+    "target": "native release",
+    "plan": "plan.json",
+    "pairs": pair_count,
+    "baseline_median_ns": baseline_median,
+    "current_median_ns": current_median,
+    "median_regression": current_median / baseline_median - 1.0,
+    "pair_current_over_baseline": ratios,
+    "geomean_current_over_baseline": geomean_ratio,
+    "geomean_regression": geomean_ratio - 1.0,
+    "samples": measurements.map(measurement_json),
+    "scope": "one local invariant HTTP1 codec workload; no HTTP2/3, TLS/QUIC, socket throughput, cross-platform or release-wide performance claim",
+  }
+  @fs.write_file(directory + "/result.json", result, create_mode=CreateNew)
+  println(result.stringify())
+  guard status == "pass-threshold" else {
+    fail("performance gate \{status}; evidence retained in \{directory}")
+  }
+}
+
+///|
+#warnings("-fragile_catch_all")
+async fn main {
+  let arguments = @env.args()
+  let verify_only = arguments.length() == 2 && arguments[1] == "--verify-only"
+  guard arguments.length() == 1 || verify_only else {
+    fail("usage: performance_comparison.mbtx [--verify-only]")
+  }
+  let (status, pwd, error) = @process.collect_output("pwd", [])
+  guard status == 0 else { fail(error.text()) }
+  let root = pwd.text().trim().to_owned()
+  let temporary = @fs.tmpdir(prefix="moonbithttp-performance")
+  let unique = temporary.split("/").to_array().last().unwrap().to_owned()
+  @fs.rmdir(temporary)
+  let directory = root + "/_build/evidence/performance/" + unique
+  @fs.mkdir(directory, recursive=true)
+  println("Performance evidence: \{directory}")
+  compare(directory, root, verify_only) catch {
+    error => {
+      if !@fs.exists(directory + "/result.json") {
+        let failed_result : Json = {
+          "status": "failed-execution",
+          "reason": error.to_string(),
+        }
+        @fs.write_file(
+          directory + "/result.json",
+          failed_result,
+          create_mode=CreateNew,
+        )
+      }
+      raise error
+    }
+  }
+}

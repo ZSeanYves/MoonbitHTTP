@@ -1,9 +1,12 @@
 import {
+  "ZSeanYves/MoonbitHTTP/transport",
+  "moonbitlang/async/aqueue",
   "moonbitlang/async/io" @aio,
   "moonbitlang/core/debug",
 }
 
 import {
+  "ZSeanYves/MoonbitHTTP/types",
   "moonbitlang/async",
   "ZSeanYves/MoonbitHTTP/http1",
 } for "test"

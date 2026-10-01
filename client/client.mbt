@@ -1,25 +1,25 @@
 ///|
-pub(all) struct ClientConfig {
+priv struct ClientConfig {
   options : RequestOptions
   proxy : ProxyConfig
-  tls : @tls.TlsOptions
+  tls : @transport.TlsOptions
   cookie_jar : @cookie.CookieJar
   cache : @cache.HttpCache
   mut cache_enabled : Bool
   wait : async (Int64) -> Unit
-  authorize_redirect : (@transport.Endpoint, @transport.PolicyOperation) -> Result[
+  authorize_redirect : (@types.Endpoint, @transport.PolicyOperation) -> Result[
     Unit,
     @transport.PolicyError,
   ]
   now_millis : () -> Int64
-  priv auth : ClientAuthStore
-  priv mut content_decoding : Bool
-  priv content_coding_limits : @content_coding.ContentCodingLimits
+  auth : ClientAuthStore
+  mut content_decoding : Bool
+  content_coding_limits : @content_coding.ContentCodingLimits
 }
 
 ///|
 pub struct Client {
-  config : ClientConfig
+  priv config : ClientConfig
 }
 
 ///|
@@ -34,16 +34,16 @@ async fn client_default_wait(delay_ms : Int64) -> Unit {
 pub fn Client::new(
   options? : RequestOptions = RequestOptions::defaults(),
   proxy? : ProxyConfig = ProxyConfig::direct(),
-  tls? : @tls.TlsOptions = @tls.TlsOptions::defaults(),
+  tls? : @transport.TlsOptions = @transport.TlsOptions::defaults(),
   cookie_jar? : @cookie.CookieJar = @cookie.CookieJar::new().unwrap(),
   cache? : @cache.HttpCache = @cache.HttpCache::new().unwrap(),
   cache_enabled? : Bool = false,
   wait? : async (Int64) -> Unit = client_default_wait,
-  authorize_redirect? : (@transport.Endpoint, @transport.PolicyOperation) -> Result[
+  authorize_redirect~ : (@types.Endpoint, @transport.PolicyOperation) -> Result[
     Unit,
     @transport.PolicyError,
-  ] = fn(_, _) { Ok(()) },
-  now_millis? : () -> Int64 = fn() { 0L },
+  ],
+  now_millis~ : () -> Int64,
   content_decoding? : Bool = false,
   content_coding_limits? : @content_coding.ContentCodingLimits = @content_coding.ContentCodingLimits::defaults(),
 ) -> Result[Client, ClientError] {
@@ -95,7 +95,7 @@ pub fn Client::proxy(self : Client) -> ProxyConfig {
 }
 
 ///|
-pub fn Client::tls(self : Client) -> @tls.TlsOptions {
+pub fn Client::tls(self : Client) -> @transport.TlsOptions {
   self.config.tls
 }
 

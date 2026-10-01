@@ -252,13 +252,3 @@ test "hpack dynamic: rejects table update beyond peer setting" {
     true,
   )
 }
-
-///|
-test "hpack huffman: RFC 7541 C.4.1 www.example.com vector" {
-  let raw = @utf8.encode("www.example.com").to_array()
-  let expected : Array[Byte] = [
-    0xf1, 0xe3, 0xc2, 0xe5, 0xf2, 0x3a, 0x6b, 0xa0, 0xab, 0x90, 0xf4, 0xff,
-  ]
-  assert_eq(@http2.hpack_huffman_encode(raw).unwrap(), expected)
-  assert_eq(@http2.hpack_huffman_decode(expected).unwrap(), raw)
-}

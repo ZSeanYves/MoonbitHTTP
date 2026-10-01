@@ -1,7 +1,10 @@
 ///|
 async test "native HTTP/1 factory honors an explicit network policy" {
-  let client = @native.new_http1_client_with_policy(
+  let client = @native.new_http1_client(
+    @transport_native.NativeResolver::new(),
     @transport.DenyAllPolicy::new(),
+    @transport_native.NativeClock::new(),
+    @tls_native.NativeTlsProvider::new(),
   ).unwrap()
   let request : @types.Request[Bytes] = {
     http_method: Get,

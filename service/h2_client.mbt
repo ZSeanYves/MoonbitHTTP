@@ -3,6 +3,7 @@ pub(all) struct H2ClientConfig {
   limits : @types.Limits
   max_concurrent_streams : Int
   body_queue_capacity : Int
+  h2_receive_window_bytes : Int
   read_size : Int
   read_timeout_ms : Int?
   write_timeout_ms : Int?
@@ -15,6 +16,7 @@ pub fn H2ClientConfig::defaults() -> H2ClientConfig {
     limits: @types.Limits::defaults(),
     max_concurrent_streams: 100,
     body_queue_capacity: 8,
+    h2_receive_window_bytes: 65535,
     read_size: 8192,
     read_timeout_ms: Some(30000),
     write_timeout_ms: Some(30000),
@@ -48,7 +50,9 @@ priv struct H2ClientShared {
   decoder : @http2.HpackContext
   frames : @http2.FrameDecoder
   streams : Map[Int, H2ClientStream]
-  blocked : Map[Int, H2ClientBlockedFrame]
+  // DATA in this backlog has already consumed HTTP/2 receive credit. Credit
+  // is restored only after BodyStream consumption, keeping it byte-bounded.
+  blocked : Map[Int, @deque.Deque[H2ClientBlockedFrame]]
   slots : @aqueue.Queue[Unit]
   blocked_signal : @aqueue.Queue[Unit]
   runtime_lock : @async.Mutex
@@ -131,6 +135,22 @@ async fn H2ClientShared::write_bytes(
 ) -> Unit {
   self.write_lock.acquire()
   defer self.write_lock.release()
+  (self.write)(bytes)
+}
+
+///|
+/// HPACK mutations and the resulting bytes share the wire's serialization
+/// point; parallel streams cannot encode in a different order from writes.
+async fn H2ClientShared::write_headers(
+  self : H2ClientShared,
+  encode : () -> Result[Bytes, @http2.H2ProtocolError],
+) -> Unit {
+  self.write_lock.acquire()
+  defer self.write_lock.release()
+  let bytes = match encode() {
+    Ok(value) => value
+    Err(error) => raise error
+  }
   (self.write)(bytes)
 }
 
@@ -288,39 +308,56 @@ async fn H2ClientShared::reset_stream(
 
 ///|
 fn H2ClientShared::drain_blocked(self : H2ClientShared) -> Unit {
-  for stream_id, blocked in self.blocked {
+  for stream_id, queue in self.blocked {
     guard self.streams.get(stream_id) is Some(stream) else {
       self.blocked.remove(stream_id)
       continue
     }
-    let accepted = match blocked {
-      BlockedData(data, _) =>
-        stream.body.try_push(Data(data)) catch {
-          error => {
-            self.fail_stream(stream, error)
-            false
+    while queue.front() is Some(blocked) {
+      let accepted = match blocked {
+        BlockedData(data, _) =>
+          stream.body.try_push(Data(data)) catch {
+            error => {
+              self.fail_stream(stream, error)
+              false
+            }
           }
-        }
-      BlockedTrailers(trailers) =>
-        stream.body.try_push(Trailers(trailers)) catch {
-          error => {
-            self.fail_stream(stream, error)
-            false
+        BlockedTrailers(trailers) =>
+          stream.body.try_push(Trailers(trailers)) catch {
+            error => {
+              self.fail_stream(stream, error)
+              false
+            }
           }
+      }
+      if accepted {
+        ignore(queue.pop_front())
+        match blocked {
+          BlockedData(_, true) | BlockedTrailers(_) => {
+            stream.response_finished = true
+            stream.body.finish()
+            self.release_stream(stream)
+          }
+          BlockedData(_, false) => ()
         }
-    }
-    if accepted {
-      self.blocked.remove(stream_id)
-      match blocked {
-        BlockedData(_, true) | BlockedTrailers(_) => {
-          stream.response_finished = true
-          stream.body.finish()
-          self.release_stream(stream)
-        }
-        BlockedData(_, false) => ()
+      } else {
+        break
       }
     }
+    if queue.is_empty() {
+      self.blocked.remove(stream_id)
+    }
   }
+}
+
+///|
+fn H2ClientShared::queue_blocked(
+  self : H2ClientShared,
+  stream_id : Int,
+  frame : H2ClientBlockedFrame,
+) -> Unit {
+  let queue = self.blocked.get_or_init(stream_id, fn() { Deque([]) })
+  queue.push_back(frame)
 }
 
 ///|
@@ -358,6 +395,10 @@ async fn H2ClientShared::deliver_headers(
       Ok(value) => value
       Err(error) => raise error
     }
+    if self.blocked.get(stream_id) is Some(_) {
+      self.queue_blocked(stream_id, BlockedTrailers(trailers))
+      return
+    }
     let accepted = stream.body.try_push(Trailers(trailers)) catch {
       error => {
         self.fail_stream(stream, error)
@@ -368,14 +409,8 @@ async fn H2ClientShared::deliver_headers(
       stream.response_finished = true
       stream.body.finish()
       self.release_stream(stream)
-    } else if self.blocked.get(stream_id) is Some(_) {
-      self.reset_stream(
-        stream_id,
-        FlowControlError,
-        "response body queue overflow",
-      )
     } else {
-      self.blocked.set(stream_id, BlockedTrailers(trailers))
+      self.queue_blocked(stream_id, BlockedTrailers(trailers))
     }
   }
 }
@@ -392,7 +427,14 @@ async fn H2ClientShared::deliver_data(
   if flow_size > data.length() {
     self.release_capacity(stream_id, flow_size - data.length())
   }
+  if data.is_empty() && !end_stream {
+    return
+  }
   let bytes = Bytes::from_array(data)
+  if self.blocked.get(stream_id) is Some(_) {
+    self.queue_blocked(stream_id, BlockedData(bytes, end_stream))
+    return
+  }
   let accepted = stream.body.try_push(Data(bytes)) catch {
     error => {
       self.fail_stream(stream, error)
@@ -405,14 +447,8 @@ async fn H2ClientShared::deliver_data(
       stream.body.finish()
       self.release_stream(stream)
     }
-  } else if self.blocked.get(stream_id) is Some(_) {
-    self.reset_stream(
-      stream_id,
-      FlowControlError,
-      "response body queue overflow",
-    )
   } else {
-    self.blocked.set(stream_id, BlockedData(bytes, end_stream))
+    self.queue_blocked(stream_id, BlockedData(bytes, end_stream))
   }
 }
 
@@ -485,6 +521,11 @@ async fn h2_client_reader_pump(shared : H2ClientShared) -> Unit {
       shared.runtime_lock.release()
       for action in actions {
         match action {
+          PeerHeaderTableSize(size) => {
+            shared.write_lock.acquire()
+            shared.encoder.set_encoder_table_size(size)
+            shared.write_lock.release()
+          }
           SendSettingsAck =>
             shared.write_bytes(
               Bytes::from_array(@http2.encode_settings_frame([], true)),
@@ -652,17 +693,9 @@ async fn[B : @body.Body] send_h2_request_body(
           )
         }
         sent_trailers = true
-        shared.runtime_lock.acquire()
-        let encoded = match
-          @http2.encode_trailers(shared.encoder, stream.id, trailers) {
-          Ok(value) => value
-          Err(error) => {
-            shared.runtime_lock.release()
-            raise error
-          }
-        }
-        shared.runtime_lock.release()
-        shared.write_bytes(encoded)
+        shared.write_headers(fn() {
+          @http2.encode_trailers(shared.encoder, stream.id, trailers)
+        })
       }
     }
   }
@@ -711,7 +744,7 @@ pub async fn[B : @body.Body] H2Client::send(
     }
   }
   let body = match
-    @body.BodyStream::try_new(capacity=self.shared.config.body_queue_capacity, on_data_consumed=async fn(
+    @body.BodyStream::new(capacity=self.shared.config.body_queue_capacity, on_data_consumed=async fn(
       amount,
     ) {
       errdefer (self.shared.reset_stream(
@@ -741,22 +774,34 @@ pub async fn[B : @body.Body] H2Client::send(
     released: false,
   }
   self.shared.streams.set(stream_id, stream)
-  let encoded = match
-    @http2.encode_request_headers(
-      self.shared.encoder,
+  self.shared.runtime_lock.release()
+  errdefer self.shared.fail_stream(
+    stream,
+    @http2.H2ProtocolError::StreamError(
       stream_id,
-      request,
-      exact_zero,
-    ) {
-    Ok(value) => value
+      Cancel,
+      "request ended before response headers",
+    ),
+  )
+  let written : Result[Unit, Error] = Ok(
+    self.shared.write_headers(fn() {
+      @http2.encode_request_headers(
+        self.shared.encoder,
+        stream_id,
+        request,
+        exact_zero,
+      )
+    }),
+  ) catch {
+    error => Err(error)
+  }
+  match written {
+    Ok(_) => ()
     Err(error) => {
-      self.shared.runtime_lock.release()
       self.shared.fail_stream(stream, error)
       raise error
     }
   }
-  self.shared.runtime_lock.release()
-  self.shared.write_bytes(encoded)
   if !exact_zero {
     let producer = async fn() {
       send_h2_request_body(self.shared, stream, request.body)
@@ -822,10 +867,16 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, X] with_h2_client_connection(
     let client : H2Client = { shared, }
     group.add_defer(fn() { shared.close_with(None) })
     shared.write_bytes(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
-    let receive_window = config.body_queue_capacity + 1
+    let receive_window = config.h2_receive_window_bytes
     shared.write_bytes(
       Bytes::from_array(
-        @http2.encode_settings_frame([{ id: 4, value: receive_window, }], false),
+        @http2.encode_settings_frame(
+          [
+            { id: 1, value: config.limits.max_dynamic_table_bytes, },
+            { id: 4, value: receive_window, },
+          ],
+          false,
+        ),
       ),
     )
     match shared.runtime.set_local_initial_window(receive_window) {

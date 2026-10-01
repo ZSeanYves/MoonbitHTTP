@@ -1,6 +1,12 @@
 ///|
 test "native HTTP/1 factory exposes bounded content decoding" {
-  let client = new_http1_client(content_decoding=true).unwrap()
+  let client = new_http1_client(
+    @transport_native.NativeResolver::new(),
+    @transport.AllowAllPolicy::new(),
+    @transport_native.NativeClock::new(),
+    @tls_native.NativeTlsProvider::new(),
+    content_decoding=true,
+  ).unwrap()
   assert_true(client.content_decoding())
   assert_eq(
     client.content_coding_limits(),
@@ -15,6 +21,12 @@ test "native HTTP/1 factory rejects invalid decoding limits" {
     ..@content_coding.ContentCodingLimits::defaults(),
     max_decoded_bytes: -1,
   }
-  let result = new_http1_client(content_coding_limits=limits)
+  let result = new_http1_client(
+    @transport_native.NativeResolver::new(),
+    @transport.AllowAllPolicy::new(),
+    @transport_native.NativeClock::new(),
+    @tls_native.NativeTlsProvider::new(),
+    content_coding_limits=limits,
+  )
   assert_true(result is Err(ClientInvalidOptions(_)))
 }

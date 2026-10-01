@@ -77,8 +77,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_or_h2c_co
 
   let settings = decode_h2c_settings(head.headers)
   strip_h2c_connection_headers(head.headers)
-  let body = match
-    @body.BodyStream::try_new(capacity=config.body_queue_capacity) {
+  let body = match @body.BodyStream::new(capacity=config.body_queue_capacity) {
     Ok(value) => value
     Err(error) => raise error
   }

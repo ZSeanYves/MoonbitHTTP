@@ -8,15 +8,15 @@ pub(all) enum QuicPathStatus {
 
 ///|
 pub(all) struct QuicPathManager {
-  mut active : @transport.Endpoint
-  mut candidate : @transport.Endpoint?
+  mut active : @types.Endpoint
+  mut candidate : @types.Endpoint?
   mut challenge : Bytes?
   mut status : QuicPathStatus
   mut generation : Int64
 } derive(Debug)
 
 ///|
-pub fn QuicPathManager::new(endpoint : @transport.Endpoint) -> QuicPathManager {
+pub fn QuicPathManager::new(endpoint : @types.Endpoint) -> QuicPathManager {
   {
     active: endpoint,
     candidate: None,
@@ -27,14 +27,12 @@ pub fn QuicPathManager::new(endpoint : @transport.Endpoint) -> QuicPathManager {
 }
 
 ///|
-pub fn QuicPathManager::active(self : QuicPathManager) -> @transport.Endpoint {
+pub fn QuicPathManager::active(self : QuicPathManager) -> @types.Endpoint {
   self.active
 }
 
 ///|
-pub fn QuicPathManager::candidate(
-  self : QuicPathManager,
-) -> @transport.Endpoint? {
+pub fn QuicPathManager::candidate(self : QuicPathManager) -> @types.Endpoint? {
   self.candidate
 }
 
@@ -53,14 +51,12 @@ pub fn QuicPathManager::generation(self : QuicPathManager) -> Int64 {
 /// the caller's Entropy capability and are never generated internally.
 pub fn QuicPathManager::begin(
   self : QuicPathManager,
-  endpoint : @transport.Endpoint,
+  endpoint : @types.Endpoint,
   challenge : Bytes,
 ) -> Result[Unit, QuicError] {
-  if endpoint == self.active {
-    return Err(InvalidPacket("path migration target is already active"))
-  }
-  if challenge.length() != 8 {
-    return Err(InvalidPacket("PATH_CHALLENGE must contain eight bytes"))
+  match self.validate_candidate(endpoint, challenge) {
+    Ok(_) => ()
+    Err(error) => return Err(error)
   }
   self.candidate = Some(endpoint)
   self.challenge = Some(challenge)
@@ -69,25 +65,47 @@ pub fn QuicPathManager::begin(
 }
 
 ///|
+fn QuicPathManager::validate_candidate(
+  self : QuicPathManager,
+  endpoint : @types.Endpoint,
+  challenge : Bytes,
+) -> Result[Unit, QuicError] {
+  if endpoint == self.active {
+    return Err(InvalidPacket("path migration target is already active"))
+  }
+  if challenge.length() != 8 {
+    return Err(InvalidPacket("PATH_CHALLENGE must contain eight bytes"))
+  }
+  Ok(())
+}
+
+///|
+fn QuicPathManager::matches_response(
+  self : QuicPathManager,
+  response : Bytes,
+) -> Bool {
+  self.candidate is Some(_) && self.challenge == Some(response)
+}
+
+///|
 pub fn QuicPathManager::on_response(
   self : QuicPathManager,
-  endpoint : @transport.Endpoint,
+  endpoint : @types.Endpoint,
   response : Bytes,
 ) -> Result[Unit, QuicError] {
+  ignore(endpoint)
   guard self.candidate is Some(candidate) else {
     return Err(InvalidPacket("unexpected PATH_RESPONSE"))
-  }
-  guard candidate == endpoint else {
-    return Err(InvalidPacket("PATH_RESPONSE arrived on another path"))
   }
   guard self.challenge is Some(challenge) else {
     return Err(InvalidPacket("path challenge is missing"))
   }
   guard challenge == response else {
-    self.status = PathFailed
     return Err(InvalidPacket("PATH_RESPONSE does not match challenge"))
   }
-  self.active = endpoint
+  // RFC 9000 section 8.2.3 permits a matching response on any path. The
+  // response validates the path the challenge was sent to, not its source.
+  self.active = candidate
   self.candidate = None
   self.challenge = None
   self.status = PathValidated

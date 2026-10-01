@@ -29,8 +29,21 @@ fn pooled_client_error_message(error : @client.ClientError) -> String {
     ClientBody(_) => "body"
     ClientTimeout(_, _, _) => "timeout"
     ClientCancelled(message) => "cancelled: " + message
+    ClientConnection(_) => "connection state"
+    ClientHttp1(_) => "HTTP/1"
     ClientProtocol(message) => "protocol: " + message
   }
+}
+
+///|
+async fn test_resolve_origin(
+  host : String,
+  options : @transport.ResolveOptions,
+) -> Result[Array[@types.IpAddress], @transport.TransportError] {
+  let resolver = @transport.StaticResolver::new([
+    ("origin.test", [@types.IpAddress::parse("192.0.2.10").unwrap()]),
+  ])
+  @transport.NameResolver::resolve(resolver, host, options)
 }
 
 ///|
@@ -72,7 +85,7 @@ impl @transport.StreamConnector for FacadeTestConnector with fn connect(
 
 ///|
 async test "pooled HTTP/1: sequential requests reuse one physical connection" {
-  let endpoint = @transport.Endpoint::new("http", "origin.test", 80).unwrap()
+  let endpoint = @types.Endpoint::new("http", "192.0.2.10", 80).unwrap()
   let responses = [
     b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\none", b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\ntwo",
   ]
@@ -105,6 +118,9 @@ async test "pooled HTTP/1: sequential requests reuse one physical connection" {
       )
     },
     fn(_, _) { Err(Unsupported) },
+    resolve=Some(test_resolve_origin),
+    authorize=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
   ).unwrap()
   let headers = @types.HeaderMap::new()
   headers.append_string("host", "attacker.test").unwrap()
@@ -127,7 +143,7 @@ async test "pooled HTTP/1: sequential requests reuse one physical connection" {
 
 ///|
 async test "pooled HTTP/1: cancelling a response destroys the lease" {
-  let endpoint = @transport.Endpoint::new("http", "origin.test", 80).unwrap()
+  let endpoint = @types.Endpoint::new("http", "192.0.2.10", 80).unwrap()
   let mut connects = 0
   let mut closes = 0
   let executor = @client.Http1PooledRoundTripper::new(
@@ -152,6 +168,9 @@ async test "pooled HTTP/1: cancelling a response destroys the lease" {
       )
     },
     fn(_, _) { Err(Unsupported) },
+    resolve=Some(test_resolve_origin),
+    authorize=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
   ).unwrap()
   let request = pooled_request("http://origin.test/", @types.HeaderMap::new())
   let first = executor.execute_stream(request).unwrap()
@@ -169,8 +188,7 @@ async test "pooled HTTP/1: cancelling a response destroys the lease" {
 
 ///|
 async test "pooled HTTP/1: forward proxy uses absolute form and isolated credentials" {
-  let proxy_endpoint = match
-    @transport.Endpoint::new("http", "proxy.test", 8080) {
+  let proxy_endpoint = match @types.Endpoint::new("http", "192.0.2.20", 8080) {
     Ok(value) => value
     Err(_) => fail("valid forward proxy endpoint was rejected")
   }
@@ -205,7 +223,10 @@ async test "pooled HTTP/1: forward proxy uses absolute form and isolated credent
       )
     },
     fn(_, _) { Err(Unsupported) },
+    resolve=Some(test_resolve_origin),
     proxy~,
+    authorize=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
   ).unwrap()
   let headers = @types.HeaderMap::new()
   headers.append_string("proxy-authorization", "Basic secret").unwrap()
@@ -222,7 +243,7 @@ async test "pooled HTTP/1: forward proxy uses absolute form and isolated credent
 
 ///|
 async test "pooled HTTP/1: proxy credentials require an explicit pool identity" {
-  let proxy_endpoint = @transport.Endpoint::new("http", "proxy.test", 8080).unwrap()
+  let proxy_endpoint = @types.Endpoint::new("http", "192.0.2.20", 8080).unwrap()
   let mut connects = 0
   let executor = @client.Http1PooledRoundTripper::new(
     (actual, _) => {
@@ -237,7 +258,10 @@ async test "pooled HTTP/1: proxy credentials require an explicit pool identity" 
       )
     },
     fn(_, _) { Err(Unsupported) },
+    resolve=Some(test_resolve_origin),
     proxy=@client.ProxyConfig::http_forward(proxy_endpoint),
+    authorize=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
   ).unwrap()
   let headers = @types.HeaderMap::new()
   headers.append_string("proxy-authorization", "Basic secret").unwrap()
@@ -250,8 +274,7 @@ async test "pooled HTTP/1: proxy credentials require an explicit pool identity" 
 
 ///|
 async test "pooled HTTP/1: CONNECT isolates proxy auth and applies origin TLS" {
-  let proxy_endpoint = match
-    @transport.Endpoint::new("http", "proxy.test", 8080) {
+  let proxy_endpoint = match @types.Endpoint::new("http", "192.0.2.20", 8080) {
     Ok(value) => value
     Err(_) => fail("valid CONNECT proxy endpoint was rejected")
   }
@@ -287,7 +310,7 @@ async test "pooled HTTP/1: CONNECT isolates proxy auth and applies origin TLS" {
     fn(connection, options) {
       tls_hosts.push(options.server_name.unwrap_or(""))
       Ok(
-        @tls.SecureConnection::new(
+        @transport.SecureConnection::new(
           connection,
           Tls13,
           "TLS_AES_128_GCM_SHA256",
@@ -297,10 +320,13 @@ async test "pooled HTTP/1: CONNECT isolates proxy auth and applies origin TLS" {
         ),
       )
     },
+    resolve=Some(test_resolve_origin),
     proxy=@client.ProxyConfig::https_connect(
       proxy_endpoint,
       identity_key=Some("account-a"),
     ),
+    authorize=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
   ).unwrap()
   let headers = @types.HeaderMap::new()
   headers.append_string("proxy-authorization", "Basic secret").unwrap()
@@ -338,9 +364,11 @@ async test "pooled HTTP/1: policy denial happens before socket creation" {
       )
     },
     fn(_, _) { Err(Unsupported) },
+    resolve=Some(test_resolve_origin),
     authorize=fn(_, operation) {
       Err(Denied(operation, "blocked by test policy"))
     },
+    now_millis=fn() { 0L },
   ).unwrap()
   assert_true(
     executor.execute(
@@ -348,6 +376,69 @@ async test "pooled HTTP/1: policy denial happens before socket creation" {
     )
     is Err(ClientPolicy(_)),
   )
+  assert_eq(connects, 0)
+}
+
+///|
+async test "pooled HTTP/1: missing resolver rejects hostname before connector" {
+  let connected_hosts : Array[String] = []
+  let executor = @client.Http1PooledRoundTripper::new(
+    (endpoint, _) => {
+      connected_hosts.push(endpoint.host())
+      Err(Failed(Connect, "test connection rejected"))
+    },
+    fn(_, _) { Err(Unsupported) },
+    authorize=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
+  ).unwrap()
+  assert_true(
+    executor.execute(
+      pooled_request("http://origin.test/", @types.HeaderMap::new()),
+    )
+    is Err(
+      ClientInvalidOptions("hostname endpoints require an explicit resolver")
+    ),
+  )
+  assert_eq(connected_hosts, [])
+  assert_true(
+    executor.execute(
+      pooled_request("http://192.0.2.10/", @types.HeaderMap::new()),
+    )
+    is Err(ClientTransport(Failed(Connect, "test connection rejected"))),
+  )
+  assert_eq(connected_hosts, ["192.0.2.10"])
+  executor.close()
+}
+
+///|
+async test "pooled HTTP/1: proxy origins require explicit resolution" {
+  let mut connects = 0
+  let proxy_endpoint = @types.Endpoint::new("http", "192.0.2.20", 8080).unwrap()
+  for
+    proxy in [
+      @client.ProxyConfig::http_forward(proxy_endpoint),
+      @client.ProxyConfig::https_connect(proxy_endpoint),
+    ] {
+    let executor = @client.Http1PooledRoundTripper::new(
+      fn(_, _) {
+        connects += 1
+        Err(Failed(Connect, "test connection rejected"))
+      },
+      fn(_, _) { Err(Unsupported) },
+      proxy~,
+      authorize=fn(_, _) { Ok(()) },
+      now_millis=fn() { 0L },
+    ).unwrap()
+    assert_true(
+      executor.execute(
+        pooled_request("http://origin.test/", @types.HeaderMap::new()),
+      )
+      is Err(
+        ClientInvalidOptions("hostname endpoints require an explicit resolver")
+      ),
+    )
+    executor.close()
+  }
   assert_eq(connects, 0)
 }
 
@@ -385,8 +476,8 @@ async test "pooled HTTP/1: resolved IPs are authorized and connection fallback i
       assert_eq(host, "origin.test")
       assert_eq(options.max_results, 16)
       Ok([
-        @transport.IpAddress::parse("192.0.2.1").unwrap(),
-        @transport.IpAddress::parse("198.51.100.2").unwrap(),
+        @types.IpAddress::parse("192.0.2.1").unwrap(),
+        @types.IpAddress::parse("198.51.100.2").unwrap(),
       ])
     }),
     authorize=fn(endpoint, operation) {
@@ -397,6 +488,7 @@ async test "pooled HTTP/1: resolved IPs are authorized and connection fallback i
       }
       Ok(())
     },
+    now_millis=fn() { 0L },
   ).unwrap()
   let response = executor
     .execute(pooled_request("http://origin.test/", @types.HeaderMap::new()))
@@ -425,7 +517,7 @@ async test "pooled HTTP/1: resolved IP policy denial precedes socket creation" {
     },
     fn(_, _) { Err(Unsupported) },
     resolve=Some(fn(_, _) {
-      Ok([@transport.IpAddress::parse("127.0.0.1").unwrap()])
+      Ok([@types.IpAddress::parse("127.0.0.1").unwrap()])
     }),
     authorize=fn(endpoint, operation) {
       if operation == Connect && endpoint.host() == "127.0.0.1" {
@@ -434,6 +526,7 @@ async test "pooled HTTP/1: resolved IP policy denial precedes socket creation" {
         Ok(())
       }
     },
+    now_millis=fn() { 0L },
   ).unwrap()
   assert_true(
     executor.execute(
@@ -446,7 +539,7 @@ async test "pooled HTTP/1: resolved IP policy denial precedes socket creation" {
 
 ///|
 async test "pooled HTTP/1: proxy preflights every resolved origin address" {
-  let proxy_endpoint = @transport.Endpoint::new("http", "proxy.test", 8080).unwrap()
+  let proxy_endpoint = @types.Endpoint::new("http", "192.0.2.20", 8080).unwrap()
   let mut connects = 0
   let policy_operations : Array[@transport.PolicyOperation] = []
   let executor = @client.Http1PooledRoundTripper::new(
@@ -464,7 +557,7 @@ async test "pooled HTTP/1: proxy preflights every resolved origin address" {
     fn(_, _) { Err(Unsupported) },
     resolve=Some((host, _) => {
       assert_eq(host, "origin.test")
-      Ok([@transport.IpAddress::parse("127.0.0.1").unwrap()])
+      Ok([@types.IpAddress::parse("127.0.0.1").unwrap()])
     }),
     authorize=fn(endpoint, operation) {
       policy_operations.push(operation)
@@ -475,6 +568,7 @@ async test "pooled HTTP/1: proxy preflights every resolved origin address" {
       }
     },
     proxy=@client.ProxyConfig::http_forward(proxy_endpoint),
+    now_millis=fn() { 0L },
   ).unwrap()
   assert_true(
     executor.execute(
@@ -489,7 +583,7 @@ async test "pooled HTTP/1: proxy preflights every resolved origin address" {
 
 ///|
 async test "pooled HTTP/1: CONNECT preflights resolved origin addresses" {
-  let proxy_endpoint = @transport.Endpoint::new("http", "proxy.test", 8080).unwrap()
+  let proxy_endpoint = @types.Endpoint::new("http", "192.0.2.20", 8080).unwrap()
   let mut connects = 0
   let executor = @client.Http1PooledRoundTripper::new(
     fn(actual, _) {
@@ -504,9 +598,7 @@ async test "pooled HTTP/1: CONNECT preflights resolved origin addresses" {
       )
     },
     fn(_, _) { Err(Unsupported) },
-    resolve=Some((_, _) => {
-      Ok([@transport.IpAddress::parse("10.0.0.1").unwrap()])
-    }),
+    resolve=Some((_, _) => Ok([@types.IpAddress::parse("10.0.0.1").unwrap()])),
     authorize=fn(endpoint, operation) {
       if operation == Connect && endpoint.host() == "10.0.0.1" {
         Err(Denied(Connect, "private address is forbidden"))
@@ -515,6 +607,7 @@ async test "pooled HTTP/1: CONNECT preflights resolved origin addresses" {
       }
     },
     proxy=@client.ProxyConfig::https_connect(proxy_endpoint),
+    now_millis=fn() { 0L },
   ).unwrap()
   assert_true(
     executor.execute(
@@ -529,6 +622,7 @@ async test "pooled HTTP/1: CONNECT preflights resolved origin addresses" {
 ///|
 async test "pooled HTTP/1: resolver timeout preserves the resolve phase" {
   let mut connects = 0
+  let clock = @test_support.FixedClock::new(250L, 1700000000L)
   let executor = @client.Http1PooledRoundTripper::new(
     fn(actual, _) {
       connects += 1
@@ -543,12 +637,14 @@ async test "pooled HTTP/1: resolver timeout preserves the resolve phase" {
     },
     fn(_, _) { Err(Unsupported) },
     resolve=Some(fn(_, _) { Err(Timeout(Resolve)) }),
+    authorize=fn(_, _) { Ok(()) },
+    now_millis=fn() { clock.monotonic_millis() },
   ).unwrap()
   assert_true(
     executor.execute(
       pooled_request("http://origin.test/", @types.HeaderMap::new()),
     )
-    is Err(ClientTimeout(ClientResolve, 10000L, 10000L)),
+    is Err(ClientTimeout(ClientResolve, 10000L, 10250L)),
   )
   assert_eq(connects, 0)
 }
@@ -565,14 +661,14 @@ async test "HTTP/1 client facade owns policy, DNS, pool, clock, and shutdown" {
     closes: 0,
   }
   let resolver = @transport.StaticResolver::new([
-    ("origin.test", [@transport.IpAddress::parse("192.0.2.10").unwrap()]),
+    ("origin.test", [@types.IpAddress::parse("192.0.2.10").unwrap()]),
   ])
   let client = @client.Http1Client::from_capabilities(
     connector,
     resolver,
-    @tls.UnsupportedProvider::new(),
+    @transport.UnsupportedProvider::new(),
     @transport.AllowAllPolicy::new(),
-    @transport.FixedClock::new(100L, 1700000000L),
+    @test_support.FixedClock::new(100L, 1700000000L),
   ).unwrap()
   let request = pooled_request(
     "http://origin.test/resource",
@@ -613,7 +709,10 @@ async test "pooled HTTP/1: capacity wait is released by body cancellation" {
       )
     },
     fn(_, _) { Err(Unsupported) },
+    resolve=Some(test_resolve_origin),
     pool_limits={ max_total: 1, max_idle: 1, },
+    authorize=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
   ).unwrap()
   let request = pooled_request("http://origin.test/", @types.HeaderMap::new())
   let first = executor.execute_stream(request).unwrap()
@@ -634,4 +733,43 @@ async test "pooled HTTP/1: capacity wait is released by body cancellation" {
   assert_eq(closes, 1)
   executor.close()
   assert_eq(closes, 2)
+}
+
+///|
+async test "pooled HTTP/1: close does not publish an in-flight session" {
+  let started : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+  let gate : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+  let mut closes = 0
+  let executor = @client.Http1PooledRoundTripper::new(
+    async fn(endpoint, _) {
+      started.put(())
+      @async.pause()
+      gate.get()
+      Ok(
+        @transport.StreamConnection::new(
+          endpoint,
+          fn(_) { Ok(None) },
+          fn(_) { Ok(()) },
+          fn() { closes += 1 },
+        ),
+      )
+    },
+    fn(_, _) { Err(Unsupported) },
+    authorize=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
+    pool_limits={ max_total: 1, max_idle: 1, },
+  ).unwrap()
+  @async.with_task_group(async fn(group) {
+    let task = group.spawn(async fn() {
+      executor.execute(
+        pooled_request("http://192.0.2.10/", @types.HeaderMap::new()),
+      )
+    })
+    started.get()
+    executor.close()
+    gate.put(())
+    assert_true(task.wait() is Err(ClientCancelled(_)))
+  })
+  assert_eq(executor.connection_count(), 0)
+  assert_eq(closes, 1)
 }

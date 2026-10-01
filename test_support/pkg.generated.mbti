@@ -2,6 +2,9 @@
 package "ZSeanYves/MoonbitHTTP/test_support"
 
 import {
+  "ZSeanYves/MoonbitHTTP/transport",
+  "ZSeanYves/MoonbitHTTP/types",
+  "moonbitlang/async/aqueue",
   "moonbitlang/async/io",
   "moonbitlang/core/debug",
 }
@@ -38,6 +41,33 @@ pub async fn FaultReader::read_some(Self, max_len? : Int) -> Bytes?
 pub async fn FaultReader::read_until(Self, StringView) -> String?
 pub impl @io.Reader for FaultReader
 
+pub(all) struct FixedClock {
+  mut monotonic : Int64
+  mut wall_seconds : Int64
+} derive(Eq, @debug.Debug)
+pub fn FixedClock::advance(Self, Int64) -> Result[Unit, String]
+pub fn FixedClock::equal(Self, Self) -> Bool
+pub fn FixedClock::monotonic_millis(Self) -> Int64
+pub fn FixedClock::new(Int64, Int64) -> Self
+pub fn FixedClock::not_equal(Self, Self) -> Bool
+pub fn FixedClock::to_repr(Self) -> @debug.Repr
+pub fn FixedClock::wall_clock_seconds(Self) -> Int64
+pub impl @transport.Clock for FixedClock
+
+pub struct MemoryDatagramSocket {
+  inbound : @aqueue.Queue[@transport.Datagram]
+  sent : Array[@transport.Datagram]
+  max_datagram_size : Int
+  mut closed : Bool
+}
+pub fn MemoryDatagramSocket::close(Self) -> Unit
+pub fn MemoryDatagramSocket::inject(Self, @transport.Datagram) -> Result[Unit, @transport.TransportError]
+pub fn MemoryDatagramSocket::new(max_datagram_size? : Int) -> Result[Self, @transport.TransportError]
+pub async fn MemoryDatagramSocket::receive(Self, Int) -> Result[@transport.Datagram, @transport.TransportError]
+pub async fn MemoryDatagramSocket::send(Self, @types.Endpoint, Bytes) -> Result[Unit, @transport.TransportError]
+pub fn MemoryDatagramSocket::sent(Self) -> Array[@transport.Datagram]
+pub impl @transport.DatagramSocket for MemoryDatagramSocket
+
 pub struct RecordingWriter {
   bytes : Array[Byte]
   mut writes : Int
@@ -49,6 +79,11 @@ pub async fn RecordingWriter::write(Self, &@io.Data) -> Unit
 pub async fn RecordingWriter::write_once(Self, Bytes, offset~ : Int, len~ : Int) -> Int
 pub async fn RecordingWriter::write_reader(Self, &@io.Reader) -> Unit
 pub impl @io.Writer for RecordingWriter
+
+pub struct ZeroEntropy(Unit)
+pub fn ZeroEntropy::fill(Self, FixedArray[Byte]) -> Result[Unit, @transport.EntropyError]
+pub fn ZeroEntropy::new() -> Self
+pub impl @transport.Entropy for ZeroEntropy
 
 // Type aliases
 

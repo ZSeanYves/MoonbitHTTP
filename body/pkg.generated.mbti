@@ -3,7 +3,6 @@ package "ZSeanYves/MoonbitHTTP/body"
 
 import {
   "ZSeanYves/MoonbitHTTP/types",
-  "moonbitlang/async/aqueue",
   "moonbitlang/core/debug",
 }
 
@@ -30,25 +29,16 @@ pub fn BodyLimitExceeded::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub struct BodyStream {
-  queue : @aqueue.Queue[Frame]
-  space_available : @aqueue.Queue[Unit]
-  hint : SizeHint
-  on_data_consumed : async (Int) -> Unit
-  on_terminate : (Error?) -> Unit
-  pull : (async () -> Frame?)?
-  mut finished : Bool
-  mut failure : Error?
-  mut trailers_seen : Bool
+  // private fields
 }
 pub fn BodyStream::cancel(Self, Error) -> Unit
 pub fn BodyStream::fail(Self, Error) -> Unit
 pub fn BodyStream::finish(Self) -> Unit
 pub fn BodyStream::from_pull(async () -> Frame?, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit) -> Self
-pub fn BodyStream::new(capacity? : Int, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit) -> Self
+pub fn BodyStream::new(capacity? : Int, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit) -> Result[Self, BodyError]
 pub async fn BodyStream::next_frame(Self) -> Frame?
 pub async fn BodyStream::push(Self, Frame) -> Unit
 pub fn BodyStream::size_hint(Self) -> SizeHint
-pub fn BodyStream::try_new(capacity? : Int, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit) -> Result[Self, BodyError]
 pub fn BodyStream::try_push(Self, Frame) -> Bool raise
 pub impl Body for BodyStream
 
@@ -65,8 +55,7 @@ pub(all) enum Frame {
 }
 
 pub struct FullBody {
-  data : Bytes
-  mut sent : Bool
+  // private fields
 }
 pub fn FullBody::cancel(Self, Error) -> Unit
 pub fn FullBody::new(Bytes) -> Self
@@ -75,10 +64,7 @@ pub fn FullBody::size_hint(Self) -> SizeHint
 pub impl Body for FullBody
 
 pub struct QueueBody {
-  frames : Array[Frame]
-  mut cursor : Int
-  hint : SizeHint
-  mut trailers_seen : Bool
+  // private fields
 }
 pub fn QueueBody::cancel(Self, Error) -> Unit
 pub fn QueueBody::new(Array[Frame]) -> Self

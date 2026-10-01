@@ -7,7 +7,8 @@ import {
   "ZSeanYves/MoonbitHTTP/cache",
   "ZSeanYves/MoonbitHTTP/content_coding",
   "ZSeanYves/MoonbitHTTP/cookie",
-  "ZSeanYves/MoonbitHTTP/tls",
+  "ZSeanYves/MoonbitHTTP/http1",
+  "ZSeanYves/MoonbitHTTP/service",
   "ZSeanYves/MoonbitHTTP/transport",
   "ZSeanYves/MoonbitHTTP/types",
   "moonbitlang/core/debug",
@@ -21,19 +22,21 @@ pub fn response_from_cache(@cache.CacheHit, @types.Method) -> @types.Response[By
 // Errors
 pub(all) suberror ClientError {
   ClientInvalidUri(@types.UriError)
-  ClientInvalidEndpoint(@transport.EndpointError)
+  ClientInvalidEndpoint(@types.EndpointError)
   ClientInvalidOptions(String)
   ClientRedirect(RedirectError)
   ClientRetry(RetryError)
   ClientPolicy(@transport.PolicyError)
   ClientTransport(@transport.TransportError)
-  ClientTls(@tls.TlsError)
+  ClientTls(@transport.TlsError)
   ClientAuth(@auth.AuthError)
   ClientContentCoding(@content_coding.ContentCodingError)
   ClientBodyLimit(Int)
   ClientBody(@body.BodyError)
   ClientTimeout(ClientPhase, Int64, Int64)
   ClientCancelled(String)
+  ClientConnection(@service.ClientConnectionError)
+  ClientHttp1(@http1.Http1Error)
   ClientProtocol(String)
 } derive(Eq, @debug.Debug)
 pub fn ClientError::equal(Self, Self) -> Bool
@@ -73,14 +76,14 @@ pub fn BodyReplayability::not_equal(Self, Self) -> Bool
 pub fn BodyReplayability::to_repr(Self) -> @debug.Repr
 
 pub struct Client {
-  config : ClientConfig
+  // private fields
 }
 pub fn Client::cache(Self) -> @cache.HttpCache
 pub fn Client::clear_auth(Self, @types.Uri) -> Result[Unit, ClientError]
 pub fn Client::content_coding_limits(Self) -> @content_coding.ContentCodingLimits
 pub fn Client::content_decoding(Self) -> Bool
 pub fn Client::cookie_jar(Self) -> @cookie.CookieJar
-pub fn Client::new(options? : RequestOptions, proxy? : ProxyConfig, tls? : @tls.TlsOptions, cookie_jar? : @cookie.CookieJar, cache? : @cache.HttpCache, cache_enabled? : Bool, wait? : async (Int64) -> Unit, authorize_redirect? : (@transport.Endpoint, @transport.PolicyOperation) -> Result[Unit, @transport.PolicyError], now_millis? : () -> Int64, content_decoding? : Bool, content_coding_limits? : @content_coding.ContentCodingLimits) -> Result[Self, ClientError]
+pub fn Client::new(options? : RequestOptions, proxy? : ProxyConfig, tls? : @transport.TlsOptions, cookie_jar? : @cookie.CookieJar, cache? : @cache.HttpCache, cache_enabled? : Bool, wait? : async (Int64) -> Unit, authorize_redirect~ : (@types.Endpoint, @transport.PolicyOperation) -> Result[Unit, @transport.PolicyError], now_millis~ : () -> Int64, content_decoding? : Bool, content_coding_limits? : @content_coding.ContentCodingLimits) -> Result[Self, ClientError]
 pub fn Client::options(Self) -> RequestOptions
 pub fn Client::proxy(Self) -> ProxyConfig
 pub async fn[B : ByteRoundTripper] Client::send(Self, B, @types.Request[Bytes], Int64) -> Result[@types.Response[Bytes], ClientError]
@@ -89,24 +92,11 @@ pub fn Client::set_bearer_auth(Self, @types.Uri, @auth.BearerToken) -> Result[Un
 pub fn Client::set_cache_enabled(Self, Bool) -> Unit
 pub fn Client::set_content_decoding(Self, Bool) -> Unit
 pub fn Client::set_digest_auth(Self, @types.Uri, @auth.DigestCredentials, () -> Result[String, @auth.AuthError], policy? : @auth.DigestPolicy, limits? : @auth.AuthLimits) -> Result[Unit, ClientError]
-pub fn Client::tls(Self) -> @tls.TlsOptions
-
-pub(all) struct ClientConfig {
-  options : RequestOptions
-  proxy : ProxyConfig
-  tls : @tls.TlsOptions
-  cookie_jar : @cookie.CookieJar
-  cache : @cache.HttpCache
-  mut cache_enabled : Bool
-  wait : async (Int64) -> Unit
-  authorize_redirect : (@transport.Endpoint, @transport.PolicyOperation) -> Result[Unit, @transport.PolicyError]
-  now_millis : () -> Int64
-  // private fields
-}
+pub fn Client::tls(Self) -> @transport.TlsOptions
 
 pub(all) struct ClientEndpoint {
   uri : @types.Uri
-  transport : @transport.Endpoint
+  transport : @types.Endpoint
   secure : Bool
   origin : String
 } derive(Eq, @debug.Debug)
@@ -175,7 +165,7 @@ pub(all) struct ConnectionKey {
   scheme : String
   host : String
   port : Int
-  proxy_endpoint : @transport.Endpoint?
+  proxy_endpoint : @types.Endpoint?
   proxy_identity : String?
   tls_identity : String?
   protocol : ClientProtocol
@@ -186,7 +176,7 @@ pub fn ConnectionKey::equal(Self, Self) -> Bool
 pub fn ConnectionKey::hash(Self) -> Int
 pub fn ConnectionKey::hash_combine(Self, Hasher) -> Unit
 pub fn ConnectionKey::host(Self) -> String
-pub fn ConnectionKey::new(@transport.Endpoint, String?, String?, ClientProtocol, String?, proxy_endpoint? : @transport.Endpoint?) -> Self
+pub fn ConnectionKey::new(@types.Endpoint, String?, String?, ClientProtocol, String?, proxy_endpoint? : @types.Endpoint?) -> Self
 pub fn ConnectionKey::not_equal(Self, Self) -> Bool
 pub fn ConnectionKey::op_ge(Self, Self) -> Bool
 pub fn ConnectionKey::op_gt(Self, Self) -> Bool
@@ -194,7 +184,7 @@ pub fn ConnectionKey::op_le(Self, Self) -> Bool
 pub fn ConnectionKey::op_lt(Self, Self) -> Bool
 pub fn ConnectionKey::port(Self) -> Int
 pub fn ConnectionKey::protocol(Self) -> ClientProtocol
-pub fn ConnectionKey::proxy_endpoint(Self) -> @transport.Endpoint?
+pub fn ConnectionKey::proxy_endpoint(Self) -> @types.Endpoint?
 pub fn ConnectionKey::scheme(Self) -> String
 pub fn ConnectionKey::to_repr(Self) -> @debug.Repr
 
@@ -227,9 +217,8 @@ pub fn Http1Client::connection_count(Self) -> Int
 pub fn Http1Client::content_coding_limits(Self) -> @content_coding.ContentCodingLimits
 pub fn Http1Client::content_decoding(Self) -> Bool
 pub fn Http1Client::cookie_jar(Self) -> @cookie.CookieJar
-pub fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @tls.TlsProvider, P : @transport.NetworkPolicy, K : @transport.Clock] Http1Client::from_capabilities(C, R, T, P, K, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @tls.TlsOptions, proxy_tls? : @tls.TlsOptions, cookie_jar? : @cookie.CookieJar, cache? : @cache.HttpCache, cache_enabled? : Bool, wait? : async (Int64) -> Unit, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, resolve_options? : @transport.ResolveOptions, content_decoding? : Bool, content_coding_limits? : @content_coding.ContentCodingLimits, pool_limits? : PoolLimits) -> Result[Self, ClientError]
+pub fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @transport.TlsProvider, P : @transport.NetworkPolicy, K : @transport.Clock] Http1Client::from_capabilities(C, R, T, P, K, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @transport.TlsOptions, proxy_tls? : @transport.TlsOptions, cookie_jar? : @cookie.CookieJar, cache? : @cache.HttpCache, cache_enabled? : Bool, wait? : async (Int64) -> Unit, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, resolve_options? : @transport.ResolveOptions, content_decoding? : Bool, content_coding_limits? : @content_coding.ContentCodingLimits, pool_limits? : PoolLimits) -> Result[Self, ClientError]
 pub fn Http1Client::idle_connection_count(Self) -> Int
-pub fn Http1Client::new(Client, Http1PooledRoundTripper, wall_clock_seconds? : () -> Int64) -> Self
 pub async fn Http1Client::send(Self, @types.Request[Bytes]) -> Result[@types.Response[Bytes], ClientError]
 pub async fn Http1Client::send_at(Self, @types.Request[Bytes], Int64) -> Result[@types.Response[Bytes], ClientError]
 pub fn Http1Client::set_content_decoding(Self, Bool) -> Unit
@@ -241,21 +230,11 @@ pub fn Http1PooledRoundTripper::close(Self) -> Unit
 pub fn Http1PooledRoundTripper::connection_count(Self) -> Int
 pub async fn Http1PooledRoundTripper::execute(Self, @types.Request[Bytes]) -> Result[@types.Response[Bytes], ClientError]
 pub async fn Http1PooledRoundTripper::execute_stream(Self, @types.Request[Bytes]) -> Result[@types.Response[@body.BodyStream], ClientError]
-pub fn[C : @transport.StreamConnector, T : @tls.TlsProvider, P : @transport.NetworkPolicy] Http1PooledRoundTripper::from_capabilities(C, T, P, now_millis? : () -> Int64, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @tls.TlsOptions, proxy_tls? : @tls.TlsOptions, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, pool_limits? : PoolLimits) -> Result[Self, ClientError]
-pub fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @tls.TlsProvider, P : @transport.NetworkPolicy] Http1PooledRoundTripper::from_capabilities_with_resolver(C, R, T, P, now_millis? : () -> Int64, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @tls.TlsOptions, proxy_tls? : @tls.TlsOptions, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, resolve_options? : @transport.ResolveOptions, pool_limits? : PoolLimits) -> Result[Self, ClientError]
+pub fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @transport.TlsProvider, P : @transport.NetworkPolicy, K : @transport.Clock] Http1PooledRoundTripper::from_capabilities(C, R, T, P, K, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @transport.TlsOptions, proxy_tls? : @transport.TlsOptions, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, resolve_options? : @transport.ResolveOptions, pool_limits? : PoolLimits) -> Result[Self, ClientError]
 pub fn Http1PooledRoundTripper::idle_connection_count(Self) -> Int
-pub fn Http1PooledRoundTripper::new(async (@transport.Endpoint, @transport.ConnectOptions) -> Result[@transport.StreamConnection, @transport.TransportError], async (@transport.StreamConnection, @tls.TlsOptions) -> Result[@tls.SecureConnection, @tls.TlsError], resolve? : (async (String, @transport.ResolveOptions) -> Result[Array[@transport.IpAddress], @transport.TransportError])?, authorize? : (@transport.Endpoint, @transport.PolicyOperation) -> Result[Unit, @transport.PolicyError], now_millis? : () -> Int64, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @tls.TlsOptions, proxy_tls? : @tls.TlsOptions, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, resolve_options? : @transport.ResolveOptions, pool_limits? : PoolLimits) -> Result[Self, ClientError]
+pub fn Http1PooledRoundTripper::new(async (@types.Endpoint, @transport.ConnectOptions) -> Result[@transport.StreamConnection, @transport.TransportError], async (@transport.StreamConnection, @transport.TlsOptions) -> Result[@transport.SecureConnection, @transport.TlsError], authorize~ : (@types.Endpoint, @transport.PolicyOperation) -> Result[Unit, @transport.PolicyError], now_millis~ : () -> Int64, resolve? : (async (String, @transport.ResolveOptions) -> Result[Array[@types.IpAddress], @transport.TransportError])?, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @transport.TlsOptions, proxy_tls? : @transport.TlsOptions, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, resolve_options? : @transport.ResolveOptions, pool_limits? : PoolLimits) -> Result[Self, ClientError]
 pub impl ByteRoundTripper for Http1PooledRoundTripper
 pub impl StreamingRoundTripper for Http1PooledRoundTripper
-
-pub struct Http1RoundTripper {
-  connect : async (@transport.Endpoint, @transport.ConnectOptions) -> Result[@transport.StreamConnection, ClientError]
-  limits : @types.Limits
-  connect_options : @transport.ConnectOptions
-}
-pub async fn Http1RoundTripper::execute(Self, @types.Request[Bytes]) -> Result[@types.Response[Bytes], ClientError]
-pub fn Http1RoundTripper::new(async (@transport.Endpoint, @transport.ConnectOptions) -> Result[@transport.StreamConnection, ClientError], limits? : @types.Limits, connect_options? : @transport.ConnectOptions) -> Result[Self, ClientError]
-pub impl ByteRoundTripper for Http1RoundTripper
 
 pub(all) enum PoolAcquire {
   Reused(Int)
@@ -303,14 +282,14 @@ pub fn PoolLimits::validate(Self) -> Result[Unit, PoolError]
 
 pub(all) struct ProxyConfig {
   mode : ProxyMode
-  endpoint : @transport.Endpoint?
+  endpoint : @types.Endpoint?
   identity_key : String?
 } derive(Eq, @debug.Debug)
 pub fn ProxyConfig::direct() -> Self
-pub fn ProxyConfig::endpoint(Self) -> @transport.Endpoint?
+pub fn ProxyConfig::endpoint(Self) -> @types.Endpoint?
 pub fn ProxyConfig::equal(Self, Self) -> Bool
-pub fn ProxyConfig::http_forward(@transport.Endpoint, identity_key? : String?) -> Self
-pub fn ProxyConfig::https_connect(@transport.Endpoint, identity_key? : String?) -> Self
+pub fn ProxyConfig::http_forward(@types.Endpoint, identity_key? : String?) -> Self
+pub fn ProxyConfig::https_connect(@types.Endpoint, identity_key? : String?) -> Self
 pub fn ProxyConfig::identity_key(Self) -> String?
 pub fn ProxyConfig::mode(Self) -> ProxyMode
 pub fn ProxyConfig::not_equal(Self, Self) -> Bool

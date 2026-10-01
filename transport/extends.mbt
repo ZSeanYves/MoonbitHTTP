@@ -5,24 +5,6 @@ pub extend TransportOperation with Eq::{equal, not_equal}
 pub extend TransportOperation with @debug.Debug::{to_repr}
 
 ///|
-pub extend Endpoint with Eq::{equal, not_equal}
-
-///|
-pub extend Endpoint with @debug.Debug::{to_repr}
-
-///|
-pub extend Endpoint with Compare::{compare, op_lt, op_le, op_ge, op_gt}
-
-///|
-pub extend Endpoint with Hash::{hash, hash_combine}
-
-///|
-pub extend EndpointError with Eq::{equal, not_equal}
-
-///|
-pub extend EndpointError with @debug.Debug::{to_repr}
-
-///|
 pub extend ConnectOptions with Eq::{equal, not_equal}
 
 ///|
@@ -53,15 +35,6 @@ pub extend ResolveOptions with Eq::{equal, not_equal}
 pub extend ResolveOptions with @debug.Debug::{to_repr}
 
 ///|
-pub extend IpAddress with Eq::{equal, not_equal}
-
-///|
-pub extend IpAddress with @debug.Debug::{to_repr}
-
-///|
-pub extend IpAddress with Compare::{compare, op_lt, op_le, op_ge, op_gt}
-
-///|
 pub extend StaticResolver with NameResolver::{resolve}
 
 ///|
@@ -89,16 +62,55 @@ pub extend EntropyError with Eq::{equal, not_equal}
 pub extend EntropyError with @debug.Debug::{to_repr}
 
 ///|
-pub extend FixedClock with Eq::{equal, not_equal}
+pub extend TlsVersion with Eq::{equal, not_equal}
 
 ///|
-pub extend FixedClock with @debug.Debug::{to_repr}
+pub extend TlsVersion with @debug.Debug::{to_repr}
 
 ///|
-pub extend FixedClock with Clock::{monotonic_millis, wall_clock_seconds}
+pub extend TlsOptionsError with Eq::{equal, not_equal}
 
 ///|
-pub extend ZeroEntropy with Entropy::{fill}
+pub extend TlsOptionsError with @debug.Debug::{to_repr}
 
 ///|
-pub extend MemoryDatagramSocket with DatagramSocket::{send, receive, close}
+pub extend TlsError with Eq::{equal, not_equal}
+
+///|
+pub extend TlsOperation with Eq::{equal, not_equal}
+
+///|
+pub extend TlsOperation with @debug.Debug::{to_repr}
+
+///|
+pub extend TlsError with @debug.Debug::{to_repr}
+
+///|
+pub extend UnsupportedProvider with TlsProvider::{
+  client_handshake,
+  server_handshake,
+}
+
+///|
+pub extend QuicTlsCipherSuite with Eq::{equal, not_equal}
+
+///|
+pub extend QuicTlsCipherSuite with @debug.Debug::{to_repr}
+
+///|
+pub extend QuicEncryptionLevel with Eq::{equal, not_equal}
+
+///|
+pub extend QuicEncryptionLevel with @debug.Debug::{to_repr}
+
+///|
+pub extend QuicSecretDirection with Eq::{equal, not_equal}
+
+///|
+pub extend QuicSecretDirection with @debug.Debug::{to_repr}
+
+///|
+pub extend QuicHandshakeMessage with Eq::{equal, not_equal}
+
+///|
+pub extend QuicHandshakeMessage with @debug.Debug::{to_repr}

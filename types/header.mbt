@@ -8,12 +8,12 @@ pub(all) suberror HeaderError {
 } derive(Debug, Eq)
 
 ///|
-pub(all) struct HeaderName {
+pub struct HeaderName {
   value : String
 } derive(Debug, Eq, Compare, Hash)
 
 ///|
-pub(all) struct HeaderValue {
+pub struct HeaderValue {
   bytes : Bytes
 } derive(Debug, Eq)
 
@@ -25,7 +25,7 @@ pub(all) struct HeaderField {
 
 ///|
 pub struct HeaderMap {
-  mut entries : Array[HeaderField]
+  priv mut entries : Array[HeaderField]
 }
 
 ///|

@@ -1,6 +1,8 @@
 import {
+  "ZSeanYves/MoonbitHTTP/types",
   "moonbitlang/async",
   "moonbitlang/async/socket",
+  "moonbitlang/async/os_error",
   "moonbitlang/core/bench",
   "moonbitlang/core/env",
   "ZSeanYves/MoonbitHTTP/transport",

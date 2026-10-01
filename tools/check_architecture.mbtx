@@ -1,0 +1,149 @@
+import {
+  "moonbitlang/async@0.20.2",
+  "moonbitlang/async@0.20.2/fs",
+  "moonbitlang/core/env",
+}
+
+///|
+struct Dependency {
+  source : String
+  target : String
+  kind : String
+}
+
+///|
+fn local_imports(source : String, package_name : String) -> Array[Dependency] raise {
+  let prefix = "ZSeanYves/MoonbitHTTP/"
+  let dependencies : Array[Dependency] = []
+  let block : Array[String] = []
+  let mut importing = false
+  for raw in source.split("\n") {
+    let line = raw.trim()
+    if line.is_empty() || line.has_prefix("//") { continue }
+    if line.has_prefix("import") {
+      guard line == "import {" && !importing else {
+        fail("\{package_name}/moon.pkg: unsupported import layout; keep imports in explicit blocks")
+      }
+      importing = true
+      continue
+    }
+    if !importing { continue }
+    if line.has_prefix("}") {
+      let kind = match line {
+        "}" => "main"
+        "} for \"test\"" => "test"
+        "} for \"wbtest\"" => "wbtest"
+        _ => fail("\{package_name}/moon.pkg: unsupported import target \{line}")
+      }
+      for target in block { dependencies.push({ source: package_name, target, kind }) }
+      block.clear()
+      importing = false
+      continue
+    }
+    guard line.has_prefix("\"") else { fail("\{package_name}/moon.pkg: unrecognized import entry \{line}") }
+    let parts = line.split("\"").to_array()
+    guard parts.length() >= 3 else { fail("\{package_name}/moon.pkg: unterminated import") }
+    let path = parts[1]
+    if path.has_prefix(prefix) {
+      block.push(path[prefix.length():].to_owned())
+    }
+  }
+  guard !importing else { fail("\{package_name}/moon.pkg: unterminated import block") }
+  dependencies
+}
+
+///|
+fn protocol_or_driver(package_name : String) -> Bool {
+  match package_name.split("/").to_array()[0] {
+    "http1" | "http2" | "http3" | "quic" | "service" | "client" | "server" => true
+    _ => false
+  }
+}
+
+///|
+fn check_edge(edge : Dependency) -> Unit raise {
+  let source = edge.source
+  let target = edge.target
+  let violation = match source {
+    "types" | "codec" => true
+    "body" | "transport" => target != "types"
+    "tls" => target != "transport"
+    "auth" | "cookie" | "cache" | "content_coding" => protocol_or_driver(target)
+    _ => false
+  }
+  guard !violation else {
+    fail("forbidden \{edge.kind} dependency: \{source} -> \{target}")
+  }
+  guard !(source == "http3" && target == "http2") else {
+    fail("HTTP/3 must import shared primitives from codec, not HTTP/2")
+  }
+  guard target != "io" && !target.has_prefix("io/") else {
+    fail("removed io facade imported by \{source}")
+  }
+  let core = !source.has_suffix("/native") && !source.has_prefix("cmd/")
+  guard !(core && target.has_suffix("/native")) else {
+    fail("portable package \{source} imports Native adapter \{target} (\{edge.kind})")
+  }
+}
+
+///|
+fn node_id(package_name : String) -> String {
+  "p_" + package_name.replace(old="/", new="_").replace(old="-", new="_")
+}
+
+///|
+async fn main {
+  let arguments = @env.args()
+  let write = arguments.length() == 2 && arguments[1] == "--write"
+  guard arguments.length() == 1 || write else {
+    fail("usage: moon run tools/check_architecture.mbtx [--write]")
+  }
+  let packages : Array[String] = []
+  @fs.walk(".", fn(path, entries) {
+    if entries.contains("moon.pkg") {
+      packages.push(if path.has_prefix("./") { path[2:].to_owned() } else { path })
+    }
+  }, exclude=fn(path) {
+    path.split("/").any(fn(part) {
+      part == ".git" || part == ".mooncakes" || part == "_build" || part == "target"
+    })
+  })
+  packages.sort()
+  guard !packages.is_empty() else { fail("no moon.pkg files found; run from the module root") }
+  let identities : Map[String, String] = Map([])
+  let edges : Map[String, Dependency] = Map([])
+  for package_name in packages {
+    guard package_name != "io" && !package_name.has_prefix("io/") else { fail("removed io facade is still present") }
+    let id = node_id(package_name)
+    guard identities.get(id) is None else { fail("ambiguous graph node: \{package_name}") }
+    identities[id] = package_name
+    for edge in local_imports(@fs.read_file(package_name + "/moon.pkg").text(), package_name) {
+      guard packages.contains(edge.target) else { fail("missing local package: \{package_name} -> \{edge.target}") }
+      check_edge(edge)
+      edges[edge.source + ":" + edge.target + ":" + edge.kind] = edge
+    }
+  }
+  let output = StringBuilder()
+  output.write_string("# Generated local package dependencies\n\n")
+  output.write_string("Generated from every repository `moon.pkg` by `tools/check_architecture.mbtx`.\n")
+  output.write_string("Solid arrows are main imports; dotted arrows are test-only imports, labeled by target.\n")
+  output.write_string("Architecture boundary checks apply to both. External dependencies are omitted.\n\n```mermaid\nflowchart TD\n")
+  for package_name in packages { output.write_string("  \{node_id(package_name)}[\"\{package_name}\"]\n") }
+  let keys = edges.keys().to_array()
+  keys.sort()
+  for key in keys {
+    let edge = edges[key]
+    let arrow = if edge.kind == "main" { " --> " } else { " -. \"" + edge.kind + "\" .-> " }
+    output.write_string("  \{node_id(edge.source)}\{arrow}\{node_id(edge.target)}\n")
+  }
+  output.write_string("```\n")
+  let path = "docs/v1-dependencies.md"
+  if write {
+    @fs.write_file(path, output.to_string(), create_mode=CreateOrTruncate)
+  } else {
+    guard @fs.exists(path) && @fs.read_file(path).text() == output.to_string() else {
+      fail("dependency graph is stale; run moon run tools/check_architecture.mbtx -- --write")
+    }
+  }
+  println("PASS: \{packages.length()} package manifests, \{edges.length()} local dependency edges; architecture boundaries checked.")
+}

@@ -62,6 +62,12 @@ pub extend RetryPacket with Eq::{equal, not_equal}
 pub extend RetryPacket with @debug.Debug::{to_repr}
 
 ///|
+pub extend VersionNegotiationPacket with Eq::{equal, not_equal}
+
+///|
+pub extend VersionNegotiationPacket with @debug.Debug::{to_repr}
+
+///|
 pub extend ShortPacket with Eq::{equal, not_equal}
 
 ///|
@@ -110,22 +116,10 @@ pub extend QuicConnectionState with Eq::{equal, not_equal}
 pub extend QuicConnectionState with @debug.Debug::{to_repr}
 
 ///|
-pub extend QuicStreamState with Eq::{equal, not_equal}
-
-///|
-pub extend QuicStreamState with @debug.Debug::{to_repr}
-
-///|
 pub extend QuicAction with Eq::{equal, not_equal}
 
 ///|
 pub extend QuicAction with @debug.Debug::{to_repr}
-
-///|
-pub extend QuicEndpoint with Eq::{equal, not_equal}
-
-///|
-pub extend QuicEndpoint with @debug.Debug::{to_repr}
 
 ///|
 pub extend QuicInitialPacketOptions with Eq::{equal, not_equal}
@@ -179,13 +173,13 @@ pub extend QuicDriverAction with Eq::{equal, not_equal}
 pub extend QuicDriverAction with @debug.Debug::{to_repr}
 
 ///|
-pub extend QuicDriverState with Eq::{equal, not_equal}
-
-///|
-pub extend QuicDriverState with @debug.Debug::{to_repr}
-
-///|
 pub extend QuicCryptoReassembler with Eq::{equal, not_equal}
 
 ///|
 pub extend QuicCryptoReassembler with @debug.Debug::{to_repr}
+
+///|
+pub extend QuicTransportParameters with Eq::{equal, not_equal}
+
+///|
+pub extend QuicTransportParameters with @debug.Debug::{to_repr}

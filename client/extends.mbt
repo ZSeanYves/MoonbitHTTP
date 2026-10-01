@@ -140,9 +140,6 @@ pub extend PoolLease with @debug.Debug::{to_repr}
 pub extend ClosureRoundTripper with ByteRoundTripper::{execute}
 
 ///|
-pub extend Http1RoundTripper with ByteRoundTripper::{execute}
-
-///|
 pub extend Http1PooledRoundTripper with StreamingRoundTripper::{execute_stream}
 
 ///|

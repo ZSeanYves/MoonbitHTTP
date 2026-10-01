@@ -1,6 +1,6 @@
 ///|
 test "client pool: keys isolate protocol and proxy identity" {
-  let endpoint = @transport.Endpoint::new("https", "example.test", 443).unwrap()
+  let endpoint = @types.Endpoint::new("https", "example.test", 443).unwrap()
   let first = @client.ConnectionKey::new(
     endpoint,
     None,
@@ -24,8 +24,8 @@ test "client pool: keys isolate protocol and proxy identity" {
   )
   assert_true(first != second)
   assert_true(first != third)
-  let proxy_a = @transport.Endpoint::new("http", "proxy-a.test", 8080).unwrap()
-  let proxy_b = @transport.Endpoint::new("http", "proxy-b.test", 8080).unwrap()
+  let proxy_a = @types.Endpoint::new("http", "proxy-a.test", 8080).unwrap()
+  let proxy_b = @types.Endpoint::new("http", "proxy-b.test", 8080).unwrap()
   let via_a = @client.ConnectionKey::new(
     endpoint,
     Some("shared"),
@@ -49,7 +49,7 @@ test "client pool: keys isolate protocol and proxy identity" {
 test "client pool: bounded reuse and non-reusable eviction" {
   let limits : @client.PoolLimits = { max_total: 1, max_idle: 1, }
   let pool = @client.ConnectionPool::new(limits~).unwrap()
-  let endpoint = @transport.Endpoint::new("http", "example.test", 80).unwrap()
+  let endpoint = @types.Endpoint::new("http", "example.test", 80).unwrap()
   let key = @client.ConnectionKey::new(endpoint, None, None, Http1, None)
   let created = pool.acquire(key).unwrap()
   guard created is Created(id) else { fail("expected a new lease") }
@@ -64,7 +64,7 @@ test "client pool: bounded reuse and non-reusable eviction" {
 ///|
 test "client pool: leases reject double release and foreign keys" {
   let pool = @client.ConnectionPool::new().unwrap()
-  let endpoint = @transport.Endpoint::new("http", "example.test", 80).unwrap()
+  let endpoint = @types.Endpoint::new("http", "example.test", 80).unwrap()
   let key = @client.ConnectionKey::new(endpoint, None, None, Http1, None)
   let foreign = @client.ConnectionKey::new(
     endpoint,
@@ -90,7 +90,7 @@ test "client pool: leases reject double release and foreign keys" {
 test "client pool: active capacity is bounded while idle entries are evicted" {
   let limits : @client.PoolLimits = { max_total: 2, max_idle: 1, }
   let pool = @client.ConnectionPool::new(limits~).unwrap()
-  let endpoint = @transport.Endpoint::new("http", "example.test", 80).unwrap()
+  let endpoint = @types.Endpoint::new("http", "example.test", 80).unwrap()
   let first = @client.ConnectionKey::new(endpoint, None, None, Http1, Some("a"))
   let second = @client.ConnectionKey::new(
     endpoint,
@@ -114,7 +114,7 @@ test "client pool: active capacity is bounded while idle entries are evicted" {
 test "client pool: a new key evicts the LRU idle entry and reports its ID" {
   let limits : @client.PoolLimits = { max_total: 1, max_idle: 1, }
   let pool = @client.ConnectionPool::new(limits~).unwrap()
-  let endpoint = @transport.Endpoint::new("http", "example.test", 80).unwrap()
+  let endpoint = @types.Endpoint::new("http", "example.test", 80).unwrap()
   let first = @client.ConnectionKey::new(
     endpoint,
     None,
@@ -143,7 +143,7 @@ test "client pool: a new key evicts the LRU idle entry and reports its ID" {
 test "client pool: eviction notifications are bounded until drained" {
   let limits : @client.PoolLimits = { max_total: 1, max_idle: 1, }
   let pool = @client.ConnectionPool::new(limits~).unwrap()
-  let endpoint = @transport.Endpoint::new("http", "example.test", 80).unwrap()
+  let endpoint = @types.Endpoint::new("http", "example.test", 80).unwrap()
   let first = @client.ConnectionKey::new(
     endpoint,
     None,

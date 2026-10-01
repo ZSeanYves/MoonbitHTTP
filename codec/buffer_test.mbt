@@ -9,6 +9,15 @@ test "codec: fragmented line and preserved remainder" {
 }
 
 ///|
+test "codec: consumed prefix does not change relative line offsets" {
+  let buffer = @codec.Buffer::new()
+  assert_eq(buffer.feed(b"discard\r\nnext\r\n"), Ok(()))
+  assert_eq(buffer.take(9), b"discard\r\n")
+  assert_eq(buffer.read_line(32).unwrap(), b"next")
+  assert_eq(buffer.peek(), b"")
+}
+
+///|
 test "codec: buffer limits are checked before accumulation" {
   let buffer = @codec.Buffer::new(max_bytes=3)
   assert_eq(buffer.feed(b"ab"), Ok(()))

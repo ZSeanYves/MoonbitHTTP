@@ -84,7 +84,9 @@ test "client options: defaults are finite and unsafe opt-ins are rejected" {
 
 ///|
 test "client: default TLS options are constructible before an endpoint is known" {
-  let client = @client.Client::new().unwrap()
+  let client = @client.Client::new(authorize_redirect=fn(_, _) { Ok(()) }, now_millis=fn() {
+    0L
+  }).unwrap()
   assert_eq(client.tls().verify_peer, true)
   assert_true(client.tls().server_name is None)
 }
@@ -96,7 +98,11 @@ async test "client: total deadline covers a blocked executor" {
     ..defaults,
     timeouts: { ..defaults.timeouts, total_ms: Some(10), },
   }
-  let client = @client.Client::new(options~).unwrap()
+  let client = @client.Client::new(
+    options~,
+    authorize_redirect=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
+  ).unwrap()
   let executor = @client.ClosureRoundTripper::new(async fn(_) {
     @async.sleep(60_000)
     Err(ClientProtocol("blocked executor unexpectedly resumed"))
@@ -122,7 +128,7 @@ async test "client: redirect policy is checked before the next request" {
     redirect: @client.RedirectPolicy::limited(max_redirects=2).unwrap(),
   }
   let redirected : Array[String] = []
-  let client = @client.Client::new(options~, authorize_redirect=fn(
+  let client = @client.Client::new(options~, now_millis=fn() { 0L }, authorize_redirect=fn(
     endpoint,
     operation,
   ) {
@@ -169,7 +175,9 @@ async test "client: request policy mutations do not alter caller headers" {
       body: b"ok",
     })
   })
-  let client = @client.Client::new().unwrap()
+  let client = @client.Client::new(authorize_redirect=fn(_, _) { Ok(()) }, now_millis=fn() {
+    0L
+  }).unwrap()
   let response = client
     .send(
       executor,
@@ -504,7 +512,9 @@ test "retry: Retry-After accepts delay-seconds and HTTP-date with hard caps" {
 async test "client auth: Basic credentials are scoped to the configured origin" {
   let origin = test_uri("http://example.test/")
   let credentials = @auth.BasicCredentials::new("user", "password").unwrap()
-  let client = @client.Client::new().unwrap()
+  let client = @client.Client::new(authorize_redirect=fn(_, _) { Ok(()) }, now_millis=fn() {
+    0L
+  }).unwrap()
   client.set_basic_auth(origin, credentials).unwrap()
   let seen : Array[String] = []
   let executor = @client.ClosureRoundTripper::new(fn(request) {
@@ -539,7 +549,9 @@ async test "client auth: Basic credentials are scoped to the configured origin" 
 async test "client auth: Digest challenge is retried with a fresh authorization header" {
   let origin = test_uri("http://example.test/")
   let credentials = @auth.DigestCredentials::new("user", "password").unwrap()
-  let client = @client.Client::new().unwrap()
+  let client = @client.Client::new(authorize_redirect=fn(_, _) { Ok(()) }, now_millis=fn() {
+    0L
+  }).unwrap()
   client.set_digest_auth(origin, credentials, fn() { Ok("cnonce") }).unwrap()
   let mut calls = 0
   let seen : Array[String?] = []
@@ -591,7 +603,9 @@ async test "client auth: Digest challenge is retried with a fresh authorization 
 async test "client auth: Digest does not replay an undeclared nonempty body" {
   let origin = test_uri("http://example.test/")
   let credentials = @auth.DigestCredentials::new("user", "password").unwrap()
-  let client = @client.Client::new().unwrap()
+  let client = @client.Client::new(authorize_redirect=fn(_, _) { Ok(()) }, now_millis=fn() {
+    0L
+  }).unwrap()
   client.set_digest_auth(origin, credentials, fn() { Ok("cnonce") }).unwrap()
   let mut calls = 0
   let executor = @client.ClosureRoundTripper::new(fn(_) {
@@ -638,7 +652,11 @@ async test "client content coding: advertised gzip is decoded under the shared b
     .unwrap()
     Ok({ status: 200, version: Http11, headers, body: encoded, })
   })
-  let client = @client.Client::new(content_decoding=true).unwrap()
+  let client = @client.Client::new(
+    content_decoding=true,
+    authorize_redirect=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
+  ).unwrap()
   let response = client
     .send(
       executor,

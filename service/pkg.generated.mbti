@@ -25,6 +25,14 @@ pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http2_connect
 pub async fn[R : @io.Reader, W : @io.Writer, X] with_h2_client_connection(R, W, async (H2Client) -> X, config? : H2ClientConfig) -> X
 
 // Errors
+pub(all) suberror ClientConnectionError {
+  ConnectionClosed
+  RequestInProgress
+} derive(Eq, @debug.Debug)
+pub fn ClientConnectionError::equal(Self, Self) -> Bool
+pub fn ClientConnectionError::not_equal(Self, Self) -> Bool
+pub fn ClientConnectionError::to_repr(Self) -> @debug.Repr
+
 pub(all) suberror ClientConnectionTimeout {
   ClientConnectionTimeout(ClientConnectionPhase)
 } derive(Eq, @debug.Debug)
@@ -36,6 +44,7 @@ pub(all) suberror ServiceConfigError {
   InvalidLimits(@types.LimitsError)
   InvalidReadSize(Int)
   InvalidBodyQueueCapacity(Int)
+  InvalidReceiveWindow(Int)
   InvalidConcurrentStreams(Int)
   InvalidTimeout(String, Int)
 } derive(Eq, @debug.Debug)
@@ -45,24 +54,13 @@ pub fn ServiceConfigError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub struct ClientConnection[R, W] {
-  reader : R
-  writer : W
-  limits : @types.Limits
-  read_size : Int
-  request_headers_timeout_ms : Int?
-  request_body_timeout_ms : Int?
-  response_headers_timeout_ms : Int?
-  response_body_timeout_ms : Int?
-  mut closed : Bool
-  mut busy : Bool
+  // private fields
 }
 pub fn[R, W] ClientConnection::close(Self[R, W]) -> Unit
 pub fn[R, W] ClientConnection::is_closed(Self[R, W]) -> Bool
 pub fn[R, W] ClientConnection::is_reusable(Self[R, W]) -> Bool
-pub fn[R, W] ClientConnection::new(R, W, limits? : @types.Limits, read_size? : Int, read_timeout_ms? : Int, write_timeout_ms? : Int) -> Self[R, W]
+pub fn[R, W] ClientConnection::new(R, W, limits? : @types.Limits, read_size? : Int, request_headers_timeout_ms? : Int?, request_body_timeout_ms? : Int?, response_headers_timeout_ms? : Int?, response_body_timeout_ms? : Int?) -> Result[Self[R, W], ServiceConfigError]
 pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] ClientConnection::send(Self[R, W], @types.Request[B]) -> @types.Response[@body.BodyStream]
-pub fn[R, W] ClientConnection::try_new(R, W, limits? : @types.Limits, read_size? : Int, read_timeout_ms? : Int, write_timeout_ms? : Int) -> Result[Self[R, W], ServiceConfigError]
-pub fn[R, W] ClientConnection::try_new_with_phase_timeouts(R, W, limits? : @types.Limits, read_size? : Int, request_headers_timeout_ms~ : Int?, request_body_timeout_ms~ : Int?, response_headers_timeout_ms~ : Int?, response_body_timeout_ms~ : Int?) -> Result[Self[R, W], ServiceConfigError]
 
 pub(all) enum ClientConnectionPhase {
   RequestHeaders
@@ -84,6 +82,7 @@ pub(all) struct H2ClientConfig {
   limits : @types.Limits
   max_concurrent_streams : Int
   body_queue_capacity : Int
+  h2_receive_window_bytes : Int
   read_size : Int
   read_timeout_ms : Int?
   write_timeout_ms : Int?
@@ -96,6 +95,7 @@ pub(all) struct ServerConfig {
   limits : @types.Limits
   read_size : Int
   body_queue_capacity : Int
+  h2_receive_window_bytes : Int
   read_timeout_ms : Int?
   write_timeout_ms : Int?
   close_callback : ((Error?) -> Unit)?

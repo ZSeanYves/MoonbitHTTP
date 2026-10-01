@@ -37,6 +37,17 @@ test "http3 frame: decoder accepts every single-byte fragmentation" {
 }
 
 ///|
+test "http3 frame: decoder preserves unread suffix across batched frames" {
+  let decoder = @http3.Http3FrameDecoder::new().unwrap()
+  decoder.feed(b"\x00\x00\x00\x00\x00\x00\x00\x00").unwrap()
+  for _ in 0..<4 {
+    assert_eq(decoder.next(), Ok(Some(H3Data(b""))))
+  }
+  assert_eq(decoder.next(), Ok(None))
+  assert_eq(decoder.finish(), Ok(()))
+}
+
+///|
 test "http3 frame: malformed lengths, settings, and reserved types are terminal" {
   assert_true(
     @http3.decode_http3_frame(b"\x01\x05abc") is Err(Http3NeedMoreInput),

@@ -2,7 +2,6 @@
 package "ZSeanYves/MoonbitHTTP/http1"
 
 import {
-  "ZSeanYves/MoonbitHTTP/codec",
   "ZSeanYves/MoonbitHTTP/types",
   "moonbitlang/core/debug",
 }
@@ -29,12 +28,13 @@ pub fn Http1Error::not_equal(Self, Self) -> Bool
 pub fn Http1Error::to_repr(Self) -> @debug.Repr
 
 // Types and methods
-pub struct BodyDecoder {
-  mut state : BodyState
-  mut total : Int
-  limits : @types.Limits
-  mut eof : Bool
+pub struct BodyEncoder {
+  // private fields
 }
+pub fn BodyEncoder::data(Self, Bytes) -> Result[Bytes, Http1Error]
+pub fn BodyEncoder::finish(Self) -> Result[Bytes, Http1Error]
+pub fn BodyEncoder::new(BodyFraming) -> Result[Self, Http1Error]
+pub fn BodyEncoder::trailers(Self, @types.HeaderMap) -> Result[Bytes, Http1Error]
 
 pub(all) enum BodyFraming {
   NoBody
@@ -46,23 +46,8 @@ pub fn BodyFraming::equal(Self, Self) -> Bool
 pub fn BodyFraming::not_equal(Self, Self) -> Bool
 pub fn BodyFraming::to_repr(Self) -> @debug.Repr
 
-pub enum BodyState {
-  BodyNone
-  BodyFixed(Int)
-  BodyChunkSize
-  BodyChunkData(Int)
-  BodyChunkCrlf
-  BodyTrailers(@types.HeaderMap, Int, Int)
-  BodyClose
-  BodyEnd
-}
-
 pub struct RequestDecoder {
-  buffer : @codec.Buffer
-  mut state : RequestState
-  limits : @types.Limits
-  mut eof : Bool
-  mut failure : Http1Error?
+  // private fields
 }
 pub fn RequestDecoder::feed(Self, BytesView) -> Result[Unit, Http1Error]
 pub fn RequestDecoder::finish_input(Self) -> Unit
@@ -77,19 +62,8 @@ pub(all) enum RequestEvent {
   RequestEnd
 }
 
-pub enum RequestState {
-  RequestStart
-  RequestHeaders(@types.Method, @types.Uri, @types.Version, @types.HeaderMap, Int, Int)
-  RequestBody(BodyDecoder)
-}
-
 pub struct ResponseDecoder {
-  buffer : @codec.Buffer
-  mut state : ResponseState
-  limits : @types.Limits
-  request_method : @types.Method
-  mut eof : Bool
-  mut failure : Http1Error?
+  // private fields
 }
 pub fn ResponseDecoder::feed(Self, BytesView) -> Result[Unit, Http1Error]
 pub fn ResponseDecoder::finish_input(Self) -> Unit
@@ -102,12 +76,6 @@ pub(all) enum ResponseEvent {
   ResponseData(Bytes)
   ResponseTrailers(@types.HeaderMap)
   ResponseEnd
-}
-
-pub enum ResponseState {
-  ResponseStart
-  ResponseHeaders(Int, @types.Version, @types.HeaderMap, Int, Int)
-  ResponseBodyState(BodyDecoder)
 }
 
 // Type aliases

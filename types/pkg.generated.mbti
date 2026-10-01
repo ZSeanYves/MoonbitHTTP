@@ -21,6 +21,15 @@ pub fn AuthorityError::equal(Self, Self) -> Bool
 pub fn AuthorityError::not_equal(Self, Self) -> Bool
 pub fn AuthorityError::to_repr(Self) -> @debug.Repr
 
+pub(all) suberror EndpointError {
+  InvalidScheme
+  InvalidHost
+  InvalidPort
+} derive(Eq, @debug.Debug)
+pub fn EndpointError::equal(Self, Self) -> Bool
+pub fn EndpointError::not_equal(Self, Self) -> Bool
+pub fn EndpointError::to_repr(Self) -> @debug.Repr
+
 pub(all) suberror HeaderError {
   InvalidName(String)
   InvalidValue(String)
@@ -40,6 +49,13 @@ pub(all) suberror HttpDateError {
 pub fn HttpDateError::equal(Self, Self) -> Bool
 pub fn HttpDateError::not_equal(Self, Self) -> Bool
 pub fn HttpDateError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror IpAddressError {
+  InvalidLiteral
+} derive(Eq, @debug.Debug)
+pub fn IpAddressError::equal(Self, Self) -> Bool
+pub fn IpAddressError::not_equal(Self, Self) -> Bool
+pub fn IpAddressError::to_repr(Self) -> @debug.Repr
 
 pub(all) suberror LimitsError {
   InvalidLimit(field~ : String, value~ : Int)
@@ -73,7 +89,7 @@ pub fn UriError::not_equal(Self, Self) -> Bool
 pub fn UriError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
-pub(all) struct Authority {
+pub struct Authority {
   value : String
   userinfo : String?
   host : String
@@ -86,6 +102,27 @@ pub fn Authority::parse(String) -> Result[Self, AuthorityError]
 pub fn Authority::parse_endpoint(String) -> Result[Self, AuthorityError]
 pub fn Authority::to_repr(Self) -> @debug.Repr
 
+pub struct Endpoint {
+  scheme : String
+  host : String
+  port : Int
+} derive(Compare, Eq, Hash, @debug.Debug)
+pub fn Endpoint::authority(Self) -> String
+pub fn Endpoint::compare(Self, Self) -> Int
+pub fn Endpoint::equal(Self, Self) -> Bool
+pub fn Endpoint::hash(Self) -> Int
+pub fn Endpoint::hash_combine(Self, Hasher) -> Unit
+pub fn Endpoint::host(Self) -> String
+pub fn Endpoint::new(String, String, Int) -> Result[Self, EndpointError]
+pub fn Endpoint::not_equal(Self, Self) -> Bool
+pub fn Endpoint::op_ge(Self, Self) -> Bool
+pub fn Endpoint::op_gt(Self, Self) -> Bool
+pub fn Endpoint::op_le(Self, Self) -> Bool
+pub fn Endpoint::op_lt(Self, Self) -> Bool
+pub fn Endpoint::port(Self) -> Int
+pub fn Endpoint::scheme(Self) -> String
+pub fn Endpoint::to_repr(Self) -> @debug.Repr
+
 pub(all) struct HeaderField {
   name : HeaderName
   value : HeaderValue
@@ -95,7 +132,7 @@ pub fn HeaderField::not_equal(Self, Self) -> Bool
 pub fn HeaderField::to_repr(Self) -> @debug.Repr
 
 pub struct HeaderMap {
-  mut entries : Array[HeaderField]
+  // private fields
 }
 pub fn HeaderMap::append(Self, HeaderName, HeaderValue) -> Unit
 pub fn HeaderMap::append_string(Self, String, String) -> Result[Unit, HeaderError]
@@ -113,7 +150,7 @@ pub fn HeaderMap::new() -> Self
 pub fn HeaderMap::remove(Self, HeaderName) -> Unit
 pub fn HeaderMap::set(Self, HeaderName, HeaderValue) -> Unit
 
-pub(all) struct HeaderName {
+pub struct HeaderName {
   value : String
 } derive(Compare, Eq, Hash, @debug.Debug)
 pub fn HeaderName::compare(Self, Self) -> Int
@@ -128,7 +165,7 @@ pub fn HeaderName::op_lt(Self, Self) -> Bool
 pub fn HeaderName::parse(String) -> Result[Self, HeaderError]
 pub fn HeaderName::to_repr(Self) -> @debug.Repr
 
-pub(all) struct HeaderValue {
+pub struct HeaderValue {
   bytes : Bytes
 } derive(Eq, @debug.Debug)
 pub fn HeaderValue::equal(Self, Self) -> Bool
@@ -154,6 +191,20 @@ pub fn HttpDate::op_lt(Self, Self) -> Bool
 pub fn HttpDate::parse(String, now_seconds? : Int64?) -> Result[Self, HttpDateError]
 pub fn HttpDate::to_repr(Self) -> @debug.Repr
 pub fn HttpDate::unix_seconds(Self) -> Int64
+
+pub struct IpAddress {
+  value : String
+} derive(Compare, Eq, @debug.Debug)
+pub fn IpAddress::compare(Self, Self) -> Int
+pub fn IpAddress::equal(Self, Self) -> Bool
+pub fn IpAddress::not_equal(Self, Self) -> Bool
+pub fn IpAddress::op_ge(Self, Self) -> Bool
+pub fn IpAddress::op_gt(Self, Self) -> Bool
+pub fn IpAddress::op_le(Self, Self) -> Bool
+pub fn IpAddress::op_lt(Self, Self) -> Bool
+pub fn IpAddress::parse(String) -> Result[Self, IpAddressError]
+pub fn IpAddress::to_repr(Self) -> @debug.Repr
+pub fn IpAddress::value(Self) -> String
 
 pub(all) struct Limits {
   max_start_line : Int
@@ -211,7 +262,7 @@ pub(all) struct Response[B] {
 }
 pub fn[A, B] Response::map_body(Self[A], (A) -> B) -> Self[B]
 
-pub(all) struct Uri {
+pub struct Uri {
   value : String
   scheme : String?
   authority : Authority?

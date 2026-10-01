@@ -149,7 +149,7 @@ async test "service: client handshake sends request and streams response" {
     )
   })
   let writer : CaptureWriter = { bytes: [], }
-  let client = @service.ClientConnection::new(reader, writer)
+  let client = @service.ClientConnection::new(reader, writer).unwrap()
   let headers = @types.HeaderMap::new()
   assert_eq(headers.append_string("host", "example.test"), Ok(()))
   let request : @types.Request[@body.FullBody] = {
@@ -180,7 +180,7 @@ async test "service: cancelling an HTTP/1 response permanently closes reuse" {
     writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ndata")
   })
   let writer : CaptureWriter = { bytes: [], }
-  let client = @service.ClientConnection::new(reader, writer)
+  let client = @service.ClientConnection::new(reader, writer).unwrap()
   let headers = @types.HeaderMap::new()
   assert_eq(headers.append_string("host", "example.test"), Ok(()))
   let response = client.send({
@@ -205,7 +205,7 @@ async test "service: HTTP/1 request-header timeout closes the connection" {
     block_on_call: 1,
     gate: Queue(kind=Unbounded),
   }
-  let client = @service.ClientConnection::try_new_with_phase_timeouts(
+  let client = @service.ClientConnection::new(
     reader,
     writer,
     request_headers_timeout_ms=Some(10),
@@ -234,7 +234,7 @@ async test "service: HTTP/1 request-body timeout closes the connection" {
     block_on_call: 2,
     gate: Queue(kind=Unbounded),
   }
-  let client = @service.ClientConnection::try_new_with_phase_timeouts(
+  let client = @service.ClientConnection::new(
     reader,
     writer,
     request_headers_timeout_ms=None,
@@ -260,7 +260,7 @@ async test "service: HTTP/1 request-body timeout closes the connection" {
 async test "service: HTTP/1 response-header timeout closes the connection" {
   let reader = PhaseBlockingReader::new(b"")
   let writer : CaptureWriter = { bytes: [], }
-  let client = @service.ClientConnection::try_new_with_phase_timeouts(
+  let client = @service.ClientConnection::new(
     reader,
     writer,
     request_headers_timeout_ms=None,
@@ -286,7 +286,7 @@ async test "service: HTTP/1 response-body timeout closes the connection" {
     b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n",
   )
   let writer : CaptureWriter = { bytes: [], }
-  let client = @service.ClientConnection::try_new_with_phase_timeouts(
+  let client = @service.ClientConnection::new(
     reader,
     writer,
     request_headers_timeout_ms=None,
@@ -314,7 +314,7 @@ async test "service: HTTP/1 close semantics prevent accidental pooling" {
     writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
   })
   let writer : CaptureWriter = { bytes: [], }
-  let client = @service.ClientConnection::new(reader, writer)
+  let client = @service.ClientConnection::new(reader, writer).unwrap()
   let headers = @types.HeaderMap::new()
   assert_eq(headers.append_string("host", "example.test"), Ok(()))
   assert_eq(headers.append_string("connection", "close"), Ok(()))
@@ -510,4 +510,36 @@ async test "service: h2c upgrade streams request body into stream one" {
     ),
     true,
   )
+}
+
+///|
+async test "service: HTTP/1 reserves connection before waiting for response headers" {
+  let reader = PhaseBlockingReader::new(b"")
+  let signal : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+  let writer : SignalingCaptureWriter = { bytes: [], signal, }
+  let client = @service.ClientConnection::new(reader, writer).unwrap()
+  @async.with_timeout(1000, async fn() {
+    @async.with_task_group(async fn(group) {
+      let first = group.spawn(async fn() {
+        ignore(client.send(phase_timeout_request(@body.EmptyBody::new())))
+      })
+      signal.get()
+      assert_true(!client.is_reusable())
+      let bytes_written = writer.bytes.length()
+      try client.send(phase_timeout_request(@body.EmptyBody::new())) catch {
+        @service.ClientConnectionError::RequestInProgress => ()
+        error => fail("unexpected second request error: \{error}")
+      } noraise {
+        _ => fail("a second request entered an active HTTP/1 connection")
+      }
+      assert_eq(writer.bytes.length(), bytes_written)
+      first.cancel()
+      try first.wait() catch {
+        error => assert_true(@async.is_cancellation_error(error))
+      } noraise {
+        _ => fail("blocked first request completed normally")
+      }
+      assert_true(client.is_closed())
+    })
+  })
 }

@@ -1,10 +1,16 @@
 import {
+  "ZSeanYves/MoonbitHTTP/types",
   "moonbitlang/core/debug",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/int",
   "ZSeanYves/MoonbitHTTP/transport",
   "ZSeanYves/MoonbitHTTP/tls",
+  "cc06b/mooncry/lib" @mooncry,
 }
+
+import {
+  "ZSeanYves/MoonbitHTTP/test_support",
+} for "test"
 
 options(
   "is-main": false,

@@ -59,12 +59,6 @@ pub extend H3Settings with Eq::{equal, not_equal}
 pub extend H3Settings with @debug.Debug::{to_repr}
 
 ///|
-pub extend H3IncomingMessage with Eq::{equal, not_equal}
-
-///|
-pub extend H3IncomingMessage with @debug.Debug::{to_repr}
-
-///|
 pub extend H3MessagePhase with Eq::{equal, not_equal}
 
 ///|

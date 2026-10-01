@@ -64,10 +64,6 @@ pub fn encode_window_update(Int, Int) -> Result[Bytes, H2ProtocolError]
 
 pub fn header_fragment(H2Frame) -> Result[Bytes, H2ProtocolError]
 
-pub fn hpack_huffman_decode(Array[Byte]) -> Result[Array[Byte], String]
-
-pub fn hpack_huffman_encode(Array[Byte]) -> Result[Array[Byte], String]
-
 // Errors
 pub(all) suberror H2ProtocolError {
   ConnectionError(H2ErrorCode, String)
@@ -89,6 +85,7 @@ pub fn FrameDecoder::new(max_frame_size? : Int, max_buffer_size? : Int) -> Self
 pub fn FrameDecoder::next(Self) -> Result[H2Frame?, H2ProtocolError]
 
 pub(all) enum H2Action {
+  PeerHeaderTableSize(Int)
   SendSettingsAck
   SendPingAck(Array[Byte])
   HeadersStarted(Int, Bool)
@@ -101,24 +98,10 @@ pub(all) enum H2Action {
 }
 
 pub struct H2Connection {
-  role : H2Role
-  limits : @types.Limits
-  local_settings : H2Settings
-  peer_settings : H2Settings
-  streams : Map[Int, H2Stream]
-  closed_streams : Array[Int]
-  mut connection_send_window : Int
-  mut connection_recv_window : Int
-  mut highest_remote_stream : Int
-  mut next_local_stream : Int
-  mut continuation_stream : Int?
-  mut continuation_bytes : Int
-  mut goaway_received : Bool
-  mut goaway_last_stream : Int?
-  mut failure : H2ProtocolError?
+  // private fields
 }
 pub fn H2Connection::accept_upgraded_stream1(Self) -> Result[Unit, H2ProtocolError]
-pub fn H2Connection::apply_settings_payload(Self, BytesView) -> Result[Unit, H2ProtocolError]
+pub fn H2Connection::apply_settings_payload(Self, BytesView) -> Result[Array[H2Action], H2ProtocolError]
 pub fn H2Connection::finish_local_stream(Self, Int) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::increase_connection_receive_window(Self, Int) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::new(H2Role, limits? : @types.Limits) -> Self
@@ -176,23 +159,6 @@ pub(all) struct H2Setting {
   value : Int
 }
 
-pub(all) struct H2Settings {
-  mut header_table_size : Int
-  mut enable_push : Bool
-  mut max_concurrent_streams : Int
-  mut initial_window_size : Int
-  mut max_frame_size : Int
-  mut max_header_list_size : Int
-}
-pub fn H2Settings::defaults() -> Self
-
-pub(all) struct H2Stream {
-  id : Int
-  mut state : H2StreamState
-  mut send_window : Int
-  mut recv_window : Int
-}
-
 pub(all) enum H2StreamState {
   Idle
   Open
@@ -205,13 +171,12 @@ pub fn H2StreamState::not_equal(Self, Self) -> Bool
 pub fn H2StreamState::to_repr(Self) -> @debug.Repr
 
 pub struct HpackContext {
-  table : HpackTable
-  max_allowed_table_size : Int
-  max_header_list_size : Int
+  // private fields
 }
 pub fn HpackContext::decode(Self, BytesView) -> Result[Array[HpackHeader], H2ProtocolError]
 pub fn HpackContext::encode_incremental(Self, Array[HpackHeader]) -> Result[Bytes, H2ProtocolError]
 pub fn HpackContext::new(max_table_size? : Int, max_header_list_size? : Int) -> Self
+pub fn HpackContext::set_encoder_table_size(Self, Int) -> Unit
 pub fn HpackContext::table_length(Self) -> Int
 
 pub(all) struct HpackHeader {

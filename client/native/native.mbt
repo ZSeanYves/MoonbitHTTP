@@ -1,48 +1,26 @@
 ///|
-/// Construct the bounded HTTP/1 client with the host's native TCP, DNS, TLS,
-/// policy, and clock capabilities. HTTP/1.1 is the only ALPN offered by this
-/// facade; HTTP/2 callers must use the HTTP/2 service/client packages.
-pub fn new_http1_client(
-  options? : @client.RequestOptions = @client.RequestOptions::defaults(),
-  proxy? : @client.ProxyConfig = @client.ProxyConfig::direct(),
-  origin_tls? : @tls.TlsOptions = {
-    ..@tls.TlsOptions::defaults(),
-    alpn: ["http/1.1"],
-  },
-  proxy_tls? : @tls.TlsOptions = {
-    ..@tls.TlsOptions::defaults(),
-    alpn: ["http/1.1"],
-  },
-  content_decoding? : Bool = false,
-  content_coding_limits? : @content_coding.ContentCodingLimits = @content_coding.ContentCodingLimits::defaults(),
-  cache_enabled? : Bool = false,
-) -> Result[@client.Http1Client, @client.ClientError] {
-  new_http1_client_with_policy(
-    @transport.AllowAllPolicy::new(),
-    options~,
-    proxy~,
-    origin_tls~,
-    proxy_tls~,
-    content_decoding~,
-    content_coding_limits~,
-    cache_enabled~,
-  )
-}
-
-///|
-/// Constructs the Native HTTP/1 client with an explicit network policy.
-/// Policy checks cover DNS, numeric connects, redirects, proxy CONNECT, and
-/// QUIC endpoint operations where the corresponding capability is used.
-pub fn[P : @transport.NetworkPolicy] new_http1_client_with_policy(
+/// Construct the bounded HTTP/1 client with an explicit network policy and
+/// native TCP plus explicitly supplied DNS, TLS, and clock capabilities. Policy checks cover
+/// DNS, numeric connects, redirects, and proxy CONNECT. HTTP/1.1 is the only
+/// ALPN offered by this facade.
+pub fn[
+  R : @transport.NameResolver,
+  P : @transport.NetworkPolicy,
+  K : @transport.Clock,
+  T : @transport.TlsProvider,
+] new_http1_client(
+  resolver : R,
   policy : P,
+  clock : K,
+  tls_provider : T,
   options? : @client.RequestOptions = @client.RequestOptions::defaults(),
   proxy? : @client.ProxyConfig = @client.ProxyConfig::direct(),
-  origin_tls? : @tls.TlsOptions = {
-    ..@tls.TlsOptions::defaults(),
+  origin_tls? : @transport.TlsOptions = {
+    ..@transport.TlsOptions::defaults(),
     alpn: ["http/1.1"],
   },
-  proxy_tls? : @tls.TlsOptions = {
-    ..@tls.TlsOptions::defaults(),
+  proxy_tls? : @transport.TlsOptions = {
+    ..@transport.TlsOptions::defaults(),
     alpn: ["http/1.1"],
   },
   content_decoding? : Bool = false,
@@ -51,10 +29,10 @@ pub fn[P : @transport.NetworkPolicy] new_http1_client_with_policy(
 ) -> Result[@client.Http1Client, @client.ClientError] {
   @client.Http1Client::from_capabilities(
     @transport_native.TcpConnector::new(),
-    @transport_native.NativeResolver::new(),
-    @tls_native.NativeTlsProvider::new(),
+    resolver,
+    tls_provider,
     policy,
-    @transport_native.NativeClock::new(),
+    clock,
     options~,
     proxy~,
     origin_tls~,

@@ -102,16 +102,3 @@ pub fn HpackHeader::value_text(
     _ => Err(ConnectionError(ProtocolError, "header value is not valid UTF-8"))
   }
 }
-
-///|
-priv struct HuffmanSymbol {
-  code : Int // Right-aligned Huffman code.
-  bits : Int // code length in bits
-}
-
-///|
-priv struct HuffmanNode {
-  left : Int // index of left child (-1 if none)
-  right : Int // index of right child (-1 if none)
-  sym : Int // 0..256 for a leaf symbol; -1 for an internal node.
-}

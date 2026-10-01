@@ -1,8 +1,6 @@
 import {
   "ZSeanYves/MoonbitHTTP/client",
   "ZSeanYves/MoonbitHTTP/content_coding",
-  "ZSeanYves/MoonbitHTTP/tls",
-  "ZSeanYves/MoonbitHTTP/tls/native" @tls_native,
   "ZSeanYves/MoonbitHTTP/transport",
   "ZSeanYves/MoonbitHTTP/transport/native" @transport_native,
 }
@@ -10,7 +8,12 @@ import {
 import {
   "moonbitlang/async",
   "ZSeanYves/MoonbitHTTP/types",
+  "ZSeanYves/MoonbitHTTP/tls/native" @tls_native,
 } for "test"
+
+import {
+  "ZSeanYves/MoonbitHTTP/tls/native" @tls_native,
+} for "wbtest"
 
 supported_targets = "+native"
 

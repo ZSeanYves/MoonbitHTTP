@@ -1,5 +1,5 @@
 ///|
-pub extend NativeTlsProvider with @tls.TlsProvider::{
+pub extend NativeTlsProvider with @transport.TlsProvider::{
   client_handshake,
   server_handshake,
 }

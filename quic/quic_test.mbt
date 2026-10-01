@@ -54,6 +54,9 @@ test "quic: ACK ranges and stream frames enforce flow limits" {
   let range = @quic.AckRange::new(10L, 8L).unwrap()
   let ack = @quic.AckFrame::new(10L, 0L, [range]).unwrap()
   let connection = @quic.QuicConnection::new(Client).unwrap()
+  connection
+  .set_peer_transport_params(@quic.QuicTransportParams::defaults())
+  .unwrap()
   connection.establish().unwrap()
   let stream = connection.open_bidirectional_stream().unwrap()
   let frame = connection.send_stream(stream, b"hello", true).unwrap()
@@ -66,6 +69,11 @@ test "quic: ACK ranges and stream frames enforce flow limits" {
 test "quic: application streams are unavailable before establishment" {
   let connection = @quic.QuicConnection::new(Client).unwrap()
   assert_true(connection.open_bidirectional_stream() is Err(Unsupported(_)))
+  let illegal = @quic.StreamFrame::new(1L, 0L, b"early", false).unwrap()
+  assert_true(connection.receive_frame(Stream(illegal)) is Err(Unsupported(_)))
+  connection
+  .set_peer_transport_params(@quic.QuicTransportParams::defaults())
+  .unwrap()
   connection.establish().unwrap()
   let stream = connection.open_bidirectional_stream().unwrap()
   assert_true(connection.send_stream(stream, b"ok", true) is Ok(_))
@@ -81,7 +89,7 @@ test "quic: frame parser rejects ACK underflow and unknown types" {
 }
 
 ///|
-test "quic: transport parameters and packet protection are explicit" {
+test "quic: transport parameters reject undersized datagrams" {
   assert_eq(@quic.QuicTransportParams::defaults().validate(), Ok(()))
   let defaults = @quic.QuicTransportParams::defaults()
   let bad : @quic.QuicTransportParams = {
@@ -97,12 +105,15 @@ test "quic: transport parameters and packet protection are explicit" {
     disable_active_migration: defaults.disable_active_migration,
   }
   assert_true(bad.validate() is Err(_))
-  assert_true(@quic.quic_protect_packet(b"packet") is Err(Unsupported(_)))
 }
 
 ///|
 test "quic: STREAM data is reordered, deduplicated, and FIN waits for gaps" {
   let connection = @quic.QuicConnection::new(Client).unwrap()
+  connection
+  .set_peer_transport_params(@quic.QuicTransportParams::defaults())
+  .unwrap()
+  connection.establish().unwrap()
   let tail = @quic.StreamFrame::new(1L, 3L, b"lo", true).unwrap()
   assert_eq(connection.receive_frame(Stream(tail)).unwrap(), [])
   let head = @quic.StreamFrame::new(1L, 0L, b"hel", false).unwrap()
@@ -118,6 +129,10 @@ test "quic: STREAM data is reordered, deduplicated, and FIN waits for gaps" {
 ///|
 test "quic: empty STREAM FIN is delivered once" {
   let connection = @quic.QuicConnection::new(Client).unwrap()
+  connection
+  .set_peer_transport_params(@quic.QuicTransportParams::defaults())
+  .unwrap()
+  connection.establish().unwrap()
   let fin = @quic.StreamFrame::new(1L, 0L, b"", true).unwrap()
   assert_eq(connection.receive_frame(Stream(fin)).unwrap(), [
     StreamData(1L, b"", true),
@@ -143,6 +158,7 @@ test "quic: local resource ceilings cap negotiated flow-control windows" {
     limits~,
     transport_params=params,
   ).unwrap()
+  sender.set_peer_transport_params(params).unwrap()
   sender.establish().unwrap()
   let local_stream = sender.open_bidirectional_stream().unwrap()
   ignore(sender.send_stream(local_stream, b"1234", false).unwrap())
@@ -155,6 +171,8 @@ test "quic: local resource ceilings cap negotiated flow-control windows" {
     transport_params=params,
   ).unwrap()
   let oversized = @quic.StreamFrame::new(1L, 0L, b"12345", false).unwrap()
+  receiver.set_peer_transport_params(params).unwrap()
+  receiver.establish().unwrap()
   assert_true(
     receiver.receive_frame(Stream(oversized)) is Err(FlowControl(0L, _)),
   )
@@ -177,6 +195,7 @@ test "quic: non-increasing MAX frames are ignored and increases stay capped" {
     limits~,
     transport_params=params,
   ).unwrap()
+  connection.set_peer_transport_params(params).unwrap()
   connection.establish().unwrap()
   let stream = connection.open_bidirectional_stream().unwrap()
   ignore(connection.send_stream(stream, b"12", false).unwrap())

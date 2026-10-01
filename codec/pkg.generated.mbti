@@ -6,6 +6,9 @@ import {
 }
 
 // Values
+pub fn huffman_decode(BytesView) -> Result[Bytes, HuffmanError]
+
+pub fn huffman_encode(BytesView) -> Bytes
 
 // Errors
 pub(all) suberror CodecError {
@@ -21,6 +24,7 @@ pub fn CodecError::to_repr(Self) -> @debug.Repr
 // Types and methods
 pub struct Buffer {
   mut bytes : Array[Byte]
+  mut start : Int
   max_bytes : Int
 }
 pub fn Buffer::feed(Self, BytesView) -> Result[Unit, CodecError]
@@ -31,6 +35,15 @@ pub fn Buffer::peek(Self) -> Bytes
 pub fn Buffer::read_line(Self, Int) -> Result[Bytes, CodecError]
 pub fn Buffer::starts_with(Self, BytesView) -> Bool
 pub fn Buffer::take(Self, Int) -> Bytes
+
+pub(all) enum HuffmanError {
+  InvalidCode
+  UnexpectedEos
+  InvalidPadding
+} derive(Eq, @debug.Debug)
+pub fn HuffmanError::equal(Self, Self) -> Bool
+pub fn HuffmanError::not_equal(Self, Self) -> Bool
+pub fn HuffmanError::to_repr(Self) -> @debug.Repr
 
 // Type aliases
 

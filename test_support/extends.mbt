@@ -18,3 +18,25 @@ pub extend FaultReader with @aio.Reader::{
 
 ///|
 pub extend RecordingWriter with @aio.Writer::{write_once, write, write_reader}
+
+///|
+pub extend FixedClock with Eq::{equal, not_equal}
+
+///|
+pub extend FixedClock with @debug.Debug::{to_repr}
+
+///|
+pub extend FixedClock with @transport.Clock::{
+  monotonic_millis,
+  wall_clock_seconds,
+}
+
+///|
+pub extend ZeroEntropy with @transport.Entropy::{fill}
+
+///|
+pub extend MemoryDatagramSocket with @transport.DatagramSocket::{
+  send,
+  receive,
+  close,
+}

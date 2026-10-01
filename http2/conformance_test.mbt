@@ -85,8 +85,10 @@ test "h2 conformance: server SETTINGS_ENABLE_PUSH is rejected by client" {
 
 ///|
 test "h2 conformance: local concurrent stream limit is enforced" {
-  let connection = @http2.H2Connection::new(Server)
-  connection.local_settings.max_concurrent_streams = 1
+  let connection = @http2.H2Connection::new(Server, limits={
+    ..@types.Limits::defaults(),
+    max_concurrent_requests: 1,
+  })
   ignore(
     connection
     .receive({

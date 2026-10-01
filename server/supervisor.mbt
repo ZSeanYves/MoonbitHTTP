@@ -150,6 +150,10 @@ pub async fn[L : Listener] ServerSupervisor::serve(
     while self.state == Running {
       let accepted = match listener.accept() {
         Ok(value) => value
+        // A restrictive peer policy is an expected rejection after accept;
+        // it must not consume the fatal accept-error budget. Otherwise a
+        // remote can open denied connections until the listener drains.
+        Err(Policy(_)) => continue
         Err(_) =>
           match self.record_accept_error() {
             Ok(_) => continue

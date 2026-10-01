@@ -67,6 +67,70 @@ fn quic_builder_cid(cid : ConnectionId) -> Bytes {
 }
 
 ///|
+/// Builds an unauthenticated Version Negotiation packet. CID echo checks
+/// reject unrelated responses but do not authenticate the peer. Only QUIC v1
+/// is implemented; a valid no-common-version response stops the connection.
+pub fn quic_build_version_negotiation_packet(
+  destination : ConnectionId,
+  source : ConnectionId,
+  supported_versions : Array[Int],
+) -> Result[Bytes, QuicError] {
+  if supported_versions.is_empty() ||
+    destination.bytes().length() > QUIC_MAX_CONNECTION_ID ||
+    source.bytes().length() > QUIC_MAX_CONNECTION_ID {
+    return Err(InvalidPacket("invalid Version Negotiation packet"))
+  }
+  let versions : Array[Bytes] = []
+  for version in supported_versions {
+    if version == 0 {
+      return Err(InvalidPacket("invalid QUIC version"))
+    }
+    versions.push(quic_builder_u32(version))
+  }
+  Ok(
+    quic_builder_join([
+      b"\xc0",
+      quic_builder_u32(QUIC_VERSION_NEGOTIATION),
+      quic_builder_cid(destination),
+      quic_builder_cid(source),
+      quic_builder_join(versions),
+    ]),
+  )
+}
+
+///|
+/// Builds a Retry packet and its RFC 9001 integrity tag.  `original_destination`
+/// is the client's first Initial DCID, while `destination` is the client's
+/// Source CID and `source` is the server's fresh Retry CID.
+pub fn quic_build_retry_packet(
+  version : Int,
+  destination : ConnectionId,
+  source : ConnectionId,
+  token : Bytes,
+  original_destination : ConnectionId,
+) -> Result[Bytes, QuicError] {
+  if version != QUIC_VERSION_1 ||
+    destination.bytes().length() > QUIC_MAX_CONNECTION_ID ||
+    source.bytes().length() > QUIC_MAX_CONNECTION_ID ||
+    token.is_empty() {
+    return Err(InvalidPacket("invalid Retry packet arguments"))
+  }
+  let without_tag = quic_builder_join([
+    b"\xf0",
+    quic_builder_u32(version),
+    quic_builder_cid(destination),
+    quic_builder_cid(source),
+    token,
+  ])
+  let tag = match
+    @tls.quic_retry_integrity_tag(original_destination.bytes(), without_tag) {
+    Ok(value) => value
+    Err(_) => return Err(InvalidPacket("Retry integrity protection failed"))
+  }
+  Ok(quic_builder_join([without_tag, tag]))
+}
+
+///|
 /// Builds and protects a QUIC v1 Initial packet. The packet length field is
 /// derived from the encrypted payload and is therefore consistent with the
 /// wire representation. The caller supplies the direction-specific Initial
@@ -329,6 +393,16 @@ pub fn quic_build_short_packet(
 ) -> Result[Bytes, QuicError] {
   if destination.bytes().length() > QUIC_MAX_CONNECTION_ID {
     return Err(LimitExceeded("connection ID", QUIC_MAX_CONNECTION_ID))
+  }
+  if packet_number_length < 1 || packet_number_length > 4 {
+    return Err(InvalidPacket("invalid short-header packet number length"))
+  }
+  let padding_length = (4 - packet_number_length - payload.length()).max(0)
+  let payload = if padding_length > 0 {
+    let padding = FixedArray::make(padding_length, b'\x00')
+    quic_builder_join([payload, padding.unsafe_reinterpret_as_bytes()])
+  } else {
+    payload
   }
   let key_bit = if key_phase { 0x04 } else { 0 }
   let prefix = quic_builder_join([

@@ -5,6 +5,13 @@ pub extend TcpConnector with @transport.StreamConnector::{connect}
 pub extend UdpSocket with @transport.DatagramSocket::{send, receive, close}
 
 ///|
+pub extend UdpServerSocket with @transport.DatagramSocket::{
+  send,
+  receive,
+  close,
+}
+
+///|
 pub extend NativeResolver with @transport.NameResolver::{resolve}
 
 ///|

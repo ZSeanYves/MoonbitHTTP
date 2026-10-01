@@ -1,20 +1,12 @@
 ///|
-/// TLS 1.3 cipher suites that can produce QUIC packet-protection keys.
-/// AES-128-GCM is the mandatory-to-implement QUIC v1 suite.
-pub(all) enum QuicTlsCipherSuite {
-  TlsAes128GcmSha256
-  TlsAes256GcmSha384
-} derive(Eq, Debug)
-
-///|
 /// Opaque directional QUIC packet keys. This type deliberately has no
 /// `Debug` implementation so traffic secrets cannot be logged accidentally.
 pub struct QuicPacketKeys {
-  suite : QuicTlsCipherSuite
-  secret : Bytes
-  key : Bytes
-  iv : Bytes
-  hp : Bytes
+  priv suite : QuicTlsCipherSuite
+  priv secret : Bytes
+  priv key : Bytes
+  priv iv : Bytes
+  priv hp : Bytes
 }
 
 ///|
@@ -169,6 +161,32 @@ pub fn QuicPacketKeys::cipher_suite(
   self : QuicPacketKeys,
 ) -> QuicTlsCipherSuite {
   self.suite
+}
+
+///|
+/// Derives the next QUIC v1 application traffic secret using "quic ku".
+/// RFC 9001 §6 retains the original header-protection key across updates.
+/// The connection state machine must separately enforce handshake confirmation,
+/// acknowledgment of the previous phase, packet-number continuity and old-key
+/// retention. This primitive does not initiate or authorize a wire key update.
+pub fn QuicPacketKeys::next_application_keys(
+  self : QuicPacketKeys,
+) -> Result[QuicPacketKeys, TlsError] {
+  let secret = match
+    tls13_expand_label(
+      self.secret,
+      self.suite,
+      "quic ku",
+      quic_secret_length(self.suite),
+    ) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  let next = match derive_quic_packet_keys(secret, suite=self.suite) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  Ok({ ..next, hp: self.hp, })
 }
 
 ///|

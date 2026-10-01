@@ -294,16 +294,18 @@ fn decode_string(buf : Array[Byte], pos : Int) -> Result[(Bytes, Int), String] {
     return Err("hpack str: truncated")
   }
   let end = start + len
-  let data = Bytes::from_array(buf)[start:end].to_owned().to_array()
+  let data = Bytes::from_array(buf)[start:end].to_owned()
   let raw = if huff {
-    match hpack_huffman_decode(data) {
+    match @codec.huffman_decode(data) {
       Ok(x) => x
-      Err(e) => return Err(e)
+      Err(InvalidCode) => return Err("hpack huffman: invalid code")
+      Err(UnexpectedEos) => return Err("hpack huffman: EOS encountered in data")
+      Err(InvalidPadding) => return Err("hpack huffman: invalid EOS padding")
     }
   } else {
     data
   }
-  Ok((Bytes::from_array(raw), used1 + len))
+  Ok((raw, used1 + len))
 }
 
 // Encodes an integer with an N-bit prefix.
@@ -330,19 +332,10 @@ fn encode_integer(n : Int, value : Int) -> Array[Byte] {
 
 ///|
 fn encode_string(raw : BytesView, use_huffman? : Bool = false) -> Array[Byte] {
-  let raw = raw.to_owned().to_array()
   let (payload, hflag) = if use_huffman {
-    match hpack_huffman_encode(raw) {
-      Ok(x) =>
-        // Validate the encoded form before emitting it.
-        match hpack_huffman_decode(x) {
-          Ok(_) => (x, true)
-          Err(_) => (raw, false)
-        }
-      Err(_) => (raw, false)
-    }
+    (@codec.huffman_encode(raw), true)
   } else {
-    (raw, false)
+    (raw.to_owned(), false)
   }
   let out = encode_integer(7, payload.length())
   out[0] = ((out[0].to_int() & 0x7F) | (if hflag { 0x80 } else { 0 })).to_byte()

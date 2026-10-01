@@ -6,22 +6,126 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: moonbithttp-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
+  native-tls-platform:
+    name: native TLS (${{ matrix.os }})
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup MoonBit
-        uses: hustcer/setup-moonbit@v1
+        uses: hustcer/setup-moonbit@v1.22
+        with:
+          version: 0.10.14+7d59c7ec9
 
       - name: Update package registry
         run: moon update
 
+      - name: Install OpenSSL build dependencies on Ubuntu
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential perl curl ca-certificates
+
+      - name: Build pinned OpenSSL 3.5 on Ubuntu
+        if: runner.os == 'Linux'
+        run: moon run scripts/install_ci_openssl.mbtx
+
+      - name: Verify pinned OpenSSL on Ubuntu
+        if: runner.os == 'Linux'
+        run: openssl version -a
+
+      - name: Install OpenSSL on macOS
+        if: runner.os == 'macOS'
+        run: brew list --versions openssl@3 >/dev/null || brew install openssl@3
+
+      - name: Install OpenSSL on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install openssl.light --no-progress --yes
+          "OPENSSL_ROOT_DIR=C:\Program Files\OpenSSL-Win64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Select Homebrew OpenSSL
+        if: runner.os == 'macOS'
+        run: echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+
+      - name: Verify Homebrew OpenSSL on macOS
+        if: runner.os == 'macOS'
+        run: |
+          openssl_root="$(brew --prefix openssl@3)"
+          test -x "$openssl_root/bin/openssl"
+          "$openssl_root/bin/openssl" version -a
+          version=$("$openssl_root/bin/openssl" version | awk '{print $2}')
+          major=${version%%.*}
+          rest=${version#*.}
+          minor=${rest%%.*}
+          if [ "$major" -lt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -lt 5 ]; }; then
+            echo "OpenSSL 3.5 or newer is required; found $version"
+            exit 1
+          fi
+
+      - name: Verify OpenSSL on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $openssl = Join-Path $env:OPENSSL_ROOT_DIR "bin\openssl.exe"
+          if (!(Test-Path -LiteralPath $openssl)) { throw "OpenSSL executable not found at $openssl" }
+          & $openssl version -a
+          $version = (& $openssl version).Split()[1]
+          $parts = $version.Split('.')
+          if ([int]$parts[0] -lt 3 -or ([int]$parts[0] -eq 3 -and [int]$parts[1] -lt 5)) {
+            throw "OpenSSL 3.5 or newer is required; found $version"
+          }
+
+      - name: Run Native TLS certificate and identity suite
+        run: moon test quic tls/native --target native --no-parallelize --deny-warn --warn-list +73
+
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MoonBit
+        uses: hustcer/setup-moonbit@v1.22
+        with:
+          version: 0.10.14+7d59c7ec9
+
+      - name: Update package registry
+        run: moon update
+
+      - name: Install native TLS and interoperability runtimes
+        run: sudo apt-get update && sudo apt-get install -y build-essential perl curl wget nghttp2-client unzip ca-certificates python3-venv
+
+      - name: Cache pinned OpenSSL 3.5 LTS runtime
+        uses: actions/cache@v4
+        with:
+          path: _build/ci-openssl/install
+          key: openssl-3.5.8-linux-${{ runner.arch }}-shared-${{ hashFiles('scripts/install_ci_openssl.mbtx') }}
+
+      - name: Build and select OpenSSL with QUIC TLS callbacks
+        run: moon run scripts/install_ci_openssl.mbtx
+
       - name: Check formatting
         run: moon fmt --check
+
+      - name: Check architecture boundaries and generated dependency graph
+        run: moon run tools/check_architecture.mbtx
 
       - name: Check code (deny warnings)
         run: moon check --target all --deny-warn --warn-list +73
@@ -35,26 +139,50 @@ jobs:
       - name: Build all targets
         run: moon build --target all --deny-warn --warn-list +73
 
+      - name: Regenerate and verify public interfaces
+        run: |
+          moon info --target all
+          git diff --exit-code -- ':(glob)**/pkg.generated.mbti'
+
       - name: Run tests
-        run: moon test --target all --deny-warn --warn-list +73
+        run: moon test --target all --no-parallelize --deny-warn --warn-list +73
 
       - name: Run async integration tests
-        run: moon test service body test_support uv_adapter --target native --deny-warn --warn-list +73
-
-      - name: Install HTTP/2 interoperability client
-        run: sudo apt-get update && sudo apt-get install -y nghttp2-client
+        run: moon test service body test_support uv_adapter --target native --no-parallelize --deny-warn --warn-list +73
 
       - name: Run socket interoperability checks
-        run: bash scripts/interoperability.sh
+        run: moon run tools/interoperability.mbtx
 
-      - name: Build benchmarks
-        run: moon bench --build-only --target native --deny-warn --warn-list +73
+      - name: Prepare independent HTTP/3 client
+        run: moon run tools/prepare_http3_interop.mbtx
 
-      - name: Validate package manifest
-        run: moon package --list
+      - name: Run independent HTTP/3 and QUIC TLS loss/reorder interoperability
+        run: moon run tools/http3_interoperability.mbtx --impair --duration-seconds 60 --concurrent-requests 8
 
-      - name: Generate coverage report
-        run: moon coverage analyze -- -f cobertura -o coverage.xml
+      - name: Execute native release benchmarks
+        run: moon run tools/benchmarks.mbtx
+
+      - name: Verify frozen package and release evidence
+        run: moon run tools/release_evidence.mbtx
+
+      - name: Generate fresh instrumented coverage report
+        run: |
+          moon coverage clean
+          moon coverage analyze -- -f cobertura -o coverage.xml
+
+      - name: Check final worktree hygiene
+        run: git diff --check
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-evidence
+          path: |
+            _build/evidence/
+            _build/publish/
+            coverage.xml
+          if-no-files-found: warn
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
@@ -62,4 +190,5 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: ZSeanYves/MoonbitHTTP
           files: ./coverage.xml
-          fail_ci_if_error: true
+          fail_ci_if_error: false
+        continue-on-error: true

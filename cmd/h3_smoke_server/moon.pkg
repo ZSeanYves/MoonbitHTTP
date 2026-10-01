@@ -1,0 +1,15 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/core/debug",
+  "ZSeanYves/MoonbitHTTP/types",
+  "ZSeanYves/MoonbitHTTP/transport",
+  "ZSeanYves/MoonbitHTTP/transport/native" @transport_native,
+  "ZSeanYves/MoonbitHTTP/tls/native" @tls_native,
+  "ZSeanYves/MoonbitHTTP/quic",
+  "ZSeanYves/MoonbitHTTP/http3",
+}
+
+supported_targets = "+native"
+
+pkgtype(kind: "executable")

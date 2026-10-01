@@ -3,6 +3,7 @@ pub(all) suberror ServiceConfigError {
   InvalidLimits(@types.LimitsError)
   InvalidReadSize(Int)
   InvalidBodyQueueCapacity(Int)
+  InvalidReceiveWindow(Int)
   InvalidConcurrentStreams(Int)
   InvalidTimeout(String, Int)
 } derive(Debug, Eq)
@@ -32,6 +33,10 @@ pub fn ServerConfig::validate(
   if self.body_queue_capacity <= 0 {
     return Err(InvalidBodyQueueCapacity(self.body_queue_capacity))
   }
+  if self.h2_receive_window_bytes <= 0 ||
+    self.h2_receive_window_bytes > self.limits.max_buffer_bytes {
+    return Err(InvalidReceiveWindow(self.h2_receive_window_bytes))
+  }
   match validate_timeout("read", self.read_timeout_ms) {
     Ok(_) => ()
     Err(error) => return Err(error)
@@ -52,6 +57,10 @@ pub fn H2ClientConfig::validate(
   }
   if self.body_queue_capacity <= 0 {
     return Err(InvalidBodyQueueCapacity(self.body_queue_capacity))
+  }
+  if self.h2_receive_window_bytes <= 0 ||
+    self.h2_receive_window_bytes > self.limits.max_buffer_bytes {
+    return Err(InvalidReceiveWindow(self.h2_receive_window_bytes))
   }
   if self.max_concurrent_streams <= 0 ||
     self.max_concurrent_streams > self.limits.max_concurrent_requests {

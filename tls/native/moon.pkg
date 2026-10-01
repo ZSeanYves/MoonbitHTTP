@@ -1,14 +1,21 @@
 import {
+  "ZSeanYves/MoonbitHTTP/types",
   "moonbitlang/async",
   "moonbitlang/core/encoding/utf8",
-  "moonbitlang/async/io" @aio,
-  "moonbitlang/async/tls" @atls,
-  "ZSeanYves/MoonbitHTTP/tls",
   "ZSeanYves/MoonbitHTTP/transport",
 }
 
 supported_targets = "+native"
 
+import {
+  "ZSeanYves/MoonbitHTTP/tls",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/socket",
+  "ZSeanYves/MoonbitHTTP/quic",
+  "ZSeanYves/MoonbitHTTP/test_support",
+} for "wbtest"
+
 options(
+  "native-stub": [ "openssl_stub.c", "quic_tls_stub.c" ],
   "is-main": false,
 )

@@ -9,8 +9,28 @@ test "quic crypto reassembler: out of order and duplicate ranges" {
 }
 
 ///|
+test "quic crypto reassembler: sparse fragments and repeated overlap have bounded work" {
+  let sparse = @quic.QuicCryptoReassembler::new(max_bytes=1024, max_segments=8).unwrap()
+  for index in 0..<8 {
+    assert_eq(sparse.feed((index * 2 + 1).to_int64(), b"a").unwrap(), [])
+  }
+  assert_true(
+    sparse.feed(17L, b"a")
+    is Err(LimitExceeded("CRYPTO reassembly fragments", 8)),
+  )
+  assert_eq(sparse.feed(0L, b"a").unwrap(), [b"aa"])
+  assert_eq(sparse.feed(17L, b"a").unwrap(), [])
+  let work = @quic.QuicCryptoReassembler::new(max_bytes=32, max_work=6L).unwrap()
+  assert_eq(work.feed(0L, b"abc").unwrap(), [b"abc"])
+  assert_eq(work.feed(0L, b"abc").unwrap(), [])
+  assert_true(
+    work.feed(0L, b"a") is Err(LimitExceeded("CRYPTO reassembly work", 6)),
+  )
+}
+
+///|
 test "quic datagram driver: protected Initial loopback and duplicate drop" {
-  let endpoint = @transport.Endpoint::new("udp", "example.test", 443).unwrap()
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
   let server_id = @quic.ConnectionId::new(b"server-id").unwrap()
   let client_id = @quic.ConnectionId::new(b"client-id").unwrap()
   let client = @quic.QuicDatagramDriver::new(
@@ -63,8 +83,49 @@ test "quic datagram driver: protected Initial loopback and duplicate drop" {
 }
 
 ///|
+test "quic datagram driver: server amplification budget is path scoped" {
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
+  let server_id = @quic.ConnectionId::new(b"server-id").unwrap()
+  let client_id = @quic.ConnectionId::new(b"client-id").unwrap()
+  let client = @quic.QuicDatagramDriver::new(
+    Client,
+    endpoint,
+    server_id,
+    client_id,
+    server_id,
+  ).unwrap()
+  let server = @quic.QuicDatagramDriver::new(
+    Server,
+    endpoint,
+    server_id,
+    server_id,
+    client_id,
+  ).unwrap()
+  assert_true(
+    server.send_frames(Initial, [Ping], 0L) is Err(AmplificationBlocked),
+  )
+  guard client.send_frames(Initial, [Ping], 1L).unwrap()
+    is SendDatagram(_, client_packet) else {
+    fail("expected client Initial datagram")
+  }
+  let server_actions = server.on_datagram(endpoint, client_packet, 2L).unwrap()
+  for action in server_actions {
+    match action {
+      SendDatagram(_, bytes) =>
+        assert_true(bytes.length() <= client_packet.length() * 3)
+      _ => ()
+    }
+  }
+  guard server.send_frames(Initial, [Ping], 3L).unwrap()
+    is SendDatagram(_, response) else {
+    fail("expected server output after receiving an attributable datagram")
+  }
+  assert_true(response.length() <= client_packet.length() * 3)
+}
+
+///|
 test "quic datagram driver: CRYPTO actions preserve stream offsets" {
-  let endpoint = @transport.Endpoint::new("udp", "example.test", 443).unwrap()
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
   let server_id = @quic.ConnectionId::new(b"server-id").unwrap()
   let client_id = @quic.ConnectionId::new(b"client-id").unwrap()
   let client = @quic.QuicDatagramDriver::new(
@@ -103,7 +164,7 @@ test "quic datagram driver: CRYPTO actions preserve stream offsets" {
 
 ///|
 test "quic datagram driver: packet deduplication window stays bounded" {
-  let endpoint = @transport.Endpoint::new("udp", "example.test", 443).unwrap()
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
   let server_id = @quic.ConnectionId::new(b"server-id").unwrap()
   let client_id = @quic.ConnectionId::new(b"client-id").unwrap()
   let client = @quic.QuicDatagramDriver::new(
@@ -139,7 +200,7 @@ test "quic datagram driver: packet deduplication window stays bounded" {
 
 ///|
 test "quic datagram driver: handshake keys are an explicit capability" {
-  let endpoint = @transport.Endpoint::new("udp", "example.test", 443).unwrap()
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
   let destination = @quic.ConnectionId::new(b"server-id").unwrap()
   let local_id = @quic.ConnectionId::new(b"client-id").unwrap()
   let driver = @quic.QuicDatagramDriver::new(
@@ -154,7 +215,7 @@ test "quic datagram driver: handshake keys are an explicit capability" {
 
 ///|
 test "quic datagram driver: application packets fail closed before establishment" {
-  let endpoint = @transport.Endpoint::new("udp", "example.test", 443).unwrap()
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
   let destination = @quic.ConnectionId::new(b"server-id").unwrap()
   let local_id = @quic.ConnectionId::new(b"client-id").unwrap()
   let driver = @quic.QuicDatagramDriver::new(
@@ -171,7 +232,7 @@ test "quic datagram driver: application packets fail closed before establishment
 
 ///|
 test "quic datagram driver: path migration is policy checked before state change" {
-  let endpoint = @transport.Endpoint::new("udp", "example.test", 443).unwrap()
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
   let destination = @quic.ConnectionId::new(b"server-id").unwrap()
   let local_id = @quic.ConnectionId::new(b"client-id").unwrap()
   let driver = @quic.QuicDatagramDriver::new(
@@ -188,9 +249,9 @@ test "quic datagram driver: path migration is policy checked before state change
       }
     },
   ).unwrap()
-  let blocked = @transport.Endpoint::new("udp", "blocked.example", 443).unwrap()
+  let blocked = @types.Endpoint::new("udp", "blocked.example", 443).unwrap()
   assert_eq(
-    driver.begin_path_validation(blocked, b"12345678"),
+    driver.begin_path_validation(blocked, b"12345678", 0L),
     Err(Policy(Denied(QuicEndpoint, "path denied"))),
   )
   assert_eq(driver.endpoint(), endpoint)
@@ -199,7 +260,7 @@ test "quic datagram driver: path migration is policy checked before state change
 
 ///|
 test "quic datagram driver: establishment requires application keys" {
-  let endpoint = @transport.Endpoint::new("udp", "example.test", 443).unwrap()
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
   let destination = @quic.ConnectionId::new(b"server-id").unwrap()
   let local_id = @quic.ConnectionId::new(b"client-id").unwrap()
   let driver = @quic.QuicDatagramDriver::new(
@@ -214,7 +275,7 @@ test "quic datagram driver: establishment requires application keys" {
 
 ///|
 test "quic datagram driver: PTO retransmits retained frames" {
-  let endpoint = @transport.Endpoint::new("udp", "example.test", 443).unwrap()
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
   let destination = @quic.ConnectionId::new(b"server-id").unwrap()
   let local_id = @quic.ConnectionId::new(b"client-id").unwrap()
   let driver = @quic.QuicDatagramDriver::new(
@@ -241,11 +302,30 @@ test "quic datagram driver: PTO retransmits retained frames" {
       }
     }),
   )
+  // PTO does not consume the source payload.  A second timeout must still
+  // retransmit CRYPTO when the first probe is also lost.
+  let second_actions = driver.poll(4000L).unwrap()
+  guard second_actions is [SendDatagram(_, second_packet)] else {
+    fail("expected a second PTO retransmission")
+  }
+  let (second_offset, _) = @quic.quic_long_header_packet_layout(second_packet).unwrap()
+  let second_opened = @quic.quic_open_packet_with_keys(
+    keys, second_packet, second_offset, 1L, true,
+  ).unwrap()
+  let second_frames = @quic.quic_decode_frames(second_opened.payload()).unwrap()
+  assert_true(
+    second_frames.any(fn(frame) {
+      match frame {
+        Crypto(offset, data) => offset == 0L && data == b"handshake"
+        _ => false
+      }
+    }),
+  )
 }
 
 ///|
 test "quic datagram driver: retransmission retention is bounded" {
-  let endpoint = @transport.Endpoint::new("udp", "example.test", 443).unwrap()
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
   let destination = @quic.ConnectionId::new(b"server-id").unwrap()
   let local_id = @quic.ConnectionId::new(b"client-id").unwrap()
   let recovery_config : @quic.QuicRecoveryConfig = {
@@ -269,7 +349,7 @@ test "quic datagram driver: retransmission retention is bounded" {
 
 ///|
 test "quic datagram driver: multiple losses are retransmitted as separate packets" {
-  let endpoint = @transport.Endpoint::new("udp", "example.test", 443).unwrap()
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
   let server_id = @quic.ConnectionId::new(b"server-id").unwrap()
   let client_id = @quic.ConnectionId::new(b"client-id").unwrap()
   let client = @quic.QuicDatagramDriver::new(
@@ -292,11 +372,15 @@ test "quic datagram driver: multiple losses are retransmitted as separate packet
   let payload = Bytes::from_array(FixedArray::make(700, b'x'))
   for number in 0..<7 {
     let offset = number.to_int64() * payload.length().to_int64()
-    ignore(
-      client
+    let sent = client
       .send_frames(Handshake, [Crypto(offset, payload)], number.to_int64())
-      .unwrap(),
-    )
+      .unwrap()
+    guard sent is SendDatagram(_, packet) else {
+      fail("expected protected handshake datagram")
+    }
+    // Account the complete datagram on the server path before asking it to
+    // emit an ACK; this is the real address-validation precondition.
+    ignore(server.on_datagram(endpoint, packet, number.to_int64()).unwrap())
   }
   let range = @quic.AckRange::new(6L, 6L).unwrap()
   let ack = @quic.AckFrame::new(6L, 0L, [range]).unwrap()

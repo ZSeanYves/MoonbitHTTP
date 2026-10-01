@@ -1,7 +1,7 @@
 ///|
 test "quic path manager: validates challenge before migration" {
-  let first = @transport.Endpoint::new("udp", "one.example", 443).unwrap()
-  let second = @transport.Endpoint::new("udp", "two.example", 443).unwrap()
+  let first = @types.Endpoint::new("udp", "one.example", 443).unwrap()
+  let second = @types.Endpoint::new("udp", "two.example", 443).unwrap()
   let paths = @quic.QuicPathManager::new(first)
   assert_true(paths.begin(second, b"short") is Err(_))
   paths.begin(second, b"12345678").unwrap()

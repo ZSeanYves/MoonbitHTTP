@@ -1,0 +1,51 @@
+import {
+  "moonbitlang/async@0.20.2",
+  "moonbitlang/async@0.20.2/fs",
+  "moonbitlang/async@0.20.2/process",
+  "moonbitlang/core/env",
+}
+
+///|
+async fn run(program : String, args : Array[String], cwd : String) -> Unit {
+  let status = @process.run(program, args, cwd~)
+  if status != 0 { fail("\{program} failed with exit \{status}") }
+}
+
+///|
+/// Ubuntu LTS supplies OpenSSL 3.0; QUIC raw TLS requires 3.5+. Build the
+/// checksum-pinned current 3.5 LTS release in an isolated CI directory.
+async fn main {
+  let root = @env.current_dir().unwrap()
+  let directory = root + "/_build/ci-openssl"
+  let prefix = directory + "/install"
+  @fs.mkdir(directory, recursive=true)
+  let archive = directory + "/openssl-3.5.8.tar.gz"
+  if !@fs.exists(prefix + "/lib/libssl.so.3") {
+    run("curl", ["--fail", "--location", "--retry", "3", "--output", archive,
+      "https://www.openssl.org/source/openssl-3.5.8.tar.gz"], root)
+    let (status, output, _) = @process.collect_output("sha256sum", [archive])
+    if status != 0 || !output.text().has_prefix("a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2 ") {
+      fail("OpenSSL archive SHA-256 does not match the frozen upstream release")
+    }
+    run("tar", ["-xzf", archive, "-C", directory], root)
+    let source = directory + "/openssl-3.5.8"
+    run("perl", ["Configure", "shared", "no-tests", "--prefix=" + prefix, "--libdir=lib"], source)
+    run("make", ["-j2"], source)
+    run("make", ["install_sw"], source)
+  }
+  let libraries = prefix + "/lib"
+  let (status, output, error) = @process.collect_output(prefix + "/bin/openssl", ["version", "-a"],
+    extra_env={ "LD_LIBRARY_PATH": libraries })
+  if status != 0 || !output.text().has_prefix("OpenSSL 3.5.8 ") {
+    fail("pinned OpenSSL runtime did not load: " + error.text())
+  }
+  println(output.text())
+  if @env.get_env_var("GITHUB_ENV") is Some(path) {
+    let existing = @fs.read_file(path).text()
+    @fs.write_file(path, existing + "\nLD_LIBRARY_PATH=" + libraries + "\nOPENSSL_MODULES=" + libraries + "/ossl-modules\nOPENSSL_ROOT_DIR=" + directory + "\n")
+  }
+  if @env.get_env_var("GITHUB_PATH") is Some(path) {
+    let existing = @fs.read_file(path).text()
+    @fs.write_file(path, existing + "\n" + prefix + "/bin\n")
+  }
+}

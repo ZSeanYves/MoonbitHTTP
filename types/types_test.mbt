@@ -34,7 +34,7 @@ test "types: header values classify every byte without parser differentials" {
       value >= 0x80
     assert_eq(result is Ok(_), allowed)
   }
-  assert_eq(@types.HeaderValue::from_bytes(b""), Ok({ bytes: b"", }))
+  assert_eq(@types.HeaderValue::from_bytes(b"").unwrap().bytes, b"")
 }
 
 ///|

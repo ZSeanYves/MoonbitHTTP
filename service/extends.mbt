@@ -15,3 +15,9 @@ pub extend ClientConnectionTimeout with Eq::{equal, not_equal}
 
 ///|
 pub extend ClientConnectionTimeout with @debug.Debug::{to_repr}
+
+///|
+pub extend ClientConnectionError with Eq::{equal, not_equal}
+
+///|
+pub extend ClientConnectionError with @debug.Debug::{to_repr}

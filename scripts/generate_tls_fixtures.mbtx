@@ -1,0 +1,233 @@
+///|
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/process",
+}
+
+///|
+async fn run_checked(program : String, arguments : Array[String]) -> Unit {
+  let (status, _, error) = @process.collect_output(program, arguments)
+  if status != 0 {
+    fail("\{program} failed: " + error.text())
+  }
+}
+
+///|
+async fn copy_fixture(source : String, target : String) -> Unit {
+  @fs.write_file(target, @fs.read_file(source).binary())
+}
+
+///|
+async fn main {
+  let directory = "tls/native/testdata"
+  let generated = "_build/tls-fixtures"
+  if !@fs.exists(directory) {
+    @fs.mkdir(directory, recursive=true)
+  }
+  @fs.mkdir(generated, recursive=true)
+  for name in ["localhost", "other", "expired"] {
+    let args = [
+      "req",
+      "-x509",
+      "-newkey",
+      "ec",
+      "-pkeyopt",
+      "ec_paramgen_curve:P-256",
+      "-noenc",
+      "-keyout",
+      directory + "/" + name + ".key.pem",
+      "-out",
+      directory + "/" + name + ".cert.pem",
+      "-days",
+      "36500",
+      "-subj",
+      "/CN=localhost",
+      "-addext",
+      "subjectAltName=DNS:localhost,IP:127.0.0.1",
+      "-addext",
+      "basicConstraints=critical,CA:TRUE",
+      "-addext",
+      "extendedKeyUsage=serverAuth,clientAuth",
+    ]
+    let (status, _, error) = @process.collect_output("openssl", args)
+    if status != 0 {
+      fail("openssl fixture generation failed: " + error.text())
+    }
+    @fs.chmod(directory + "/" + name + ".key.pem", 0o644)
+  }
+  let (wildcard_status, _, wildcard_error) = @process.collect_output(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "ec",
+      "-pkeyopt",
+      "ec_paramgen_curve:P-256",
+      "-noenc",
+      "-keyout",
+      directory + "/wildcard.key.pem",
+      "-out",
+      directory + "/wildcard.cert.pem",
+      "-days",
+      "36500",
+      "-subj",
+      "/CN=*.example.test",
+      "-addext",
+      "subjectAltName=DNS:*.example.test",
+      "-addext",
+      "basicConstraints=critical,CA:TRUE",
+      "-addext",
+      "extendedKeyUsage=serverAuth,clientAuth",
+    ],
+  )
+  if wildcard_status != 0 {
+    fail("wildcard fixture generation failed: " + wildcard_error.text())
+  }
+  @fs.chmod(directory + "/wildcard.key.pem", 0o644)
+  for
+    (name, subject, alternatives) in [
+      ("partial_wildcard", "api*.example.test", "DNS:api*.example.test"),
+      ("ipv6", "ipv6.test", "IP:::1"),
+    ] {
+    run_checked("openssl", [
+      "req",
+      "-x509",
+      "-newkey",
+      "ec",
+      "-pkeyopt",
+      "ec_paramgen_curve:P-256",
+      "-noenc",
+      "-keyout",
+      directory + "/" + name + ".key.pem",
+      "-out",
+      directory + "/" + name + ".cert.pem",
+      "-days",
+      "36500",
+      "-subj",
+      "/CN=" + subject,
+      "-addext",
+      "subjectAltName=" + alternatives,
+      "-addext",
+      "basicConstraints=critical,CA:TRUE",
+      "-addext",
+      "extendedKeyUsage=serverAuth",
+    ])
+    @fs.chmod(directory + "/" + name + ".key.pem", 0o644)
+  }
+  let (status, _, error) = @process.collect_output("openssl", [
+    "x509",
+    "-in",
+    directory + "/expired.cert.pem",
+    "-signkey",
+    directory + "/expired.key.pem",
+    "-not_before",
+    "20200101000000Z",
+    "-not_after",
+    "20210101000000Z",
+    "-out",
+    directory + "/expired.cert.pem",
+  ])
+  if status != 0 {
+    fail("openssl expiry fixture failed: " + error.text())
+  }
+
+  // Fixed serials, validity windows and extension files make the identity
+  // matrix reproducible while keeping generated private material out of the
+  // source tree. The testdata copies below are the only committed fixtures.
+  let san_key = generated + "/san_precedence.key.pem"
+  let san_cert = generated + "/san_precedence.cert.pem"
+  run_checked("openssl", [
+    "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-noenc",
+    "-keyout", san_key, "-out", san_cert, "-days", "36500", "-set_serial", "4101",
+    "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:identity.example.test",
+    "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "extendedKeyUsage=serverAuth",
+  ])
+  copy_fixture(san_key, directory + "/san_precedence.key.pem")
+  copy_fixture(san_cert, directory + "/san_precedence.cert.pem")
+
+  let notyet_key = generated + "/notyet.key.pem"
+  let notyet_cert = generated + "/notyet.cert.pem"
+  run_checked("openssl", [
+    "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-noenc",
+    "-keyout", notyet_key, "-out", notyet_cert, "-days", "36500", "-set_serial",
+    "4102", "-subj", "/CN=notyet.test", "-addext", "subjectAltName=DNS:notyet.test",
+    "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "extendedKeyUsage=serverAuth",
+  ])
+  run_checked("openssl", [
+    "x509", "-in", notyet_cert, "-signkey", notyet_key, "-not_before", "20990101000000Z",
+    "-not_after", "21000101000000Z", "-set_serial", "4102", "-out", notyet_cert,
+  ])
+  copy_fixture(notyet_key, directory + "/notyet.key.pem")
+  copy_fixture(notyet_cert, directory + "/notyet.cert.pem")
+
+  let eku_key = generated + "/client_only.key.pem"
+  let eku_cert = generated + "/client_only.cert.pem"
+  run_checked("openssl", [
+    "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-noenc",
+    "-keyout", eku_key, "-out", eku_cert, "-days", "36500", "-set_serial", "4103",
+    "-subj", "/CN=eku.test", "-addext", "subjectAltName=DNS:eku.test", "-addext",
+    "basicConstraints=critical,CA:TRUE", "-addext", "extendedKeyUsage=clientAuth",
+  ])
+  copy_fixture(eku_key, directory + "/client_only.key.pem")
+  copy_fixture(eku_cert, directory + "/client_only.cert.pem")
+
+  let root_key = generated + "/chain_root.key.pem"
+  let root_cert = generated + "/chain_root.cert.pem"
+  run_checked("openssl", [
+    "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-noenc",
+    "-keyout", root_key, "-out", root_cert, "-days", "36500", "-set_serial", "4201",
+    "-subj", "/CN=Moonbit Test Root", "-addext", "basicConstraints=critical,CA:TRUE,pathlen:1",
+    "-addext", "keyUsage=critical,keyCertSign,cRLSign", "-addext", "subjectKeyIdentifier=hash",
+  ])
+  let intermediate_key = generated + "/chain_intermediate.key.pem"
+  let intermediate_csr = generated + "/chain_intermediate.csr.pem"
+  let intermediate_cert = generated + "/chain_intermediate.cert.pem"
+  let intermediate_ext = generated + "/chain_intermediate.ext"
+  @fs.write_file(
+    intermediate_ext,
+    "basicConstraints=critical,CA:TRUE,pathlen:0\n" +
+    "keyUsage=critical,keyCertSign,cRLSign\n" +
+    "subjectKeyIdentifier=hash\n" +
+    "authorityKeyIdentifier=keyid,issuer\n",
+  )
+  run_checked("openssl", [
+    "req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-noenc",
+    "-keyout", intermediate_key, "-out", intermediate_csr, "-subj", "/CN=Moonbit Test Intermediate",
+  ])
+  run_checked("openssl", [
+    "x509", "-req", "-in", intermediate_csr, "-CA", root_cert, "-CAkey", root_key,
+    "-set_serial", "4202", "-days", "36500", "-extfile", intermediate_ext, "-out",
+    intermediate_cert,
+  ])
+  let leaf_key = generated + "/chain_leaf.key.pem"
+  let leaf_csr = generated + "/chain_leaf.csr.pem"
+  let leaf_cert = generated + "/chain_leaf.cert.pem"
+  let leaf_ext = generated + "/chain_leaf.ext"
+  @fs.write_file(
+    leaf_ext,
+    "basicConstraints=critical,CA:FALSE\n" +
+    "keyUsage=critical,digitalSignature,keyEncipherment\n" +
+    "extendedKeyUsage=serverAuth\n" +
+    "subjectAltName=DNS:chain.test\n" +
+    "subjectKeyIdentifier=hash\n" +
+    "authorityKeyIdentifier=keyid,issuer\n",
+  )
+  run_checked("openssl", [
+    "req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-noenc",
+    "-keyout", leaf_key, "-out", leaf_csr, "-subj", "/CN=chain.test",
+  ])
+  run_checked("openssl", [
+    "x509", "-req", "-in", leaf_csr, "-CA", intermediate_cert, "-CAkey", intermediate_key,
+    "-set_serial", "4203", "-days", "36500", "-extfile", leaf_ext, "-out", leaf_cert,
+  ])
+  copy_fixture(root_cert, directory + "/chain_root.cert.pem")
+  copy_fixture(intermediate_cert, directory + "/chain_intermediate.cert.pem")
+  copy_fixture(leaf_key, directory + "/chain_leaf.key.pem")
+  copy_fixture(leaf_cert, directory + "/chain_leaf.cert.pem")
+  @fs.write_file(
+    directory + "/chain_leaf.fullchain.pem",
+    @fs.read_file(leaf_cert).text() + @fs.read_file(intermediate_cert).text(),
+  )
+}

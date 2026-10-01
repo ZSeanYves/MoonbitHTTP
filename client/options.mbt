@@ -1,7 +1,7 @@
 ///|
 pub(all) struct ClientEndpoint {
   uri : @types.Uri
-  transport : @transport.Endpoint
+  transport : @types.Endpoint
   secure : Bool
   origin : String
 } derive(Eq, Debug)
@@ -64,8 +64,7 @@ pub fn ClientEndpoint::from_uri(
     None => if scheme == "https" { 443 } else { 80 }
   }
   let normalized_host = client_ascii_lower(authority.host)
-  let transport = match
-    @transport.Endpoint::new(scheme, normalized_host, port) {
+  let transport = match @types.Endpoint::new(scheme, normalized_host, port) {
     Ok(value) => value
     Err(error) => return Err(ClientInvalidEndpoint(error))
   }
@@ -323,7 +322,7 @@ pub(all) enum ProxyMode {
 ///|
 pub(all) struct ProxyConfig {
   mode : ProxyMode
-  endpoint : @transport.Endpoint?
+  endpoint : @types.Endpoint?
   identity_key : String?
 } derive(Eq, Debug)
 
@@ -334,7 +333,7 @@ pub fn ProxyConfig::direct() -> ProxyConfig {
 
 ///|
 pub fn ProxyConfig::http_forward(
-  endpoint : @transport.Endpoint,
+  endpoint : @types.Endpoint,
   identity_key? : String? = None,
 ) -> ProxyConfig {
   { mode: HttpForward, endpoint: Some(endpoint), identity_key, }
@@ -342,7 +341,7 @@ pub fn ProxyConfig::http_forward(
 
 ///|
 pub fn ProxyConfig::https_connect(
-  endpoint : @transport.Endpoint,
+  endpoint : @types.Endpoint,
   identity_key? : String? = None,
 ) -> ProxyConfig {
   { mode: HttpsConnect, endpoint: Some(endpoint), identity_key, }
@@ -354,7 +353,7 @@ pub fn ProxyConfig::mode(self : ProxyConfig) -> ProxyMode {
 }
 
 ///|
-pub fn ProxyConfig::endpoint(self : ProxyConfig) -> @transport.Endpoint? {
+pub fn ProxyConfig::endpoint(self : ProxyConfig) -> @types.Endpoint? {
   self.endpoint
 }
 

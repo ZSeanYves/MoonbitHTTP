@@ -253,6 +253,35 @@ pub fn quic_long_header_fields(
 }
 
 ///|
+/// Extracts only the version and connection IDs from a long header.  This is
+/// deliberately usable before packet-type parsing so a server can answer an
+/// unsupported version with Version Negotiation and a client can validate a
+/// Retry/Version Negotiation response without opening a payload.
+pub fn quic_long_header_connection_ids(
+  packet : Bytes,
+) -> Result[(Int, ConnectionId, ConnectionId), QuicError] {
+  if packet.length() < 7 || (packet[0].to_int() & 0x80) == 0 {
+    return Err(InvalidPacket("not a QUIC long-header packet"))
+  }
+  let version = (packet[1].to_int() << 24) |
+    (packet[2].to_int() << 16) |
+    (packet[3].to_int() << 8) |
+    packet[4].to_int()
+  if version != QUIC_VERSION_NEGOTIATION && (packet[0].to_int() & 0x40) == 0 {
+    return Err(InvalidPacket("QUIC fixed bit is not set"))
+  }
+  let (destination, after_destination) = match take_connection_id(packet, 5) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  let (source, _) = match take_connection_id(packet, after_destination) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  Ok((version, destination, source))
+}
+
+///|
 /// Applies QUIC packet protection to an unprotected header prefix and payload.
 /// `header_prefix` must end immediately before the truncated packet number;
 /// its first byte's low two bits are replaced with the packet-number length.
@@ -404,7 +433,7 @@ pub fn quic_open_packet_with_keys(
   let ciphertext = packet[header_end:].to_owned()
   let payload = match keys.open(full_packet_number, header, ciphertext) {
     Ok(value) => value
-    Err(_) => return Err(InvalidPacket("packet authentication failed"))
+    Err(error) => return Err(Tls(error))
   }
   Ok({
     header,
@@ -413,12 +442,4 @@ pub fn quic_open_packet_with_keys(
     packet_number_length,
     key_phase: !long_header && (first & 0x04) != 0,
   })
-}
-
-///|
-/// Compatibility entry point retained for callers that used the old stub.
-/// Packet protection necessarily needs negotiated keys; callers must use
-/// `quic_protect_packet_with_keys` once TLS has produced them.
-pub fn quic_protect_packet(_packet : Bytes) -> Result[Bytes, QuicError] {
-  Err(Unsupported("packet keys are required for QUIC protection"))
 }

@@ -49,7 +49,7 @@ pub fn qpack_section_acknowledgment(Int64) -> Result[Bytes, Http3Error]
 
 pub fn qpack_stream_cancellation(Int64) -> Result[Bytes, Http3Error]
 
-pub fn validate_http3_field_section(Int64, Array[QpackField], H3FieldSectionKind, request_method? : String?) -> Result[H3MessageMetadata, Http3Error]
+pub fn validate_http3_field_section(Int64, Array[QpackField], H3FieldSectionKind, request_method? : String?, enable_connect_protocol? : Bool) -> Result[H3MessageMetadata, Http3Error]
 
 // Errors
 pub(all) suberror Http3Error {
@@ -128,14 +128,6 @@ pub fn H3FieldSectionKind::equal(Self, Self) -> Bool
 pub fn H3FieldSectionKind::not_equal(Self, Self) -> Bool
 pub fn H3FieldSectionKind::to_repr(Self) -> @debug.Repr
 
-pub(all) enum H3IncomingMessage {
-  H3IncomingRequest
-  H3IncomingResponse(String?)
-} derive(Eq, @debug.Debug)
-pub fn H3IncomingMessage::equal(Self, Self) -> Bool
-pub fn H3IncomingMessage::not_equal(Self, Self) -> Bool
-pub fn H3IncomingMessage::to_repr(Self) -> @debug.Repr
-
 pub(all) struct H3MessageMetadata {
   content_length : Int64?
   http_method : String?
@@ -157,15 +149,6 @@ pub(all) enum H3MessagePhase {
 pub fn H3MessagePhase::equal(Self, Self) -> Bool
 pub fn H3MessagePhase::not_equal(Self, Self) -> Bool
 pub fn H3MessagePhase::to_repr(Self) -> @debug.Repr
-
-pub struct H3RequestStreamState {
-  id : Int64
-  incoming : H3IncomingMessage
-  mut phase : H3MessagePhase
-  mut expected_content_length : Int64?
-  mut received_content_length : Int64
-  mut body_forbidden : Bool
-}
 
 pub(all) enum H3Role {
   H3Client
@@ -212,17 +195,18 @@ pub struct Http3Connection {
   qpack_limits : QpackLimits
   decoder : QpackDecoder
   encoder : QpackEncoder
-  streams : Map[Int64, H3RequestStreamState]
   mut remote_control_stream : Int64?
   mut remote_qpack_encoder_stream : Int64?
   mut remote_qpack_decoder_stream : Int64?
   mut control_received_frame : Bool
   mut settings_received : Bool
   mut peer_settings : H3Settings
+  mut local_enable_connect_protocol : Bool
   mut goaway_id : Int64?
   mut max_push_id : Int64?
   mut next_request_stream_id : Int64
   mut failure : Http3Error?
+  // private fields
 }
 pub fn Http3Connection::accept_request_stream(Self, Int64) -> Result[Unit, Http3Error]
 pub fn Http3Connection::cancel_request_stream(Self, Int64) -> Result[Bytes, Http3Error]
@@ -305,13 +289,13 @@ pub fn QpackDecodeResult::to_repr(Self) -> @debug.Repr
 
 pub struct QpackDecoder {
   limits : QpackLimits
-  mut entries : Array[QpackDynamicEntry]
   mut table_size : Int
   mut capacity : Int
   mut total_inserts : Int64
   blocked : Map[Int64, Int64]
   mut encoder_buffer : Array[Byte]
   mut failure : Http3Error?
+  // private fields
 }
 pub fn QpackDecoder::blocked_stream_count(Self) -> Int
 pub fn QpackDecoder::cancel_stream(Self, Int64) -> Unit
@@ -324,23 +308,16 @@ pub fn QpackDecoder::ready_blocked_streams(Self) -> Array[Int64]
 pub fn QpackDecoder::table_size(Self) -> Int
 pub fn QpackDecoder::total_inserts(Self) -> Int64
 
-pub struct QpackDynamicEntry {
-  absolute_index : Int64
-  field : QpackField
-  size : Int
-}
-
 pub struct QpackEncoder {
   limits : QpackLimits
-  mut entries : Array[QpackEncoderEntry]
   mut table_size : Int
   mut capacity : Int
   mut total_inserts : Int64
   mut known_received_count : Int64
-  pending : Map[Int64, Array[QpackPendingSection]]
   mut pending_bytes : Int
   mut decoder_buffer : Array[Byte]
   mut failure : Http3Error?
+  // private fields
 }
 pub fn QpackEncoder::encode_field_section(Self, Int64, Array[QpackField], use_huffman? : Bool) -> Result[Bytes, Http3Error]
 pub fn QpackEncoder::feed_decoder_stream(Self, BytesView) -> Result[Unit, Http3Error]
@@ -352,13 +329,6 @@ pub fn QpackEncoder::pending_bytes(Self) -> Int
 pub fn QpackEncoder::set_capacity(Self, Int) -> Result[Bytes, Http3Error]
 pub fn QpackEncoder::table_size(Self) -> Int
 pub fn QpackEncoder::total_inserts(Self) -> Int64
-
-pub struct QpackEncoderEntry {
-  absolute_index : Int64
-  field : QpackField
-  size : Int
-  mut references : Int
-}
 
 pub(all) struct QpackField {
   name : String
@@ -387,11 +357,6 @@ pub fn QpackLimits::new(max_encoded_field_section_bytes? : Int, max_decoded_fiel
 pub fn QpackLimits::not_equal(Self, Self) -> Bool
 pub fn QpackLimits::to_repr(Self) -> @debug.Repr
 pub fn QpackLimits::validate(Self) -> Result[Unit, Http3Error]
-
-pub struct QpackPendingSection {
-  required_insert_count : Int64
-  references : Array[Int64]
-}
 
 // Type aliases
 

@@ -25,6 +25,7 @@ pub(all) suberror ServerError {
   HandlerFailed(String)
   ShutdownTimeout
   Closed
+  Policy(@transport.PolicyError)
 } derive(Eq, Debug)
 
 ///|

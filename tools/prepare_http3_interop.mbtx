@@ -1,0 +1,29 @@
+import {
+  "moonbitlang/async@0.20.2",
+  "moonbitlang/async@0.20.2/fs",
+  "moonbitlang/async@0.20.2/process",
+}
+
+///|
+async fn run(program : String, arguments : Array[String]) -> Unit {
+  let status = @process.run(program, arguments)
+  if status != 0 { fail("\{program} exited \{status}") }
+}
+
+///|
+async fn main {
+  let directory = "_build/interop-aioquic"
+  @fs.mkdir(directory, recursive=true)
+  if !@fs.exists(directory + "/upstream/.git") {
+    run("git", ["clone", "--depth", "1", "--branch", "1.3.0", "https://github.com/aiortc/aioquic.git", directory + "/upstream"])
+  }
+  let (status, output, _) = @process.collect_output("git", ["-C", directory + "/upstream", "rev-parse", "HEAD"])
+  if status != 0 || output.text().trim() != "cb103537126bbcc58752fd5bc7c8ac88bf552c01" {
+    fail("upstream checkout is not the pinned aioquic 1.3.0 revision")
+  }
+  if !@fs.exists(directory + "/venv/bin/python") {
+    run("python3", ["-m", "venv", directory + "/venv"])
+  }
+  run(directory + "/venv/bin/python", ["-m", "pip", "install", "-r", "tools/http3-requirements.txt"])
+  println("Independent aioquic client ready; no upstream Python source was changed")
+}

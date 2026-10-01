@@ -1,0 +1,139 @@
+import {
+  "moonbitlang/async@0.20.2",
+  "moonbitlang/async@0.20.2/fs",
+  "moonbitlang/async@0.20.2/process",
+  "moonbitlang/async@0.20.2/socket",
+  "moonbitlang/core/env",
+  "moonbitlang/x@0.4.47/crypto",
+}
+
+///|
+async fn run_logged(
+  directory : String,
+  name : String,
+  program : String,
+  arguments : Array[String],
+) -> (String, String) {
+  let (status, stdout, stderr) = @async.with_timeout(15000, async fn() {
+    @process.collect_output(program, arguments)
+  })
+  let output = stdout.text()
+  let errors = stderr.text()
+  @fs.write_file(directory + "/" + name + ".stdout", output, create_mode=CreateNew)
+  @fs.write_file(directory + "/" + name + ".stderr", errors, create_mode=CreateNew)
+  @fs.write_file(directory + "/" + name + ".command.txt",
+    program + " " + arguments.join(" ") + "\nexit=" + status.to_string() + "\n",
+    create_mode=CreateNew)
+  guard status == 0 else {
+    fail("\{name}: exit \{status}; logs: \{directory}; \{errors}")
+  }
+  (output, errors)
+}
+
+///|
+fn require_equal(name : String, actual : String, expected : String) -> Unit raise {
+  guard actual == expected else { fail("\{name}: unexpected response \{actual}") }
+}
+
+///|
+async fn main {
+  let arguments = @env.args()
+  let server_path = if arguments.length() == 3 && arguments[1] == "--server" {
+    arguments[2]
+  } else if arguments.length() == 1 {
+    let status = @process.run("moon", ["build", "cmd/smoke_server", "--target", "native",
+      "--deny-warn", "--warn-list", "+73"])
+    guard status == 0 else { fail("native smoke server build failed") }
+    "_build/native/debug/build/cmd/smoke_server/smoke_server.exe"
+  } else {
+    fail("usage: moon run tools/interoperability.mbtx [--server PATH]")
+  }
+  let temporary = @fs.tmpdir(prefix="moonbithttp-interop")
+  let unique = temporary.split("/").to_array().last().unwrap().to_owned()
+  @fs.rmdir(temporary)
+  let directory = "_build/evidence/interoperability/" + unique
+  @fs.mkdir(directory, recursive=true)
+  println("Interoperability evidence: \{directory}")
+  let (revision, _) = run_logged(directory, "git-revision", "git", ["rev-parse", "HEAD"])
+  let (status, _) = run_logged(directory, "git-status", "git", ["status", "--porcelain=v1", "--untracked-files=all"])
+  ignore(run_logged(directory, "moon-version", "moon", ["version", "--all"]))
+  let server_digest = @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file(server_path).binary()))
+  // All three independent clients are mandatory. A missing executable fails
+  // before server startup and cannot become a silently skipped green result.
+  for program in ["curl", "wget", "nghttp"] {
+    ignore(run_logged(directory, program + "-version", program, ["--version"]))
+  }
+  let address = @socket.Addr::parse("127.0.0.1:18080")
+  let reservation = @socket.TcpServer(address, reuse_addr=false)
+  reservation.close()
+  @async.with_task_group(async fn(group) {
+    let server_out = @process.redirect_to_file(directory + "/server.stdout", create_mode=CreateNew)
+    let server_err = @process.redirect_to_file(directory + "/server.stderr", create_mode=CreateNew)
+    let executable = if server_path.has_prefix("/") { server_path } else { "./" + server_path }
+    let server = @process.spawn(group, executable, [],
+      stdout=server_out, stderr=server_err,
+      cancel_handler=@process.graceful_cancel(timeout=1000), no_wait=true)
+    defer server.cancel()
+    @async.with_timeout(10000, async fn() {
+      while true {
+        guard server.try_wait() is None else { fail("smoke server exited before readiness") }
+        let connected : Result[@socket.Tcp, Error] = Ok(@socket.Tcp::connect(address)) catch { error => Err(error) }
+        match connected {
+          Ok(socket) => { socket.close(); break }
+          Err(_) => @async.sleep(50)
+        }
+      }
+      // Confirm the child survived bind/startup, including a competing binder
+      // winning the small gap after the explicit port-conflict preflight.
+      @async.sleep(50)
+      guard server.try_wait() is None else { fail("smoke server failed to bind its port") }
+    })
+    let url = "http://127.0.0.1:18080/"
+    let curl_common = ["--silent", "--show-error", "--fail", "--http1.1",
+      "--noproxy", "*", "--max-time", "5", "--write-out",
+      "\n__status:%{http_code};http:%{http_version}\n"]
+    let (get, _) = run_logged(directory, "curl-get", "curl", curl_common + [url])
+    require_equal("curl HTTP/1.1 GET", get,
+      "MoonbitHTTP smoke\n\n__status:200;http:1.1\n")
+    let (post, _) = run_logged(directory, "curl-post", "curl",
+      curl_common + ["--data-binary", "roundtrip", url + "echo"])
+    require_equal("curl HTTP/1.1 POST", post, "roundtrip\n__status:200;http:1.1\n")
+    let wget_common = ["--server-response", "--output-document=-", "--no-proxy",
+      "--timeout=5", "--tries=1"]
+    let (wget_get, wget_headers) = run_logged(directory, "wget-get", "wget", wget_common + [url])
+    require_equal("wget HTTP/1.1 GET", wget_get, "MoonbitHTTP smoke\n")
+    guard wget_headers.contains("HTTP/1.1 200") else { fail("wget GET did not receive HTTP/1.1 200") }
+    let (wget_post, wget_post_headers) = run_logged(directory, "wget-post", "wget",
+      wget_common + ["--post-data=roundtrip", url + "echo"])
+    require_equal("wget HTTP/1.1 POST", wget_post, "roundtrip")
+    guard wget_post_headers.contains("HTTP/1.1 200") else { fail("wget POST did not receive HTTP/1.1 200") }
+    for (name, upgrade) in [("nghttp-prior-knowledge", false), ("nghttp-h2c-upgrade", true)] {
+      let args = ["--verbose", "--no-dep", "--no-push", "--header=accept: text/plain"] +
+        (if upgrade { ["--upgrade"] } else { [] }) + [url]
+      let (output, errors) = run_logged(directory, name, "nghttp", args)
+      guard output.contains("MoonbitHTTP smoke\n") &&
+        output.contains(":status: 200") && output.contains("recv HEADERS frame") &&
+        !errors.contains("not processed") else { fail("\{name}: missing successful HTTP/2 exchange") }
+      if upgrade {
+        guard output.contains("101 Switching Protocols") else { fail("h2c missing HTTP/1.1 101 response") }
+      }
+    }
+    guard server.try_wait() is None else { fail("smoke server exited during interoperability checks") }
+    server.cancel()
+    let stopped : Result[Int, Error] = Ok(server.wait()) catch { error => Err(error) }
+    ignore(stopped)
+    let result : Json = {
+      "status": "passed",
+      "git_revision": revision.trim().to_owned(),
+      "worktree_dirty": !status.is_empty(),
+      "server_sha256": server_digest,
+      "server_origin": if arguments.length() == 1 { "built-from-current-worktree" } else { "caller-supplied-executable" },
+      "cases": ["curl-http1-get", "curl-http1-post", "wget-http1-get", "wget-http1-post",
+        "nghttp-http2-prior-knowledge", "nghttp-h2c-upgrade"],
+      "http3_interoperability": "covered-by-tools/http3_interoperability.mbtx",
+      "tls_interoperability": "covered-by-moon-test-tls/native",
+    }
+    @fs.write_file(directory + "/result.json", result, create_mode=CreateNew)
+  })
+  println("PASS: six real-socket HTTP/1.1, HTTP/2 and h2c cases; HTTP/3/TLS evidence is recorded separately.")
+}

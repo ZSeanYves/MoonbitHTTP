@@ -1,5 +1,5 @@
 import {
-  "moonbitlang/async/aqueue",
+  "ZSeanYves/MoonbitHTTP/types",
   "moonbitlang/core/debug",
   "moonbitlang/core/encoding/utf8",
 }

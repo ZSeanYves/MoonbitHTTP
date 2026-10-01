@@ -4,10 +4,19 @@ package "ZSeanYves/MoonbitHTTP/quic"
 import {
   "ZSeanYves/MoonbitHTTP/tls",
   "ZSeanYves/MoonbitHTTP/transport",
+  "ZSeanYves/MoonbitHTTP/types",
   "moonbitlang/core/debug",
 }
 
 // Values
+pub const QUIC_AEAD_CONFIDENTIALITY_LIMIT : Int64 = 8388608
+
+pub const QUIC_AEAD_INTEGRITY_LIMIT : Int64 = 4503599627370496
+
+pub const QUIC_AEAD_LIMIT_REACHED : Int64 = 0x0f
+
+pub const QUIC_KEY_UPDATE_ERROR : Int64 = 0x0e
+
 pub const QUIC_MAX_CONNECTION_ID : Int = 20
 
 pub const QUIC_MAX_PACKET_SIZE : Int = 65527
@@ -16,11 +25,17 @@ pub const QUIC_MAX_VARINT : Int64 = 0x3fffffffffffffff
 
 pub const QUIC_VERSION_1 : Int = 1
 
+pub const QUIC_VERSION_NEGOTIATION : Int = 0
+
 pub fn quic_build_initial_packet(@tls.QuicPacketKeys, QuicInitialPacketOptions, Bytes) -> Result[Bytes, QuicError]
 
 pub fn quic_build_long_packet(@tls.QuicPacketKeys, Int, Int, ConnectionId, ConnectionId, Bytes, Int64, Int, Bytes, min_datagram_size? : Int, max_datagram_size? : Int) -> Result[Bytes, QuicError]
 
+pub fn quic_build_retry_packet(Int, ConnectionId, ConnectionId, Bytes, ConnectionId) -> Result[Bytes, QuicError]
+
 pub fn quic_build_short_packet(@tls.QuicPacketKeys, ConnectionId, Int64, Int, Bytes, key_phase? : Bool) -> Result[Bytes, QuicError]
+
+pub fn quic_build_version_negotiation_packet(ConnectionId, ConnectionId, Array[Int]) -> Result[Bytes, QuicError]
 
 pub fn quic_decode_frames(BytesView, limits? : QuicLimits) -> Result[Array[QuicFrame], QuicError]
 
@@ -36,13 +51,13 @@ pub fn quic_initial_packet_key(ConnectionId, QuicRole) -> Result[@tls.QuicPacket
 
 pub fn quic_initial_packet_keys(ConnectionId) -> Result[(@tls.QuicPacketKeys, @tls.QuicPacketKeys), QuicError]
 
+pub fn quic_long_header_connection_ids(Bytes) -> Result[(Int, ConnectionId, ConnectionId), QuicError]
+
 pub fn quic_long_header_fields(Bytes) -> Result[(Int, ConnectionId, ConnectionId, Int, Int, Int64), QuicError]
 
 pub fn quic_long_header_packet_layout(Bytes) -> Result[(Int, Int64), QuicError]
 
 pub fn quic_open_packet_with_keys(@tls.QuicPacketKeys, Bytes, Int, Int64, Bool) -> Result[QuicOpenedPacket, QuicError]
-
-pub fn quic_protect_packet(Bytes) -> Result[Bytes, QuicError]
 
 pub fn quic_protect_packet_with_keys(@tls.QuicPacketKeys, Bytes, Int64, Int, Bytes, Bool) -> Result[Bytes, QuicError]
 
@@ -61,10 +76,14 @@ pub(all) suberror QuicError {
   InvalidTransportParameter(String)
   Protocol(Int64, String)
   FlowControl(Int64, String)
+  AmplificationBlocked
   StreamClosed(Int64)
   ConnectionClosed(Int64, String)
   Policy(@transport.PolicyError)
   Transport(@transport.TransportError)
+  Entropy(@transport.EntropyError)
+  Tls(@transport.TlsError)
+  VersionNegotiation(Array[Int])
   Unsupported(String)
 } derive(Eq, @debug.Debug)
 pub fn QuicError::equal(Self, Self) -> Bool
@@ -97,7 +116,7 @@ pub fn AckRange::not_equal(Self, Self) -> Bool
 pub fn AckRange::smallest(Self) -> Int64
 pub fn AckRange::to_repr(Self) -> @debug.Repr
 
-pub(all) struct ConnectionId {
+pub struct ConnectionId {
   bytes : Bytes
 } derive(Eq, @debug.Debug)
 pub fn ConnectionId::bytes(Self) -> Bytes
@@ -152,24 +171,17 @@ pub fn QuicAction::equal(Self, Self) -> Bool
 pub fn QuicAction::not_equal(Self, Self) -> Bool
 pub fn QuicAction::to_repr(Self) -> @debug.Repr
 
-pub(all) struct QuicConnection {
-  role : QuicRole
-  mut state : QuicConnectionState
-  limits : QuicLimits
-  transport_params : QuicTransportParams
-  streams : Map[Int64, QuicStreamState]
-  mut connection_send_offset : Int64
-  mut connection_recv_offset : Int64
-  mut peer_max_data : Int64
-  mut local_max_data : Int64
-  mut next_stream_id : Int64
-  mut close_error : (Int64, String)?
+pub struct QuicConnection {
+  // private fields
 }
+pub fn QuicConnection::close_reason(Self) -> (Int64, String)?
 pub fn QuicConnection::establish(Self) -> Result[Unit, QuicError]
 pub fn QuicConnection::new(QuicRole, limits? : QuicLimits, transport_params? : QuicTransportParams) -> Result[Self, QuicError]
 pub fn QuicConnection::open_bidirectional_stream(Self) -> Result[Int64, QuicError]
+pub fn QuicConnection::open_unidirectional_stream(Self) -> Result[Int64, QuicError]
 pub fn QuicConnection::receive_frame(Self, QuicFrame) -> Result[Array[QuicAction], QuicError]
 pub fn QuicConnection::send_stream(Self, Int64, Bytes, Bool) -> Result[QuicFrame, QuicError]
+pub fn QuicConnection::set_peer_transport_params(Self, QuicTransportParams) -> Result[Unit, QuicError]
 pub fn QuicConnection::state(Self) -> QuicConnectionState
 
 pub(all) struct QuicConnectionId {
@@ -207,102 +219,54 @@ pub fn QuicConnectionState::not_equal(Self, Self) -> Bool
 pub fn QuicConnectionState::to_repr(Self) -> @debug.Repr
 
 pub struct QuicCryptoReassembler {
-  mut next_offset : Int64
-  mut segments : Array[(Int64, Bytes)]
-  delivered : Array[Byte]
-  max_bytes : Int
+  // private fields
 } derive(Eq, @debug.Debug)
 pub fn QuicCryptoReassembler::equal(Self, Self) -> Bool
 pub fn QuicCryptoReassembler::feed(Self, Int64, Bytes) -> Result[Array[Bytes], QuicError]
-pub fn QuicCryptoReassembler::new(max_bytes? : Int) -> Result[Self, QuicError]
+pub fn QuicCryptoReassembler::new(max_bytes? : Int, max_segments? : Int, max_work? : Int64) -> Result[Self, QuicError]
 pub fn QuicCryptoReassembler::next_offset(Self) -> Int64
 pub fn QuicCryptoReassembler::not_equal(Self, Self) -> Bool
 pub fn QuicCryptoReassembler::to_repr(Self) -> @debug.Repr
 
 pub struct QuicDatagramDriver {
-  role : QuicRole
-  endpoint : @transport.Endpoint
-  limits : QuicLimits
-  transport_params : QuicTransportParams
-  connection : QuicConnection
-  local_connection_id : ConnectionId
-  mut peer_connection_id : ConnectionId
-  initial_send_keys : @tls.QuicPacketKeys
-  initial_receive_keys : @tls.QuicPacketKeys
-  mut handshake_send_keys : @tls.QuicPacketKeys?
-  mut handshake_receive_keys : @tls.QuicPacketKeys?
-  mut application_send_keys : @tls.QuicPacketKeys?
-  mut application_receive_keys : @tls.QuicPacketKeys?
-  recovery : QuicRecovery
-  path : QuicPathManager
-  connection_ids : QuicConnectionIdManager
-  mut state : QuicDriverState
-  mut largest_initial_received : Int64
-  mut largest_handshake_received : Int64
-  mut largest_application_received : Int64
-  mut next_initial_packet : Int64
-  mut next_handshake_packet : Int64
-  mut next_application_packet : Int64
-  seen_initial : Array[Int64]
-  seen_handshake : Array[Int64]
-  seen_application : Array[Int64]
-  crypto_initial : QuicCryptoReassembler
-  crypto_handshake : QuicCryptoReassembler
-  crypto_application : QuicCryptoReassembler
-  retransmissions : Array[QuicRetransmission]
-  max_retransmissions : Int
-  authorize_endpoint : (@transport.Endpoint, @transport.PolicyOperation) -> Result[Unit, @transport.PolicyError]
+  // private fields
 }
-pub fn QuicDatagramDriver::begin_path_validation(Self, @transport.Endpoint, Bytes) -> Result[Unit, QuicError]
+pub fn QuicDatagramDriver::begin_path_validation(Self, @types.Endpoint, Bytes, Int64) -> Result[QuicDriverAction, QuicError]
 pub fn QuicDatagramDriver::connection(Self) -> QuicConnection
-pub fn QuicDatagramDriver::endpoint(Self) -> @transport.Endpoint
+pub fn QuicDatagramDriver::endpoint(Self) -> @types.Endpoint
 pub fn QuicDatagramDriver::establish(Self) -> Result[Unit, QuicError]
+pub fn QuicDatagramDriver::handshake_confirmed(Self) -> Bool
+pub fn QuicDatagramDriver::initiate_key_update(Self) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::install_application_keys(Self, @tls.QuicPacketKeys, @tls.QuicPacketKeys) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::install_handshake_keys(Self, @tls.QuicPacketKeys, @tls.QuicPacketKeys) -> Result[Unit, QuicError]
+pub fn QuicDatagramDriver::install_traffic_secret(Self, @transport.QuicEncryptionLevel, @transport.QuicSecretDirection, Bytes, suite? : @transport.QuicTlsCipherSuite) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::local_connection_id(Self) -> ConnectionId
-pub fn QuicDatagramDriver::new(QuicRole, @transport.Endpoint, ConnectionId, ConnectionId, ConnectionId, limits? : QuicLimits, transport_params? : QuicTransportParams, recovery_config? : QuicRecoveryConfig, now_ms? : Int64, authorize? : (@transport.Endpoint, @transport.PolicyOperation) -> Result[Unit, @transport.PolicyError]) -> Result[Self, QuicError]
-pub fn QuicDatagramDriver::on_datagram(Self, @transport.Endpoint, Bytes, Int64) -> Result[Array[QuicDriverAction], QuicError]
+pub fn QuicDatagramDriver::new(QuicRole, @types.Endpoint, ConnectionId, ConnectionId, ConnectionId, retry_context? : QuicRetryContext?, limits? : QuicLimits, transport_params? : QuicTransportParams, recovery_config? : QuicRecoveryConfig, now_ms? : Int64, retry_tokens? : QuicRetryTokenManager?, authorize? : (@types.Endpoint, @transport.PolicyOperation) -> Result[Unit, @transport.PolicyError]) -> Result[Self, QuicError]
+pub fn QuicDatagramDriver::on_datagram(Self, @types.Endpoint, Bytes, Int64) -> Result[Array[QuicDriverAction], QuicError]
+pub fn QuicDatagramDriver::open_unidirectional_stream(Self) -> Result[Int64, QuicError]
 pub fn QuicDatagramDriver::path_status(Self) -> QuicPathStatus
 pub fn QuicDatagramDriver::peer_connection_id(Self) -> ConnectionId
 pub fn QuicDatagramDriver::poll(Self, Int64) -> Result[Array[QuicDriverAction], QuicError]
 pub async fn[S : @transport.DatagramSocket] QuicDatagramDriver::receive_once(Self, S, Int, Int64) -> Result[Array[QuicDriverAction], QuicError]
 pub async fn[S : @transport.DatagramSocket] QuicDatagramDriver::send_action(Self, S, QuicDriverAction) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::send_frames(Self, PacketNumberSpace, Array[QuicFrame], Int64) -> Result[QuicDriverAction, QuicError]
-pub fn QuicDatagramDriver::state(Self) -> QuicDriverState
+pub fn[C : @transport.Clock, E : @transport.Entropy] QuicDatagramDriver::send_retry_validated(Self, @types.Endpoint, C, E) -> Result[QuicDriverAction, QuicError]
+pub fn QuicDatagramDriver::set_peer_transport_parameters(Self, QuicTransportParameters) -> Result[Unit, QuicError]
+pub fn QuicDatagramDriver::state(Self) -> QuicConnectionState
 
 pub(all) enum QuicDriverAction {
-  SendDatagram(@transport.Endpoint, Bytes)
+  SendDatagram(@types.Endpoint, Bytes)
   StreamData(Int64, Bytes, Bool)
   StreamReset(Int64, Int64)
   CryptoData(PacketNumberSpace, Int64, Bytes)
-  PathValidated(@transport.Endpoint)
+  PathValidated(@types.Endpoint)
   ConnectionClosed(Int64, String)
+  RetryReceived(ConnectionId)
   PacketIgnored
 } derive(Eq, @debug.Debug)
 pub fn QuicDriverAction::equal(Self, Self) -> Bool
 pub fn QuicDriverAction::not_equal(Self, Self) -> Bool
 pub fn QuicDriverAction::to_repr(Self) -> @debug.Repr
-
-pub(all) enum QuicDriverState {
-  Handshaking
-  Established
-  Draining
-  Closed
-} derive(Eq, @debug.Debug)
-pub fn QuicDriverState::equal(Self, Self) -> Bool
-pub fn QuicDriverState::not_equal(Self, Self) -> Bool
-pub fn QuicDriverState::to_repr(Self) -> @debug.Repr
-
-pub(all) struct QuicEndpoint {
-  endpoint : @transport.Endpoint
-  connection_id : ConnectionId
-} derive(Eq, @debug.Debug)
-pub fn QuicEndpoint::connection_id(Self) -> ConnectionId
-pub fn QuicEndpoint::endpoint(Self) -> @transport.Endpoint
-pub fn QuicEndpoint::equal(Self, Self) -> Bool
-pub fn QuicEndpoint::new(@transport.Endpoint, ConnectionId) -> Self
-pub fn QuicEndpoint::not_equal(Self, Self) -> Bool
-pub fn QuicEndpoint::to_repr(Self) -> @debug.Repr
 
 pub(all) enum QuicFrame {
   Padding
@@ -330,6 +294,13 @@ pub(all) enum QuicFrame {
 pub fn QuicFrame::equal(Self, Self) -> Bool
 pub fn QuicFrame::not_equal(Self, Self) -> Bool
 pub fn QuicFrame::to_repr(Self) -> @debug.Repr
+
+pub struct QuicHandshakeInput {
+  // private fields
+}
+pub fn QuicHandshakeInput::feed(Self, PacketNumberSpace, Int64, Bytes) -> Result[Array[@transport.QuicHandshakeMessage], QuicError]
+pub fn QuicHandshakeInput::finish_level(Self, PacketNumberSpace) -> Result[Unit, QuicError]
+pub fn QuicHandshakeInput::new(max_bytes_per_level? : Int, max_messages_per_level? : Int) -> Result[Self, QuicError]
 
 pub(all) struct QuicInitialPacketOptions {
   version : Int
@@ -380,6 +351,7 @@ pub(all) enum QuicPacketHeader {
   ZeroRtt(ZeroRttPacket)
   Handshake(HandshakePacket)
   Retry(RetryPacket)
+  VersionNegotiation(VersionNegotiationPacket)
   Short(ShortPacket)
 } derive(Eq, @debug.Debug)
 pub fn QuicPacketHeader::equal(Self, Self) -> Bool
@@ -387,19 +359,19 @@ pub fn QuicPacketHeader::not_equal(Self, Self) -> Bool
 pub fn QuicPacketHeader::to_repr(Self) -> @debug.Repr
 
 pub(all) struct QuicPathManager {
-  mut active : @transport.Endpoint
-  mut candidate : @transport.Endpoint?
+  mut active : @types.Endpoint
+  mut candidate : @types.Endpoint?
   mut challenge : Bytes?
   mut status : QuicPathStatus
   mut generation : Int64
 } derive(@debug.Debug)
 pub fn QuicPathManager::abandon(Self) -> Unit
-pub fn QuicPathManager::active(Self) -> @transport.Endpoint
-pub fn QuicPathManager::begin(Self, @transport.Endpoint, Bytes) -> Result[Unit, QuicError]
-pub fn QuicPathManager::candidate(Self) -> @transport.Endpoint?
+pub fn QuicPathManager::active(Self) -> @types.Endpoint
+pub fn QuicPathManager::begin(Self, @types.Endpoint, Bytes) -> Result[Unit, QuicError]
+pub fn QuicPathManager::candidate(Self) -> @types.Endpoint?
 pub fn QuicPathManager::generation(Self) -> Int64
-pub fn QuicPathManager::new(@transport.Endpoint) -> Self
-pub fn QuicPathManager::on_response(Self, @transport.Endpoint, Bytes) -> Result[Unit, QuicError]
+pub fn QuicPathManager::new(@types.Endpoint) -> Self
+pub fn QuicPathManager::on_response(Self, @types.Endpoint, Bytes) -> Result[Unit, QuicError]
 pub fn QuicPathManager::status(Self) -> QuicPathStatus
 pub fn QuicPathManager::to_repr(Self) -> @debug.Repr
 
@@ -415,6 +387,7 @@ pub fn QuicPathStatus::to_repr(Self) -> @debug.Repr
 
 pub(all) struct QuicRecovery {
   config : QuicRecoveryConfig
+  mut peer_max_ack_delay_ms : Int64
   sent : Array[QuicSentPacket]
   mut bytes_in_flight : Int64
   mut largest_initial_sent : Int64
@@ -433,19 +406,20 @@ pub(all) struct QuicRecovery {
   mut congestion_window : Int64
   mut ssthresh : Int64
   mut in_recovery : Bool
+  mut recovery_end : (Int64, Int64, Int64)?
 } derive(@debug.Debug)
 pub fn QuicRecovery::bytes_in_flight(Self) -> Int64
 pub fn QuicRecovery::can_send(Self, Int, Bool, congestion_exempt? : Bool) -> Result[Unit, QuicError]
 pub fn QuicRecovery::congestion_window(Self) -> Int64
 pub fn QuicRecovery::detect_loss(Self, PacketNumberSpace, Int64) -> Result[Array[QuicRecoveryEvent], QuicError]
 pub fn QuicRecovery::new(config? : QuicRecoveryConfig, now_ms? : Int64) -> Result[Self, QuicError]
-pub fn QuicRecovery::on_ack(Self, PacketNumberSpace, AckFrame, Int64, ack_delay_exponent? : Int) -> Result[Array[QuicRecoveryEvent], QuicError]
+pub fn QuicRecovery::oldest_probe_packet(Self, PacketNumberSpace) -> QuicSentPacket?
+pub fn QuicRecovery::on_ack(Self, PacketNumberSpace, AckFrame, Int64, ack_delay_exponent? : Int, reset_pto? : Bool, handshake_confirmed? : Bool) -> Result[Array[QuicRecoveryEvent], QuicError]
 pub fn QuicRecovery::on_packet_sent(Self, QuicSentPacket, congestion_exempt? : Bool) -> Result[Unit, QuicError]
 pub fn QuicRecovery::on_receive(Self, Int64) -> Result[Unit, QuicError]
-pub fn QuicRecovery::poll(Self, Int64) -> Result[Array[QuicRecoveryEvent], QuicError]
+pub fn QuicRecovery::poll(Self, Int64, application_confirmed? : Bool) -> Result[Array[QuicRecoveryEvent], QuicError]
 pub fn QuicRecovery::pto_count(Self) -> Int
 pub fn QuicRecovery::smoothed_rtt_ms(Self) -> Int64?
-pub fn QuicRecovery::take_oldest_probe_packet(Self, PacketNumberSpace) -> QuicSentPacket?
 pub fn QuicRecovery::to_repr(Self) -> @debug.Repr
 
 pub(all) struct QuicRecoveryConfig {
@@ -473,6 +447,17 @@ pub fn QuicRecoveryEvent::to_repr(Self) -> @debug.Repr
 
 type QuicRetransmission
 
+pub struct QuicRetryContext {
+  // private fields
+}
+
+pub struct QuicRetryTokenManager {
+  // private fields
+}
+pub fn[C : @transport.Clock, E : @transport.Entropy] QuicRetryTokenManager::issue(Self, @types.Endpoint, ConnectionId, ConnectionId, ConnectionId, C, E) -> Result[Bytes, QuicError]
+pub fn QuicRetryTokenManager::new(Bytes, lifetime_ms? : Int64) -> Result[Self, QuicError]
+pub fn QuicRetryTokenManager::validate_initial(Self, @types.Endpoint, Bytes, Int64) -> Result[QuicRetryContext, QuicError]
+
 pub(all) enum QuicRole {
   Client
   Server
@@ -497,22 +482,34 @@ pub fn QuicSentPacket::retransmittable(Self) -> Bool
 pub fn QuicSentPacket::space(Self) -> PacketNumberSpace
 pub fn QuicSentPacket::to_repr(Self) -> @debug.Repr
 
-pub(all) struct QuicStreamState {
-  id : Int64
-  mut send_max : Int64
-  mut recv_max : Int64
-  mut send_offset : Int64
-  mut recv_offset : Int64
-  mut fin_sent : Bool
-  mut fin_received : Bool
-  mut recv_final_size : Int64?
-  mut recv_ranges : Array[(Int64, Int64)]
-  reassembler : QuicCryptoReassembler
-  mut reset : Bool
+pub struct QuicTlsDriver[P] {
+  // private fields
+}
+pub fn[P] QuicTlsDriver::datagram_driver(Self[P]) -> QuicDatagramDriver
+pub fn[P] QuicTlsDriver::new(QuicDatagramDriver, P) -> Result[Self[P], QuicError]
+pub fn[P : @transport.QuicTlsProvider] QuicTlsDriver::on_datagram(Self[P], @types.Endpoint, Bytes, Int64) -> Result[Array[QuicDriverAction], QuicError]
+pub fn[P] QuicTlsDriver::poll(Self[P], Int64) -> Result[Array[QuicDriverAction], QuicError]
+pub fn[P : @transport.QuicTlsProvider] QuicTlsDriver::start(Self[P], @transport.TlsOptions, Int64) -> Result[Array[QuicDriverAction], QuicError]
+
+pub(all) struct QuicTransportParameters {
+  limits : QuicTransportParams
+  initial_source_connection_id : ConnectionId
+  original_destination_connection_id : ConnectionId?
+  retry_source_connection_id : ConnectionId?
+  stateless_reset_token : Bytes?
+  ack_delay_exponent : Int
+  max_ack_delay : Int
+  preferred_address : Bytes?
+  max_datagram_frame_size : Int64
 } derive(Eq, @debug.Debug)
-pub fn QuicStreamState::equal(Self, Self) -> Bool
-pub fn QuicStreamState::not_equal(Self, Self) -> Bool
-pub fn QuicStreamState::to_repr(Self) -> @debug.Repr
+pub fn QuicTransportParameters::decode(BytesView, QuicRole, max_bytes? : Int, max_parameters? : Int) -> Result[Self, QuicError]
+pub fn QuicTransportParameters::encode(Self, QuicRole) -> Result[Bytes, QuicError]
+pub fn QuicTransportParameters::equal(Self, Self) -> Bool
+pub fn QuicTransportParameters::new(ConnectionId, original_destination_connection_id? : ConnectionId?, limits? : QuicTransportParams) -> Self
+pub fn QuicTransportParameters::not_equal(Self, Self) -> Bool
+pub fn QuicTransportParameters::to_repr(Self) -> @debug.Repr
+pub fn QuicTransportParameters::validate(Self, QuicRole) -> Result[Unit, QuicError]
+pub fn QuicTransportParameters::validate_connection_ids(Self, ConnectionId, expected_original? : ConnectionId?, expected_retry? : ConnectionId?) -> Result[Unit, QuicError]
 
 pub(all) struct QuicTransportParams {
   max_idle_timeout : Int64
@@ -583,6 +580,15 @@ pub fn StreamFrame::not_equal(Self, Self) -> Bool
 pub fn StreamFrame::offset(Self) -> Int64
 pub fn StreamFrame::stream_id(Self) -> Int64
 pub fn StreamFrame::to_repr(Self) -> @debug.Repr
+
+pub(all) struct VersionNegotiationPacket {
+  destination : ConnectionId
+  source : ConnectionId
+  versions : Array[Int]
+} derive(Eq, @debug.Debug)
+pub fn VersionNegotiationPacket::equal(Self, Self) -> Bool
+pub fn VersionNegotiationPacket::not_equal(Self, Self) -> Bool
+pub fn VersionNegotiationPacket::to_repr(Self) -> @debug.Repr
 
 pub(all) struct ZeroRttPacket {
   version : Int

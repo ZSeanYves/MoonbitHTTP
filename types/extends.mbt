@@ -102,3 +102,36 @@ pub extend UriError with Eq::{equal, not_equal}
 
 ///|
 pub extend UriError with @debug.Debug::{to_repr}
+
+///|
+pub extend Endpoint with Eq::{equal, not_equal}
+
+///|
+pub extend Endpoint with @debug.Debug::{to_repr}
+
+///|
+pub extend Endpoint with Compare::{compare, op_lt, op_le, op_ge, op_gt}
+
+///|
+pub extend Endpoint with Hash::{hash, hash_combine}
+
+///|
+pub extend EndpointError with Eq::{equal, not_equal}
+
+///|
+pub extend EndpointError with @debug.Debug::{to_repr}
+
+///|
+pub extend IpAddress with Eq::{equal, not_equal}
+
+///|
+pub extend IpAddress with @debug.Debug::{to_repr}
+
+///|
+pub extend IpAddress with Compare::{compare, op_lt, op_le, op_ge, op_gt}
+
+///|
+pub extend IpAddressError with Eq::{equal, not_equal}
+
+///|
+pub extend IpAddressError with @debug.Debug::{to_repr}

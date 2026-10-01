@@ -3,6 +3,7 @@ pub(all) struct ServerConfig {
   limits : @types.Limits
   read_size : Int
   body_queue_capacity : Int
+  h2_receive_window_bytes : Int
   read_timeout_ms : Int?
   write_timeout_ms : Int?
   close_callback : ((Error?) -> Unit)?
@@ -14,6 +15,7 @@ pub fn ServerConfig::defaults() -> ServerConfig {
     limits: @types.Limits::defaults(),
     read_size: 8192,
     body_queue_capacity: 8,
+    h2_receive_window_bytes: 65535,
     read_timeout_ms: Some(30000),
     write_timeout_ms: Some(30000),
     close_callback: None,
@@ -26,6 +28,7 @@ fn ServerConfig::without_close_callback(self : ServerConfig) -> ServerConfig {
     limits: self.limits,
     read_size: self.read_size,
     body_queue_capacity: self.body_queue_capacity,
+    h2_receive_window_bytes: self.h2_receive_window_bytes,
     read_timeout_ms: self.read_timeout_ms,
     write_timeout_ms: self.write_timeout_ms,
     close_callback: None,
@@ -239,7 +242,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
               }
               handler_done = false
               let stream = match
-                @body.BodyStream::try_new(capacity=config.body_queue_capacity) {
+                @body.BodyStream::new(capacity=config.body_queue_capacity) {
                 Ok(value) => value
                 Err(error) => raise error
               }
@@ -251,124 +254,66 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
                     handler_done = true
                   }
                   let response = service(request)
-                  let request_method = request.http_method
-                  let version = request.version
-                  let mut framing = @http1.NoBody
-                  if response.status != 101 &&
-                    @types.response_allows_body(request_method, response.status) {
-                    match response.body.size_hint().exact_size() {
-                      Some(size) => framing = ContentLength(size)
-                      None =>
-                        framing = if version == Http11 {
-                          Chunked
-                        } else {
-                          CloseDelimited
-                        }
-                    }
-                  }
-                  if response.status == 101 {
-                    connection_upgraded = true
-                    framing = NoBody
-                  }
-                  if !response.headers.get_all_string("upgrade").is_empty() {
-                    connection_upgraded = true
-                  }
-                  if !should_keep_alive(request) || framing == CloseDelimited {
-                    let name = match @types.HeaderName::parse("connection") {
-                      Ok(value) => value
-                      Err(error) => raise error
-                    }
-                    let value = match @types.HeaderValue::from_string("close") {
-                      Ok(value) => value
-                      Err(error) => raise error
-                    }
-                    response.headers.set(name, value)
-                  }
-                  let response_head : @types.Response[Unit] = {
-                    status: response.status,
-                    version,
-                    headers: response.headers,
-                    body: (),
-                  }
-                  let encoded_head = match
-                    @http1.encode_response_head(
-                      response_head, request_method, framing,
-                    ) {
-                    Ok(value) => value
-                    Err(error) => raise error
-                  }
-                  write_with_timeout(
-                    writer,
-                    encoded_head,
-                    config.write_timeout_ms,
-                  )
-                  let mut remaining : Int? = match framing {
-                    ContentLength(size) => Some(size)
-                    _ => None
-                  }
-                  let mut sent_trailers = false
-                  while response.body.next_frame() is Some(frame) {
-                    match frame {
-                      Data(data) => {
-                        if sent_trailers {
-                          raise @http1.Http1Error::InvalidFraming(
-                            "response data follows trailers",
-                          )
-                        }
-                        match remaining {
-                          Some(value) => {
-                            if data.length() > value {
-                              raise @http1.InvalidFraming(
-                                "response body exceeds content-length",
-                              )
-                            }
-                            remaining = Some(value - data.length())
+                  with_http1_body_scope(response.body, async fn() {
+                    let request_method = request.http_method
+                    let version = request.version
+                    let mut framing = @http1.NoBody
+                    if response.status != 101 &&
+                      @types.response_allows_body(
+                        request_method,
+                        response.status,
+                      ) {
+                      match response.body.size_hint().exact_size() {
+                        Some(size) => framing = ContentLength(size)
+                        None =>
+                          framing = if version == Http11 {
+                            Chunked
+                          } else {
+                            CloseDelimited
                           }
-                          None => ()
-                        }
-                        let encoded = match
-                          @http1.encode_body_data(data, framing) {
-                          Ok(value) => value
-                          Err(error) => raise error
-                        }
-                        write_with_timeout(
-                          writer,
-                          encoded,
-                          config.write_timeout_ms,
-                        )
-                      }
-                      Trailers(trailers) => {
-                        if sent_trailers {
-                          raise @http1.Http1Error::InvalidFraming(
-                            "duplicate response trailers",
-                          )
-                        }
-                        sent_trailers = true
-                        let encoded = match
-                          @http1.encode_body_end(framing, trailers~) {
-                          Ok(value) => value
-                          Err(error) => raise error
-                        }
-                        write_with_timeout(
-                          writer,
-                          encoded,
-                          config.write_timeout_ms,
-                        )
                       }
                     }
-                  }
-                  if remaining is Some(value) && value != 0 {
-                    raise @http1.InvalidFraming(
-                      "response body shorter than content-length",
-                    )
-                  }
-                  if framing == Chunked && !sent_trailers {
-                    let encoded = match @http1.encode_body_end(framing) {
+                    if response.status == 101 {
+                      connection_upgraded = true
+                      framing = NoBody
+                    }
+                    if !response.headers.get_all_string("upgrade").is_empty() {
+                      connection_upgraded = true
+                    }
+                    if !should_keep_alive(request) || framing == CloseDelimited {
+                      let name = match @types.HeaderName::parse("connection") {
+                        Ok(value) => value
+                        Err(error) => raise error
+                      }
+                      let value = match
+                        @types.HeaderValue::from_string("close") {
+                        Ok(value) => value
+                        Err(error) => raise error
+                      }
+                      response.headers.set(name, value)
+                    }
+                    let response_head : @types.Response[Unit] = {
+                      status: response.status,
+                      version,
+                      headers: response.headers,
+                      body: (),
+                    }
+                    let encoded_head = match
+                      @http1.encode_response_head(
+                        response_head, request_method, framing,
+                      ) {
                       Ok(value) => value
                       Err(error) => raise error
                     }
-                    write_with_timeout(writer, encoded, config.write_timeout_ms)
-                  }
+                    write_with_timeout(
+                      writer,
+                      encoded_head,
+                      config.write_timeout_ms,
+                    )
+                    write_http1_body(response.body, framing, async fn(bytes) {
+                      write_with_timeout(writer, bytes, config.write_timeout_ms)
+                    })
+                  })
                 }),
               )
             }
@@ -470,62 +415,50 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_with_
   config? : ServerConfig = ServerConfig::defaults(),
 ) -> Unit {
   let mut terminal : Error? = None
-  serve_http1_connection(
-    reader,
-    writer,
-    service,
-    config=config.without_close_callback(),
-  ) catch {
-    error => {
-      terminal = Some(error)
-      let response = error_responder(error)
-      let head : @types.Response[Unit] = {
-        status: response.status,
-        version: Http11,
-        headers: response.headers,
-        body: (),
-      }
-      let framing = @http1.BodyFraming::Chunked
-      let encoded = match @http1.encode_response_head(head, Get, framing) {
-        Ok(bytes) => bytes
-        Err(codec_error) => raise codec_error
-      }
-      write_with_timeout(writer, encoded, config.write_timeout_ms)
-      let mut sent_end = false
-      while response.body.next_frame() is Some(frame) {
-        match frame {
-          Data(data) => {
-            let encoded = match @http1.encode_body_data(data, framing) {
-              Ok(value) => value
+  let close_callback = match config.close_callback {
+    Some(callback) =>
+      Some(fn(error) {
+        callback(
+          match error {
+            Some(_) => error
+            None => terminal
+          },
+        )
+      })
+    None => None
+  }
+  run_connection_scope(
+    async fn() {
+      serve_http1_connection(
+        reader,
+        writer,
+        service,
+        config=config.without_close_callback(),
+      ) catch {
+        error => {
+          terminal = Some(error)
+          let response = error_responder(error)
+          with_http1_body_scope(response.body, async fn() {
+            let head : @types.Response[Unit] = {
+              status: response.status,
+              version: Http11,
+              headers: response.headers,
+              body: (),
+            }
+            let framing = @http1.BodyFraming::Chunked
+            let encoded = match
+              @http1.encode_response_head(head, Get, framing) {
+              Ok(bytes) => bytes
               Err(codec_error) => raise codec_error
             }
             write_with_timeout(writer, encoded, config.write_timeout_ms)
-          }
-          Trailers(trailers) => {
-            if sent_end {
-              raise @http1.Http1Error::InvalidFraming(
-                "duplicate error response trailers",
-              )
-            }
-            let encoded = match @http1.encode_body_end(framing, trailers~) {
-              Ok(value) => value
-              Err(codec_error) => raise codec_error
-            }
-            write_with_timeout(writer, encoded, config.write_timeout_ms)
-            sent_end = true
-          }
+            write_http1_body(response.body, framing, async fn(bytes) {
+              write_with_timeout(writer, bytes, config.write_timeout_ms)
+            })
+          })
         }
       }
-      if !sent_end {
-        let encoded = match @http1.encode_body_end(framing) {
-          Ok(value) => value
-          Err(codec_error) => raise codec_error
-        }
-        write_with_timeout(writer, encoded, config.write_timeout_ms)
-      }
-    }
-  }
-  if config.close_callback is Some(callback) {
-    callback(terminal)
-  }
+    },
+    close_callback,
+  )
 }

@@ -1,6 +1,6 @@
 ///|
-fn http1_tls_defaults() -> @tls.TlsOptions {
-  { ..@tls.TlsOptions::defaults(), alpn: ["http/1.1"], }
+fn http1_tls_defaults() -> @transport.TlsOptions {
+  { ..@transport.TlsOptions::defaults(), alpn: ["http/1.1"], }
 }
 
 ///|
@@ -14,22 +14,13 @@ pub struct Http1Client {
 }
 
 ///|
-pub fn Http1Client::new(
-  policy_client : Client,
-  round_tripper : Http1PooledRoundTripper,
-  wall_clock_seconds? : () -> Int64 = fn() { 0L },
-) -> Http1Client {
-  { policy_client, round_tripper, wall_clock_seconds, }
-}
-
-///|
 /// Builds a production-shaped HTTP/1 client from explicit host capabilities.
 /// DNS answers are converted to numeric endpoints and checked by `policy`
 /// before `connector` receives them.
 pub fn[
   C : @transport.StreamConnector,
   R : @transport.NameResolver,
-  T : @tls.TlsProvider,
+  T : @transport.TlsProvider,
   P : @transport.NetworkPolicy,
   K : @transport.Clock,
 ] Http1Client::from_capabilities(
@@ -40,8 +31,8 @@ pub fn[
   clock : K,
   options? : RequestOptions = RequestOptions::defaults(),
   proxy? : ProxyConfig = ProxyConfig::direct(),
-  origin_tls? : @tls.TlsOptions = http1_tls_defaults(),
-  proxy_tls? : @tls.TlsOptions = http1_tls_defaults(),
+  origin_tls? : @transport.TlsOptions = http1_tls_defaults(),
+  proxy_tls? : @transport.TlsOptions = http1_tls_defaults(),
   cookie_jar? : @cookie.CookieJar = @cookie.CookieJar::new().unwrap(),
   cache? : @cache.HttpCache = @cache.HttpCache::new().unwrap(),
   cache_enabled? : Bool = false,
@@ -76,12 +67,12 @@ pub fn[
     Err(error) => return Err(error)
   }
   let round_tripper = match
-    Http1PooledRoundTripper::from_capabilities_with_resolver(
+    Http1PooledRoundTripper::from_capabilities(
       connector,
       resolver,
       tls_provider,
       policy,
-      now_millis~,
+      clock,
       options~,
       proxy~,
       origin_tls~,

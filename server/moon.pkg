@@ -1,6 +1,7 @@
 import {
   "moonbitlang/async",
   "moonbitlang/core/debug",
+  "ZSeanYves/MoonbitHTTP/transport",
 }
 
 options(

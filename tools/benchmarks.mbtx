@@ -1,0 +1,41 @@
+import {
+  "moonbitlang/async@0.20.2",
+  "moonbitlang/async@0.20.2/fs",
+  "moonbitlang/async@0.20.2/process",
+}
+
+///|
+async fn record(directory : String, name : String, program : String, arguments : Array[String]) -> Unit {
+  let output = @process.redirect_to_file(directory + "/" + name + ".stdout", create_mode=CreateOrTruncate)
+  let errors = @process.redirect_to_file(directory + "/" + name + ".stderr", create_mode=CreateOrTruncate)
+  let status = @async.with_timeout(300000, async fn() {
+    @process.run(program, arguments, stdout=output, stderr=errors)
+  })
+  guard status == 0 else { fail("\{name} failed with exit \{status}; logs: \{directory}") }
+}
+
+///|
+async fn main {
+  let temporary = @fs.tmpdir(prefix="moonbithttp-bench")
+  let unique = temporary.split("/").to_array().last().unwrap().to_owned()
+  @fs.rmdir(temporary)
+  let directory = "_build/evidence/benchmarks/" + unique
+  @fs.mkdir(directory, recursive=true)
+  println("Benchmark evidence: \{directory}")
+  record(directory, "toolchain", "moon", ["version", "--all"])
+  record(directory, "system", "uname", ["-a"])
+  record(directory, "revision", "git", ["rev-parse", "HEAD"])
+  record(directory, "worktree", "git", ["status", "--porcelain=v1", "--untracked-files=all"])
+  let arguments = ["bench", "--target", "native", "--release", "--no-parallelize",
+    "--deny-warn", "--warn-list", "+73"]
+  record(directory, "benchmarks", "moon", arguments)
+  @fs.write_file(directory + "/command.txt", "moon " + arguments.join(" ") + "\n", create_mode=CreateNew)
+  let evidence : Json = {
+    "status": "executed",
+    "target": "native",
+    "mode": "release",
+    "performance_gate": "open: no controlled comparison or accepted thresholds",
+  }
+  @fs.write_file(directory + "/result.json", evidence, create_mode=CreateNew)
+  println("Benchmarks executed; raw results: \{directory}/benchmarks.stdout. Performance thresholds remain open.")
+}

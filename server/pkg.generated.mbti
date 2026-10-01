@@ -2,6 +2,7 @@
 package "ZSeanYves/MoonbitHTTP/server"
 
 import {
+  "ZSeanYves/MoonbitHTTP/transport",
   "moonbitlang/core/debug",
 }
 
@@ -18,6 +19,7 @@ pub(all) suberror ServerError {
   HandlerFailed(String)
   ShutdownTimeout
   Closed
+  Policy(@transport.PolicyError)
 } derive(Eq, @debug.Debug)
 pub fn ServerError::equal(Self, Self) -> Bool
 pub fn ServerError::not_equal(Self, Self) -> Bool

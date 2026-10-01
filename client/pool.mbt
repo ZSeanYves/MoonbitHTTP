@@ -10,7 +10,7 @@ pub(all) struct ConnectionKey {
   scheme : String
   host : String
   port : Int
-  proxy_endpoint : @transport.Endpoint?
+  proxy_endpoint : @types.Endpoint?
   proxy_identity : String?
   tls_identity : String?
   protocol : ClientProtocol
@@ -19,12 +19,12 @@ pub(all) struct ConnectionKey {
 
 ///|
 pub fn ConnectionKey::new(
-  endpoint : @transport.Endpoint,
+  endpoint : @types.Endpoint,
   proxy_identity : String?,
   tls_identity : String?,
   protocol : ClientProtocol,
   options_identity : String?,
-  proxy_endpoint? : @transport.Endpoint? = None,
+  proxy_endpoint? : @types.Endpoint? = None,
 ) -> ConnectionKey {
   {
     scheme: endpoint.scheme(),
@@ -59,9 +59,7 @@ pub fn ConnectionKey::protocol(self : ConnectionKey) -> ClientProtocol {
 }
 
 ///|
-pub fn ConnectionKey::proxy_endpoint(
-  self : ConnectionKey,
-) -> @transport.Endpoint? {
+pub fn ConnectionKey::proxy_endpoint(self : ConnectionKey) -> @types.Endpoint? {
   self.proxy_endpoint
 }
 

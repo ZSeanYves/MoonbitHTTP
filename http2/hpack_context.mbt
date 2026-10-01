@@ -64,9 +64,11 @@ fn HpackTable::get_dynamic(self : HpackTable, index : Int) -> HpackHeader? {
 
 ///|
 pub struct HpackContext {
-  table : HpackTable
-  max_allowed_table_size : Int
-  max_header_list_size : Int
+  priv table : HpackTable
+  priv max_allowed_table_size : Int
+  priv max_header_list_size : Int
+  priv mut pending_min_table_size : Int?
+  priv mut pending_final_table_size : Int?
 }
 
 ///|
@@ -74,11 +76,48 @@ pub fn HpackContext::new(
   max_table_size? : Int = 4096,
   max_header_list_size? : Int = 64 * 1024,
 ) -> HpackContext {
+  let initial_size = max_table_size.max(0).min(4096)
+  let initial_update = if initial_size == 4096 {
+    None
+  } else {
+    Some(initial_size)
+  }
   {
-    table: HpackTable::new(max_size=max_table_size.max(0)),
+    table: HpackTable::new(max_size=initial_size),
     max_allowed_table_size: max_table_size.max(0),
     max_header_list_size: max_header_list_size.max(0),
+    pending_min_table_size: initial_update,
+    pending_final_table_size: initial_update,
   }
+}
+
+///|
+/// Apply the peer's receive-table limit to this connection's encoder only.
+/// Multiple changes between header blocks retain the smallest size and the
+/// final size, so the decoder performs the same evictions (RFC 7541 section 4.2).
+pub fn HpackContext::set_encoder_table_size(
+  self : HpackContext,
+  max_size : Int,
+) -> Unit {
+  let size = max_size.max(0).min(self.max_allowed_table_size)
+  if size == self.table.max_size {
+    return
+  }
+  self.table.resize(size)
+  self.pending_min_table_size = Some(
+    match self.pending_min_table_size {
+      Some(previous) => previous.min(size)
+      None => size
+    },
+  )
+  self.pending_final_table_size = Some(size)
+}
+
+///|
+fn append_table_size_update(out : Array[Byte], size : Int) -> Unit {
+  let encoded = encode_integer(5, size)
+  encoded[0] = (encoded[0].to_int() | 0x20).to_byte()
+  append_encoded(out, encoded)
 }
 
 ///|
@@ -334,7 +373,7 @@ pub fn HpackContext::encode_incremental(
   self : HpackContext,
   headers : Array[HpackHeader],
 ) -> Result[Bytes, H2ProtocolError] {
-  let out : Array[Byte] = []
+  // Validate the complete block before changing the compression context.
   let mut list_size = 0
   for header in headers {
     if !hpack_valid_decoded_name(header.name) ||
@@ -342,10 +381,6 @@ pub fn HpackContext::encode_incremental(
       return Err(ConnectionError(ProtocolError, "invalid header field"))
     }
     let entry_size = hpack_entry_size(header)
-    if !hpack_valid_decoded_name(header.name) ||
-      @types.HeaderValue::from_bytes(header.value) is Err(_) {
-      return Err(ConnectionError(ProtocolError, "invalid decoded header field"))
-    }
     if list_size > self.max_header_list_size ||
       entry_size > self.max_header_list_size - list_size {
       return Err(
@@ -353,6 +388,18 @@ pub fn HpackContext::encode_incremental(
       )
     }
     list_size += entry_size
+  }
+  let out : Array[Byte] = []
+  if self.pending_min_table_size is Some(minimum) {
+    append_table_size_update(out, minimum)
+    if self.pending_final_table_size is Some(final_size) &&
+      final_size != minimum {
+      append_table_size_update(out, final_size)
+    }
+    self.pending_min_table_size = None
+    self.pending_final_table_size = None
+  }
+  for header in headers {
     if hpack_sensitive_name(header.name) {
       let name_index = self.find_name(header.name)
       let encoded_name = encode_integer(4, name_index)

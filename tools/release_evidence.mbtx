@@ -1,0 +1,125 @@
+import {
+  "moonbitlang/async@0.20.2",
+  "moonbitlang/async@0.20.2/fs",
+  "moonbitlang/async@0.20.2/process",
+  "moonbitlang/core/env",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/x@0.4.47/crypto",
+}
+
+///|
+async fn command(program : String, arguments : Array[String]) -> Bytes {
+  let (status, output, errors) = @async.with_timeout(60000, async fn() {
+    @process.collect_output(program, arguments)
+  })
+  guard status == 0 else {
+    let invocation = program + " " + arguments.join(" ")
+    fail("\{invocation}: exit \{status}; \{errors.text()}")
+  }
+  output.binary()
+}
+
+///|
+async fn command_text(program : String, arguments : Array[String]) -> String {
+  @utf8.decode(command(program, arguments))
+}
+
+///|
+async fn require_clean() -> Unit {
+  let changes = command("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+  guard changes.is_empty() else {
+    fail("release gate closed: tracked edits or untracked files exist; freeze and commit reviewed source before generating a release package")
+  }
+}
+
+///|
+fn manifest_field(source : String, key : String) -> String raise {
+  for raw in source.split("\n") {
+    let line = raw.trim()
+    if line.has_prefix(key + " = \"") && line.has_suffix("\"") {
+      return line[(key.length() + 4):(line.length() - 1)].to_owned()
+    }
+  }
+  fail("missing manifest field: \{key}")
+}
+
+///|
+fn digest(bytes : Bytes) -> String {
+  @crypto.bytes_to_hex_string(@crypto.sha256(bytes))
+}
+
+///|
+async fn main {
+  let arguments = @env.args()
+  let clean_only = arguments.length() == 2 && arguments[1] == "--check-clean"
+  guard arguments.length() == 1 || clean_only else {
+    fail("usage: moon run tools/release_evidence.mbtx [--check-clean]")
+  }
+  // This guard precedes directory creation, packaging and dependency commands.
+  // It must fail on the current development worktree, never label it released.
+  require_clean()
+  if clean_only {
+    println("PASS: worktree is clean; no package created.")
+    return
+  }
+  let revision = command_text("git", ["rev-parse", "HEAD"]).trim().to_owned()
+  let source = @fs.read_file("moon.mod").text()
+  let name = manifest_field(source, "name")
+  let version = manifest_field(source, "version")
+  let archive = "_build/publish/" + name.replace(old="/", new="-") + "-" + version + ".zip"
+  let tracked = command_text("git", ["ls-files", "-z"]).split("\u{0}").to_array()
+  let listed = command_text("moon", ["package", "--frozen", "--list"])
+  let members = command_text("unzip", ["-Z1", archive])
+  let seen : Map[String, Bool] = Map([])
+  let files : Array[Json] = []
+  let mut unpacked_bytes = 0
+  for raw in members.split("\n") {
+    let path = raw.to_owned()
+    if path.is_empty() || path.has_suffix("/") { continue }
+    guard !path.has_prefix("/") && !path.has_prefix("-") &&
+      !path.split("/").any(fn(part) { part == ".." || part == ".git" || part == "_build" || part == "target" || part == ".mooncakes" }) &&
+      path != "coverage.xml" && !path.has_suffix(".zip") else {
+      fail("unsafe or generated archive member: \{path}")
+    }
+    guard seen.get(path) is None && tracked.any(fn(tracked_path) { tracked_path == path }) else {
+      fail("duplicate or untracked archive member: \{path}")
+    }
+    seen[path] = true
+    let packaged = command("unzip", ["-p", archive, path])
+    let committed = command("git", ["show", revision + ":" + path])
+    guard packaged == committed else { fail("archive differs from frozen Git source: \{path}") }
+    unpacked_bytes += packaged.length()
+    files.push({ "path": path, "bytes": packaged.length(), "sha256": digest(packaged) })
+  }
+  guard seen.get("moon.mod") is Some(_) && !files.is_empty() else { fail("archive is missing module source") }
+  let toolchain = command_text("moon", ["version", "--all"])
+  let dependencies = command_text("moon", ["tree", "--json"])
+  require_clean()
+  guard command_text("git", ["rev-parse", "HEAD"]).trim() == revision else { fail("Git revision changed during packaging") }
+  let bytes = @fs.read_file(archive).binary()
+  let directory = "_build/evidence/release/" + revision
+  @fs.mkdir(directory, recursive=true)
+  @fs.write_file(directory + "/package-list.txt", listed, create_mode=CreateOrTruncate)
+  @fs.write_file(directory + "/toolchain.txt", toolchain, create_mode=CreateOrTruncate)
+  @fs.write_file(directory + "/moon.mod", source, create_mode=CreateOrTruncate)
+  @fs.write_file(directory + "/resolved-dependencies.json", dependencies, create_mode=CreateOrTruncate)
+  let evidence : Json = {
+    "status": "frozen-package-verified",
+    "production_release_approved": false,
+    "git_revision": revision,
+    "module": name,
+    "version": version,
+    "archive": archive,
+    "sha256": digest(bytes),
+    "compressed_bytes": bytes.length(),
+    "unpacked_bytes": unpacked_bytes,
+    "file_count": files.length(),
+    "files": files,
+    "dependency_snapshot": "resolved-dependencies.json",
+    "dependency_lock": "moon has no committed lockfile here; pinned moon.mod plus resolved dependency snapshot are evidence, not a resolver lock",
+    "remaining_release_gates": ["current-revision all-target tests", "independent HTTP3/TLS/QUIC interoperability",
+      "certificate negative suites", "long-duration load", "performance thresholds", "current security scan"],
+  }
+  @fs.write_file(directory + "/evidence.json", evidence, create_mode=CreateOrTruncate)
+  println("Frozen package verified: \{archive}\nSHA-256: \{digest(bytes)}\nEvidence: \{directory}\nProduction release gates remain separate; nothing was published.")
+}

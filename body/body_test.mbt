@@ -13,7 +13,7 @@ async test "body: queue exposes data and trailers" {
 
 ///|
 async test "body: bounded stream preserves frames and terminal errors" {
-  let stream = @body.BodyStream::new(capacity=1)
+  let stream = @body.BodyStream::new(capacity=1).unwrap()
   stream.push(Data(b"first"))
   match stream.next_frame() {
     Some(Data(data)) => assert_eq(data, b"first")
@@ -26,7 +26,7 @@ async test "body: bounded stream preserves frames and terminal errors" {
     _ => fail("missing second frame")
   }
   assert_true(stream.next_frame() is None)
-  let failed = @body.BodyStream::new(capacity=1)
+  let failed = @body.BodyStream::new(capacity=1).unwrap()
   failed.fail(@types.UriError::InvalidUri("body failed"))
   try failed.next_frame() catch {
     _ => ()
@@ -37,7 +37,7 @@ async test "body: bounded stream preserves frames and terminal errors" {
 
 ///|
 async test "body: blocked producer resumes after consumption" {
-  let stream = @body.BodyStream::new(capacity=1)
+  let stream = @body.BodyStream::new(capacity=1).unwrap()
   let first_written : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
   let second_written : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
   @async.with_task_group(async fn(group) {
@@ -59,7 +59,7 @@ async test "body: blocked producer resumes after consumption" {
 
 ///|
 async test "body: repeated consumption keeps wakeup state bounded" {
-  let stream = @body.BodyStream::new(capacity=1)
+  let stream = @body.BodyStream::new(capacity=1).unwrap()
   for _ in 0..<10000 {
     stream.push(Data(b"x"))
     match stream.next_frame() {
@@ -73,7 +73,7 @@ async test "body: repeated consumption keeps wakeup state bounded" {
 
 ///|
 async test "body: fail wakes blocked producer with original error" {
-  let stream = @body.BodyStream::new(capacity=1)
+  let stream = @body.BodyStream::new(capacity=1).unwrap()
   stream.push(Data(b"buffered"))
   let failed : @aqueue.Queue[Bool] = Queue(kind=Unbounded)
   @async.with_task_group(async fn(group) {
@@ -122,7 +122,7 @@ async test "body: pull stream can be failed externally" {
 async test "body: consumption callback failure terminates the stream" {
   let stream = @body.BodyStream::new(capacity=1, on_data_consumed=fn(_) raise {
     raise @types.UriError::InvalidUri("window update failed")
-  })
+  }).unwrap()
   stream.push(Data(b"data"))
   try stream.next_frame() catch {
     @types.UriError::InvalidUri("window update failed") => ()
@@ -164,7 +164,7 @@ async test "body: empty data is normalized without hiding later data" {
 
 ///|
 async test "body: trailers are terminal for push streams" {
-  let stream = @body.BodyStream::new(capacity=2)
+  let stream = @body.BodyStream::new(capacity=2).unwrap()
   let trailers = @types.HeaderMap::new()
   stream.push(Trailers(trailers))
   try stream.push(Data(b"late")) catch {
@@ -209,7 +209,7 @@ async test "body: collect rejects invalid frame sequences" {
 
 ///|
 async test "body: collect limit cancels and clears upstream" {
-  let stream = @body.BodyStream::new(capacity=2)
+  let stream = @body.BodyStream::new(capacity=2).unwrap()
   stream.push(Data(b"buffered"))
   stream.push(Data(b"discarded"))
   try @body.collect(stream, max_bytes=3) catch {
@@ -228,7 +228,7 @@ async test "body: collect limit cancels and clears upstream" {
 
 ///|
 async test "body: cancelling a blocked producer terminates the stream" {
-  let stream = @body.BodyStream::new(capacity=1)
+  let stream = @body.BodyStream::new(capacity=1).unwrap()
   stream.push(Data(b"buffered"))
   @async.with_task_group(async fn(group) {
     let started : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
@@ -267,8 +267,28 @@ async test "body: termination callback runs exactly once with the first cause" {
   assert_eq(causes, ["eof"])
   let cancelled = @body.BodyStream::new(on_terminate=fn(error) {
     causes.push(if error is Some(_) { "cancelled" } else { "eof" })
-  })
+  }).unwrap()
   cancelled.cancel(@body.BodyError::Cancelled)
   cancelled.cancel(@types.UriError::InvalidUri("later"))
   assert_eq(causes, ["eof", "cancelled"])
+}
+
+///|
+async test "body: queue snapshots frame sequence at construction" {
+  let frames : Array[@body.Frame] = [Data(b"original")]
+  let body = @body.QueueBody::new(frames)
+  frames[0] = Data(b"replacement")
+  frames.push(Data(b"unexpected"))
+  let (data, _) = @body.collect(body)
+  assert_eq(data, b"original")
+  assert_eq(body.size_hint().exact_size(), Some(8))
+}
+
+///|
+test "body: stream rejects invalid caller configuration without aborting" {
+  assert_true(@body.BodyStream::new(capacity=0) is Err(InvalidLimit(0)))
+  assert_true(
+    @body.BodyStream::new(size_hint={ lower: 2, upper: Some(1), })
+    is Err(InvalidLimit(2)),
+  )
 }
