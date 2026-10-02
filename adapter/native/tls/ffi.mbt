@@ -2,7 +2,7 @@
 priv type OpenSsl
 
 ///|
-#borrow(host, roots, certificate, private_key, alpn)
+#borrow(host, roots, crls, ocsp_response, certificate, private_key, alpn)
 extern "C" fn openssl_new(
   server : Bool,
   verify : Bool,
@@ -12,10 +12,19 @@ extern "C" fn openssl_new(
   host : Bytes,
   numeric_host : Bool,
   roots : Bytes,
+  crls : Bytes,
+  require_crl : Bool,
+  require_ocsp : Bool,
+  ocsp_response : Bytes,
   certificate : Bytes,
   private_key : Bytes,
   alpn : Bytes,
 ) -> OpenSsl = "moon_http_tls_new"
+
+///|
+/// Verify a stapled OCSP response captured by the native TLS session.
+#borrow(self)
+extern "C" fn OpenSsl::check_ocsp(self : OpenSsl, require : Bool) -> Bool = "moon_http_tls_check_ocsp"
 
 ///|
 #borrow(self)

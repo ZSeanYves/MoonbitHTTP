@@ -18,7 +18,7 @@ Last reviewed: 2026-10-01
 将 provider 注入 application/client、adapter/native/server、QuicTlsDriver；h3 ALPN 是 QUIC 设置，不会把 TCP 变成 QUIC。
 
 ## 不变量与范围
-完成前检查证书链、有效期、SAN、key、TLS version、ALPN；0-RTT 关闭，当前 API 不提供 CRL/OCSP。
+完成前检查证书链、有效期、SAN、key、TLS version、ALPN；0-RTT 关闭。Native TLS 可通过 `TlsOptions.revocation_lists` 注入 PEM CRL，设置 `require_crl` 后缺少或无效 CRL 会硬失败，并检查完整验证链。客户端设置 `require_ocsp` 后必须收到并验证 DER stapled OCSP；服务端通过 `ocsp_response` 提供该响应。OCSP 只验证显式 stapled response，不会在线访问 responder，也不会做 DNS/socket；Wasm 没有 native 撤销提供器。
 
 ## 规范文档
 - [中文总览](../../../README_zh.md)

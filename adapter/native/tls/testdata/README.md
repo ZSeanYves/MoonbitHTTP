@@ -5,6 +5,9 @@ subject alternatives and both serverAuth/clientAuth usage. `other` is a
 separate trust identity. `expired` is valid only from 2020-01-01 to 2021-01-01.
 `wildcard` has only the `*.example.test` DNS subject alternative; tests use it
 to cover a valid single-label wildcard and rejection of the base domain.
+`revoked` is signed by the localhost test CA and is listed in `revoked.crl.pem`;
+`revoked.ocsp.der` is a deliberately revoked stapled OCSP response used for
+fail-closed negative tests.
 
 Regenerate from the module root with
 `moon run repo-tools/scripts/generate_tls_fixtures.mbtx`. The generator requires OpenSSL

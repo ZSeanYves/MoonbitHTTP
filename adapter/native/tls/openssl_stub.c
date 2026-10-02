@@ -18,6 +18,13 @@ typedef struct x509_st X509;
 typedef struct x509_store_st X509_STORE;
 typedef struct X509_VERIFY_PARAM_st X509_VERIFY_PARAM;
 typedef struct evp_pkey_st EVP_PKEY;
+typedef struct evp_md_st EVP_MD;
+typedef struct stack_st_X509 STACK_OF_X509;
+typedef struct x509_crl_st X509_CRL;
+typedef struct ocsp_response_st OCSP_RESPONSE;
+typedef struct ocsp_basic_response_st OCSP_BASICRESP;
+typedef struct ocsp_cert_id_st OCSP_CERTID;
+typedef struct asn1_generalized_time_st ASN1_GENERALIZEDTIME;
 
 typedef struct {
   SSL_CTX *ctx;
@@ -30,6 +37,8 @@ typedef struct {
   int64_t verify_code;
   char error[384];
   int initialized;
+  int require_ocsp;
+  int has_ocsp_staple;
 } HttpTls;
 
 #ifdef _WIN32
@@ -51,10 +60,13 @@ typedef struct {
   F(int, SSL_CTX_set_default_verify_paths, (SSL_CTX *)) \
   F(X509_STORE *, SSL_CTX_get_cert_store, (const SSL_CTX *)) \
   F(int, X509_STORE_add_cert, (X509_STORE *, X509 *)) \
+  F(int, X509_STORE_add_crl, (X509_STORE *, X509_CRL *)) \
+  F(unsigned long, X509_STORE_set_flags, (X509_STORE *, unsigned long)) \
   F(int, SSL_CTX_use_certificate, (SSL_CTX *, X509 *)) \
   F(int, SSL_CTX_use_PrivateKey, (SSL_CTX *, EVP_PKEY *)) \
   F(int, SSL_CTX_check_private_key, (const SSL_CTX *)) \
   F(void, SSL_CTX_set_alpn_select_cb, (SSL_CTX *, int (*)(SSL *, const unsigned char **, unsigned char *, const unsigned char *, unsigned int, void *), void *)) \
+  F(long, SSL_CTX_callback_ctrl, (SSL_CTX *, int, void (*)(void))) \
   F(SSL *, SSL_new, (SSL_CTX *)) \
   F(void, SSL_free, (SSL *)) \
   F(void, SSL_set0_rbio, (SSL *, BIO *)) \
@@ -78,6 +90,7 @@ typedef struct {
   F(const char *, SSL_CIPHER_standard_name, (const SSL_CIPHER *)) \
   F(long, SSL_get_verify_result, (const SSL *)) \
   F(X509 *, SSL_get1_peer_certificate, (const SSL *)) \
+  F(const STACK_OF_X509 *, SSL_get0_verified_chain, (const SSL *)) \
   F(const BIO_METHOD *, BIO_s_mem, (void)) \
   F(BIO *, BIO_new, (const BIO_METHOD *)) \
   F(BIO *, BIO_new_mem_buf, (const void *, int)) \
@@ -87,9 +100,24 @@ typedef struct {
   F(size_t, BIO_ctrl_pending, (BIO *)) \
   F(long, BIO_ctrl, (BIO *, int, long, void *)) \
   F(X509 *, PEM_read_bio_X509, (BIO *, X509 **, int (*)(char *, int, int, void *), void *)) \
+  F(X509_CRL *, PEM_read_bio_X509_CRL, (BIO *, X509_CRL **, int (*)(char *, int, int, void *), void *)) \
   F(EVP_PKEY *, PEM_read_bio_PrivateKey, (BIO *, EVP_PKEY **, int (*)(char *, int, int, void *), void *)) \
   F(void, X509_free, (X509 *)) \
+  F(void, X509_CRL_free, (X509_CRL *)) \
   F(void, EVP_PKEY_free, (EVP_PKEY *)) \
+  F(const EVP_MD *, EVP_sha1, (void)) \
+  F(OCSP_RESPONSE *, d2i_OCSP_RESPONSE, (OCSP_RESPONSE **, const unsigned char **, long)) \
+  F(void, OCSP_RESPONSE_free, (OCSP_RESPONSE *)) \
+  F(int, OCSP_response_status, (OCSP_RESPONSE *)) \
+  F(OCSP_BASICRESP *, OCSP_response_get1_basic, (OCSP_RESPONSE *)) \
+  F(void, OCSP_BASICRESP_free, (OCSP_BASICRESP *)) \
+  F(int, OCSP_basic_verify, (OCSP_BASICRESP *, STACK_OF_X509 *, X509_STORE *, unsigned long)) \
+  F(OCSP_CERTID *, OCSP_cert_to_id, (const EVP_MD *, const X509 *, const X509 *)) \
+  F(void, OCSP_CERTID_free, (OCSP_CERTID *)) \
+  F(int, OCSP_resp_find_status, (OCSP_BASICRESP *, OCSP_CERTID *, int *, int *, ASN1_GENERALIZEDTIME **, ASN1_GENERALIZEDTIME **, ASN1_GENERALIZEDTIME **)) \
+  F(int, OCSP_check_validity, (ASN1_GENERALIZEDTIME *, ASN1_GENERALIZEDTIME *, long, long)) \
+  F(int, OPENSSL_sk_num, (const void *)) \
+  F(void *, OPENSSL_sk_value, (const void *, int)) \
   F(unsigned long, ERR_get_error, (void)) \
   F(void, ERR_clear_error, (void)) \
   F(void, ERR_error_string_n, (unsigned long, char *, size_t)) \
@@ -283,6 +311,49 @@ static int load_roots(HttpTls *self, const unsigned char *pem, int length) {
   return 1;
 }
 
+static int load_crls(HttpTls *self, const unsigned char *pem, int length) {
+  BIO *bio = p_BIO_new_mem_buf(pem, length);
+  if (!bio) return 0;
+  int count = 0;
+  X509_CRL *crl;
+  while ((crl = p_PEM_read_bio_X509_CRL(bio, NULL, NULL, NULL))) {
+    int ok = p_X509_STORE_add_crl(p_SSL_CTX_get_cert_store(self->ctx), crl);
+    p_X509_CRL_free(crl);
+    if (ok != 1) { p_BIO_free(bio); return 0; }
+    ++count;
+  }
+  p_BIO_free(bio);
+  if (!count) return 0;
+  p_ERR_clear_error();
+  /* Check every certificate in the verified chain, not only the leaf. */
+  if (p_X509_STORE_set_flags(p_SSL_CTX_get_cert_store(self->ctx), 0xCUL) != 1) return 0;
+  return 1;
+}
+
+static int install_ocsp_staple(HttpTls *self, const unsigned char *response, int length) {
+  if (!length) return 1;
+  unsigned char *copy = malloc((size_t)length);
+  if (!copy) return 0;
+  memcpy(copy, response, (size_t)length);
+  /* SSL_CTRL_SET_TLSEXT_STATUS_REQ_OCSP_RESP takes ownership of the buffer. */
+  if (p_SSL_ctrl(self->ssl, 71, length, copy) != 1) {
+    free(copy);
+    return 0;
+  }
+  return 1;
+}
+
+static void request_ocsp_staple(HttpTls *self) {
+  /* TLSEXT_STATUSTYPE_ocsp = 1. A client sends this extension in ClientHello. */
+  (void)p_SSL_ctrl(self->ssl, 65, 1, NULL);
+}
+
+static int ocsp_status_cb(SSL *ssl, void *arg) {
+  HttpTls *self = arg;
+  if (!self || self->ssl != ssl || !self->has_ocsp_staple) return 2;
+  return 0;
+}
+
 static int load_identity(HttpTls *self, const unsigned char *certs, int cert_len, const unsigned char *key, int key_len) {
   BIO *bio = p_BIO_new_mem_buf(certs, cert_len);
   if (!bio) return 0;
@@ -329,7 +400,7 @@ static int select_alpn(SSL *ssl, const unsigned char **out, unsigned char *out_l
   return 2; /* Fatal no_application_protocol, never silently fall back. */
 }
 
-MOONBIT_FFI_EXPORT HttpTls *moon_http_tls_new(int server, int verify, int system_roots, int min_version, int max_version, moonbit_bytes_t host, int numeric_host, moonbit_bytes_t roots, moonbit_bytes_t cert, moonbit_bytes_t key, moonbit_bytes_t alpn) {
+MOONBIT_FFI_EXPORT HttpTls *moon_http_tls_new(int server, int verify, int system_roots, int min_version, int max_version, moonbit_bytes_t host, int numeric_host, moonbit_bytes_t roots, moonbit_bytes_t crls, int require_crl, int require_ocsp, moonbit_bytes_t ocsp_response, moonbit_bytes_t cert, moonbit_bytes_t key, moonbit_bytes_t alpn) {
   HttpTls *self = moonbit_make_external_object(release_tls, sizeof(HttpTls));
   memset(self, 0, sizeof(*self));
   ensure_tls_loaded();
@@ -346,6 +417,10 @@ MOONBIT_FFI_EXPORT HttpTls *moon_http_tls_new(int server, int verify, int system
   if (root_len) { if (!load_roots(self, roots, root_len)) goto failed; }
   else if (verify && system_roots) { if (p_SSL_CTX_set_default_verify_paths(self->ctx) != 1) goto failed; }
   else if (verify) { snprintf(self->error, sizeof(self->error), "certificate verification requires trust anchors"); return self; }
+  int crl_len = Moonbit_array_length(crls);
+  if (crl_len) { if (!load_crls(self, crls, crl_len)) goto failed; }
+  else if (require_crl) { snprintf(self->error, sizeof(self->error), "certificate revocation requires CRL material"); return self; }
+  self->require_ocsp = require_ocsp;
   int cert_len = Moonbit_array_length(cert), key_len = Moonbit_array_length(key);
   if (cert_len && key_len) { if (!load_identity(self, cert, cert_len, key, key_len)) goto failed; }
   else if (server) { snprintf(self->error, sizeof(self->error), "server certificate and private key are required"); return self; }
@@ -388,12 +463,78 @@ MOONBIT_FFI_EXPORT HttpTls *moon_http_tls_new(int server, int verify, int system
       free(host_string);
     }
     if (p_SSL_set_alpn_protos(self->ssl, self->alpn, self->alpn_len) != 0) goto failed;
+    if (require_ocsp) request_ocsp_staple(self);
+  }
+  if (server && ocsp_response && Moonbit_array_length(ocsp_response)) {
+    if (!install_ocsp_staple(self, ocsp_response, Moonbit_array_length(ocsp_response))) goto failed;
+    self->has_ocsp_staple = 1;
+    if (p_SSL_CTX_ctrl(self->ctx, 64, 0, self) != 1) goto failed;
+    if (p_SSL_CTX_callback_ctrl(self->ctx, 63, (void (*)(void))ocsp_status_cb) != 1) goto failed;
   }
   self->initialized = 1;
   return self;
 failed:
   capture_error(self, "OpenSSL configuration failed");
   return self;
+}
+
+static int ocsp_fail(HttpTls *self, int64_t code, const char *message) {
+  self->verify_code = code;
+  self->error_code = 0;
+  snprintf(self->error, sizeof(self->error), "%s", message);
+  return 0;
+}
+
+MOONBIT_FFI_EXPORT int moon_http_tls_check_ocsp(HttpTls *self, int require) {
+  if (!self || !self->ssl || self->initialized != 1) return 0;
+  unsigned char *encoded = NULL;
+  long encoded_len = p_SSL_ctrl(self->ssl, 70, 0, &encoded);
+  if (encoded_len <= 0 || !encoded) {
+    if (require) return ocsp_fail(self, 100, "required OCSP staple was not provided");
+    return 1;
+  }
+  const unsigned char *cursor = encoded;
+  OCSP_RESPONSE *response = p_d2i_OCSP_RESPONSE(NULL, &cursor, encoded_len);
+  if (!response || cursor != encoded + encoded_len) {
+    if (response) p_OCSP_RESPONSE_free(response);
+    return ocsp_fail(self, 96, "OCSP response is malformed");
+  }
+  if (p_OCSP_response_status(response) != 0) {
+    p_OCSP_RESPONSE_free(response);
+    return ocsp_fail(self, 100, "OCSP responder did not return a successful response");
+  }
+  OCSP_BASICRESP *basic = p_OCSP_response_get1_basic(response);
+  if (!basic) {
+    p_OCSP_RESPONSE_free(response);
+    return ocsp_fail(self, 96, "OCSP response has no basic response");
+  }
+  X509 *peer = p_SSL_get1_peer_certificate(self->ssl);
+  const STACK_OF_X509 *chain = p_SSL_get0_verified_chain(self->ssl);
+  int chain_len = chain ? p_OPENSSL_sk_num(chain) : 0;
+  X509 *issuer = chain_len > 1 ? (X509 *)p_OPENSSL_sk_value(chain, 1) : peer;
+  if (!peer || !issuer || !chain || p_OCSP_basic_verify(basic, (STACK_OF_X509 *)chain, p_SSL_CTX_get_cert_store(self->ctx), 0) != 1) {
+    if (peer) p_X509_free(peer);
+    p_OCSP_BASICRESP_free(basic);
+    p_OCSP_RESPONSE_free(response);
+    return ocsp_fail(self, 97, "OCSP response signature or responder trust check failed");
+  }
+  OCSP_CERTID *id = p_OCSP_cert_to_id(p_EVP_sha1(), peer, issuer);
+  int status = -1;
+  int reason = 0;
+  ASN1_GENERALIZEDTIME *revoked_at = NULL;
+  ASN1_GENERALIZEDTIME *this_update = NULL;
+  ASN1_GENERALIZEDTIME *next_update = NULL;
+  int found = id && p_OCSP_resp_find_status(basic, id, &status, &reason, &revoked_at, &this_update, &next_update);
+  int valid_time = found && this_update && p_OCSP_check_validity(this_update, next_update, 300, -1) == 1;
+  if (id) p_OCSP_CERTID_free(id);
+  if (peer) p_X509_free(peer);
+  p_OCSP_BASICRESP_free(basic);
+  p_OCSP_RESPONSE_free(response);
+  if (!found) return ocsp_fail(self, 75, "OCSP response does not cover the peer certificate");
+  if (!valid_time) return ocsp_fail(self, 99, "OCSP response is outside its validity window");
+  if (status == 1) return ocsp_fail(self, 23, "peer certificate is revoked by OCSP");
+  if (status != 0) return ocsp_fail(self, 75, "OCSP responder returned certificate unknown");
+  return 1;
 }
 
 MOONBIT_FFI_EXPORT int moon_http_tls_ready(HttpTls *self) { return self->initialized == 1; }

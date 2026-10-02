@@ -307,6 +307,10 @@ async fn NativeTlsProvider::handshake(
     @utf8.encode(host),
     @types.IpAddress::parse(host) is Ok(_),
     options.trust_anchors.unwrap_or(b""),
+    options.revocation_lists.unwrap_or(b""),
+    options.require_crl,
+    options.require_ocsp,
+    options.ocsp_response.unwrap_or(b""),
     certificate.unwrap_or(b""),
     private_key.unwrap_or(b""),
     alpn,
@@ -324,6 +328,9 @@ async fn NativeTlsProvider::handshake(
   match result {
     Err(error) => return Err(error)
     Ok(_) => ()
+  }
+  if !ssl.check_ocsp(options.require_ocsp) {
+    return Err(ssl.failure(Handshake))
   }
   let version : @transport.TlsVersion = match ssl.version() {
     0x0303 => Tls12

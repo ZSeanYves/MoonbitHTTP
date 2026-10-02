@@ -319,6 +319,127 @@ async test "native TLS: not-yet-valid and wrong EKU certificates are rejected" {
 }
 
 ///|
+async test "native TLS: configured CRL rejects a revoked peer before authentication" {
+  let root = fixture("localhost.cert.pem")
+  let crl = fixture("revoked.crl.pem")
+  let revoked = fixture("revoked.cert.pem")
+  let revoked_key = fixture("revoked.key.pem")
+  let (client, server) = fixture_options()
+  let (client, server) = handshake_pair(
+    {
+      ..client,
+      server_name: Some("revoked.test"),
+      trust_anchors: Some(root),
+      revocation_lists: Some(crl),
+      require_crl: true,
+    },
+    {
+      ..server,
+      server_certificate: Some(revoked),
+      server_private_key: Some(revoked_key),
+    },
+  )
+  match client {
+    Err(NativeFailure(Handshake, _, verification, _)) =>
+      assert_eq(verification, 23L)
+    Ok(connection) => {
+      connection.close()
+      fail("revoked certificate was accepted with CRL checking enabled")
+    }
+    Err(error) => fail("unexpected CRL result: \{Repr(error)}")
+  }
+  match server {
+    Ok(connection) => connection.close()
+    Err(_) => ()
+  }
+}
+
+///|
+async test "native TLS: required OCSP fails closed when the peer omits a staple" {
+  let root = fixture("localhost.cert.pem")
+  let revoked = fixture("revoked.cert.pem")
+  let revoked_key = fixture("revoked.key.pem")
+  let (client, server) = fixture_options()
+  let (client, server) = handshake_pair(
+    {
+      ..client,
+      server_name: Some("revoked.test"),
+      trust_anchors: Some(root),
+      require_ocsp: true,
+    },
+    {
+      ..server,
+      server_certificate: Some(revoked),
+      server_private_key: Some(revoked_key),
+    },
+  )
+  match client {
+    Err(NativeFailure(Handshake, _, verification, _)) =>
+      assert_eq(verification, 100L)
+    Ok(connection) => {
+      connection.close()
+      fail("missing OCSP staple was accepted in required mode")
+    }
+    Err(error) => fail("unexpected OCSP result: \{Repr(error)}")
+  }
+  match server {
+    Ok(connection) => connection.close()
+    Err(_) => ()
+  }
+}
+
+///|
+async test "native TLS: stapled OCSP revoked status is cryptographically checked" {
+  let root = fixture("localhost.cert.pem")
+  let revoked = fixture("revoked.cert.pem")
+  let revoked_key = fixture("revoked.key.pem")
+  let response = fixture("revoked.ocsp.der")
+  let (client, server) = fixture_options()
+  let (client, server) = handshake_pair(
+    {
+      ..client,
+      server_name: Some("revoked.test"),
+      trust_anchors: Some(root),
+      require_ocsp: true,
+    },
+    {
+      ..server,
+      server_certificate: Some(revoked),
+      server_private_key: Some(revoked_key),
+      ocsp_response: Some(response),
+    },
+  )
+  match client {
+    Err(NativeFailure(Handshake, _, verification, _)) =>
+      assert_eq(verification, 23L)
+    Ok(connection) => {
+      connection.close()
+      fail("revoked stapled OCSP response was accepted")
+    }
+    Err(error) => fail("unexpected stapled OCSP result: \{Repr(error)}")
+  }
+  match server {
+    Ok(connection) => connection.close()
+    Err(_) => ()
+  }
+}
+
+///|
+async test "native TLS: malformed required OCSP response fails closed" {
+  let root = fixture("localhost.cert.pem")
+  let (client, server) = fixture_options()
+  let (client, server) = handshake_pair(
+    { ..client, trust_anchors: Some(root), require_ocsp: true, },
+    { ..server, ocsp_response: Some(b"not-an-ocsp-response"), },
+  )
+  assert_true(client is Err(NativeFailure(Handshake, _, _, _)))
+  match server {
+    Ok(connection) => connection.close()
+    Err(_) => ()
+  }
+}
+
+///|
 async test "native TLS: wildcard never spans multiple labels" {
   let wildcard = fixture("wildcard.cert.pem")
   let wildcard_key = fixture("wildcard.key.pem")
@@ -468,7 +589,8 @@ async test "native TLS: abrupt EOF closes the connection and prevents reuse" {
 ///|
 test "native TLS: close is idempotent and native handles cannot be reused" {
   let ssl = openssl_new(
-    false, false, false, 0x0304, 0, b"localhost", false, b"", b"", b"", b"\x02h2",
+    false, false, false, 0x0304, 0, b"localhost", false, b"", b"", false, false,
+    b"", b"", b"", b"\x02h2",
   )
   assert_true(ssl.ready())
   ssl.close()

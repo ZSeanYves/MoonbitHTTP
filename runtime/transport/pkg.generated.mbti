@@ -63,6 +63,8 @@ pub(all) suberror TlsOptionsError {
   EarlyDataRequiresReplayPolicy
   IncompleteClientCertificate
   IncompleteServerCertificate
+  RevocationRequiresVerification
+  MissingRevocationList
 } derive(Eq, @debug.Debug)
 pub fn TlsOptionsError::equal(Self, Self) -> Bool
 pub fn TlsOptionsError::not_equal(Self, Self) -> Bool
@@ -238,6 +240,10 @@ pub(all) struct TlsOptions {
   max_version : TlsVersion?
   enable_early_data : Bool
   trust_anchors : Bytes?
+  revocation_lists : Bytes?
+  require_crl : Bool
+  require_ocsp : Bool
+  ocsp_response : Bytes?
   client_certificate : Bytes?
   client_private_key : Bytes?
   server_certificate : Bytes?

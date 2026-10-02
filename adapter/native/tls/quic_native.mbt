@@ -187,6 +187,9 @@ fn NativeQuicTlsProvider::advance(
         ),
       )
     }
+    if !ssl.check_ocsp(options.require_ocsp) {
+      return Err(self.failed(ssl.failure(Handshake)))
+    }
     self.complete = true
     output.push(HandshakeComplete("h3", quic.peer_params()))
   }
@@ -242,6 +245,10 @@ pub impl @transport.QuicTlsProvider for NativeQuicTlsProvider with fn start(
     @utf8.encode(host),
     @types.IpAddress::parse(host) is Ok(_),
     options.trust_anchors.unwrap_or(b""),
+    options.revocation_lists.unwrap_or(b""),
+    options.require_crl,
+    options.require_ocsp,
+    options.ocsp_response.unwrap_or(b""),
     certificate.unwrap_or(b""),
     private_key.unwrap_or(b""),
     b"\x02h3",

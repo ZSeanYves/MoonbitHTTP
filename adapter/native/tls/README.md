@@ -18,7 +18,7 @@ Depends on transport and Native OpenSSL FFI; +native only. Stream TLS needs Open
 Inject the provider into a client, listener, or QuicTlsDriver. h3 ALPN is a QUIC setting and does not turn TCP into QUIC.
 
 ## Invariants and scope
-Certificate chain, validity, SAN identity, key matching, TLS version, and ALPN are checked before completion. 0-RTT is disabled; CRL/OCSP is not exposed by this API.
+Certificate chain, validity, SAN identity, key matching, TLS version, and ALPN are checked before completion. 0-RTT is disabled. Native TLS accepts explicit PEM CRLs through `TlsOptions.revocation_lists`; set `require_crl` to fail closed and check every verified-chain certificate. A client can set `require_ocsp` to require a stapled DER OCSP response, while a server supplies that response through `ocsp_response`. OCSP is stapled-response validation only: this adapter never performs an online responder request or DNS/socket operation. Wasm has no native revocation provider.
 
 ## Canonical docs
 - [Package map](../../../docs/concepts/packages.md)

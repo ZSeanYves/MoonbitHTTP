@@ -13,6 +13,14 @@ pub(all) struct TlsOptions {
   max_version : TlsVersion?
   enable_early_data : Bool
   trust_anchors : Bytes?
+  /// PEM encoded CRLs used for native chain revocation checks.
+  revocation_lists : Bytes?
+  /// Require a CRL and fail closed when no applicable CRL is available.
+  require_crl : Bool
+  /// Require and validate a stapled OCSP response on a verified client peer.
+  require_ocsp : Bool
+  /// DER encoded OCSP response stapled by a native TLS server.
+  ocsp_response : Bytes?
   client_certificate : Bytes?
   client_private_key : Bytes?
   server_certificate : Bytes?
@@ -29,6 +37,10 @@ pub fn TlsOptions::defaults() -> TlsOptions {
     max_version: None,
     enable_early_data: false,
     trust_anchors: None,
+    revocation_lists: None,
+    require_crl: false,
+    require_ocsp: false,
+    ocsp_response: None,
     client_certificate: None,
     client_private_key: None,
     server_certificate: None,
@@ -44,6 +56,8 @@ pub(all) suberror TlsOptionsError {
   EarlyDataRequiresReplayPolicy
   IncompleteClientCertificate
   IncompleteServerCertificate
+  RevocationRequiresVerification
+  MissingRevocationList
 } derive(Eq, Debug)
 
 ///|
@@ -69,6 +83,23 @@ pub fn TlsOptions::validate_common(
   }
   if self.enable_early_data {
     return Err(EarlyDataRequiresReplayPolicy)
+  }
+  if (self.require_crl || self.require_ocsp) && !self.verify_peer {
+    return Err(RevocationRequiresVerification)
+  }
+  if self.require_crl {
+    match self.revocation_lists {
+      Some(crls) if !crls.is_empty() => ()
+      _ => return Err(MissingRevocationList)
+    }
+  }
+  match self.revocation_lists {
+    Some(crls) if crls.is_empty() => return Err(MissingRevocationList)
+    _ => ()
+  }
+  match self.ocsp_response {
+    Some(response) if response.is_empty() => return Err(MissingRevocationList)
+    _ => ()
   }
   match (self.client_certificate, self.client_private_key) {
     (Some(certificate), Some(key)) if certificate.is_empty() || key.is_empty() =>
