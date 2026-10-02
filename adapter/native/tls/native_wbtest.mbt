@@ -100,8 +100,14 @@ async fn assert_identity_failure(
 async test "native TLS: memory PEM credentials negotiate TLS13 ALPN and exchange socket data" {
   let (client_options, server_options) = fixture_options()
   let (client, server) = handshake_pair(client_options, server_options)
-  let client = client.unwrap()
-  let server = server.unwrap()
+  let client = match client {
+    Ok(value) => value
+    Err(error) => fail("good OCSP client failed: \{Repr(error)}")
+  }
+  let server = match server {
+    Ok(value) => value
+    Err(error) => fail("good OCSP server failed: \{Repr(error)}")
+  }
   defer {
     client.close()
     server.close()
@@ -253,8 +259,14 @@ async test "native TLS: IPv6 SAN compares binary addresses and rejects a differe
     server_private_key: Some(key),
   }
   let (client, server) = handshake_pair(client_options, server_options)
-  let client = client.unwrap()
-  let server = server.unwrap()
+  let client = match client {
+    Ok(value) => value
+    Err(error) => fail("good OCSP client failed: \{Repr(error)}")
+  }
+  let server = match server {
+    Ok(value) => value
+    Err(error) => fail("good OCSP server failed: \{Repr(error)}")
+  }
   assert_true(client.is_authenticated())
   client.close()
   server.close()
@@ -425,6 +437,40 @@ async test "native TLS: stapled OCSP revoked status is cryptographically checked
 }
 
 ///|
+async test "native TLS: valid stapled OCSP good status permits authentication" {
+  let root = fixture("localhost.cert.pem")
+  let peer = fixture("revoked.cert.pem")
+  let key = fixture("revoked.key.pem")
+  let response = fixture("good.ocsp.der")
+  let (client, server) = fixture_options()
+  let (client, server) = handshake_pair(
+    {
+      ..client,
+      server_name: Some("revoked.test"),
+      trust_anchors: Some(root),
+      require_ocsp: true,
+    },
+    {
+      ..server,
+      server_certificate: Some(peer),
+      server_private_key: Some(key),
+      ocsp_response: Some(response),
+    },
+  )
+  let client = match client {
+    Ok(value) => value
+    Err(error) => fail("good OCSP client failed: \{Repr(error)}")
+  }
+  let server = match server {
+    Ok(value) => value
+    Err(error) => fail("good OCSP server failed: \{Repr(error)}")
+  }
+  assert_true(client.is_authenticated())
+  client.close()
+  server.close()
+}
+
+///|
 async test "native TLS: malformed required OCSP response fails closed" {
   let root = fixture("localhost.cert.pem")
   let (client, server) = fixture_options()
@@ -571,8 +617,14 @@ async test "native TLS: bad PEM and mismatched credentials fail before stream I/
 async test "native TLS: abrupt EOF closes the connection and prevents reuse" {
   let (client_options, server_options) = fixture_options()
   let (client, server) = handshake_pair(client_options, server_options)
-  let client = client.unwrap()
-  let server = server.unwrap()
+  let client = match client {
+    Ok(value) => value
+    Err(error) => fail("good OCSP client failed: \{Repr(error)}")
+  }
+  let server = match server {
+    Ok(value) => value
+    Err(error) => fail("good OCSP server failed: \{Repr(error)}")
+  }
   defer {
     client.close()
     server.close()

@@ -187,7 +187,7 @@ fn NativeQuicTlsProvider::advance(
         ),
       )
     }
-    if !ssl.check_ocsp(options.require_ocsp) {
+    if !self.server && !ssl.check_ocsp(options.require_ocsp) {
       return Err(self.failed(ssl.failure(Handshake)))
     }
     self.complete = true

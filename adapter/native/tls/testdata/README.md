@@ -8,6 +8,8 @@ to cover a valid single-label wildcard and rejection of the base domain.
 `revoked` is signed by the localhost test CA and is listed in `revoked.crl.pem`;
 `revoked.ocsp.der` is a deliberately revoked stapled OCSP response used for
 fail-closed negative tests.
+`good.ocsp.der` is the matching successful response used for the positive
+stapling path.
 
 Regenerate from the module root with
 `moon run repo-tools/scripts/generate_tls_fixtures.mbtx`. The generator requires OpenSSL

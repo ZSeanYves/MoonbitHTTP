@@ -329,7 +329,7 @@ async fn NativeTlsProvider::handshake(
     Err(error) => return Err(error)
     Ok(_) => ()
   }
-  if !ssl.check_ocsp(options.require_ocsp) {
+  if !server && !ssl.check_ocsp(options.require_ocsp) {
     return Err(ssl.failure(Handshake))
   }
   let version : @transport.TlsVersion = match ssl.version() {
