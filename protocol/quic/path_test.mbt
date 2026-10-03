@@ -36,3 +36,54 @@ test "quic connection IDs: reject reuse and preserve an active path" {
   manager.retire(1L).unwrap()
   assert_eq(manager.active().length(), 1)
 }
+
+///|
+test "quic connection IDs: retire prior to compacts authenticated history" {
+  let initial = @quic.ConnectionId::new(b"initial").unwrap()
+  let manager = @quic.QuicConnectionIdManager::new(initial, max_active=2).unwrap()
+  for sequence in 1L..<80L {
+    let id = @quic.ConnectionId::new(
+      @utf8.encode("cid-" + sequence.to_string()),
+    ).unwrap()
+    manager
+    .receive(
+      sequence,
+      sequence,
+      id,
+      Bytes::from_array(FixedArray::make(16, sequence.to_byte())),
+    )
+    .unwrap()
+    assert_true(manager.active().length() <= 2)
+  }
+  // The compacted prefix is still protected by RETIRE_PRIOR_TO and cannot be
+  // reintroduced after its bookkeeping has been discarded.
+  assert_true(
+    manager.receive(
+      1L,
+      79L,
+      @quic.ConnectionId::new(b"reused").unwrap(),
+      Bytes::from_array(FixedArray::make(16, b'\x07')),
+    )
+    is Err(_),
+  )
+}
+
+///|
+test "quic connection IDs: duplicate announcements still advance retire prior to" {
+  let initial = @quic.ConnectionId::new(b"initial").unwrap()
+  let manager = @quic.QuicConnectionIdManager::new(initial, max_active=2).unwrap()
+  let token = Bytes::from_array(FixedArray::make(16, b'\x01'))
+  let next = @quic.ConnectionId::new(b"next").unwrap()
+  manager.receive(1L, 0L, next, token).unwrap()
+  assert_eq(manager.active().length(), 2)
+
+  // The same authenticated sequence is idempotent, but its newer floor still
+  // retires and compacts the older sequence.
+  manager.receive(1L, 1L, next, token).unwrap()
+  assert_eq(manager.active().length(), 1)
+  assert_true(manager.receive(0L, 0L, initial, token) is Err(_))
+
+  let later = @quic.ConnectionId::new(b"later").unwrap()
+  manager.receive(2L, 1L, later, token).unwrap()
+  assert_eq(manager.active().length(), 2)
+}

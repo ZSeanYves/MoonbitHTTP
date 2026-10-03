@@ -20,16 +20,16 @@ let pair_count = 6
 let sample_count = 8
 
 ///|
-let sample_iterations = 100000
-
-///|
-let max_sample_noise = 0.10
+let sample_iterations = 250000
 
 ///|
 let max_median_regression = 0.15
 
 ///|
 let max_pair_regression = 0.20
+
+///|
+let max_sample_noise = 0.10
 
 ///|
 struct Measurement {
@@ -203,12 +203,12 @@ fn workload_source() -> String {
     #|  let elapsed_us : Array[Double] = []
     #|  for _ in 0..<8 {
     #|    let started = @bench.monotonic_clock_start()
-    #|    for _ in 0..<100000 { keeper.keep(decode_request(input)) }
+    #|    for _ in 0..<250000 { keeper.keep(decode_request(input)) }
     #|    elapsed_us.push(@bench.monotonic_clock_end(started))
     #|  }
     #|  let result : Json = {
     #|    "operation": "http1-decode-post-1024", "warmup_iterations": 10000,
-    #|    "sample_iterations": 100000, "sample_elapsed_us": elapsed_us,
+    #|    "sample_iterations": 250000, "sample_elapsed_us": elapsed_us,
     #|    "oracle": 1026,
     #|  }
     #|  println(result.stringify())
@@ -368,7 +368,7 @@ async fn compare(directory : String, root : String, verify_only : Bool) -> Unit 
   install_workload(baseline_source, source, baseline_pkg_source)
   install_workload(current_source, source, current_pkg_source)
   let plan : Json = {
-    "method_version": 2,
+    "method_version": 3,
     "pairs": pair_count,
     "order": "AB BA AB BA AB BA",
     "raw_samples_per_arm": sample_count,
@@ -380,10 +380,14 @@ async fn compare(directory : String, root : String, verify_only : Bool) -> Unit 
     "max_pair_and_geomean_regression": max_pair_regression,
     "outlier_policy": "retain every raw sample; no winsorization, trimming or retries",
     "baseline_revision": baseline_revision,
+    "baseline_workload_package": baseline_pkg_source,
+    "current_workload_package": current_pkg_source,
     "baseline_source_manifest_sha256": digest(@utf8.encode(baseline_manifest)),
     "current_source_manifest_sha256": digest(@utf8.encode(current_manifest)),
     "workload_source_sha256": digest(@utf8.encode(source)),
-    "baseline_workload_package_sha256": digest(@utf8.encode(baseline_pkg_source)),
+    "baseline_workload_package_sha256": digest(
+      @utf8.encode(baseline_pkg_source),
+    ),
     "current_workload_package_sha256": digest(@utf8.encode(current_pkg_source)),
   }
   @fs.write_file(directory + "/plan.json", plan, create_mode=CreateNew)
@@ -531,10 +535,13 @@ async fn compare(directory : String, root : String, verify_only : Bool) -> Unit 
   }
   let result : Json = {
     "status": status,
-    "method_version": 2,
+    "method_version": 3,
     "operation": "HTTP/1 POST request decode, 1024-byte body",
     "target": "native release",
     "plan": "plan.json",
+    "baseline_revision": baseline_revision,
+    "baseline_workload_package": baseline_pkg_source,
+    "current_workload_package": current_pkg_source,
     "pairs": pair_count,
     "baseline_median_ns": baseline_median,
     "current_median_ns": current_median,

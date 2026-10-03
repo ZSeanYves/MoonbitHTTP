@@ -44,6 +44,7 @@ async fn Http1PooledRoundTripper::open_session(
       ),
     )
   }
+  let mut proxy_target : @types.Endpoint? = None
   let channel = match self.proxy.mode() {
     Direct => {
       match self.authorize_endpoint(endpoint.transport, Resolve) {
@@ -68,10 +69,11 @@ async fn Http1PooledRoundTripper::open_session(
         Ok(_) => ()
         Err(error) => return Err(error)
       }
-      match self.authorize_proxy_origin(endpoint.transport) {
-        Ok(_) => ()
+      let target = match self.authorize_proxy_origin(endpoint.transport) {
+        Ok(value) => value
         Err(error) => return Err(error)
       }
+      proxy_target = Some(target)
       let raw = match self.connect_stream(proxy_endpoint) {
         Ok(value) => value
         Err(error) => return Err(error)
@@ -91,7 +93,10 @@ async fn Http1PooledRoundTripper::open_session(
       match
         http1_pool_connect_tunnel(
           channel,
-          endpoint.transport,
+          match proxy_target {
+            Some(value) => value
+            None => endpoint.transport
+          },
           proxy_authorization,
           self.options.limits,
         ) {
@@ -108,7 +113,7 @@ async fn Http1PooledRoundTripper::open_session(
   } else {
     routed
   }
-  Http1PooledSession::new(stream, self.options)
+  Http1PooledSession::new(stream, self.options, proxy_target~)
 }
 
 ///|

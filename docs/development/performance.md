@@ -38,10 +38,12 @@ moon run repo-tools/tools/performance_comparison.mbtx
 ```
 
 The tool reports median regression, paired ratios, geometric mean and relative
-sample noise. A result is `inconclusive` when noise exceeds the declared limit
-or when the environment cannot provide comparable runs. Thresholds apply only
-to the workload and target named by the report; they do not become an HTTP/2,
-HTTP/3, TLS, QUIC, socket-capacity or cross-platform guarantee.
+sample noise. Method version 3 uses 250,000 measured iterations per sample so
+both the pre-migration and current decoder remain above the 500 ms minimum
+sample duration. A result is `inconclusive` when noise exceeds the declared
+limit or when the environment cannot provide comparable runs. Thresholds apply
+only to the workload and target named by the report; they do not become an
+HTTP/2, HTTP/3, TLS, QUIC, socket-capacity or cross-platform guarantee.
 
 ## Designing additional workloads
 

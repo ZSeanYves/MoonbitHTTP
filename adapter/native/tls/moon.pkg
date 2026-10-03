@@ -16,6 +16,10 @@ import {
 } for "wbtest"
 
 options(
-  "native-stub": [ "openssl_stub.c", "quic_tls_stub.c" ],
+  "native-stub": [
+    "openssl_stub.c",
+    "quic_tls_stub.c",
+    "revocation_test_stub.c",
+  ],
   "is-main": false,
 )

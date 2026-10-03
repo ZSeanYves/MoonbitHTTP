@@ -129,6 +129,11 @@ fn NativeQuicTlsProvider::advance(
     ssl.handshake()
   }
   if quic.alert() != 0 {
+    // Local certificate failures also emit a TLS alert. Preserve the precise
+    // verification result instead of reducing revocation failures to an alert.
+    if ssl.verify_code() != 0L {
+      return Err(self.failed(ssl.failure(Handshake)))
+    }
     return Err(self.failed(Alert(quic.alert())))
   }
   if !quic.ready() {

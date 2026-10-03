@@ -299,7 +299,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection:
             }
           None => {
             self.close()
-            decoder.finish_input()
+            raise @http1.Http1Error::UnexpectedEof("final response head")
           }
         }
     }

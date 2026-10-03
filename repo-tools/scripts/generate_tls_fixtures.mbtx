@@ -223,7 +223,9 @@ async fn main {
     "-set_serial", "4203", "-days", "36500", "-extfile", leaf_ext, "-out", leaf_cert,
   ])
   copy_fixture(root_cert, directory + "/chain_root.cert.pem")
+  copy_fixture(root_key, directory + "/chain_root.key.pem")
   copy_fixture(intermediate_cert, directory + "/chain_intermediate.cert.pem")
+  copy_fixture(intermediate_key, directory + "/chain_intermediate.key.pem")
   copy_fixture(leaf_key, directory + "/chain_leaf.key.pem")
   copy_fixture(leaf_cert, directory + "/chain_leaf.cert.pem")
   @fs.write_file(

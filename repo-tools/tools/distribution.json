@@ -33,7 +33,8 @@
     "docs/release-evidence-2026-09-22.md",
     "docs/task-handoff-2026-09-22.zh-CN.md",
     "docs/v1-baseline-2026-09-29.md",
-    "docs/v1-evidence-2026-09-30.md"
+    "docs/v1-evidence-2026-09-30.md",
+    "adapter/native/tls/testdata/**"
   ],
   "required": [
     "moon.mod",

@@ -5,6 +5,18 @@ async fn fixture(name : String) -> Bytes {
 }
 
 ///|
+fn append_bytes(first : Bytes, second : Bytes) -> Bytes {
+  let bytes : Array[Byte] = []
+  for byte in first {
+    bytes.push(byte)
+  }
+  for byte in second {
+    bytes.push(byte)
+  }
+  Bytes::from_array(bytes)
+}
+
+///|
 fn test_tcp_stream(
   tcp : @socket.Tcp,
   endpoint : @types.Endpoint,
@@ -405,7 +417,9 @@ async test "native TLS: stapled OCSP revoked status is cryptographically checked
   let root = fixture("localhost.cert.pem")
   let revoked = fixture("revoked.cert.pem")
   let revoked_key = fixture("revoked.key.pem")
-  let response = fixture("revoked.ocsp.der")
+  // Build a fresh signed response so the fixture always carries an explicit
+  // nextUpdate accepted by the bounded freshness policy.
+  let response = signed_ocsp(status=1)
   let (client, server) = fixture_options()
   let (client, server) = handshake_pair(
     {
@@ -441,7 +455,9 @@ async test "native TLS: valid stapled OCSP good status permits authentication" {
   let root = fixture("localhost.cert.pem")
   let peer = fixture("revoked.cert.pem")
   let key = fixture("revoked.key.pem")
-  let response = fixture("good.ocsp.der")
+  // Build a fresh signed response so this positive case remains valid after
+  // the OCSP freshness window advances.
+  let response = signed_ocsp()
   let (client, server) = fixture_options()
   let (client, server) = handshake_pair(
     {
@@ -579,15 +595,54 @@ async test "native TLS: TLS12 range and ALPN mismatch are enforced by OpenSSL" {
 async test "native TLS: bad PEM and mismatched credentials fail before stream I/O" {
   let (client, server) = fixture_options()
   let other_key = fixture("other.key.pem")
+  let root_with_garbage = append_bytes(
+    fixture("localhost.cert.pem"),
+    b"trailing non-PEM bytes",
+  )
+  let root_with_malformed_block = append_bytes(
+    fixture("localhost.cert.pem"),
+    b"\n-----BEGIN CERTIFICATE-----\nnot base64\n-----END CERTIFICATE-----\n",
+  )
+  let crl_with_garbage = append_bytes(
+    fixture("revoked.crl.pem"),
+    b"trailing non-PEM bytes",
+  )
   let provider = NativeTlsProvider::new(allow_system_roots=false)
   let mut io_calls = 0
   let mut closes = 0
   let endpoint = @types.Endpoint::new("tcp", "127.0.0.1", 443).unwrap()
   for
-    (options, is_server) in [
-      ({ ..client, trust_anchors: Some(b"malformed PEM"), }, false),
-      ({ ..server, server_private_key: Some(other_key), }, true),
-      ({ ..client, trust_anchors: None, }, false),
+    (label, options, is_server) in [
+      (
+        "malformed roots",
+        { ..client, trust_anchors: Some(b"malformed PEM"), },
+        false,
+      ),
+      (
+        "trailing roots",
+        { ..client, trust_anchors: Some(root_with_garbage), },
+        false,
+      ),
+      (
+        "malformed trailing root block",
+        { ..client, trust_anchors: Some(root_with_malformed_block), },
+        false,
+      ),
+      (
+        "trailing CRLs",
+        {
+          ..client,
+          revocation_lists: Some(crl_with_garbage),
+          require_crl: true,
+        },
+        false,
+      ),
+      (
+        "mismatched key",
+        { ..server, server_private_key: Some(other_key), },
+        true,
+      ),
+      ("missing roots", { ..client, trust_anchors: None, }, false),
     ] {
     let stream = @transport.StreamConnection::new(
       endpoint,
@@ -606,11 +661,14 @@ async test "native TLS: bad PEM and mismatched credentials fail before stream I/
     } else {
       provider.client_handshake(stream, options)
     }
-    assert_true(result is Err(NativeFailure(Configure, _, _, _)))
+    match result {
+      Err(NativeFailure(Configure, _, _, _)) => ()
+      _ => fail("invalid PEM was accepted: " + label)
+    }
     assert_true(stream.is_closed())
   }
   assert_eq(io_calls, 0)
-  assert_eq(closes, 3)
+  assert_eq(closes, 6)
 }
 
 ///|

@@ -65,6 +65,7 @@ pub(all) suberror TlsOptionsError {
   IncompleteServerCertificate
   RevocationRequiresVerification
   MissingRevocationList
+  OcspRequiresClientRole
 } derive(Eq, @debug.Debug)
 pub fn TlsOptionsError::equal(Self, Self) -> Bool
 pub fn TlsOptionsError::not_equal(Self, Self) -> Bool

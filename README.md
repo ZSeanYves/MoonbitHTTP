@@ -26,10 +26,13 @@ multi-hour independent QUIC/TLS pressure interoperability with controlled loss,
 delay, reordering, recovery and concurrent streams. Cross-platform Native TLS
 certificate identity and negative suites have also passed. This pressure run
 uses a loopback peer and repeated connections, so it does not establish public-
-network behavior or single-connection capacity. Performance thresholds, the
-final security review and CRL/OCSP support remain release gates, so this project
-should be treated as a well-tested development foundation rather than a finished
-standard-library replacement.
+network behavior or single-connection capacity. Native OpenSSL also supports
+offline CRL checking and stapled OCSP verification with bounded freshness,
+revocation and malformed-response rejection. Online OCSP fetching and a native
+revocation provider for Wasm remain outside this release. The final security
+review is still a release gate, so this project should be treated as a well-
+tested development foundation rather than a finished standard-library
+replacement.
 
 ## Native and Wasm
 

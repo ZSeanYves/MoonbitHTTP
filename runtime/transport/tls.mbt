@@ -17,7 +17,7 @@ pub(all) struct TlsOptions {
   revocation_lists : Bytes?
   /// Require a CRL and fail closed when no applicable CRL is available.
   require_crl : Bool
-  /// Require and validate a stapled OCSP response on a verified client peer.
+  /// Client-only: require a signed, fresh OCSP staple for the server certificate.
   require_ocsp : Bool
   /// DER encoded OCSP response stapled by a native TLS server.
   ocsp_response : Bytes?
@@ -58,6 +58,7 @@ pub(all) suberror TlsOptionsError {
   IncompleteServerCertificate
   RevocationRequiresVerification
   MissingRevocationList
+  OcspRequiresClientRole
 } derive(Eq, Debug)
 
 ///|
@@ -152,6 +153,9 @@ pub fn TlsOptions::validate_client(
 pub fn TlsOptions::validate_server(
   self : TlsOptions,
 ) -> Result[Unit, TlsOptionsError] {
+  if self.require_ocsp {
+    return Err(OcspRequiresClientRole)
+  }
   self.validate_common()
 }
 

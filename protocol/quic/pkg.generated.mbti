@@ -198,7 +198,7 @@ pub fn QuicConnectionId::sequence(Self) -> Int64
 pub fn QuicConnectionId::to_repr(Self) -> @debug.Repr
 
 pub struct QuicConnectionIdManager {
-  ids : Array[QuicConnectionId]
+  mut ids : Array[QuicConnectionId]
   max_active : Int
   mut retire_prior_to : Int64
 } derive(@debug.Debug)

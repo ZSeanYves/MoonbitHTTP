@@ -10,6 +10,9 @@ to cover a valid single-label wildcard and rejection of the base domain.
 fail-closed negative tests.
 `good.ocsp.der` is the matching successful response used for the positive
 stapling path.
+The chain root and intermediate private keys are test-only CA material used to
+construct signed CRL responses in the white-box tests; they are never
+application credentials.
 
 Regenerate from the module root with
 `moon run repo-tools/scripts/generate_tls_fixtures.mbtx`. The generator requires OpenSSL

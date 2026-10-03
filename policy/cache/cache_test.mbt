@@ -207,6 +207,74 @@ test "cache policy: no-store, set-cookie, authorization, and only-if-cached" {
 }
 
 ///|
+test "cache policy: request no-store does not retain a cacheable response" {
+  let cache = @cache.HttpCache::new().unwrap()
+  let headers = @types.HeaderMap::new()
+  headers.append_string("cache-control", "no-store").unwrap()
+  let request = cache_test_request(Get, "/sensitive", headers~)
+  let response = cache_test_response(
+    200, "public, max-age=600", b"secret", 100L,
+  )
+  assert_true(
+    cache.store(request, response, b"secret", 100L).unwrap()
+    is CacheNotStored(NotCacheable(_)),
+  )
+  assert_true(
+    cache.lookup(cache_test_request(Get, "/sensitive"), 101L).unwrap()
+    is CacheMiss,
+  )
+}
+
+///|
+test "cache policy: no-cache requires validation even before expiry" {
+  let cache = @cache.HttpCache::new().unwrap()
+  let request = cache_test_request(Get, "/validated")
+  let response = cache_test_response(
+    200,
+    "no-cache, max-age=600, stale-while-revalidate=60",
+    b"secret",
+    100L,
+    etag=Some("\"v1\""),
+  )
+  assert_eq(
+    cache.store(request, response, b"secret", 100L).unwrap(),
+    CacheStored,
+  )
+  for now in [101L, 700L, 701L] {
+    assert_true(cache.lookup(request, now).unwrap() is CacheRevalidate(_))
+  }
+  let stale_headers = @types.HeaderMap::new()
+  stale_headers.append_string("cache-control", "max-stale").unwrap()
+  assert_true(
+    cache
+    .lookup(cache_test_request(Get, "/validated", headers=stale_headers), 701L)
+    .unwrap()
+    is CacheRevalidate(_),
+  )
+  let expired = cache_test_response(200, "max-age=0", b"x", 100L)
+  let expired_request = cache_test_request(Get, "/expired")
+  ignore(cache.store(expired_request, expired, b"x", 100L).unwrap())
+  assert_true(cache.lookup(expired_request, 100L).unwrap() is CacheMiss)
+}
+
+///|
+test "cache policy: shared cache never overrides private with public or s-maxage" {
+  let shared = @cache.HttpCache::new(config={
+    ..@cache.CacheConfig::defaults(),
+    shared: true,
+  }).unwrap()
+  let request = cache_test_request(Get, "/private")
+  for control in ["private, s-maxage=60", "private, public, max-age=60"] {
+    let response = cache_test_response(200, control, b"secret", 100L)
+    assert_true(
+      shared.store(request, response, b"secret", 100L).unwrap()
+      is CacheNotStored(NotCacheable(_)),
+    )
+    assert_true(shared.lookup(request, 101L).unwrap() is CacheMiss)
+  }
+}
+
+///|
 test "cache limits: metadata/body bounds and deterministic eviction" {
   let limits : @cache.CacheLimits = {
     ..@cache.CacheLimits::defaults(),

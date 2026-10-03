@@ -236,7 +236,11 @@ async test "pooled HTTP/1: forward proxy uses absolute form and isolated credent
   assert_eq(response.status, 204)
   assert_eq(connects, 1)
   let wire = @utf8.decode_lossy(writes[0])
-  assert_true(wire.has_prefix("GET http://origin.test/path?q=1 HTTP/1.1\r\n"))
+  // The resolver-selected address is sent in absolute-form so a proxy cannot
+  // perform a second, policy-blind hostname resolution. Host remains the
+  // origin authority for virtual hosting.
+  assert_true(wire.has_prefix("GET http://192.0.2.10:80/path?q=1 HTTP/1.1\r\n"))
+  assert_true(wire.contains("host: origin.test:80\r\n"))
   assert_true(wire.contains("proxy-authorization: Basic secret\r\n"))
   executor.close()
 }
@@ -341,7 +345,7 @@ async test "pooled HTTP/1: CONNECT isolates proxy auth and applies origin TLS" {
   assert_eq(writes.length(), 2)
   let tunnel = @utf8.decode_lossy(writes[0])
   let origin = @utf8.decode_lossy(writes[1])
-  assert_true(tunnel.has_prefix("CONNECT origin.test:443 HTTP/1.1\r\n"))
+  assert_true(tunnel.has_prefix("CONNECT 192.0.2.10:443 HTTP/1.1\r\n"))
   assert_true(tunnel.contains("proxy-authorization: Basic secret\r\n"))
   assert_true(origin.has_prefix("GET /private HTTP/1.1\r\n"))
   assert_true(!origin.to_lower().contains("proxy-authorization"))

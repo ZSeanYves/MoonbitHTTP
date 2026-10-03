@@ -55,9 +55,10 @@ fn Http1PooledRoundTripper::wire_request(
   self : Http1PooledRoundTripper,
   request : @types.Request[Bytes],
   endpoint : ClientEndpoint,
+  proxy_target : @types.Endpoint?,
 ) -> Result[@types.Request[Unit], ClientError] {
   match self.proxy.mode() {
-    HttpForward => h1_client_forward_request(request, endpoint)
+    HttpForward => h1_client_forward_request(request, endpoint, proxy_target)
     Direct | HttpsConnect => h1_client_wire_request(request, endpoint)
   }
 }
@@ -84,10 +85,6 @@ pub impl StreamingRoundTripper for Http1PooledRoundTripper with fn execute_strea
       ),
     )
   }
-  let wire_head = match self.wire_request(request, endpoint) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
   let key = self.connection_key(endpoint)
   let (lease, session) = match
     self.acquire_session(key, endpoint, proxy_authorization) {
@@ -96,6 +93,11 @@ pub impl StreamingRoundTripper for Http1PooledRoundTripper with fn execute_strea
   }
   let mut handed_off = false
   defer (if !handed_off { self.finish_lease(lease, session, false) })
+  let wire_head = match
+    self.wire_request(request, endpoint, session.proxy_target()) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
   let wire_request : @types.Request[@body.FullBody] = {
     http_method: wire_head.http_method,
     uri: wire_head.uri,

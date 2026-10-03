@@ -68,12 +68,14 @@ impl @aio.Writer for Http1StreamIo with fn write_once(
 priv struct Http1PooledSession {
   connection : @transport.StreamConnection
   protocol : @service.ClientConnection[Http1StreamIo, Http1StreamIo]
+  proxy_target : @types.Endpoint?
 }
 
 ///|
 fn Http1PooledSession::new(
   connection : @transport.StreamConnection,
   options : RequestOptions,
+  proxy_target? : @types.Endpoint? = None,
 ) -> Result[Http1PooledSession, ClientError] {
   let io = Http1StreamIo::new(connection)
   let protocol = match
@@ -93,7 +95,14 @@ fn Http1PooledSession::new(
       return Err(ClientInvalidOptions("invalid HTTP/1 session configuration"))
     }
   }
-  Ok({ connection, protocol, })
+  Ok({ connection, protocol, proxy_target, })
+}
+
+///|
+fn Http1PooledSession::proxy_target(
+  self : Http1PooledSession,
+) -> @types.Endpoint? {
+  self.proxy_target
 }
 
 ///|

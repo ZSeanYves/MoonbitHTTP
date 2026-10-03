@@ -145,7 +145,7 @@ pub fn QuicConnectionId::retired(self : QuicConnectionId) -> Bool {
 
 ///|
 pub struct QuicConnectionIdManager {
-  ids : Array[QuicConnectionId]
+  mut ids : Array[QuicConnectionId]
   max_active : Int
   mut retire_prior_to : Int64
 } derive(Debug)
@@ -179,6 +179,36 @@ pub fn QuicConnectionIdManager::active(
 }
 
 ///|
+/// Advance the peer's RETIRE_PRIOR_TO floor and discard retired metadata.
+///
+/// This is also applied to an authenticated duplicate NEW_CONNECTION_ID: the
+/// duplicate still carries a newer floor and must not be allowed to leave an
+/// unbounded retired prefix in memory.
+fn QuicConnectionIdManager::advance_retire_prior_to(
+  self : QuicConnectionIdManager,
+  retire_prior_to : Int64,
+) -> Unit {
+  self.retire_prior_to = self.retire_prior_to.max(retire_prior_to)
+  for value in self.ids {
+    if value.sequence < self.retire_prior_to {
+      value.retired = true
+    }
+  }
+  // Once the peer advances RETIRE_PRIOR_TO, those sequence numbers can never
+  // be announced again. Drop their metadata immediately so a long-lived
+  // connection cannot retain one entry per authenticated NEW_CONNECTION_ID.
+  if self.retire_prior_to > 0L {
+    let retained : Array[QuicConnectionId] = []
+    for value in self.ids {
+      if !value.retired || value.sequence >= self.retire_prior_to {
+        retained.push(value)
+      }
+    }
+    self.ids = retained
+  }
+}
+
+///|
 pub fn QuicConnectionIdManager::receive(
   self : QuicConnectionIdManager,
   sequence : Int64,
@@ -200,15 +230,11 @@ pub fn QuicConnectionIdManager::receive(
       if value.id != id || value.reset_token != reset_token {
         return Err(Protocol(0x6L, "connection ID sequence was reused"))
       }
+      self.advance_retire_prior_to(retire_prior_to)
       return Ok(())
     }
   }
-  self.retire_prior_to = self.retire_prior_to.max(retire_prior_to)
-  for value in self.ids {
-    if value.sequence < self.retire_prior_to {
-      value.retired = true
-    }
-  }
+  self.advance_retire_prior_to(retire_prior_to)
   let active_count = self.active().length()
   if active_count >= self.max_active {
     return Err(LimitExceeded("active connection IDs", self.max_active))

@@ -389,6 +389,14 @@ pub fn HttpCache::store(
     Ok(value) => value
     Err(error) => return Ok(CacheNotStored(error))
   }
+  let request_control = match
+    cache_request_control(request, self.config.limits.max_directives) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  if request_control.no_store {
+    return Ok(CacheNotStored(NotCacheable("request has no-store")))
+  }
   if response.status < 100 || response.status > 999 {
     return Err(InvalidResponse)
   }
@@ -415,10 +423,7 @@ pub fn HttpCache::store(
   if control.no_store {
     return Ok(CacheNotStored(NotCacheable("response has no-store")))
   }
-  if self.config.shared &&
-    control.private &&
-    !control.public &&
-    control.s_maxage is None {
+  if self.config.shared && control.private {
     return Ok(CacheNotStored(NotCacheable("private response in shared cache")))
   }
   if !self.config.allow_set_cookie &&
@@ -575,7 +580,7 @@ pub fn HttpCache::lookup(
   )
   let remaining = entry.freshness_lifetime - age
   let fresh = remaining >= request_control.min_fresh.unwrap_or(0L) &&
-    remaining >= 0L
+    remaining > 0L
   if fresh && !request_control.no_cache && !entry.no_cache {
     return Ok(CacheFresh(cache_entry_hit(entry, request, age, 0L)))
   }
@@ -585,8 +590,15 @@ pub fn HttpCache::lookup(
     None => request_control.max_stale_any
   }
   if !request_control.no_cache &&
+    !entry.no_cache &&
     !entry.must_revalidate &&
-    (max_stale_ok || stale <= entry.stale_while_revalidate) {
+    (
+      max_stale_ok ||
+      (
+        entry.stale_while_revalidate > 0L &&
+        stale <= entry.stale_while_revalidate
+      )
+    ) {
     return Ok(CacheStale(cache_entry_hit(entry, request, age, stale)))
   }
   if entry.etag is Some(_) || entry.last_modified is Some(_) {

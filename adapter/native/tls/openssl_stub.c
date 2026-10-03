@@ -51,6 +51,8 @@ typedef struct {
 
 #define TLS_SYMBOLS(F) \
   F(unsigned long, OpenSSL_version_num, (void)) \
+  F(void *, CRYPTO_malloc, (size_t, const char *, int)) \
+  F(void, CRYPTO_free, (void *, const char *, int)) \
   F(const SSL_METHOD *, TLS_method, (void)) \
   F(SSL_CTX *, SSL_CTX_new, (const SSL_METHOD *)) \
   F(void, SSL_CTX_free, (SSL_CTX *)) \
@@ -61,7 +63,7 @@ typedef struct {
   F(X509_STORE *, SSL_CTX_get_cert_store, (const SSL_CTX *)) \
   F(int, X509_STORE_add_cert, (X509_STORE *, X509 *)) \
   F(int, X509_STORE_add_crl, (X509_STORE *, X509_CRL *)) \
-  F(unsigned long, X509_STORE_set_flags, (X509_STORE *, unsigned long)) \
+  F(int, X509_STORE_set_flags, (X509_STORE *, unsigned long)) \
   F(int, SSL_CTX_use_certificate, (SSL_CTX *, X509 *)) \
   F(int, SSL_CTX_use_PrivateKey, (SSL_CTX *, EVP_PKEY *)) \
   F(int, SSL_CTX_check_private_key, (const SSL_CTX *)) \
@@ -294,6 +296,57 @@ static int no_password(char *buf, int size, int rw, void *data) {
   return 0;
 }
 
+static int bio_trailing_whitespace(BIO *bio) {
+  unsigned char buffer[256];
+  while (p_BIO_ctrl_pending(bio) > 0) {
+    size_t pending = p_BIO_ctrl_pending(bio);
+    int requested = pending > sizeof(buffer) ? (int)sizeof(buffer) : (int)pending;
+    int read = p_BIO_read(bio, buffer, requested);
+    if (read <= 0) return 0;
+    for (int i = 0; i < read; ++i) {
+      unsigned char byte = buffer[i];
+      if (byte != ' ' && byte != '\t' && byte != '\r' &&
+          byte != '\n' && byte != '\f' && byte != '\v') {
+        return 0;
+      }
+    }
+  }
+  return 1;
+}
+
+static int pem_byte_is_whitespace(unsigned char byte) {
+  return byte == ' ' || byte == '\t' || byte == '\r' || byte == '\n' ||
+    byte == '\f' || byte == '\v';
+}
+
+static int pem_block_count(const unsigned char *pem, int length,
+                           const char *begin_marker, const char *end_marker) {
+  size_t begin_length = strlen(begin_marker);
+  size_t end_length = strlen(end_marker);
+  size_t position = 0;
+  int count = 0;
+  while (position < (size_t)length) {
+    while (position < (size_t)length && pem_byte_is_whitespace(pem[position])) {
+      ++position;
+    }
+    if (position == (size_t)length) break;
+    if (position + begin_length > (size_t)length ||
+        memcmp(pem + position, begin_marker, begin_length)) {
+      return -1;
+    }
+    position += begin_length;
+    size_t end = position;
+    while (end + end_length <= (size_t)length &&
+           memcmp(pem + end, end_marker, end_length)) {
+      ++end;
+    }
+    if (end + end_length > (size_t)length) return -1;
+    position = end + end_length;
+    ++count;
+  }
+  return count;
+}
+
 static int load_roots(HttpTls *self, const unsigned char *pem, int length) {
   BIO *bio = p_BIO_new_mem_buf(pem, length);
   if (!bio) return 0;
@@ -305,8 +358,12 @@ static int load_roots(HttpTls *self, const unsigned char *pem, int length) {
     if (ok != 1) { p_BIO_free(bio); return 0; }
     ++count;
   }
+  int expected_blocks = pem_block_count(
+    pem, length, "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----");
+  int only_whitespace = bio_trailing_whitespace(bio) &&
+    expected_blocks > 0 && expected_blocks == count;
   p_BIO_free(bio);
-  if (!count) return 0;
+  if (!count || !only_whitespace) return 0;
   p_ERR_clear_error(); /* PEM reports end-of-input through the error queue. */
   return 1;
 }
@@ -322,8 +379,12 @@ static int load_crls(HttpTls *self, const unsigned char *pem, int length) {
     if (ok != 1) { p_BIO_free(bio); return 0; }
     ++count;
   }
+  int expected_blocks = pem_block_count(
+    pem, length, "-----BEGIN X509 CRL-----", "-----END X509 CRL-----");
+  int only_whitespace = bio_trailing_whitespace(bio) &&
+    expected_blocks > 0 && expected_blocks == count;
   p_BIO_free(bio);
-  if (!count) return 0;
+  if (!count || !only_whitespace) return 0;
   p_ERR_clear_error();
   /* Check every certificate in the verified chain, not only the leaf. */
   if (p_X509_STORE_set_flags(p_SSL_CTX_get_cert_store(self->ctx), 0xCUL) != 1) return 0;
@@ -332,12 +393,13 @@ static int load_crls(HttpTls *self, const unsigned char *pem, int length) {
 
 static int install_ocsp_staple(HttpTls *self, const unsigned char *response, int length) {
   if (!length) return 1;
-  unsigned char *copy = malloc((size_t)length);
+  unsigned char *copy = p_CRYPTO_malloc((size_t)length, __FILE__, __LINE__);
   if (!copy) return 0;
   memcpy(copy, response, (size_t)length);
-  /* SSL_CTRL_SET_TLSEXT_STATUS_REQ_OCSP_RESP takes ownership of the buffer. */
+  /* SSL owns a successful transfer and releases it with OPENSSL_free, which
+   * calls CRYPTO_free. Its allocator may differ from the application's CRT. */
   if (p_SSL_ctrl(self->ssl, 71, length, copy) != 1) {
-    free(copy);
+    p_CRYPTO_free(copy, __FILE__, __LINE__);
     return 0;
   }
   return 1;
@@ -463,7 +525,10 @@ MOONBIT_FFI_EXPORT HttpTls *moon_http_tls_new(int server, int verify, int system
       free(host_string);
     }
     if (p_SSL_set_alpn_protos(self->ssl, self->alpn, self->alpn_len) != 0) goto failed;
-    if (require_ocsp) request_ocsp_staple(self);
+    /* Ask every verified client for a staple. Optional mode permits absence,
+     * but a supplied staple must still pass signature, identity and freshness
+     * checks instead of being silently ignored. */
+    if (!server) request_ocsp_staple(self);
   }
   if (server && ocsp_response && Moonbit_array_length(ocsp_response)) {
     if (!install_ocsp_staple(self, ocsp_response, Moonbit_array_length(ocsp_response))) goto failed;
@@ -525,7 +590,10 @@ MOONBIT_FFI_EXPORT int moon_http_tls_check_ocsp(HttpTls *self, int require) {
   ASN1_GENERALIZEDTIME *this_update = NULL;
   ASN1_GENERALIZEDTIME *next_update = NULL;
   int found = id && p_OCSP_resp_find_status(basic, id, &status, &reason, &revoked_at, &this_update, &next_update);
-  int valid_time = found && this_update && p_OCSP_check_validity(this_update, next_update, 300, -1) == 1;
+  /* Stapled status must have an explicit expiry and a bounded age, even if
+   * the responder signs a distant nextUpdate. Allow five minutes of skew. */
+  int valid_time = found && this_update && next_update &&
+    p_OCSP_check_validity(this_update, next_update, 300L, 7L * 24L * 60L * 60L) == 1;
   if (id) p_OCSP_CERTID_free(id);
   if (peer) p_X509_free(peer);
   p_OCSP_BASICRESP_free(basic);

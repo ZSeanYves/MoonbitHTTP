@@ -19,6 +19,11 @@ priv struct H2BlockedData {
 }
 
 ///|
+priv struct H2HandlerTask {
+  mut task : @async.Task[Unit]?
+}
+
+///|
 fn H2PendingRequest::has_expected_length(self : H2PendingRequest) -> Bool {
   match self.expected_body_bytes {
     Some(value) => value == self.body_bytes
@@ -265,6 +270,22 @@ async fn[W : @aio.Writer] write_h2_frame(
 }
 
 ///|
+async fn[W : @aio.Writer] write_h2_header_block(
+  lock : @async.Mutex,
+  writer : W,
+  encode : () -> Result[Bytes, @http2.H2ProtocolError],
+  timeout_ms : Int?,
+) -> Unit {
+  lock.acquire()
+  defer lock.release()
+  let bytes = match encode() {
+    Ok(value) => value
+    Err(error) => raise error
+  }
+  write_with_timeout(writer, bytes, timeout_ms)
+}
+
+///|
 async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connection_inner(
   reader : R,
   writer : W,
@@ -338,6 +359,9 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
     }
   }
   let pending : Map[Int, H2PendingRequest] = Map([])
+  // A reset can remove protocol state before cancellation finishes. Keep the
+  // handler's admission slot until its task exits, independently of pending.
+  let handlers : Map[Int, H2HandlerTask] = Map([])
   // The protocol receive window bounds queued DATA bytes, including legal
   // DATA sent under the RFC default before our smaller SETTINGS is ACKed.
   let blocked : Map[Int, @deque.Deque[H2BlockedData]] = Map([])
@@ -345,7 +369,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
   let mut header_stream = 0
   let mut header_end_stream = false
   let write_lock = @async.Mutex::Mutex()
-  let window_signal : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+  let window_signal = @cond_var.Cond()
   let blocked_signal : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
   let mut initial_settings_received = false
   let mut upgrade_dispatched = false
@@ -360,17 +384,32 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         value.body.fail(error)
       }
     })
+    let cancel_handler = async fn(stream_id : Int) {
+      if handlers.get(stream_id) is Some(handler) && handler.task is Some(task) {
+        task.cancel()
+        // Cancellation is complete only after wait returns. The task's defer
+        // owns slot removal; unexpected failures still propagate via the group.
+        task.wait() catch {
+          _ => ()
+        }
+      }
+    }
     let reset_stream_with_error = async fn(
       stream_id : Int,
       code : @http2.H2ErrorCode,
       failure : Error,
+      cancel_task : Bool,
     ) {
       if pending.get(stream_id) is Some(value) {
         value.body.fail(failure)
       }
       pending.remove(stream_id)
       blocked.remove(stream_id)
+      if cancel_task {
+        cancel_handler(stream_id)
+      }
       ignore(connection.reset_stream(stream_id))
+      window_signal.broadcast()
       let encoded = match @http2.encode_rst_stream(stream_id, code) {
         Ok(value) => value
         Err(error) => raise error
@@ -384,6 +423,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         @http2.H2ProtocolError::StreamError(
           stream_id, code, "HTTP/2 stream reset",
         ),
+        true,
       )
     }
     let release_discarded_data = async fn(amount : Int) {
@@ -408,17 +448,16 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
     ) {
       let response = service(request)
       let exact_zero = response.body.size_hint().exact_size() == Some(0)
-      write_lock.acquire()
-      let encoded_headers = match
-        @http2.encode_response_headers(encoder, stream_id, response, exact_zero) {
-        Ok(value) => value
-        Err(error) => {
-          write_lock.release()
-          raise error
-        }
-      }
-      write_with_timeout(writer, encoded_headers, config.write_timeout_ms)
-      write_lock.release()
+      write_h2_header_block(
+        write_lock,
+        writer,
+        fn() {
+          @http2.encode_response_headers(
+            encoder, stream_id, response, exact_zero,
+          )
+        },
+        config.write_timeout_ms,
+      )
       let mut sent_trailers = false
       while response.body.next_frame() is Some(frame) {
         match frame {
@@ -441,7 +480,9 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
                 Err(error) => raise error
               }
               while capacity == 0 {
-                window_signal.get()
+                // The window check and waiter registration have no intervening
+                // suspension. Broadcast wakes all eligible stream writers.
+                window_signal.wait()
                 capacity = match
                   connection.reserve_send_capacity(stream_id, requested) {
                   Ok(value) => value
@@ -472,17 +513,12 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
               )
             }
             sent_trailers = true
-            write_lock.acquire()
-            let encoded = match
-              @http2.encode_trailers(encoder, stream_id, trailers) {
-              Ok(value) => value
-              Err(error) => {
-                write_lock.release()
-                raise error
-              }
-            }
-            write_with_timeout(writer, encoded, config.write_timeout_ms)
-            write_lock.release()
+            write_h2_header_block(
+              write_lock,
+              writer,
+              fn() { @http2.encode_trailers(encoder, stream_id, trailers) },
+              config.write_timeout_ms,
+            )
           }
         }
       }
@@ -529,10 +565,27 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         headers: value.headers,
         body: value.body,
       }
-      group.spawn_bg(async fn() {
-        errdefer (reset_stream(stream_id, Cancel) catch { _ => () })
-        send_response(stream_id, request)
-      })
+      let handler : H2HandlerTask = { task: None, }
+      handlers.set(stream_id, handler)
+      handler.task = Some(
+        group.spawn(async fn() {
+          defer handlers.remove(stream_id)
+          // This cleanup runs inside the handler; it must not join itself.
+          errdefer (reset_stream_with_error(
+            stream_id,
+            Cancel,
+            @http2.H2ProtocolError::StreamError(
+              stream_id,
+              Cancel,
+              "handler terminated",
+            ),
+            false,
+          ) catch {
+            _ => ()
+          })
+          send_response(stream_id, request)
+        }),
+      )
     }
     let make_body = fn(stream_id : Int) -> @body.BodyStream raise {
       match
@@ -547,7 +600,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
           let updates = match connection.release_capacity(stream_id, amount) {
             Ok(value) => value
             Err(error) => {
-              reset_stream_with_error(stream_id, Cancel, error)
+              reset_stream_with_error(stream_id, Cancel, error, false)
               raise error
             }
           }
@@ -581,6 +634,13 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         Err(error) => raise error
       }
       if pending.get(stream_id) is Some(request) {
+        if request.request_ended {
+          // A request trailers block already carried END_STREAM.  A second
+          // HEADERS block on the same stream is a protocol error, even if
+          // the handler has not finished its response yet.
+          reset_stream(stream_id, ProtocolError)
+          return
+        }
         if !end_stream {
           reset_stream(stream_id, ProtocolError)
           return
@@ -609,7 +669,8 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         dispatch(stream_id)
         return
       }
-      if pending.length() >= config.limits.max_concurrent_requests {
+      if pending.length() >= config.limits.max_concurrent_requests ||
+        handlers.length() >= config.limits.max_concurrent_requests {
         reset_stream(stream_id, RefusedStream)
         return
       }
@@ -747,7 +808,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
               }
               write_h2_frame(write_lock, writer, ack, config.write_timeout_ms)
             }
-            WindowAvailable(_, _) => window_signal.put(())
+            WindowAvailable(_, _) => window_signal.broadcast()
             HeadersStarted(stream_id, end_stream) => {
               header_stream = stream_id
               header_end_stream = end_stream
@@ -785,6 +846,15 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
             }
             DataReceived(stream_id, data, end_stream, flow_size) => {
               guard pending.get(stream_id) is Some(request) else {
+                reset_stream(stream_id, ProtocolError)
+                continue
+              }
+              if request.request_ended {
+                // DATA after request END_STREAM (including after request
+                // trailers) must not be admitted to the body or its blocked
+                // queue.  Return the receive credit before resetting the
+                // stream so the connection cannot leak flow-control window.
+                release_discarded_data(flow_size)
                 reset_stream(stream_id, ProtocolError)
                 continue
               }
@@ -893,7 +963,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
                 dispatch(stream_id)
               }
             }
-            StreamResetReceived(stream_id, _) =>
+            StreamResetReceived(stream_id, _) => {
               if pending.get(stream_id) is Some(request) {
                 request.body.fail(
                   @http2.H2ProtocolError::StreamError(
@@ -904,6 +974,10 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
                 )
                 pending.remove(stream_id)
               }
+              blocked.remove(stream_id)
+              cancel_handler(stream_id)
+              window_signal.broadcast()
+            }
             _ => ()
           }
         }

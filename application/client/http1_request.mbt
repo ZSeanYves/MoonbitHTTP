@@ -73,14 +73,29 @@ fn h1_client_wire_request(
 fn h1_client_forward_request(
   request : @types.Request[Bytes],
   endpoint : ClientEndpoint,
+  proxy_target : @types.Endpoint?,
 ) -> Result[@types.Request[Unit], ClientError] {
   let headers = match h1_client_wire_headers(request.headers, endpoint, true) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
+  let uri = match proxy_target {
+    None => request.uri
+    Some(target) => {
+      let origin = match request.uri.origin_form() {
+        Ok(value) => value
+        Err(error) => return Err(ClientInvalidUri(error))
+      }
+      match
+        @types.Uri::parse(target.scheme() + "://" + target.authority() + origin) {
+        Ok(value) => value
+        Err(error) => return Err(ClientInvalidUri(error))
+      }
+    }
+  }
   Ok({
     http_method: request.http_method,
-    uri: request.uri,
+    uri,
     version: if request.version == Http10 {
       Http10
     } else {

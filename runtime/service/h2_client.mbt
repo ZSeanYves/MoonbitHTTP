@@ -1,4 +1,5 @@
 ///|
+#warnings("-unnecessary_annotation")
 pub(all) struct H2ClientConfig {
   limits : @types.Limits
   max_concurrent_streams : Int
@@ -35,7 +36,11 @@ priv struct H2ClientStream {
   id : Int
   head : @aqueue.Queue[@types.Response[Unit]]
   body : @body.BodyStream
-  window_signal : @aqueue.Queue[Unit]
+  window_signal : @cond_var.Cond
+  request_method : @types.Method
+  mut response_body_bytes : Int
+  mut expected_response_bytes : Int?
+  mut response_body_allowed : Bool
   mut response_started : Bool
   mut request_finished : Bool
   mut response_finished : Bool
@@ -101,7 +106,7 @@ fn H2ClientShared::fail_stream(
   stream.response_finished = true
   stream.body.fail(error)
   stream.head.close(error~)
-  stream.window_signal.close(error~)
+  stream.window_signal.broadcast()
   self.release_stream(stream)
 }
 
@@ -276,7 +281,7 @@ async fn H2ClientShared::reset_stream_with_error(
   code : @http2.H2ErrorCode,
   error : Error,
 ) -> Unit {
-  if self.closed || self.streams.get(stream_id) is None {
+  if self.closed {
     return
   }
   if self.streams.get(stream_id) is Some(stream) {
@@ -368,19 +373,82 @@ async fn H2ClientShared::deliver_headers(
   end_stream : Bool,
 ) -> Unit {
   guard self.streams.get(stream_id) is Some(stream) else { return }
+  // A trailers block (and any other END_STREAM response frame) terminates
+  // the peer's response immediately.  Keep the stream entry alive while a
+  // bounded body queue drains, but reject every later HEADERS/DATA frame
+  // instead of appending it behind the terminal block.
+  if stream.response_finished {
+    self.reset_stream(
+      stream_id,
+      ProtocolError,
+      "response frame follows stream end",
+    )
+    return
+  }
   if !stream.response_started {
     let (status, headers) = match decode_client_response(stream_id, fields) {
       Ok(value) => value
       Err(error) => raise error
     }
     if status >= 100 && status < 200 {
-      if end_stream {
+      if status == 101 ||
+        end_stream ||
+        !headers.get_all_string("content-length").is_empty() {
         self.reset_stream(
           stream_id,
           ProtocolError,
           "informational response ended the stream",
         )
       }
+      return
+    }
+    let content_length = match headers.content_length() {
+      Ok(value) => value
+      Err(_) => {
+        self.reset_stream(
+          stream_id,
+          ProtocolError,
+          "invalid response content-length",
+        )
+        return
+      }
+    }
+    let tunnel = stream.request_method == Connect &&
+      status >= 200 &&
+      status < 300
+    if (status == 204 || tunnel) && content_length is Some(_) {
+      self.reset_stream(
+        stream_id,
+        ProtocolError,
+        "content-length is forbidden for this response",
+      )
+      return
+    }
+    stream.response_body_allowed = stream.request_method != Head &&
+      status != 204 &&
+      status != 304
+    stream.expected_response_bytes = if stream.response_body_allowed && !tunnel {
+      content_length
+    } else {
+      None
+    }
+    if stream.expected_response_bytes is Some(length) &&
+      length > self.config.limits.max_body_bytes {
+      self.reset_stream(
+        stream_id,
+        EnhanceYourCalm,
+        "response body exceeds configured limit",
+      )
+      return
+    }
+    if end_stream &&
+      stream.expected_response_bytes is Some(length) &&
+      length != 0 {
+      self.reset_stream(
+        stream_id,
+        ProtocolError,
+        "response ended before content-length",
+      )
       return
     }
     stream.response_started = true
@@ -391,10 +459,31 @@ async fn H2ClientShared::deliver_headers(
       self.release_stream(stream)
     }
   } else {
+    if !end_stream {
+      self.reset_stream(
+        stream_id,
+        ProtocolError,
+        "response trailers must end the stream",
+      )
+      return
+    }
+    match
+      stream.accept_response_data(0, true, self.config.limits.max_body_bytes) {
+      Ok(_) => ()
+      Err(StreamError(_, code, message)) => {
+        self.reset_stream(stream_id, code, message)
+        return
+      }
+      Err(error) => raise error
+    }
     let trailers = match decode_client_trailers(stream_id, fields) {
       Ok(value) => value
       Err(error) => raise error
     }
+    // Mark terminal state before attempting to enqueue trailers.  The body
+    // queue may be full; the stream must still reject later frames while the
+    // queued trailers await consumption.
+    stream.response_finished = true
     if self.blocked.get(stream_id) is Some(_) {
       self.queue_blocked(stream_id, BlockedTrailers(trailers))
       return
@@ -424,11 +513,37 @@ async fn H2ClientShared::deliver_data(
   flow_size : Int,
 ) -> Unit {
   guard self.streams.get(stream_id) is Some(stream) else { return }
+  if stream.response_finished {
+    self.reset_stream(
+      stream_id,
+      ProtocolError,
+      "response data follows stream end",
+    )
+    return
+  }
+  match
+    stream.accept_response_data(
+      data.length(),
+      end_stream,
+      self.config.limits.max_body_bytes,
+    ) {
+    Ok(_) => ()
+    Err(StreamError(_, code, message)) => {
+      self.reset_stream(stream_id, code, message)
+      return
+    }
+    Err(error) => raise error
+  }
   if flow_size > data.length() {
     self.release_capacity(stream_id, flow_size - data.length())
   }
   if data.is_empty() && !end_stream {
     return
+  }
+  if end_stream {
+    // Preserve the terminal state even when the bounded body queue is full;
+    // drain_blocked() will finish the body after the queued DATA is consumed.
+    stream.response_finished = true
   }
   let bytes = Bytes::from_array(data)
   if self.blocked.get(stream_id) is Some(_) {
@@ -539,7 +654,7 @@ async fn h2_client_reader_pump(shared : H2ClientShared) -> Unit {
           }
           WindowAvailable(_, _) =>
             for stream in shared.streams.values() {
-              ignore(stream.window_signal.try_put(()) catch { _ => false })
+              stream.window_signal.broadcast()
             }
           GoawayReceived(last_stream_id, code) => {
             shared.goaway = true
@@ -654,6 +769,9 @@ async fn[B : @body.Body] send_h2_request_body(
         }
         let mut offset = 0
         while offset < data.length() {
+          if stream.request_finished || shared.closed {
+            raise shared.closed_error()
+          }
           shared.runtime_lock.acquire()
           let capacity = match
             shared.runtime.reserve_send_capacity(
@@ -668,7 +786,9 @@ async fn[B : @body.Body] send_h2_request_body(
           }
           shared.runtime_lock.release()
           if capacity == 0 {
-            stream.window_signal.get()
+            // No suspension separates the window check from registering this
+            // waiter. WINDOW_UPDATE persists credit and wakes every waiter.
+            stream.window_signal.wait()
             continue
           }
           let encoded = match
@@ -718,6 +838,7 @@ async fn[B : @body.Body] send_h2_request_body(
 }
 
 ///|
+#warnings("-unnecessary_annotation")
 pub async fn[B : @body.Body] H2Client::send(
   self : H2Client,
   request : @types.Request[B],
@@ -767,7 +888,11 @@ pub async fn[B : @body.Body] H2Client::send(
     id: stream_id,
     head: Queue(kind=Blocking(1)),
     body,
-    window_signal: Queue(kind=Unbounded),
+    window_signal: @cond_var.Cond(),
+    request_method: request.http_method,
+    response_body_bytes: 0,
+    expected_response_bytes: None,
+    response_body_allowed: true,
     response_started: false,
     request_finished: exact_zero,
     response_finished: false,

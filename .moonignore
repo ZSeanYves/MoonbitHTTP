@@ -32,3 +32,9 @@
 /target/
 /.mooncakes/
 /coverage.xml
+
+# Test-only certificates, keys and revocation fixtures never belong in the
+# published module. Keep the usage note so consumers can see the fixture
+# boundary without receiving private test material.
+/adapter/native/tls/testdata/*
+!/adapter/native/tls/testdata/README.md
