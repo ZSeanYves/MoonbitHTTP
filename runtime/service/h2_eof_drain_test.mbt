@@ -82,6 +82,50 @@ async test "h2c EOF before initial SETTINGS cancels the outer upgrade task" {
 }
 
 ///|
+async test "h2c EOF after preface cancels handler before initial SETTINGS" {
+  let input = b"GET / HTTP/1.1\r\nHost: example.test\r\nConnection: Upgrade, HTTP2-Settings\r\nUpgrade: h2c\r\nHTTP2-Settings: AAQAAP__\r\n\r\n" +
+    b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+  let reader = @aio.MemoryReader(async fn(peer) { peer.write(input) })
+  defer reader.close()
+  let started : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+  let mut cleaned = 0
+  try
+    @async.with_timeout(1000, async fn() {
+      @service.serve_http1_or_h2c_connection(
+        reader,
+        CaptureWriter::{ bytes: [], },
+        async fn(request) {
+          defer {
+            cleaned += 1
+          }
+          started.put(())
+          // The handler is blocked on the upgrade request body. EOF before
+          // the HTTP/2 SETTINGS must fail this stream before group cleanup
+          // waits for the handler.
+          ignore(@body.collect(request.body))
+          {
+            status: 200,
+            version: Http2,
+            headers: @types.HeaderMap::new(),
+            body: @body.EmptyBody::new(),
+          }
+        },
+      )
+    })
+  catch {
+    @http2.H2ProtocolError::ConnectionError(
+      ProtocolError,
+      "HTTP/2 peer closed before initial SETTINGS"
+    ) => ()
+    error => fail("incomplete h2c failed unexpectedly: \{error}")
+  } noraise {
+    _ => fail("incomplete h2c succeeded")
+  }
+  started.get()
+  assert_eq(cleaned, 1)
+}
+
+///|
 async test "H2 and h2c EOF cancel suspended handlers and join cleanup" {
   for upgrade in [false, true] {
     let started : @aqueue.Queue[Unit] = Queue(kind=Unbounded)

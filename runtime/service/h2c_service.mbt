@@ -216,7 +216,23 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_or_h2c_co
         config=config.without_close_callback(),
         upgraded_request=Some(upgraded),
         upgrade_settings=Some(settings),
-      )
+      ) catch {
+        @http2.H2ProtocolError::ConnectionError(
+          ProtocolError,
+          "HTTP/2 peer closed before initial SETTINGS",
+        ) => {
+          // Fail the outer h2c request body before the upgrade task group
+          // joins its application handler. This wakes a handler blocked on
+          // body consumption when the peer closes before initial SETTINGS.
+          let error = @http2.H2ProtocolError::ConnectionError(
+            ProtocolError,
+            "HTTP/2 peer closed before initial SETTINGS",
+          )
+          body.fail(error)
+          raise error
+        }
+        error => raise error
+      }
     })
     Ok(())
   } catch {
