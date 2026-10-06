@@ -125,7 +125,7 @@ async fn assert_revocation_rejected(
       assert_true(
         verification == expected ||
         (allow_omitted_staple && verification == 100L),
-        msg="unexpected revocation verification code: expected {expected}, got {verification}",
+        msg="unexpected revocation verification code: expected \{expected}, got \{verification}",
       )
     Ok(connection) => {
       connection.close()
@@ -148,7 +148,7 @@ async fn assert_revocation_rejected(
       assert_true(
         verification == expected ||
         (allow_omitted_staple && verification == 100L),
-        msg="unexpected QUIC revocation verification code: expected {expected}, got {verification}",
+        msg="unexpected QUIC revocation verification code: expected \{expected}, got \{verification}",
       )
     other => fail("unexpected QUIC revocation result: \{Repr(other)}")
   }
