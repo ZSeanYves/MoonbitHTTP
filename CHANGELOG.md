@@ -8,8 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
-Current working-tree changes after `0.7.0` are not a release and do not have a
-final commit range yet.
+The post-`0.7.0` cleanup is committed at `b05541e`; it remains unreleased and
+has no tag or Mooncakes publication record.
 
 ### Breaking changes
 
@@ -64,10 +64,11 @@ final commit range yet.
 
 ### Validation
 
-- The dirty working tree previously passed Native 511/511, Wasm 452/452,
-  JavaScript 452/452 and Wasm-GC 323/323, strict check/build, formatting and
-  the bounded H3 loopback control. These numbers are local evidence for that
-  source state, not clean-release evidence.
+- Clean revision `b05541e` passed hosted CI run `37514952238`: Native 514/514,
+  Wasm 455/455, JavaScript 455/455 and Wasm-GC 324/324; the async integration
+  suite passed 92/92 and Native TLS passed 131/131 on Ubuntu, macOS and Windows.
+  The run also passed package evidence, interoperability, benchmarks and
+  ephemeral coverage generation.
 
 ### Known limitations
 
@@ -79,12 +80,12 @@ final commit range yet.
 
 #### Phase completion record
 
-- Status: working tree in progress; not a release
+- Status: committed and CI-verified; not a release
 - Recorded at: `2026-10-06T12:54:08+08:00`
-- Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted changes
-- Commit range: pending final commit; do not infer from the source revision
-- Validation summary: local four-target matrix, strict build/check, formatter and bounded H3 control recorded; Go H1/H2 external reference not run
-- Known limitations: partial security scan coverage and no clean package evidence for this unreleased working tree
+- Source revision: `b05541e51c75bac121b76372fb2c9837abb5e6dc`
+- Commit range: `391e415..b05541e` for the final cleanup and documentation record
+- Validation summary: clean local package evidence and hosted CI `37514952238` passed; Go H1/H2 external comparison remains not run
+- Known limitations: partial security scan coverage, no tag, and no Mooncakes publication record
 
 ## 0.7.0-alpha
 

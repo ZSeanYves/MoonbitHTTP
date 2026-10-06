@@ -405,13 +405,13 @@ ServerError(operation, cause)
 
 #### Completion Record
 
-- Status: in progress; publication gate intentionally open
+- Status: implementation committed and CI-verified; publication gate intentionally open
 - Changelog: [`Unreleased`](../../CHANGELOG.md#unreleased)
 - Recorded at: `2026-10-06T12:54:08+08:00`
-- Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted documentation and remediation
-- Commit range: pending final commit
-- Validation summary: release docs, distribution allowlist, CI evidence boundary and Go reference harness are implemented; clean package evidence and Go comparison are not complete in this environment
-- Known limitations: failed/partial deep scans, no clean release revision, no public-network or cross-platform production claim
+- Source revision: `b05541e51c75bac121b76372fb2c9837abb5e6dc`
+- Commit range: `391e415..b05541e` for cleanup and release-record updates
+- Validation summary: release docs, distribution allowlist, clean package evidence and hosted CI `37514952238` are complete; Go H1/H2 comparison is not run
+- Known limitations: failed/partial deep scans, no release tag or registry publication, no public-network or cross-platform production claim
 
 ## 6. 测试和验证体系
 

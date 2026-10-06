@@ -7,12 +7,12 @@
 
 The latest local security remediation and final validation are recorded in the
 [2026-10-06 remediation index](../development/security-remediation-2026-10-06.md).
-The last clean revision `a0fd0f1` passed hosted CI run `37503902279` across the
-four target tests, Native TLS on Ubuntu/macOS/Windows, interoperability,
-packaging and ephemeral coverage generation. The current cleanup revision still
-needs its own clean CI run and release evidence. All 25 finding-index roots have
-local repairs and regressions; scan coverage and production approval remain
-separate open gates.
+Clean revision `b05541e` passed hosted CI run `37514952238`: Wasm 455/455,
+Wasm-GC 324/324, JavaScript 455/455 and Native 514/514; async integration
+passed 92/92 and Native TLS passed 131/131 on Ubuntu, macOS and Windows. The
+run also passed interoperability, frozen package evidence and ephemeral
+coverage generation. All 25 finding-index roots have local repairs and
+regressions; scan coverage and production approval remain separate open gates.
 The following table retains the earlier 2026-10-03 validation snapshot. Its
 local and hosted results apply to their original source state; they are not
 fresh cross-platform or interoperability evidence for the changed working tree.
@@ -128,8 +128,8 @@ revoked, unknown, malformed and missing-staple cases with fail-closed behavior.
 The implementation intentionally does not fetch OCSP responses online, and
 Wasm requires a host-provided TLS/revocation capability. Historical security
 reviews have the scoped limitations above. The incomplete final security
-coverage and missing clean-revision package evidence still prevent production
-approval or publication.
+coverage, unmeasured Go H1/H2 comparison, and absence of a release tag or
+publication record still prevent production approval or publication.
 
 See [release gates](gates.md) for the remaining acceptance criteria and the
 [GitHub Actions run](https://github.com/ZSeanYves/MoonbitHTTP/actions/runs/36837820455)
