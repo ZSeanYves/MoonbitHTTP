@@ -179,9 +179,6 @@ async test "native TLS and QUIC: OCSP freshness and status failures never authen
       (signed_ocsp(status=1), 23L),
       (signed_ocsp(status=2), 75L),
       (signed_ocsp(corrupt_signature=true), 97L),
-      // The native server declines to send malformed DER, so the client
-      // observes the same fail-closed missing-staple result.
-      (b"not-an-ocsp-response", 100L),
     ] {
     assert_revocation_rejected(
       client,
@@ -199,6 +196,14 @@ async test "native TLS and QUIC: OCSP freshness and status failures never authen
       ocsp_response: Some(signed_ocsp(subject="localhost.cert.pem")),
     },
     75L,
+    allow_omitted_staple=true,
+  )
+  // Some OpenSSL builds send the malformed DER and report 96; others decline
+  // to staple it and report the missing-staple code 100. Both fail closed.
+  assert_revocation_rejected(
+    client,
+    { ..server, ocsp_response: Some(b"not-an-ocsp-response"), },
+    96L,
     allow_omitted_staple=true,
   )
   assert_revocation_rejected(client, server, 100L)
