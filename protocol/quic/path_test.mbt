@@ -81,9 +81,48 @@ test "quic connection IDs: duplicate announcements still advance retire prior to
   // retires and compacts the older sequence.
   manager.receive(1L, 1L, next, token).unwrap()
   assert_eq(manager.active().length(), 1)
-  assert_true(manager.receive(0L, 0L, initial, token) is Err(_))
+  // Reordered announcements below the retirement floor are ignored by the
+  // manager; the datagram driver responds by retiring them again.
+  assert_eq(manager.receive(0L, 0L, initial, token), Ok(()))
+  assert_eq(manager.active().length(), 1)
 
   let later = @quic.ConnectionId::new(b"later").unwrap()
   manager.receive(2L, 1L, later, token).unwrap()
   assert_eq(manager.active().length(), 2)
+}
+
+///|
+test "quic connection IDs: rejected operations preserve active state and bound tombstones" {
+  let initial = @quic.ConnectionId::new(b"initial").unwrap()
+  let manager = @quic.QuicConnectionIdManager::new(initial, max_active=2).unwrap()
+  assert_true(manager.retire(0L) is Err(_))
+  assert_eq(manager.active()[0].id(), initial)
+  let next = @quic.ConnectionId::new(b"next").unwrap()
+  let token = Bytes::from_array(FixedArray::make(16, b'\x01'))
+  manager.receive(1L, 0L, next, token).unwrap()
+  let before = manager.active()
+  assert_true(manager.receive(1L, 1L, initial, token) is Err(_))
+  assert_eq(manager.active(), before)
+  manager.retire(1L).unwrap()
+  for sequence in 2L..<200L {
+    assert_true(
+      manager.receive(
+        sequence,
+        0L,
+        @quic.ConnectionId::new(b"later").unwrap(),
+        Bytes::from_array(FixedArray::make(16, b'\x02')),
+      )
+      is Err(LimitExceeded("connection ID history", 2)),
+    )
+  }
+  assert_eq(manager.active().length(), 1)
+  manager
+  .receive(
+    2L,
+    2L,
+    @quic.ConnectionId::new(b"later").unwrap(),
+    Bytes::from_array(FixedArray::make(16, b'\x02')),
+  )
+  .unwrap()
+  assert_eq(manager.active()[0].sequence(), 2L)
 }

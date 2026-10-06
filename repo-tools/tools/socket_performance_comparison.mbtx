@@ -1,0 +1,533 @@
+///|
+import {
+  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.4/fs",
+  "moonbitlang/async@0.22.4/process",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/math",
+  "moonbitlang/x@0.5.5/crypto",
+}
+
+///|
+let baseline_revision = "391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a"
+
+///|
+let pair_count = 6
+
+///|
+let duration_seconds = 10
+
+///|
+let concurrency = 6
+
+///|
+let payload_bytes = 65536
+
+///|
+let max_median_regression = 0.15
+
+///|
+let max_pair_regression = 0.20
+
+///|
+let max_window_noise = 0.10
+
+///|
+let method_v2 = 2
+
+///|
+let method_v3 = 3
+
+///|
+let method_v4 = 4
+
+///|
+let method_v5 = 5
+
+///|
+let method_v6 = 6
+
+///|
+struct Measurement {
+  arm : String
+  pair : Int
+  protocol : String
+  evidence : String
+  result : Json
+}
+
+///|
+struct Metric {
+  name : String
+  path : Array[String]
+  higher_is_better : Bool
+}
+
+///|
+fn digest(bytes : Bytes) -> String {
+  @crypto.bytes_to_hex_string(@crypto.sha256(bytes))
+}
+
+///|
+async fn run_recorded(
+  evidence : String,
+  label : String,
+  program : String,
+  args : Array[String],
+  cwd : String,
+) -> String {
+  let command : Json = { "program": program, "arguments": args, "cwd": cwd }
+  @fs.write_file(evidence + "/" + label + ".command.json", command, create_mode=CreateNew)
+  // File redirection preserves output emitted before an unexpected timeout.
+  // collect_output would only expose its buffered output after normal return.
+  let output = @process.redirect_to_file(evidence + "/" + label + ".stdout", create_mode=CreateNew)
+  let errors = @process.redirect_to_file(evidence + "/" + label + ".stderr", create_mode=CreateNew)
+  let result = @async.with_timeout_opt(180000, async fn() {
+    @process.run(program, args, cwd=cwd[:], stdout=output, stderr=errors)
+  })
+  guard result is Some(status) else {
+    let timeout : Json = { "timeout_ms": 180000 }
+    @fs.write_file(evidence + "/" + label + ".timeout.json",
+      timeout, create_mode=CreateNew)
+    fail("\{label} timed out; partial evidence remains in \{evidence}")
+  }
+  let exit_record : Json = { "exit": status }
+  @fs.write_file(evidence + "/" + label + ".exit.json", exit_record, create_mode=CreateNew)
+  guard status == 0 else { fail("\{label} exited \{status}; see \{evidence}") }
+  @fs.read_file(evidence + "/" + label + ".stdout").text()
+}
+
+///|
+async fn collect_source_files(root : String, relative : String, files : Array[String]) -> Unit {
+  let directory = if relative.is_empty() { root } else { root + "/" + relative }
+  for name in @fs.readdir(directory) {
+    if name == ".git" || name == ".mooncakes" || name == "_build" ||
+      name == "target" || name == ".DS_Store" || name == "coverage.xml" {
+      continue
+    }
+    let path = if relative.is_empty() { name } else { relative + "/" + name }
+    match @fs.kind(root + "/" + path, follow_symlink=false) {
+      Directory => collect_source_files(root, path, files)
+      Regular => files.push(path)
+      _ => fail("source snapshot rejects non-regular file: \{path}")
+    }
+  }
+}
+
+///|
+async fn source_manifest(root : String, copy_to? : String) -> String {
+  let paths : Array[String] = []
+  collect_source_files(root, "", paths)
+  paths.sort()
+  let entries : Array[String] = []
+  for path in paths {
+    let bytes = @fs.read_file(root + "/" + path).binary()
+    entries.push(digest(bytes) + "  " + path)
+    if copy_to is Some(destination) {
+      let parts = path.split("/").map(fn(part) { part.to_owned() }).to_array()
+      ignore(parts.pop())
+      if !parts.is_empty() {
+        let parent = destination + "/" + parts.join("/")
+        if !@fs.exists(parent) { @fs.mkdir(parent, recursive=true) }
+      }
+      @fs.write_file(destination + "/" + path, bytes, create_mode=CreateNew)
+    }
+  }
+  entries.join("\n") + "\n"
+}
+
+///|
+fn field(value : Json, key : String) -> Json raise {
+  guard value is Object(fields) && fields.get(key) is Some(result) else {
+    fail("missing result field: \{key}")
+  }
+  result
+}
+
+///|
+fn metric_value(result : Json, metric : Metric) -> Double raise {
+  let mut value = result
+  for part in metric.path { value = field(value, part) }
+  guard value is Number(number, ..) && number > 0.0 else {
+    fail("invalid positive metric: \{metric.name}")
+  }
+  number
+}
+
+///|
+fn median(values : Array[Double]) -> Double {
+  let sorted = values.copy()
+  sorted.sort()
+  let middle = sorted.length() / 2
+  if sorted.length() % 2 == 0 {
+    (sorted[middle - 1] + sorted[middle]) / 2.0
+  } else { sorted[middle] }
+}
+
+///|
+fn relative_sigma(values : Array[Double]) -> Double {
+  let mean = values.fold(init=0.0, fn(sum, value) { sum + value }) / values.length().to_double()
+  let variance = values.fold(init=0.0, fn(sum, value) {
+    sum + (value - mean) * (value - mean)
+  }) / (values.length() - 1).to_double()
+  @math.pow(variance, 0.5) / mean
+}
+
+///|
+fn cost_ratio(current : Double, baseline : Double, metric : Metric) -> Double {
+  if metric.higher_is_better { baseline / current } else { current / baseline }
+}
+
+///|
+fn metrics() -> Array[Metric] {
+  [
+    { name: "http1_requests_per_second", path: ["http1_requests_per_second"], higher_is_better: true },
+    { name: "http2_requests_per_second", path: ["http2_requests_per_second"], higher_is_better: true },
+    { name: "http1_batch_p95_ms", path: ["http1_batch_latency", "p95_ms"], higher_is_better: false },
+    { name: "http2_batch_p95_ms", path: ["http2_batch_latency", "p95_ms"], higher_is_better: false },
+    { name: "rss_max_kib", path: ["rss_max_kib"], higher_is_better: false },
+    { name: "cancellation_process_p95_ms", path: ["cancellation_process_latency", "p95_ms"], higher_is_better: false },
+  ]
+}
+
+///|
+fn metrics_for(protocol : String) -> Array[Metric] {
+  if protocol == "http1" {
+    [
+      { name: "http1_requests_per_second", path: ["http1_requests_per_second"], higher_is_better: true },
+      { name: "http1_batch_p95_ms", path: ["http1_batch_latency", "p95_ms"], higher_is_better: false },
+      { name: "rss_max_kib", path: ["rss_max_kib"], higher_is_better: false },
+      { name: "cancellation_process_p95_ms", path: ["cancellation_process_latency", "p95_ms"], higher_is_better: false },
+    ]
+  } else if protocol == "http1-clean" {
+    [
+      { name: "http1_requests_per_second", path: ["http1_requests_per_second"], higher_is_better: true },
+      { name: "http1_batch_p95_ms", path: ["http1_batch_latency", "p95_ms"], higher_is_better: false },
+      { name: "rss_max_kib", path: ["rss_max_kib"], higher_is_better: false },
+    ]
+  } else if protocol == "http2" {
+    [
+      { name: "http2_requests_per_second", path: ["http2_requests_per_second"], higher_is_better: true },
+      { name: "http2_batch_p95_ms", path: ["http2_batch_latency", "p95_ms"], higher_is_better: false },
+      { name: "rss_max_kib", path: ["rss_max_kib"], higher_is_better: false },
+    ]
+  } else if protocol == "cancel" {
+    [
+      { name: "cancellation_process_p95_ms", path: ["cancellation_process_latency", "p95_ms"], higher_is_better: false },
+      { name: "rss_max_kib", path: ["rss_max_kib"], higher_is_better: false },
+    ]
+  } else {
+    metrics()
+  }
+}
+
+///|
+fn phase_seconds(method_version : Int, protocol : String) -> Int {
+  if method_version >= method_v6 {
+    duration_seconds * 2
+  } else if method_version >= method_v5 && protocol == "http2" {
+    duration_seconds * 2
+  } else if method_version >= method_v4 && protocol == "cancel" {
+    duration_seconds * 2
+  } else {
+    duration_seconds
+  }
+}
+
+///|
+fn summarize(measurements : Array[Measurement], metric : Metric, protocol : String) -> (Json, Bool, Bool) raise {
+  let baseline : Array[Double] = []
+  let current : Array[Double] = []
+  for pair in 0..<pair_count {
+    for arm in ["baseline", "current"] {
+      guard measurements.search_by(fn(value) {
+        value.arm == arm && value.pair == pair && value.protocol == protocol
+      }) is Some(index) else {
+        fail("missing \{protocol} \{arm} window in pair \{pair}")
+      }
+      let number = metric_value(measurements[index].result, metric)
+      if arm == "baseline" { baseline.push(number) } else { current.push(number) }
+    }
+  }
+  let ratios = Array::makei(pair_count, fn(pair) { cost_ratio(current[pair], baseline[pair], metric) })
+  let geomean = @math.exp(ratios.fold(init=0.0, fn(sum, value) { sum + @math.ln(value) }) / pair_count.to_double())
+  let median_ratio = cost_ratio(median(current), median(baseline), metric)
+  let baseline_noise = relative_sigma(baseline)
+  let current_noise = relative_sigma(current)
+  let noisy = baseline_noise > max_window_noise || current_noise > max_window_noise
+  let passed = median_ratio - 1.0 <= max_median_regression &&
+    geomean - 1.0 <= max_pair_regression && ratios.all(fn(value) { value - 1.0 <= max_pair_regression })
+  let result : Json = {
+    "protocol": protocol, "metric": metric.name, "higher_is_better": metric.higher_is_better,
+    "baseline_raw_window_values": baseline, "current_raw_window_values": current,
+    "baseline_median": median(baseline), "current_median": median(current),
+    "baseline_relative_sigma": baseline_noise, "current_relative_sigma": current_noise,
+    "pair_current_cost_over_baseline": ratios, "median_cost_regression": median_ratio - 1.0,
+    "geomean_cost_regression": geomean - 1.0, "noisy": noisy, "within_thresholds": passed,
+  }
+  (result, noisy, passed)
+}
+
+///|
+async fn run_window(
+  directory : String,
+  root : String,
+  driver : String,
+  driver_hash : String,
+  executable : String,
+  binary_hash : String,
+  arm : String,
+  label : String,
+  seconds : Int,
+  pair : Int,
+  protocol : String,
+  batch_requests : Int,
+) -> Measurement {
+  guard digest(@fs.read_file(driver).binary()) == driver_hash &&
+    digest(@fs.read_file(executable).binary()) == binary_hash else {
+    fail("frozen workload or binary changed")
+  }
+  let evidence = directory + "/" + label
+  ignore(run_recorded(directory, label, "moon", [
+    "run", driver, "--duration-seconds", seconds.to_string(),
+    "--concurrency", concurrency.to_string(), "--payload-bytes", payload_bytes.to_string(),
+    "--protocol", protocol,
+    "--batch-requests", batch_requests.to_string(),
+    "--server", executable, "--evidence", evidence,
+  ], root))
+  let result = @json.parse(@fs.read_file(evidence + "/result.json").text())
+  guard result is {
+    "passed": true, "post_cancel_reuse_passed": true, "failures": 0,
+    "unexpected_process_timeouts": 0, "server_cleanup": "cancelled and reaped", ..
+  } && field(result, "server_sha256") == binary_hash.to_json() &&
+    field(result, "payload_bytes") == payload_bytes.to_json() &&
+    field(result, "concurrency") == concurrency.to_json() &&
+    field(result, "protocol") == protocol.to_json() &&
+    field(result, "requests_per_batch") == batch_requests.to_json() &&
+    field(result, "requested_duration_seconds") == seconds.to_json() else {
+    fail("\{label} failed its behavior or configuration oracle")
+  }
+  { arm, pair, protocol, evidence: label, result }
+}
+
+///|
+async fn compare(directory : String, root : String, verify_only : Bool, method_version : Int) -> Unit {
+  let baseline_source = directory + "/baseline-source"
+  let current_source = directory + "/current-source"
+  @fs.mkdir(baseline_source)
+  @fs.mkdir(current_source)
+  let archive = directory + "/baseline.tar"
+  ignore(run_recorded(directory, "baseline-archive", "git",
+    ["archive", "--format=tar", "--output=" + archive, baseline_revision], root))
+  ignore(run_recorded(directory, "baseline-extract", "tar", ["-xf", archive, "-C", baseline_source], root))
+  let current_manifest = source_manifest(root, copy_to=current_source)
+  guard source_manifest(root) == current_manifest && source_manifest(current_source) == current_manifest else {
+    fail("working source changed during snapshot; no comparison windows were taken")
+  }
+  let baseline_manifest = source_manifest(baseline_source)
+  @fs.write_file(directory + "/baseline-source-manifest.sha256", baseline_manifest, create_mode=CreateNew)
+  @fs.write_file(directory + "/current-source-manifest.sha256", current_manifest, create_mode=CreateNew)
+  // The handler and package settings must match exactly: only library code may
+  // differ. A handler change requires a new method, not silently different work.
+  let workload_hashes : Map[String, String] = Map([])
+  for path in ["examples/cmd/smoke_server/main.mbt", "examples/cmd/smoke_server/moon.pkg"] {
+    let bytes = @fs.read_file(current_source + "/" + path).binary()
+    guard bytes == @fs.read_file(baseline_source + "/" + path).binary() else {
+      fail("baseline/current server workload differs: \{path}")
+    }
+    workload_hashes[path] = digest(bytes)
+  }
+  let driver_bytes = @fs.read_file(current_source + "/repo-tools/tools/stress.mbtx").binary()
+  let driver = directory + "/frozen-stress.mbtx"
+  let driver_hash = digest(driver_bytes)
+  @fs.write_file(driver, driver_bytes, create_mode=CreateNew)
+  let protocols = if method_version >= method_v4 {
+    ["http1-clean", "http2", "cancel"]
+  } else if method_version >= method_v2 {
+    ["http1", "http2"]
+  } else { ["mixed"] }
+  let batch_requests = if method_version >= method_v3 { 12 } else { 3 }
+  let plan : Json = {
+    "method_version": method_version, "mode": if verify_only { "verify-only" } else { "comparison" },
+    "baseline_revision": baseline_revision, "pairs": pair_count, "order": "AB BA AB BA AB BA",
+    "protocols": protocols,
+    "requests_per_batch": batch_requests,
+    "cancellation_phase_seconds": if method_version >= method_v4 { duration_seconds * 2 } else { duration_seconds },
+    "http2_phase_seconds": if method_version >= method_v5 { duration_seconds * 2 } else { duration_seconds },
+    "http1_phase_seconds": if method_version >= method_v6 { duration_seconds * 2 } else { duration_seconds },
+    "cancellation_sample_interval_ms": if method_version >= method_v4 { 25 } else { 100 },
+    "workload_design": if method_version >= method_v6 {
+      "independent extended HTTP1 clean, HTTP2 and cancellation-only windows; all phases use 20-second admission; cancellation phase uses 25ms sampling"
+    } else if method_version >= method_v5 {
+      "independent HTTP1 clean, extended HTTP2 and cancellation-only windows; HTTP2 phase doubles admission duration; cancellation phase uses 25ms sampling"
+    } else if method_version >= method_v4 {
+      "independent HTTP1 clean, HTTP2 and cancellation-only windows; cancellation phase uses 25ms sampling"
+    } else if method_version >= method_v2 {
+      "independent HTTP1 and HTTP2 windows; HTTP1 includes cancellation worker; HTTP2 excludes cross-protocol load"
+    } else {
+      "mixed HTTP1 and HTTP2 windows with cancellation worker"
+    },
+    "admission_seconds_per_arm": duration_seconds, "oracle_admission_seconds": 1,
+    "concurrency": concurrency, "additional_cancellation_worker": 1,
+    "payload_bytes": payload_bytes,
+    "target": "native release", "server": "examples/cmd/smoke_server",
+    "max_median_cost_regression": max_median_regression,
+    "max_pair_and_geomean_cost_regression": max_pair_regression,
+    "max_within_arm_window_relative_sigma": max_window_noise,
+    "outlier_policy": "retain every window and raw observation; no trimming, winsorization, replacement or retries",
+    "metric_names": metrics().map(fn(metric) { metric.name }),
+    "throughput_ratio": "baseline/current, so values above 1 mean higher cost",
+    "other_metric_ratio": "current/baseline, so values above 1 mean higher cost",
+    "baseline_source_manifest_sha256": digest(@utf8.encode(baseline_manifest)),
+    "current_source_manifest_sha256": digest(@utf8.encode(current_manifest)),
+    "shared_server_workload_sha256": workload_hashes,
+    "shared_stress_driver_sha256": driver_hash,
+    "power_or_governor_state": "not controlled; local exploratory comparison only",
+    "timing_scope": "admission window plus admitted-batch drain; excludes builds, script compilation, readiness, warmup, recovery probes and shutdown",
+    "latency_scope": "client process startup plus three requests and output collection; not single-request latency",
+    "memory_scope": "server RSS sampled every 250ms; not allocation count or leak proof",
+    "cancellation_scope": "curl slow HTTP1 upload, expected 50ms timeout, process completion and later HTTP1/HTTP2 reuse; not HTTP2 RST_STREAM or server task reclamation latency",
+  }
+  @fs.write_file(directory + "/plan.json", plan, create_mode=CreateNew)
+  let toolchain = run_recorded(directory, "toolchain", "moon", ["version", "--all"], root)
+  ignore(run_recorded(directory, "system", "uname", ["-a"], root))
+  ignore(run_recorded(directory, "revision", "git", ["rev-parse", "HEAD"], root))
+  ignore(run_recorded(directory, "worktree", "git", ["status", "--porcelain=v1", "--untracked-files=all"], root))
+  for program in ["curl", "nghttp"] {
+    ignore(run_recorded(directory, program + "-version", program, ["--version"], root))
+  }
+  let binaries : Map[String, String] = Map([])
+  let binary_hashes : Map[String, String] = Map([])
+  let dependency_graphs : Array[Json] = []
+  for (arm, snapshot) in [("baseline", baseline_source), ("current", current_source)] {
+    guard run_recorded(directory, arm + "-toolchain", "moon", ["version", "--all"], snapshot) == toolchain else {
+      fail("toolchain changed between arms; no comparison windows were taken")
+    }
+    ignore(run_recorded(directory, arm + "-build", "moon", [
+      "build", "examples/cmd/smoke_server", "--target", "native", "--release", "--deny-warn", "--warn-list", "+73",
+    ], snapshot))
+    let dependencies = run_recorded(directory, arm + "-dependencies", "moon", ["tree", "--json"], snapshot)
+    // Normalize only the expected root checkout path. Names, versions, sources,
+    // edge kinds and graph topology must otherwise agree exactly.
+    let normalized = @json.parse(dependencies.replace(old=snapshot, new="<source-snapshot>"))
+    guard normalized is { "version": 1, "status": "success", "error": Null, .. } else {
+      fail("\{arm} dependency resolution did not produce a successful version-1 graph")
+    }
+    dependency_graphs.push(normalized)
+    let executable = snapshot + "/_build/native/release/build/examples/cmd/smoke_server/smoke_server.exe"
+    binaries[arm] = executable
+    binary_hashes[arm] = digest(@fs.read_file(executable).binary())
+  }
+  guard dependency_graphs[0] == dependency_graphs[1] else {
+    fail("resolved dependencies differ between arms; no comparison windows were taken")
+  }
+  @fs.write_file(directory + "/shared-dependency-graph.json", dependency_graphs[0], create_mode=CreateNew)
+  @fs.write_file(directory + "/compiled-binaries.json", binary_hashes.to_json(), create_mode=CreateNew)
+  // A short behavior check for each complete build precedes all paired windows.
+  // These are explicitly excluded from the comparison and are never promoted
+  // into a performance sample when the measurement window is incomplete.
+  for protocol in protocols {
+    for arm in ["baseline", "current"] {
+      println("Socket behavior oracle: \{protocol} \{arm}")
+      ignore(run_window(directory, root, driver, driver_hash, binaries[arm], binary_hashes[arm], arm,
+        "oracle-" + protocol + "-" + arm, 1, -1, protocol, batch_requests))
+    }
+  }
+  if verify_only {
+    let verify_result : Json = {
+      "status": "build-and-oracle-only", "comparison_windows_taken": 0,
+      "oracle_windows_taken": protocols.length() * 2, "performance_conclusion": "none",
+      "scope": "protocol-specific HTTP1/HTTP2 echo, slow HTTP1 upload cancellation and post-cancel reuse on both arms",
+    }
+    @fs.write_file(directory + "/result.json", verify_result, create_mode=CreateNew)
+    println("PASS: both socket workloads and behavior oracles; no performance conclusion: \{directory}")
+    return
+  }
+  let measurements : Array[Measurement] = []
+  for protocol in protocols {
+    for pair in 0..<pair_count {
+      let order = if pair % 2 == 0 { ["baseline", "current"] } else { ["current", "baseline"] }
+      for arm in order {
+        println("Socket performance \{protocol} pair \{pair + 1}/\{pair_count}: \{arm}")
+        let seconds = phase_seconds(method_version, protocol)
+        measurements.push(run_window(directory, root, driver, driver_hash, binaries[arm], binary_hashes[arm],
+          arm, "pair-\{protocol}-\{pair}-\{arm}", seconds, pair, protocol, batch_requests))
+      }
+    }
+  }
+  let summaries : Array[Json] = []
+  let mut noisy = false
+  let mut passed = true
+  for protocol in protocols {
+    for metric in metrics_for(protocol) {
+      let (summary, metric_noisy, metric_passed) = summarize(measurements, metric, protocol)
+      summaries.push(summary)
+      noisy = noisy || metric_noisy
+      passed = passed && metric_passed
+    }
+  }
+  let status = if noisy { "inconclusive-noisy" } else if passed { "pass-threshold" } else { "fail-regression-threshold" }
+  let result : Json = {
+    "status": status, "method_version": method_version, "plan": "plan.json",
+    "baseline_revision": baseline_revision, "metrics": summaries,
+    "windows": measurements.map(fn(value) -> Json {
+      { "arm": value.arm, "pair": value.pair, "protocol": value.protocol,
+        "evidence": value.evidence, "result": value.result }
+    }),
+    "scope": "one local mixed HTTP1/HTTP2 loopback socket workload with independent CLI clients; no HTTP3, TLS/QUIC, cross-host, cross-platform, isolated protocol capacity, single-request latency, allocation or production readiness claim",
+  }
+  @fs.write_file(directory + "/result.json", result, create_mode=CreateNew)
+  println(result.stringify())
+  guard status == "pass-threshold" else { fail("socket comparison \{status}; evidence retained in \{directory}") }
+}
+
+///|
+#warnings("-fragile_catch_all")
+async fn main {
+  let arguments = @env.args()
+  let verify_only = arguments.any(fn(argument) { argument == "--verify-only" })
+  let method_v2_requested = arguments.any(fn(argument) { argument == "--method-v2" })
+  let method_v3_requested = arguments.any(fn(argument) { argument == "--method-v3" })
+  let method_v4_requested = arguments.any(fn(argument) { argument == "--method-v4" })
+  let method_v5_requested = arguments.any(fn(argument) { argument == "--method-v5" })
+  let method_v6_requested = arguments.any(fn(argument) { argument == "--method-v6" })
+  let method_version = if method_v5_requested {
+    if method_v6_requested { method_v6 } else { method_v5 }
+  } else if method_v6_requested {
+    method_v6
+  } else if method_v4_requested {
+    method_v4
+  } else if method_v3_requested {
+    method_v3
+  } else if method_v2_requested {
+    method_v2
+  } else { 1 }
+  guard arguments.length() == 1 ||
+    (arguments.length() == 2 && (verify_only || method_v2_requested || method_v3_requested || method_v4_requested || method_v5_requested || method_v6_requested)) ||
+    (arguments.length() == 3 && verify_only && (method_v2_requested || method_v3_requested || method_v4_requested || method_v5_requested || method_v6_requested)) else {
+    fail("usage: socket_performance_comparison.mbtx [--method-v2|--method-v3|--method-v4|--method-v5|--method-v6] [--verify-only]")
+  }
+  let (status, output, errors) = @process.collect_output("pwd", [])
+  guard status == 0 else { fail(errors.text()) }
+  let root = output.text().trim().to_owned()
+  let temporary = @fs.tmpdir(prefix="moonbithttp-socket-performance")
+  let unique = temporary.split("/").to_array().last().unwrap().to_owned()
+  @fs.rmdir(temporary)
+  let directory = root + "/_build/evidence/socket-performance/" + unique
+  @fs.mkdir(directory, recursive=true)
+  println("Socket performance evidence: \{directory}")
+  compare(directory, root, verify_only, method_version) catch {
+    error => {
+      if !@fs.exists(directory + "/result.json") {
+        let failed_result : Json = {
+          "status": "failed-execution", "reason": error.to_string(),
+          "performance_conclusion": "none; incomplete windows and raw evidence retained",
+        }
+        @fs.write_file(directory + "/result.json", failed_result, create_mode=CreateNew)
+      }
+      raise error
+    }
+  }
+}

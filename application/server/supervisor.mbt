@@ -6,6 +6,9 @@ pub struct ServerSupervisor {
   mut accept_errors : Int
   mut next_connection_id : Int
   metrics : ServerMetrics
+  connections_changed : @async.CondVar
+  mut close_listener : (() -> Unit)?
+  mut cancel_accept : (() -> Unit)?
 }
 
 ///|
@@ -21,6 +24,9 @@ pub fn ServerSupervisor::new(
         accept_errors: 0,
         next_connection_id: 0,
         metrics: ServerMetrics::new(),
+        connections_changed: Cond(),
+        close_listener: None,
+        cancel_accept: None,
       })
     Err(error) => Err(error)
   }
@@ -83,6 +89,7 @@ pub fn ServerSupervisor::release(
   if self.active > 0 {
     self.active -= 1
   }
+  self.connections_changed.broadcast()
   match handler_error {
     Some(error) => {
       self.metrics.handler_errors += 1L
@@ -112,6 +119,17 @@ pub fn ServerSupervisor::record_accept_error(
 pub fn ServerSupervisor::begin_shutdown(
   self : ServerSupervisor,
 ) -> Result[Unit, ServerError] {
+  // Descriptor closure alone does not wake every native event-loop backend.
+  // Cancel the owned accept task as well, without cancelling active peers.
+  if self.cancel_accept is Some(cancel) {
+    self.cancel_accept = None
+    cancel()
+  }
+  // Take the callback before invoking it so every exit closes it once.
+  if self.close_listener is Some(close) {
+    self.close_listener = None
+    close()
+  }
   match self.state {
     Stopped => Ok(())
     Draining => Ok(())
@@ -146,9 +164,60 @@ pub async fn[L : Listener] ServerSupervisor::serve(
     Ok(_) => ()
     Err(error) => return Err(error)
   }
+  self.close_listener = Some(fn() { listener.close() })
+  let cleanups : Map[Int, () -> Unit] = Map([])
+  let mut pending_accept : AcceptedConnection? = None
+  defer {
+    // Cancellation can arrive after accept acquires a connection but before
+    // the serving task receives and registers it.
+    if pending_accept is Some(connection) {
+      (connection.close)()
+    }
+    // A task cancelled before its first turn may not install its own defer.
+    // The owner retains cleanup until the child has actually released it.
+    let remaining : Array[() -> Unit] = []
+    for _, cleanup in cleanups {
+      remaining.push(cleanup)
+    }
+    for cleanup in remaining {
+      cleanup()
+    }
+    self.begin_shutdown() |> ignore
+    if self.state != Stopped && self.active == 0 {
+      self.finish_shutdown() |> ignore
+    }
+  }
   let group_result = @async.with_task_group(async fn(group) {
+    let mut outcome : Result[Unit, ServerError] = Ok(())
     while self.state == Running {
-      let accepted = match listener.accept() {
+      let accepting = group.spawn(
+        async fn() {
+          let accepted = listener.accept()
+          if accepted is Ok(Some(connection)) {
+            pending_accept = Some(connection)
+          }
+          accepted
+        },
+        no_wait=true,
+        allow_failure=true,
+      )
+      self.cancel_accept = Some(fn() { accepting.cancel() })
+      if self.state != Running {
+        accepting.cancel()
+      }
+      let accepted_result = accepting.wait() catch {
+        @async.WaitedTaskAlreadyCancelled if self.state != Running => Ok(None)
+        error => raise error
+      }
+      self.cancel_accept = None
+      pending_accept = None
+      if self.state != Running {
+        if accepted_result is Ok(Some(connection)) {
+          (connection.close)()
+        }
+        break
+      }
+      let accepted = match accepted_result {
         Ok(value) => value
         // A restrictive peer policy is an expected rejection after accept;
         // it must not consume the fatal accept-error budget. Otherwise a
@@ -158,8 +227,8 @@ pub async fn[L : Listener] ServerSupervisor::serve(
           match self.record_accept_error() {
             Ok(_) => continue
             Err(limit_error) => {
-              listener.close()
-              return Err(limit_error)
+              outcome = Err(limit_error)
+              break
             }
           }
       }
@@ -178,20 +247,48 @@ pub async fn[L : Listener] ServerSupervisor::serve(
           return Err(error)
         }
       }
+      let mut handler_error : Error? = None
+      let cleanup = fn() {
+        if cleanups.contains(id) {
+          cleanups.remove(id)
+          (connection.close)()
+          self.release(id, handler_error)
+        }
+      }
+      cleanups.set(id, cleanup)
       ignore(
-        group.spawn(async fn() {
-          defer (connection.close)()
-          let outcome = (connection.run)()
-          match outcome {
-            Ok(_) => self.release(id, None)
-            Err(error) => self.release(id, Some(error))
-          }
-        }),
+        group.spawn(
+          async fn() {
+            defer cleanup()
+            // Cancellation is a separate async effect and still propagates.
+            // Ordinary raised errors belong to this peer, just like Result.Err.
+            let result = (connection.run)() catch { error => Err(error) }
+            if result is Err(error) {
+              handler_error = Some(error)
+            }
+          },
+          no_wait=true,
+        ),
       )
     }
-    listener.close()
     self.begin_shutdown() |> ignore
-    Ok(())
+    if outcome is Err(_) {
+      return outcome
+    }
+    let drain = async fn() {
+      while self.active > 0 {
+        self.connections_changed.wait()
+      }
+    }
+    match self.config.limits.graceful_timeout_ms {
+      Some(timeout) =>
+        @async.with_timeout(timeout, drain) catch {
+          @async.TimeoutError => return Err(ShutdownTimeout)
+          error => raise error
+        }
+      None => drain()
+    }
+    outcome
   })
   match group_result {
     Ok(_) => self.finish_shutdown()

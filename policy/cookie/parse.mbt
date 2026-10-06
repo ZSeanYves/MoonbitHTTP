@@ -109,6 +109,7 @@ fn parse_set_cookie(
   let name = cookie_trim_ows(pair[:equals])
   let value = cookie_trim_ows(pair[equals + 1:])
   if (name.is_empty() && value.is_empty()) ||
+    (name.is_empty() && cookie_find_byte(value, b'=', 0) < value.length()) ||
     cookie_forbidden_control(name) ||
     cookie_forbidden_control(value) {
     return Err(MalformedSetCookie)

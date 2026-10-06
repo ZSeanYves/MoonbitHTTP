@@ -85,3 +85,36 @@ async test "native UDP: allowed numeric endpoint creates a closable socket" {
     is Err(Closed),
   )
 }
+
+///|
+async test "native UDP: multicast is rejected after policy and before socket setup" {
+  for
+    host in [
+      "224.0.0.1", "239.255.255.255", "ff02::1", "FF0E:0:0:0:0:0:0:1", "::ffff:224.0.0.1",
+      "0:0:0:0:0:ffff:e000:1", "::FFFF:239.255.255.255",
+    ] {
+    let endpoint = @types.Endpoint::new("udp", host, 443).unwrap()
+    assert_true(
+      UdpSocket::connect(endpoint, @transport_api.DenyAllPolicy::new())
+      is Err(Policy(Denied(QuicEndpoint, _))),
+    )
+    assert_true(
+      UdpSocket::connect(endpoint, @transport_api.AllowAllPolicy::new())
+      is Err(Failed(Connect, "connected UDP requires a unicast endpoint")),
+    )
+  }
+}
+
+///|
+test "native UDP: unicast classification includes IPv4-mapped IPv6" {
+  for
+    host in [
+      "127.0.0.1", "223.255.255.255", "240.0.0.1", "::1", "2001:db8::1", "::ffff:127.0.0.1",
+      "0:0:0:0:0:ffff:7f00:1",
+    ] {
+    let endpoint = @types.Endpoint::new("udp", host, 443).unwrap()
+    assert_true(
+      !udp_connected_is_multicast(numeric_socket_addr(endpoint).unwrap()),
+    )
+  }
+}

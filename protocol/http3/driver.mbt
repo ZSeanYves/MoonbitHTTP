@@ -147,21 +147,30 @@ fn Http3Driver::h3_driver_replay_blocked(
   stream_id : Int64,
 ) -> Result[Array[H3DriverAction], Http3Error] {
   let frames = match self.blocked_frames.get(stream_id) {
-    Some(value) => value.copy()
+    Some(value) => value
     None => return Ok([])
   }
+  // Detach ownership and its charge together, before replay can fail. A later
+  // blocked section explicitly requeues the untouched suffix below.
+  self.blocked_frames.remove(stream_id)
   for frame in frames {
     self.blocked_bytes -= h3_driver_blocked_frame_bytes(frame)
   }
   let output : Array[H3DriverAction] = []
-  for frame in frames {
+  for index, frame in frames {
     let actions = match
       self.connection.receive_request_frame(stream_id, frame) {
       Ok(value) => value
       Err(error) => return Err(error)
     }
     if actions.is_empty() {
-      continue
+      for pending in frames[index:] {
+        match self.h3_driver_queue_blocked(stream_id, pending) {
+          Ok(_) => ()
+          Err(error) => return Err(error)
+        }
+      }
+      return Ok(output)
     }
     let converted = match self.h3_driver_push_actions(stream_id, actions) {
       Ok(value) => value
@@ -169,7 +178,6 @@ fn Http3Driver::h3_driver_replay_blocked(
     }
     output.append(converted)
   }
-  self.blocked_frames.remove(stream_id)
   if self.pending_fin.get(stream_id) is Some(_) {
     match self.connection.finish_request_stream(stream_id) {
       Ok(_) => self.pending_fin.remove(stream_id)
@@ -180,17 +188,97 @@ fn Http3Driver::h3_driver_replay_blocked(
 }
 
 ///|
-/// A blocked field section retains its decoded frame object until QPACK
-/// encoder instructions arrive. Count the encoded section and the frame
-/// prefix against the shared buffer budget so repeated blocked sections cannot
-/// grow an unbounded per-stream queue.
-fn h3_driver_blocked_frame_bytes(frame : Http3Frame) -> Int {
-  let payload_bytes = match frame {
-    H3Headers(section) => section.length()
-    H3PushPromise(_, section) => section.length()
-    _ => 0
+fn h3_driver_varint_bytes(value : Int64) -> Int {
+  match h3_varint(value) {
+    Ok(encoded) => encoded.length()
+    // A frame that cannot be represented on the wire must never be admitted
+    // to the bounded blocked queue. Saturating here turns the later limit
+    // check into a deterministic rejection without undercharging it.
+    Err(_) => @int.MAX_VALUE
   }
-  payload_bytes + 2
+}
+
+///|
+fn h3_driver_saturating_add(left : Int, right : Int) -> Int {
+  if left >= @int.MAX_VALUE ||
+    right >= @int.MAX_VALUE ||
+    left > @int.MAX_VALUE - right {
+    @int.MAX_VALUE
+  } else {
+    left + right
+  }
+}
+
+///|
+/// All frames behind a blocked section remain ordered, including DATA and
+/// extension frames. Charge the exact encoded frame size, including the
+/// variable-length type and length fields. The previous fixed two-byte
+/// overhead undercounted payloads of 64 bytes or more and high frame types.
+fn h3_driver_blocked_frame_bytes(frame : Http3Frame) -> Int {
+  let typ = match frame {
+    H3Data(_) => H3_FRAME_DATA
+    H3Headers(_) => H3_FRAME_HEADERS
+    H3CancelPush(_) => H3_FRAME_CANCEL_PUSH
+    H3SettingsFrame(_) => H3_FRAME_SETTINGS
+    H3PushPromise(_, _) => H3_FRAME_PUSH_PROMISE
+    H3Goaway(_) => H3_FRAME_GOAWAY
+    H3MaxPushId(_) => H3_FRAME_MAX_PUSH_ID
+    H3Unknown(value, _) => value
+  }
+  let payload_bytes = match frame {
+    H3Data(bytes) | H3Headers(bytes) | H3Unknown(_, bytes) => bytes.length()
+    H3CancelPush(value) | H3Goaway(value) | H3MaxPushId(value) =>
+      h3_driver_varint_bytes(value)
+    H3SettingsFrame(settings) => {
+      let mut total = 0
+      for setting in settings {
+        total = h3_driver_saturating_add(
+          total,
+          h3_driver_saturating_add(
+            h3_driver_varint_bytes(setting.id),
+            h3_driver_varint_bytes(setting.value),
+          ),
+        )
+      }
+      total
+    }
+    H3PushPromise(push_id, section) =>
+      h3_driver_saturating_add(
+        h3_driver_varint_bytes(push_id),
+        section.length(),
+      )
+  }
+  h3_driver_saturating_add(
+    h3_driver_varint_bytes(typ),
+    h3_driver_saturating_add(
+      h3_driver_varint_bytes(payload_bytes.to_int64()),
+      payload_bytes,
+    ),
+  )
+}
+
+///|
+fn Http3Driver::h3_driver_queue_blocked(
+  self : Http3Driver,
+  stream_id : Int64,
+  frame : Http3Frame,
+) -> Result[Unit, Http3Error] {
+  let frame_bytes = h3_driver_blocked_frame_bytes(frame)
+  if frame_bytes > self.connection.limits.max_buffer_bytes ||
+    self.blocked_bytes > self.connection.limits.max_buffer_bytes - frame_bytes {
+    return Err(
+      Http3LimitExceeded(
+        "HTTP/3 blocked QPACK frames",
+        self.connection.limits.max_buffer_bytes,
+      ),
+    )
+  }
+  match self.blocked_frames.get(stream_id) {
+    Some(queued) => queued.push(frame)
+    None => self.blocked_frames.set(stream_id, [frame])
+  }
+  self.blocked_bytes += frame_bytes
+  Ok(())
 }
 
 ///|
@@ -420,42 +508,22 @@ pub fn Http3Driver::on_stream_data(
   }
   let output : Array[H3DriverAction] = []
   for frame in frames {
+    if self.blocked_frames.contains(stream_id) {
+      match self.h3_driver_queue_blocked(stream_id, frame) {
+        Ok(_) => continue
+        Err(error) => return Err(error)
+      }
+    }
     let actions = match
       self.connection.receive_request_frame(stream_id, frame) {
       Ok(value) => value
       Err(error) => return Err(error)
     }
     if actions.is_empty() {
-      let frame_bytes = h3_driver_blocked_frame_bytes(frame)
-      if frame_bytes > self.connection.limits.max_buffer_bytes ||
-        self.blocked_bytes >
-        self.connection.limits.max_buffer_bytes - frame_bytes {
-        return Err(
-          Http3LimitExceeded(
-            "HTTP/3 blocked QPACK frames",
-            self.connection.limits.max_buffer_bytes,
-          ),
-        )
+      match self.h3_driver_queue_blocked(stream_id, frame) {
+        Ok(_) => ()
+        Err(error) => return Err(error)
       }
-      let queued = match self.blocked_frames.get(stream_id) {
-        Some(value) => value
-        None => {
-          self.blocked_frames.set(stream_id, [])
-          match self.blocked_frames.get(stream_id) {
-            Some(value) => value
-            None =>
-              return Err(
-                Http3StreamError(
-                  stream_id,
-                  H3InternalError,
-                  "failed to allocate blocked QPACK section",
-                ),
-              )
-          }
-        }
-      }
-      queued.push(frame)
-      self.blocked_bytes += frame_bytes
     } else {
       let converted = match self.h3_driver_push_actions(stream_id, actions) {
         Ok(value) => value

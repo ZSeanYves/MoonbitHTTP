@@ -65,7 +65,8 @@ pub struct QuicDatagramDriver {
   priv path : QuicPathManager
   priv mut active_budget : QuicPathBudget
   priv mut candidate_budget : QuicPathBudget?
-  priv connection_ids : QuicConnectionIdManager
+  priv peer_connection_ids : QuicConnectionIdManager
+  priv pending_retirements : Array[Int64]
   priv mut largest_initial_received : Int64
   priv mut largest_handshake_received : Int64
   priv mut largest_application_received : Int64
@@ -201,6 +202,7 @@ pub fn QuicDatagramDriver::establish(
   }
   match self.connection.establish() {
     Ok(_) => {
+      self.discard_packet_space(Initial)
       self.key_update.confirmed = self.role == Server
       self.active_budget.validated = true
       Ok(())
@@ -355,9 +357,9 @@ pub fn QuicDatagramDriver::new(
     initial_keys.0
   }
   let path = QuicPathManager::new(endpoint)
-  let connection_ids = match
+  let peer_connection_ids = match
     QuicConnectionIdManager::new(
-      local_connection_id,
+      peer_connection_id,
       max_active=transport_params.active_connection_id_limit.to_int(),
     ) {
     Ok(value) => value
@@ -410,7 +412,8 @@ pub fn QuicDatagramDriver::new(
       role == Client || retry_context is Some(_),
     ),
     candidate_budget: None,
-    connection_ids,
+    peer_connection_ids,
+    pending_retirements: [],
     largest_initial_received: -1L,
     largest_handshake_received: -1L,
     largest_application_received: -1L,

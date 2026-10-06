@@ -32,6 +32,8 @@ pub(all) suberror ServerError {
 pub(all) struct ServerLimits {
   max_connections : Int
   max_accept_errors : Int
+  /// Deadline for active connections after draining begins; None waits for
+  /// normal completion without a deadline.
   graceful_timeout_ms : Int?
 } derive(Eq, Debug)
 

@@ -333,7 +333,7 @@ async fn[B : ByteRoundTripper] Client::send_inner(
     match result {
       Err(error) => {
         match cache_hit {
-          Some(hit) if hit.stale_seconds() <= hit.stale_if_error() => {
+          Some(hit) if hit.allows_stale_if_error() => {
             let cached = response_from_cache(hit, current_method)
             return self.decode_response_bytes(cached)
           }
@@ -456,7 +456,7 @@ async fn[B : ByteRoundTripper] Client::send_inner(
         }
         if cache_hit is Some(hit) &&
           response.status >= 500 &&
-          hit.stale_seconds() <= hit.stale_if_error() {
+          hit.allows_stale_if_error() {
           let cached = response_from_cache(hit, current_method)
           return self.decode_response_bytes(cached)
         }

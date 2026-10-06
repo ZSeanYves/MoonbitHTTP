@@ -34,7 +34,7 @@ async fn main {
     "status": "executed",
     "target": "native",
     "mode": "release",
-    "performance_gate": "open: no controlled comparison or accepted thresholds",
+    "performance_gate": "not assessed by this exploratory benchmark runner; see the separate controlled comparison evidence and release gates",
   }
   @fs.write_file(directory + "/result.json", evidence, create_mode=CreateNew)
   println("Benchmarks executed; raw results: \{directory}/benchmarks.stdout. Performance thresholds remain open.")

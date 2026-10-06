@@ -112,7 +112,7 @@ test "h2 conformance: local concurrent stream limit is enforced" {
       },
       payload: [],
     })
-    is Err(StreamError(3, RefusedStream, _)),
+    is Ok([HeadersDiscarded(3, true, RefusedStream)]),
     true,
   )
 }

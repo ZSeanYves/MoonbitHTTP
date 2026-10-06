@@ -91,10 +91,12 @@ pub(all) struct CacheHit {
   freshness_lifetime : Int64
   stale_seconds : Int64
   stale_if_error : Int64
+  stale_if_error_allowed : Bool
   etag : String?
   last_modified : String?
 }
 pub fn CacheHit::age_seconds(Self) -> Int64
+pub fn CacheHit::allows_stale_if_error(Self) -> Bool
 pub fn CacheHit::body(Self) -> Bytes
 pub fn CacheHit::etag(Self) -> String?
 pub fn CacheHit::freshness_lifetime(Self) -> Int64

@@ -138,7 +138,7 @@ fn HpackContext::lookup(self : HpackContext, index : Int) -> HpackHeader? {
 ///|
 fn HpackContext::decode_name(
   self : HpackContext,
-  block : Array[Byte],
+  block : BytesView,
   pos : Int,
   prefix : Int,
 ) -> Result[(String, Int), String] {
@@ -168,7 +168,7 @@ pub fn HpackContext::decode(
   self : HpackContext,
   encoded : BytesView,
 ) -> Result[Array[HpackHeader], H2ProtocolError] {
-  let block = encoded.to_owned().to_array()
+  let block = encoded
   let headers : Array[HpackHeader] = []
   let mut pos = 0
   let mut list_size = 0

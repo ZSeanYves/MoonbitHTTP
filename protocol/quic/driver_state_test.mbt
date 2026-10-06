@@ -2,6 +2,7 @@
 fn established_driver_pair(
   client_endpoint : @types.Endpoint,
   server_endpoint : @types.Endpoint,
+  established? : Bool = true,
 ) -> (@quic.QuicDatagramDriver, @quic.QuicDatagramDriver) {
   let server_id = @quic.ConnectionId::new(b"server-id").unwrap()
   let client_id = @quic.ConnectionId::new(b"client-id").unwrap()
@@ -37,8 +38,10 @@ fn established_driver_pair(
   server
   .set_peer_transport_parameters(@quic.QuicTransportParameters::new(client_id))
   .unwrap()
-  client.establish().unwrap()
-  server.establish().unwrap()
+  if established {
+    client.establish().unwrap()
+    server.establish().unwrap()
+  }
   (client, server)
 }
 
@@ -56,7 +59,9 @@ test "quic driver state: Initial and Handshake reject application frames before 
       (Handshake, 2),
     ] {
     let (client, server) = established_driver_pair(
-      client_endpoint, server_endpoint,
+      client_endpoint,
+      server_endpoint,
+      established=false,
     )
     for
       frame in [

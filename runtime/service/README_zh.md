@@ -20,6 +20,15 @@ Last reviewed: 2026-10-01
 ## 不变量与范围
 reader task、body queue、流控释放、deadline、取消和 close 均受 service 作用域管理。
 
+读取循环观测到 HTTP/2 对端 EOF 后，正常响应可使用已有发送窗口完成。
+`ServerConfig.h2_eof_drain_timeout_ms` 限制 handler、响应体生产者和 writer 的
+整体排空时间，默认 30000 ms，必须为正数，h2c 升级同样适用。到期抛出 H2
+连接级 `Cancel` 错误，并取消、等待其余任务清理。关闭读写超时不会禁用此期限。
+计时仅从观测到 EOF 开始；显式禁用写超时仍允许控制帧写入在此之前阻塞读取循环。
+取消采用协作机制：应用代码必须让出执行权，并确保受保护的清理能够结束。
+使用完整 `ServerConfig` 字面量的调用方需补充该字段，或使用
+`..ServerConfig::defaults()`。
+
 ## 规范文档
 - [中文总览](../../README_zh.md)
 - [包地图](../../docs/concepts/packages.md)

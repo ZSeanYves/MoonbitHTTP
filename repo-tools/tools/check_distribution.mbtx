@@ -71,10 +71,22 @@ fn included(path : String, includes : Array[String], excludes : Array[String]) -
 ///|
 fn safe_member(path : String) -> Bool {
   !path.is_empty() && !path.has_prefix("/") && !path.has_prefix("-") &&
+    !path.contains("\\") && !path.contains(":") &&
     !path.split("/").any(fn(part) {
       part == "" || part == "." || part == ".." || part == ".git" ||
-        part == "_build" || part == "target" || part == ".mooncakes"
-    }) && !path.has_suffix(".zip") && path != "coverage.xml"
+        part == "_build" || part == "target" || part == ".mooncakes" ||
+        part == "coverage" || part == "evidence"
+    }) && !path.has_suffix(".zip") && !path.has_suffix(".coverage") &&
+    !path.has_suffix(".profraw") && path != "coverage.xml" &&
+    path != "coverage.json"
+}
+
+///|
+async fn require_clean() -> Unit {
+  let (changes, _) = command("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+  guard changes.is_empty() else {
+    fail("release gate closed: tracked edits or untracked files exist; freeze and commit reviewed source before checking the distribution")
+  }
 }
 
 ///|
@@ -94,6 +106,7 @@ async fn main {
   guard manifest is { "module": String(module_name), "version": String(version), .. } else {
     fail("distribution manifest must identify module and version")
   }
+  require_clean()
   let module_source = @fs.read_file("moon.mod").text()
   guard module_source.contains("name = \"\{module_name}\"") &&
     module_source.contains("version = \"\{version}\"") else {
@@ -132,6 +145,25 @@ async fn main {
   for path in excludes {
     guard !actual.any(fn(entry) { matches(entry, path) }) else {
       fail("excluded distribution member was packaged: \{path}")
+    }
+  }
+  let revision = command_text("git", ["rev-parse", "HEAD"]).trim().to_owned()
+  let tracked = command_text("git", ["ls-files", "-z"]).split("\u{0}").to_array()
+  let archive = "_build/publish/" + module_name.replace(old="/", new="-") + "-" + version + ".zip"
+  let archive_members = command_text("unzip", ["-Z1", archive])
+  for raw in archive_members.split("\n") {
+    let path = raw.trim().to_owned()
+    if path.is_empty() || path.has_suffix("/") { continue }
+    guard actual.contains(path) else {
+      fail("archive member is missing from moon package inventory: \{path}")
+    }
+    guard safe_member(path) && tracked.any(fn(tracked_path) { tracked_path == path }) else {
+      fail("archive member is untracked or unsafe: \{path}")
+    }
+    let packaged = command("unzip", ["-p", archive, path])
+    let committed = command("git", ["show", revision + ":" + path])
+    guard packaged.0 == committed.0 else {
+      fail("archive differs from frozen Git source: \{path}")
     }
   }
   println("PASS: distribution allowlist verified (\{actual.length()} archive members, module \{module_name}@\{version}).")

@@ -89,10 +89,17 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_or_h2c_co
     body,
   }
   let responses : @aqueue.Queue[@types.Response[B]] = Queue(kind=Blocking(1))
+  let mut staged_response : @types.Response[B]? = None
   let mut handler_done = false
   let upgrade_result : Result[Unit, Error] = try {
     @async.with_task_group(async fn(group) {
       group.add_defer(fn() {
+        // The H2 callback is the ownership handoff. Failures in request drain,
+        // the switching response, or the H2 preface must release a staged body.
+        if staged_response is Some(response) {
+          response.body.cancel(@body.BodyError::Cancelled)
+          staged_response = None
+        }
         if !handler_done {
           body.fail(
             @http2.H2ProtocolError::ConnectionError(
@@ -104,7 +111,11 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_or_h2c_co
       })
       group.spawn_bg(async fn() {
         let response = service(upgraded)
+        staged_response = Some(response)
         handler_done = true
+        // Upgrade already stops delivering new input when the handler returns.
+        // Retain its queued frames for a lazy response, but wake blocked pushes.
+        body.finish()
         responses.put(response)
       })
 
@@ -124,10 +135,19 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_or_h2c_co
               raise @http1.Http1Error::InvalidFraming(
                 "pipelined request before h2c upgrade completed",
               )
-            RequestData(data) => if !handler_done { body.push(Data(data)) }
+            RequestData(data) =>
+              if !handler_done {
+                body.push(Data(data)) catch {
+                  _ if handler_done => ()
+                  error => raise error
+                }
+              }
             RequestTrailers(trailers) =>
               if !handler_done {
-                body.push(Trailers(trailers))
+                body.push(Trailers(trailers)) catch {
+                  _ if handler_done => ()
+                  error => raise error
+                }
               }
             RequestEnd => {
               body.finish()
@@ -186,7 +206,9 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_or_h2c_co
         async fn(request) {
           if stream1 {
             stream1 = false
-            responses.get()
+            let response = responses.get()
+            staged_response = None
+            response
           } else {
             service(request)
           }

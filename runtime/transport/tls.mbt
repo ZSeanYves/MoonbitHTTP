@@ -12,6 +12,8 @@ pub(all) struct TlsOptions {
   min_version : TlsVersion
   max_version : TlsVersion?
   enable_early_data : Bool
+  /// None permits the provider's default trust policy; Some must be nonempty
+  /// and replaces ambient roots in native providers.
   trust_anchors : Bytes?
   /// PEM encoded CRLs used for native chain revocation checks.
   revocation_lists : Bytes?
@@ -59,6 +61,7 @@ pub(all) suberror TlsOptionsError {
   RevocationRequiresVerification
   MissingRevocationList
   OcspRequiresClientRole
+  EmptyTrustAnchors
 } derive(Eq, Debug)
 
 ///|
@@ -84,6 +87,10 @@ pub fn TlsOptions::validate_common(
   }
   if self.enable_early_data {
     return Err(EarlyDataRequiresReplayPolicy)
+  }
+  match self.trust_anchors {
+    Some(roots) if roots.is_empty() => return Err(EmptyTrustAnchors)
+    _ => ()
   }
   if (self.require_crl || self.require_ocsp) && !self.verify_peer {
     return Err(RevocationRequiresVerification)

@@ -17,7 +17,7 @@ struct CacheEntry {
   initial_age : Int64
   freshness_lifetime : Int64
   stale_while_revalidate : Int64
-  stale_if_error : Int64
+  stale_if_error : Int64?
   no_cache : Bool
   must_revalidate : Bool
   etag : String?
@@ -293,6 +293,7 @@ fn cache_entry_hit(
   request : @types.Request[Unit],
   age : Int64,
   stale : Int64,
+  allow_error_fallback : Bool,
 ) -> CacheHit {
   let headers = cache_clone_headers(entry.response.headers)
   let age_value = @types.HeaderValue::from_string(age.max(0L).to_string()).unwrap()
@@ -312,13 +313,17 @@ fn cache_entry_hit(
     age_seconds: age.max(0L),
     freshness_lifetime: entry.freshness_lifetime,
     stale_seconds: stale.max(0L),
-    // RFC 9111 requires must-revalidate/proxy-revalidate to win over a
-    // stale-if-error extension.  Expose zero fallback budget to policy code.
-    stale_if_error: if entry.must_revalidate {
+    stale_if_error: if entry.must_revalidate ||
+      entry.no_cache ||
+      !allow_error_fallback {
       0L
     } else {
-      entry.stale_if_error
+      entry.stale_if_error.unwrap_or(0L)
     },
+    stale_if_error_allowed: allow_error_fallback &&
+    !entry.must_revalidate &&
+    !entry.no_cache &&
+    entry.stale_if_error is Some(_),
     etag: entry.etag,
     last_modified: entry.last_modified,
   }
@@ -385,6 +390,16 @@ pub fn HttpCache::store(
   body : Bytes,
   now_seconds : Int64,
 ) -> Result[CacheStoreOutcome, CacheError] {
+  // This cache owns complete GET representations only. A partial/bodyless
+  // response must not replace a full representation under the same URI key.
+  if request.http_method == Head ||
+    request.headers.get_string("range") is Some(_) ||
+    request.headers.get_string("if-range") is Some(_) ||
+    response.status == 206 ||
+    response.status == 304 ||
+    response.headers.get_string("content-range") is Some(_) {
+    return Ok(CacheNotStored(NotCacheable("incomplete representation")))
+  }
   let key = match cache_base_key(request) {
     Ok(value) => value
     Err(error) => return Ok(CacheNotStored(error))
@@ -504,7 +519,7 @@ pub fn HttpCache::store(
     initial_age,
     freshness_lifetime: lifetime,
     stale_while_revalidate: control.stale_while_revalidate.unwrap_or(0L),
-    stale_if_error: control.stale_if_error.unwrap_or(0L),
+    stale_if_error: control.stale_if_error,
     no_cache: control.no_cache,
     must_revalidate: control.must_revalidate || control.proxy_revalidate,
     etag: match cache_validator(response.headers, "etag") {
@@ -559,6 +574,16 @@ pub fn HttpCache::lookup(
     Ok(value) => value
     Err(error) => return Err(error)
   }
+  if request.headers.get_string("range") is Some(_) ||
+    request.headers.get_string("if-range") is Some(_) {
+    return Ok(
+      if request_control.only_if_cached {
+        OnlyIfCachedMiss
+      } else {
+        CacheMiss
+      },
+    )
+  }
   let mut selected = -1
   for index, entry in self.entries {
     if cache_entry_matches(entry, key, request.headers) {
@@ -579,10 +604,18 @@ pub fn HttpCache::lookup(
     (now_seconds - entry.stored_at).max(0L),
   )
   let remaining = entry.freshness_lifetime - age
-  let fresh = remaining >= request_control.min_fresh.unwrap_or(0L) &&
+  let request_age_ok = match request_control.max_age {
+    Some(limit) => age <= limit
+    None => true
+  }
+  let allow_error_fallback = !request_control.no_cache && request_age_ok
+  let fresh = request_age_ok &&
+    remaining >= request_control.min_fresh.unwrap_or(0L) &&
     remaining > 0L
   if fresh && !request_control.no_cache && !entry.no_cache {
-    return Ok(CacheFresh(cache_entry_hit(entry, request, age, 0L)))
+    return Ok(
+      CacheFresh(cache_entry_hit(entry, request, age, 0L, allow_error_fallback)),
+    )
   }
   let stale = (-remaining).max(0L)
   let max_stale_ok = match request_control.max_stale {
@@ -590,6 +623,7 @@ pub fn HttpCache::lookup(
     None => request_control.max_stale_any
   }
   if !request_control.no_cache &&
+    request_age_ok &&
     !entry.no_cache &&
     !entry.must_revalidate &&
     (
@@ -599,10 +633,18 @@ pub fn HttpCache::lookup(
         stale <= entry.stale_while_revalidate
       )
     ) {
-    return Ok(CacheStale(cache_entry_hit(entry, request, age, stale)))
+    return Ok(
+      CacheStale(
+        cache_entry_hit(entry, request, age, stale, allow_error_fallback),
+      ),
+    )
   }
   if entry.etag is Some(_) || entry.last_modified is Some(_) {
-    Ok(CacheRevalidate(cache_entry_hit(entry, request, age, stale)))
+    Ok(
+      CacheRevalidate(
+        cache_entry_hit(entry, request, age, stale, allow_error_fallback),
+      ),
+    )
   } else if request_control.only_if_cached {
     Ok(OnlyIfCachedMiss)
   } else {
@@ -652,7 +694,9 @@ fn cache_merge_304_headers(
 
 ///|
 /// Applies a validated 304 response to the matching stored representation and
-/// returns the refreshed representation. A 304 body is never retained.
+/// returns the refreshed representation. Pass the actual conditional request;
+/// both its validator and any returned validator must identify the stored body.
+/// A 304 body is never retained.
 pub fn HttpCache::revalidate(
   self : HttpCache,
   request : @types.Request[Unit],
@@ -661,6 +705,10 @@ pub fn HttpCache::revalidate(
 ) -> Result[CacheHit, CacheError] {
   if not_modified.status != 304 {
     return Err(InvalidResponse)
+  }
+  if request.headers.get_string("range") is Some(_) ||
+    request.headers.get_string("if-range") is Some(_) {
+    return Err(InvalidRequest)
   }
   if not_modified.headers.content_length() is Err(_) {
     return Err(InvalidResponse)
@@ -680,13 +728,59 @@ pub fn HttpCache::revalidate(
     return Err(NotCacheable("304 has no matching stored representation"))
   }
   let old = self.entries[selected]
+  let response_etag = match cache_validator(not_modified.headers, "etag") {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  match response_etag {
+    Some(value) => {
+      guard old.etag is Some(stored) &&
+        cache_strip_weak(value) == cache_strip_weak(stored) else {
+        return Err(InvalidValidator)
+      }
+    }
+    None => ()
+  }
+  let conditional_tags = request.headers.get_all_string("if-none-match")
+  if !conditional_tags.is_empty() {
+    guard conditional_tags.length() == 1 && old.etag is Some(stored) else {
+      return Err(InvalidValidator)
+    }
+    let sent = conditional_tags[0].to_string_lossy().trim().to_owned()
+    // Without a response ETag, a list or wildcard cannot identify which
+    // representation the origin validated. Our own request uses one tag.
+    if response_etag is None {
+      if !cache_etag_valid(sent) ||
+        cache_strip_weak(sent) != cache_strip_weak(stored) {
+        return Err(InvalidValidator)
+      }
+    } else if etag_matches(sent, stored) != ConditionMatches {
+      return Err(InvalidValidator)
+    }
+  } else {
+    let dates = request.headers.get_all_string("if-modified-since")
+    guard dates.length() == 1 && old.last_modified is Some(stored) else {
+      return Err(InvalidValidator)
+    }
+    if dates[0].to_string_lossy() != stored {
+      return Err(InvalidValidator)
+    }
+  }
+  match cache_header_text(not_modified.headers, "last-modified") {
+    Some(value) if old.last_modified != Some(value) =>
+      return Err(InvalidValidator)
+    _ => ()
+  }
   let merged : @types.Response[Unit] = {
     status: old.response.status,
     version: old.response.version,
     headers: cache_merge_304_headers(old.response.headers, not_modified.headers),
     body: (),
   }
-  match self.store(request, merged, old.body, now_seconds) {
+  // A conditional HEAD can refresh an existing GET body, but must not create
+  // a bodyless GET entry through the ordinary store API.
+  let storage_request = { ..request, http_method: Get, }
+  match self.store(storage_request, merged, old.body, now_seconds) {
     Ok(CacheStored | CacheReplaced) => ()
     Ok(CacheNotStored(reason)) => return Err(reason)
     Err(error) => return Err(error)

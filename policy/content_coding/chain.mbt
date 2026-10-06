@@ -7,7 +7,7 @@ pub(all) enum ContentDecodePoll {
 
 ///|
 priv enum StagePoll {
-  StageOutput(Bytes, Bool)
+  StageOutput(Bytes)
   StageNeedInput
   StageDone
 }
@@ -138,10 +138,12 @@ fn ContentDecoderChain::step_stage_input(
     None => ()
   }
   if !result.output.is_empty() {
-    return Ok(StageOutput(result.output, result.status == DecodeDone))
+    // Codec EOS does not prove that its upstream ended. A following poll must
+    // validate the rest of every enclosing coding and the HTTP body boundary.
+    return Ok(StageOutput(result.output))
   }
   if result.status == DecodeDone {
-    return Ok(StageDone)
+    return self.poll_stage(index)
   }
   if result.consumed == 0 && !input.is_empty() {
     return Err(DecoderStalled(self.decoders[index].coding))
@@ -155,7 +157,26 @@ fn ContentDecoderChain::poll_stage(
   index : Int,
 ) -> Result[StagePoll, ContentCodingError] {
   if self.statuses[index] == DecodeDone {
-    return Ok(StageDone)
+    if self.pending[index] is Some(_) {
+      return Err(TrailingEncodedData(self.decoders[index].coding))
+    }
+    if self.upstream_done[index] {
+      return Ok(StageDone)
+    }
+    if index == 0 {
+      self.awaiting_input = true
+      return Ok(StageNeedInput)
+    }
+    return match self.poll_stage(index - 1) {
+      Err(error) => Err(error)
+      Ok(StageNeedInput) => Ok(StageNeedInput)
+      Ok(StageOutput(_)) =>
+        Err(TrailingEncodedData(self.decoders[index].coding))
+      Ok(StageDone) => {
+        self.upstream_done[index] = true
+        Ok(StageDone)
+      }
+    }
   }
   match self.pending[index] {
     Some(value) => {
@@ -178,12 +199,9 @@ fn ContentDecoderChain::poll_stage(
       self.upstream_done[index] = true
       self.poll_stage(index)
     }
-    Ok(StageOutput(output, done_after)) => {
+    Ok(StageOutput(output)) => {
       self.pending[index] = Some(output)
       self.offsets[index] = 0
-      if done_after {
-        self.upstream_done[index] = true
-      }
       self.poll_stage(index)
     }
   }
@@ -204,7 +222,7 @@ pub fn ContentDecoderChain::poll(
   }
   let final_stage = self.decoders.length() - 1
   match self.poll_stage(final_stage) {
-    Ok(StageOutput(output, _)) => Ok(ContentDecoded(output))
+    Ok(StageOutput(output)) => Ok(ContentDecoded(output))
     Ok(StageNeedInput) => Ok(ContentDecodeNeedInput)
     Ok(StageDone) => {
       self.finished = true

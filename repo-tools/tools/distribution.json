@@ -21,6 +21,7 @@
     "docs/guide/**",
     "docs/protocols/**",
     "docs/reference/generated/**",
+    "docs/history/timeline.md",
     "docs/release/current.md",
     "docs/release/gates.md",
     "docs/release/packaging.md",
@@ -47,7 +48,6 @@
     "protocol/http2/moon.pkg",
     "protocol/http3/moon.pkg",
     "protocol/quic/moon.pkg",
-    "protocol/tls/moon.pkg",
-    "adapter/native/tls/testdata/README.md"
+    "protocol/tls/moon.pkg"
   ]
 }

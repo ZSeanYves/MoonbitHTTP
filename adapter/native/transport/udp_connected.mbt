@@ -1,5 +1,5 @@
 ///|
-/// A UDP capability for one policy-authorized numeric endpoint. Resolve a
+/// A UDP capability for one policy-authorized numeric unicast endpoint. Resolve a
 /// hostname explicitly before connecting so its address can be checked before
 /// any socket is created, then pass this value to the generic datagram driver.
 pub struct UdpSocket {
@@ -7,6 +7,26 @@ pub struct UdpSocket {
   endpoint : @types.Endpoint
   max_datagram_size : Int
   mut closed : Bool
+}
+
+///|
+fn udp_connected_is_multicast(address : @socket.Addr) -> Bool {
+  if address.is_multicast() {
+    return true
+  }
+  if !address.is_ipv6() {
+    return false
+  }
+  // Addr renders IPv4-mapped IPv6 consistently as ::ffff:a.b.c.d, including
+  // inputs written with eight hexadecimal groups. Its is_multicast method
+  // only checks the IPv6 ff00::/8 prefix, so inspect the mapped IPv4 too.
+  let rendered = address.to_string()
+  guard rendered.has_prefix("[::ffff:") else { return false }
+  guard rendered.find("]") is Some(end) else { return false }
+  let mapped = @socket.Addr::parse(rendered[8:end].to_owned() + ":1") catch {
+    _ => return false
+  }
+  mapped.is_multicast()
 }
 
 ///|
@@ -26,6 +46,12 @@ pub async fn[P : @transport_api.NetworkPolicy] UdpSocket::connect(
   let remote = match numeric_socket_addr(endpoint) {
     Some(value) => value
     None => return Err(Failed(Resolve, "UDP requires a numeric endpoint"))
+  }
+  // Multicast UdpClient sockets accept replies from arbitrary peers. This
+  // capability promises one authorized peer and cannot attribute such replies
+  // to the configured group address.
+  if udp_connected_is_multicast(remote) {
+    return Err(Failed(Connect, "connected UDP requires a unicast endpoint"))
   }
   // UdpClient takes the remote address and creates its ephemeral local socket.
   // Passing a wildcard local address here would connect to port zero first.

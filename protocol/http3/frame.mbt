@@ -197,6 +197,7 @@ fn h3_decode_settings(
   payload : BytesView,
 ) -> Result[Array[H3Setting], Http3Error] {
   let settings : Array[H3Setting] = []
+  let seen : Map[Int64, Bool] = Map([])
   let mut offset = 0
   while offset < payload.length() {
     let (id, id_used) = match h3_decode_varint(payload[offset:]) {
@@ -225,13 +226,12 @@ fn h3_decode_settings(
         ),
       )
     }
-    for setting in settings {
-      if setting.id == id {
-        return Err(
-          Http3ConnectionError(H3SettingsError, "duplicate HTTP/3 setting"),
-        )
-      }
+    if seen.contains(id) {
+      return Err(
+        Http3ConnectionError(H3SettingsError, "duplicate HTTP/3 setting"),
+      )
     }
+    seen.set(id, true)
     settings.push({ id, value, })
   }
   Ok(settings)
@@ -408,7 +408,7 @@ pub fn encode_http3_frame(frame : Http3Frame) -> Result[Bytes, Http3Error] {
     }
     H3SettingsFrame(settings) => {
       let bytes : Array[Byte] = []
-      let seen : Array[Int64] = []
+      let seen : Map[Int64, Bool] = Map([])
       for setting in settings {
         if setting.id == 2L ||
           setting.id == 3L ||
@@ -421,14 +421,12 @@ pub fn encode_http3_frame(frame : Http3Frame) -> Result[Bytes, Http3Error] {
             ),
           )
         }
-        for id in seen {
-          if id == setting.id {
-            return Err(
-              Http3ConnectionError(H3SettingsError, "duplicate HTTP/3 setting"),
-            )
-          }
+        if seen.contains(setting.id) {
+          return Err(
+            Http3ConnectionError(H3SettingsError, "duplicate HTTP/3 setting"),
+          )
         }
-        seen.push(setting.id)
+        seen.set(setting.id, true)
         let id = match h3_varint(setting.id) {
           Ok(result) => result
           Err(error) => return Err(error)

@@ -77,6 +77,7 @@ pub fn[R, W] ClientConnection::new(
     }
   }
   let config = ServerConfig::{
+    ..ServerConfig::defaults(),
     limits,
     read_size,
     body_queue_capacity: 1,
@@ -169,7 +170,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection:
       request.version == Http10 &&
       !header_has_token(request.headers, "connection", "keep-alive")
     )
-  with_http1_body_scope(request.body, async fn() {
+  with_outgoing_body_scope(request.body, async fn() {
     let framing = match request.body.size_hint().exact_size() {
       Some(size) => @http1.BodyFraming::ContentLength(size)
       None =>

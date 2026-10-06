@@ -141,11 +141,8 @@ pub fn Http3Connection::register_remote_unidirectional(
         ),
       )
     }
-    let (push_id, push_used) = match h3_decode_varint(prefix[type_used:]) {
-      Ok(result) => result
-      Err(error) => return Err(error)
-    }
-    Ok((H3PushStream(push_id), type_used + push_used))
+    // No local MAX_PUSH_ID grant is issued by this implementation.
+    Err(Http3ConnectionError(H3IdError, "server push was not granted"))
   } else {
     Ok((H3UnknownStream(stream_type), type_used))
   }
@@ -175,7 +172,14 @@ fn h3_apply_settings(
 ) -> Result[H3Settings, Http3Error] {
   let mut result = H3Settings::defaults()
   let unknown : Array[H3Setting] = []
+  let seen : Map[Int64, Bool] = Map([])
   for setting in settings {
+    if seen.contains(setting.id) {
+      return Err(
+        Http3ConnectionError(H3SettingsError, "duplicate HTTP/3 setting"),
+      )
+    }
+    seen.set(setting.id, true)
     if setting.id == H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY {
       result = { ..result, qpack_max_table_capacity: setting.value, }
     } else if setting.id == H3_SETTINGS_MAX_FIELD_SECTION_SIZE {

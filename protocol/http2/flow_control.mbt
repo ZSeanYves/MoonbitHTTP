@@ -200,6 +200,26 @@ pub fn H2Connection::release_connection_capacity(
 }
 
 ///|
+/// Releases connection credit for DATA rejected with a recoverable stream
+/// error. Call after `receive` returns `StreamError` and send the resulting
+/// WINDOW_UPDATE actions. Repeated calls without further rejected DATA are empty.
+pub fn H2Connection::release_discarded_capacity(
+  self : H2Connection,
+) -> Result[Array[H2Action], H2ProtocolError] {
+  let amount = self.discarded_recv_bytes
+  if amount == 0 {
+    return Ok([])
+  }
+  match self.release_connection_capacity(amount) {
+    Ok(action) => {
+      self.discarded_recv_bytes = 0
+      Ok([action])
+    }
+    Err(error) => Err(error)
+  }
+}
+
+///|
 pub fn H2Connection::reserve_send_capacity(
   self : H2Connection,
   stream_id : Int,

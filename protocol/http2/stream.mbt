@@ -292,10 +292,6 @@ fn H2Connection::receive_stream_frame(
       if h.stream_id == 0 {
         return Err(ConnectionError(ProtocolError, "DATA requires a stream"))
       }
-      let stream = match self.get_open_stream(h.stream_id) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
       if h.length > self.connection_recv_window {
         return Err(
           ConnectionError(
@@ -305,6 +301,10 @@ fn H2Connection::receive_stream_frame(
         )
       }
       self.connection_recv_window -= h.length
+      let stream = match self.get_open_stream(h.stream_id) {
+        Ok(value) => value
+        Err(error) => return Err(error)
+      }
       if h.length > 0 && h.length > stream.recv_window {
         return Err(
           StreamError(

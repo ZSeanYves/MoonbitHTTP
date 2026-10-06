@@ -13,9 +13,11 @@ pub struct BodyStream {
   priv hint : SizeHint
   priv on_data_consumed : async (Int) -> Unit
   priv on_terminate : (Error?) -> Unit
+  priv on_cancel : (Error) -> Unit
   priv pull : (async () -> Frame?)?
   priv mut status : StreamStatus
   priv mut trailers_seen : Bool
+  priv mut cancelled : Bool
 }
 
 ///|
@@ -36,6 +38,7 @@ fn body_stream_new_unchecked(
   size_hint : SizeHint,
   on_data_consumed : async (Int) -> Unit,
   on_terminate : (Error?) -> Unit,
+  on_cancel : (Error) -> Unit,
 ) -> BodyStream {
   {
     queue: Queue(kind=Blocking(capacity)),
@@ -46,9 +49,11 @@ fn body_stream_new_unchecked(
     hint: size_hint,
     on_data_consumed,
     on_terminate,
+    on_cancel,
     pull: None,
     status: Open,
     trailers_seen: false,
+    cancelled: false,
   }
 }
 
@@ -58,6 +63,7 @@ pub fn BodyStream::new(
   size_hint? : SizeHint = SizeHint::unknown(),
   on_data_consumed? : async (Int) -> Unit = fn(_) { () },
   on_terminate? : (Error?) -> Unit = fn(_) { () },
+  on_cancel? : (Error) -> Unit = fn(_) { () },
 ) -> Result[BodyStream, BodyError] {
   if capacity < 1 {
     return Err(InvalidLimit(capacity))
@@ -68,7 +74,7 @@ pub fn BodyStream::new(
   }
   Ok(
     body_stream_new_unchecked(
-      capacity, size_hint, on_data_consumed, on_terminate,
+      capacity, size_hint, on_data_consumed, on_terminate, on_cancel,
     ),
   )
 }
@@ -81,6 +87,7 @@ pub fn BodyStream::from_pull(
   size_hint? : SizeHint = SizeHint::unknown(),
   on_data_consumed? : async (Int) -> Unit = fn(_) { () },
   on_terminate? : (Error?) -> Unit = fn(_) { () },
+  on_cancel? : (Error) -> Unit = fn(_) { () },
 ) -> BodyStream {
   {
     queue: Queue(kind=Blocking(1)),
@@ -88,9 +95,11 @@ pub fn BodyStream::from_pull(
     hint: size_hint,
     on_data_consumed,
     on_terminate,
+    on_cancel,
     pull: Some(pull),
     status: Open,
     trailers_seen: false,
+    cancelled: false,
   }
 }
 
@@ -136,7 +145,7 @@ pub async fn BodyStream::push(self : BodyStream, frame : Frame) -> Unit {
   if self.is_finished() {
     raise self.terminal_error()
   }
-  errdefer self.cancel(BodyError::Cancelled)
+  errdefer (if !self.is_finished() { self.cancel(BodyError::Cancelled) })
   while true {
     if self.is_finished() {
       raise self.terminal_error()
@@ -191,8 +200,20 @@ pub fn BodyStream::fail(self : BodyStream, error : Error) -> Unit {
 ///|
 /// Cancels the stream, preserving the first terminal reason and immediately
 /// releasing buffered frames and blocked producers.
+/// `on_cancel` runs once, including when the producer has already finished;
+/// `on_terminate` still runs only for the first terminal transition.
 pub fn BodyStream::cancel(self : BodyStream, error : Error) -> Unit {
+  if self.cancelled {
+    return
+  }
+  self.cancelled = true
   self.terminate(Some(error), true)
+  if self.pull is None {
+    // A producer EOF/failure can precede consumer cancellation. Clear its
+    // remaining frames without replacing that original terminal reason.
+    self.queue.close(error=self.terminal_error(), clear=true)
+  }
+  (self.on_cancel)(error)
 }
 
 ///|

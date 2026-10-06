@@ -222,6 +222,11 @@ fn QuicDatagramDriver::send_frames_internal_to(
       Unsupported("application packets require an established connection"),
     )
   }
+  if frames.any(fn(frame) { frame is NewConnectionId(_, _, _, _) }) {
+    return Err(
+      Unsupported("local connection ID issuance and rotation are not supported"),
+    )
+  }
   match self.check_aead_send_limit(space) {
     Ok(_) => ()
     Err(error) => return Err(error)
@@ -338,6 +343,9 @@ fn QuicDatagramDriver::send_frames_internal_to(
           None => ()
         }
         self.queue_retransmission(space, packet_number, destination, frames)
+      }
+      if space == Handshake && self.role == Client {
+        self.discard_packet_space(Initial)
       }
       Ok(SendDatagram(destination, packet))
     }

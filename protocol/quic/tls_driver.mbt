@@ -242,9 +242,6 @@ fn[P : @transport.QuicTlsProvider] QuicTlsDriver::on_packet(
   for action in incoming {
     match action {
       CryptoData(space, offset, bytes) => {
-        if space == Handshake {
-          self.driver.discard_packet_space(Initial)
-        }
         let messages = match self.input.feed(space, offset, bytes) {
           Ok(value) => value
           Err(error) => return Err(self.fail(error))
@@ -387,9 +384,6 @@ fn[P] QuicTlsDriver::flush_crypto(
         self.pending.remove(0) |> ignore
         self.pending_bytes -= next.bytes.length()
         actions.push(action)
-        if next.space == Handshake && self.driver.role == Client {
-          self.driver.discard_packet_space(Initial)
-        }
       }
       Err(AmplificationBlocked) | Err(FlowControl(0L, _)) => break
       Err(error) => return Err(error)
@@ -432,6 +426,19 @@ pub fn QuicDatagramDriver::set_peer_transport_parameters(
     Ok(_) => ()
     Err(error) => return Err(error)
   }
+  // Initial/Retry exchanges can replace the client's original destination.
+  // Only TLS-authenticated peer identity seeds the application CID namespace.
+  let ids = self.peer_connection_ids
+  ids.ids = [
+    {
+      sequence: 0L,
+      id: params.initial_source_connection_id,
+      reset_token: params.stateless_reset_token.unwrap_or(b""),
+      retired: false,
+    },
+  ]
+  ids.retire_prior_to = 0L
+  self.peer_connection_id = params.initial_source_connection_id
   self.peer_parameters = Some(params)
   self.recovery.peer_max_ack_delay_ms = params.max_ack_delay.to_int64()
   Ok(())

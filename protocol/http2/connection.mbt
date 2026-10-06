@@ -9,6 +9,7 @@ pub struct H2Connection {
   priv closed_streams : Array[Int]
   priv mut connection_send_window : Int
   priv mut connection_recv_window : Int
+  priv mut discarded_recv_bytes : Int
   priv mut highest_remote_stream : Int
   priv mut next_local_stream : Int
   priv mut continuation_stream : Int?
@@ -33,6 +34,7 @@ pub fn H2Connection::new(
     closed_streams: [],
     connection_send_window: 65535,
     connection_recv_window: 65535,
+    discarded_recv_bytes: 0,
     highest_remote_stream: 0,
     next_local_stream: if role == Client {
       1
@@ -259,11 +261,48 @@ pub fn H2Connection::receive(
     Err(error) => {
       match error {
         ConnectionError(_, _) => self.failure = Some(error)
-        StreamError(stream_id, _, _) =>
+        StreamError(stream_id, code, _) => {
+          // Recoverable DATA errors still consume connection credit, including
+          // in-flight frames on reset streams. Keep their discard accounting
+          // separate from application-owned DATA until the driver releases it.
+          if frame.header.typ == H2_FRAME_DATA {
+            self.discarded_recv_bytes += frame.header.length
+          }
           if self.streams.get(stream_id) is Some(stream) {
             stream.state = Closed
             self.remove_closed_stream(stream_id)
           }
+          if frame.header.typ == H2_FRAME_HEADERS {
+            // Stream rejection does not end the connection's compression
+            // context. Keep bounded continuation state and ask the consumer to
+            // decode this block without delivering any application fields.
+            let fragment = match header_fragment(frame) {
+              Ok(value) => value
+              Err(error) => {
+                self.failure = Some(error)
+                return Err(error)
+              }
+            }
+            if fragment.length() > self.limits.max_header_bytes {
+              let error = ConnectionError(
+                EnhanceYourCalm,
+                "HTTP/2 header block exceeds configured limit",
+              )
+              self.failure = Some(error)
+              return Err(error)
+            }
+            let end_headers = (frame.header.flags & H2_FLAGS_END_HEADERS) != 0
+            self.continuation_bytes = if end_headers {
+              0
+            } else {
+              fragment.length()
+            }
+            if !end_headers {
+              self.continuation_stream = Some(stream_id)
+            }
+            return Ok([HeadersDiscarded(stream_id, end_headers, code)])
+          }
+        }
       }
       Err(error)
     }

@@ -51,6 +51,7 @@ fn[B : @body.Body] DecodedBody::remember_failure(
 
 ///|
 pub impl[B : @body.Body] @body.Body for DecodedBody[B] with fn next_frame(self) {
+  errdefer self.remember_failure(@body.BodyError::Cancelled)
   match self.failure {
     Some(error) => raise error
     None => ()

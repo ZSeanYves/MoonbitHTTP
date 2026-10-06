@@ -53,7 +53,8 @@ pub(all) enum QuicTlsEvent {
 /// QUIC transport-parameter extension and Finished verification. The application
 /// injects credentials and trust through options; no implicit trust is allowed.
 /// A message decoder and a traffic-secret callback alone do not implement this
-/// contract. The current distribution has no concrete implementation.
+/// contract. Native applications can use the OpenSSL-backed provider in
+/// adapter/native/tls; portable targets inject their own implementation.
 pub(open) trait QuicTlsProvider {
   fn start(Self, TlsOptions, Bytes) -> Result[Array[QuicTlsEvent], TlsError]
   fn receive_handshake(Self, QuicHandshakeMessage) -> Result[

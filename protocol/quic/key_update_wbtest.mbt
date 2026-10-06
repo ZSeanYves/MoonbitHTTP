@@ -2,6 +2,8 @@
 fn key_limit_driver_pair(
   client_endpoint : @types.Endpoint,
   server_endpoint : @types.Endpoint,
+  limits? : QuicLimits = QuicLimits::defaults(),
+  recovery_config? : QuicRecoveryConfig = QuicRecoveryConfig::defaults(),
 ) -> (QuicDatagramDriver, QuicDatagramDriver) {
   let server_id = ConnectionId::new(b"server-id").unwrap()
   let client_id = ConnectionId::new(b"client-id").unwrap()
@@ -11,6 +13,8 @@ fn key_limit_driver_pair(
     server_id,
     client_id,
     server_id,
+    limits~,
+    recovery_config~,
   ).unwrap()
   let server = QuicDatagramDriver::new(
     Server,
@@ -18,6 +22,8 @@ fn key_limit_driver_pair(
     server_id,
     server_id,
     client_id,
+    limits~,
+    recovery_config~,
   ).unwrap()
   let keys = quic_initial_packet_keys(server_id).unwrap()
   client.install_handshake_keys(keys.0, keys.1).unwrap()

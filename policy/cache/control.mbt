@@ -37,7 +37,9 @@ fn cache_directive_parts(value : String) -> Array[String] {
   let mut escaped = false
   let mut index = 0
   while index < value.length() {
-    let char = value.get_char(index).unwrap()
+    // Only ASCII delimiters matter. Indexing UTF-16 code units keeps slicing
+    // offsets consistent and never unwraps the middle of a surrogate pair.
+    let char = value[index]
     if escaped {
       escaped = false
     } else if quoted && char == '\\' {

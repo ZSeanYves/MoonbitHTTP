@@ -238,7 +238,7 @@ fn hpack_static_find_name(name : String) -> Int {
 
 ///|
 fn decode_integer(
-  buf : Array[Byte],
+  buf : BytesView,
   pos : Int,
   n : Int,
 ) -> Result[(Int, Int), String] {
@@ -277,7 +277,7 @@ fn decode_integer(
 // String literals with the RFC 7541 section 5.2 Huffman flag in the high bit.
 
 ///|
-fn decode_string(buf : Array[Byte], pos : Int) -> Result[(Bytes, Int), String] {
+fn decode_string(buf : BytesView, pos : Int) -> Result[(Bytes, Int), String] {
   if pos >= buf.length() {
     return Err("hpack str: OOB")
   }
@@ -294,7 +294,7 @@ fn decode_string(buf : Array[Byte], pos : Int) -> Result[(Bytes, Int), String] {
     return Err("hpack str: truncated")
   }
   let end = start + len
-  let data = Bytes::from_array(buf)[start:end].to_owned()
+  let data = buf[start:end].to_owned()
   let raw = if huff {
     match @codec.huffman_decode(data) {
       Ok(x) => x

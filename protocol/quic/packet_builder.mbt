@@ -131,6 +131,36 @@ pub fn quic_build_retry_packet(
 }
 
 ///|
+/// Select the smallest representable padded packet within the requested
+/// interval. Length-varint width changes leave gaps in possible total sizes;
+/// enumerating the four widths terminates even when the minimum is in a gap.
+fn quic_builder_padding(
+  prefix_length : Int,
+  payload_length : Int,
+  packet_number_length : Int,
+  minimum : Int,
+  maximum : Int,
+) -> Result[Int, QuicError] {
+  let unpadded_length = payload_length.to_int64() +
+    packet_number_length.to_int64() +
+    16L
+  for
+    (width, lower, upper) in [
+      (1, 0L, 63L),
+      (2, 64L, 16383L),
+      (4, 16384L, 1073741823L),
+      (8, 1073741824L, QUIC_MAX_VARINT),
+    ] {
+    let fixed = prefix_length.to_int64() + width.to_int64()
+    let length = unpadded_length.max(lower).max(minimum.to_int64() - fixed)
+    if length <= upper && fixed + length <= maximum.to_int64() {
+      return Ok((length - unpadded_length).to_int())
+    }
+  }
+  Err(InvalidPacket("packet exceeds datagram limit"))
+}
+
+///|
 /// Builds and protects a QUIC v1 Initial packet. The packet length field is
 /// derived from the encrypted payload and is therefore consistent with the
 /// wire representation. The caller supplies the direction-specific Initial
@@ -181,46 +211,16 @@ pub fn quic_build_initial_packet(
     token_length.encode(),
     options.token,
   ])
-  let mut padding = 0
-  let mut total = 0
-  while true {
-    let ciphertext_length = payload.length() + padding + 16
-    let length_value = options.packet_number_length + ciphertext_length
-    let length_varint = match QuicVarInt::new(length_value.to_int64()) {
-      Ok(value) => value
-      Err(_) => return Err(InvalidPacket("Initial payload length overflows"))
-    }
-    total = base_prefix.length() +
-      length_varint.encoded_length() +
-      options.packet_number_length +
-      ciphertext_length
-    if total < options.min_datagram_size {
-      let next = padding + (options.min_datagram_size - total)
-      if next <= padding {
-        return Err(InvalidPacket("Initial padding overflow"))
-      }
-      padding = next
-    } else if total > options.min_datagram_size && padding > 0 {
-      let excess = total - options.min_datagram_size
-      if excess <= padding {
-        padding -= excess
-        continue
-      }
-      break
-    } else {
-      break
-    }
-    if base_prefix.length() +
-      padding +
-      payload.length() +
-      options.packet_number_length +
-      16 >
-      options.max_datagram_size {
-      return Err(InvalidPacket("Initial packet exceeds datagram limit"))
-    }
-  }
-  if total > options.max_datagram_size {
-    return Err(InvalidPacket("Initial packet exceeds datagram limit"))
+  let padding = match
+    quic_builder_padding(
+      base_prefix.length(),
+      payload.length(),
+      options.packet_number_length,
+      options.min_datagram_size,
+      options.max_datagram_size,
+    ) {
+    Ok(value) => value
+    Err(error) => return Err(error)
   }
   let ciphertext_length = payload.length() + padding + 16
   let length_varint = match
@@ -323,42 +323,16 @@ pub fn quic_build_long_packet(
       b""
     },
   ])
-  let mut padding = 0
-  let mut total = 0
-  while true {
-    let ciphertext_length = payload.length() + padding + 16
-    let length_value = packet_number_length + ciphertext_length
-    let length_varint = match QuicVarInt::new(length_value.to_int64()) {
-      Ok(value) => value
-      Err(_) => return Err(InvalidPacket("payload length overflows"))
-    }
-    total = prefix.length() +
-      length_varint.encoded_length() +
-      packet_number_length +
-      ciphertext_length
-    if total < min_datagram_size {
-      let next = padding + (min_datagram_size - total)
-      if next <= padding {
-        return Err(InvalidPacket("packet padding overflow"))
-      }
-      padding = next
-    } else if total > min_datagram_size && padding > 0 {
-      let excess = total - min_datagram_size
-      if excess <= padding {
-        padding -= excess
-        continue
-      }
-      break
-    } else {
-      break
-    }
-    if prefix.length() + padding + payload.length() + packet_number_length + 16 >
-      max_datagram_size {
-      return Err(InvalidPacket("packet exceeds datagram limit"))
-    }
-  }
-  if total > max_datagram_size {
-    return Err(InvalidPacket("packet exceeds datagram limit"))
+  let padding = match
+    quic_builder_padding(
+      prefix.length(),
+      payload.length(),
+      packet_number_length,
+      min_datagram_size,
+      max_datagram_size,
+    ) {
+    Ok(value) => value
+    Err(error) => return Err(error)
   }
   let ciphertext_length = payload.length() + padding + 16
   let length_varint = match

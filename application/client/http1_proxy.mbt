@@ -23,12 +23,9 @@ fn http1_pool_prefixed_stream(
 }
 
 ///|
-/// A proxy resolves the origin outside this process, so the origin must still
-/// pass the local resolver and address policy before its hostname is sent to
-/// the proxy.  Requiring every resolved candidate to be allowed is
-/// conservative: the proxy may choose a different candidate than a direct
-/// connector would, and allowing only one local result would leave the denied
-/// result reachable through the proxy.
+/// Resolve and authorize the origin locally, then pin the proxy request to
+/// the selected numeric address. All resolver candidates must pass policy;
+/// Host and TLS SNI retain the original origin identity independently.
 async fn Http1PooledRoundTripper::authorize_proxy_origin(
   self : Http1PooledRoundTripper,
   endpoint : @types.Endpoint,

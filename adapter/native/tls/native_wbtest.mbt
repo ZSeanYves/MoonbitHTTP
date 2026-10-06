@@ -603,6 +603,10 @@ async test "native TLS: bad PEM and mismatched credentials fail before stream I/
     fixture("localhost.cert.pem"),
     b"\n-----BEGIN CERTIFICATE-----\nnot base64\n-----END CERTIFICATE-----\n",
   )
+  let server_cert_with_garbage = append_bytes(
+    fixture("localhost.cert.pem"),
+    b"trailing non-PEM bytes",
+  )
   let crl_with_garbage = append_bytes(
     fixture("revoked.crl.pem"),
     b"trailing non-PEM bytes",
@@ -642,6 +646,11 @@ async test "native TLS: bad PEM and mismatched credentials fail before stream I/
         { ..server, server_private_key: Some(other_key), },
         true,
       ),
+      (
+        "trailing server certificate",
+        { ..server, server_certificate: Some(server_cert_with_garbage), },
+        true,
+      ),
       ("missing roots", { ..client, trust_anchors: None, }, false),
     ] {
     let stream = @transport.StreamConnection::new(
@@ -668,7 +677,7 @@ async test "native TLS: bad PEM and mismatched credentials fail before stream I/
     assert_true(stream.is_closed())
   }
   assert_eq(io_calls, 0)
-  assert_eq(closes, 6)
+  assert_eq(closes, 7)
 }
 
 ///|

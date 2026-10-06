@@ -179,6 +179,8 @@ fn QuicDatagramDriver::receive_version_negotiation(
   peer_source : ConnectionId,
 ) -> Result[Array[QuicDriverAction], QuicError] {
   if self.role != Client ||
+    self.state() != Handshaking ||
+    self.initial_receive_keys is None ||
     self.next_initial_packet == 0L ||
     self.initial_peer_id is Some(_) ||
     self.largest_handshake_received >= 0L ||
@@ -213,6 +215,7 @@ fn QuicDatagramDriver::receive_retry(
 ) -> Result[Array[QuicDriverAction], QuicError] {
   if self.role != Client ||
     self.state() != Handshaking ||
+    self.initial_receive_keys is None ||
     self.next_initial_packet == 0L ||
     self.initial_peer_id is Some(_) ||
     self.largest_handshake_received >= 0L ||
@@ -425,6 +428,25 @@ fn QuicDatagramDriver::on_packet(
     Ok(_) => ()
     Err(error) => return Err(error)
   }
+  // This driver issues only its initial local CID (sequence zero) and accepts
+  // packets only for that CID. A peer cannot retire its own NEW_CONNECTION_ID
+  // entries, and retiring the CID used by this packet is a protocol violation.
+  // Check the complete packet before an earlier NEW_CONNECTION_ID can mutate
+  // the peer namespace.
+  for frame in frames {
+    if frame is RetireConnectionId(sequence) {
+      return Err(
+        Protocol(
+          0x0aL,
+          if sequence == 0L {
+            "cannot retire the destination connection ID of this packet"
+          } else {
+            "peer retired a connection ID that was never issued locally"
+          },
+        ),
+      )
+    }
+  }
   if frames.contains(HandshakeDone) &&
     (self.role != Client || self.state() != Established) {
     return Err(
@@ -452,14 +474,40 @@ fn QuicDatagramDriver::on_packet(
       )
     }
   }
+  let has_path_challenge = frames.any(fn(frame) { frame is PathChallenge(_) })
+  if has_path_challenge {
+    // PATH_RESPONSE needs recovery capacity. Process authenticated ACKs first
+    // so a packet can release the slot its own response needs, regardless of
+    // frame order. A deferred packet must not commit CID/stream state or be
+    // marked seen; the peer can retry it after capacity returns.
+    for frame in frames {
+      if frame is Ack(ack) {
+        match self.apply_recovery_ack(space, ack, now_ms) {
+          Ok(_) => ()
+          Err(error) => return Err(error)
+        }
+      }
+    }
+    if self.recovery.sent.length() >= self.recovery.config.max_tracked_packets {
+      return Ok([PacketIgnored])
+    }
+  }
   if source_connection_id is Some(id) {
+    if self.initial_peer_id is Some(expected) && id != expected {
+      return Err(InvalidPacket("peer changed its Initial source connection ID"))
+    }
     if space == Initial && self.initial_peer_id is None {
       self.initial_peer_id = Some(id)
     }
-    self.peer_connection_id = id
+    if self.state() == Handshaking {
+      self.peer_connection_id = id
+    }
   }
   if space == Handshake && source == self.active_budget.endpoint {
     self.active_budget.validated = true
+    if self.role == Server {
+      self.discard_packet_space(Initial)
+    }
   }
   if advance_keys {
     match self.advance_receive_keys(opened.packet_number(), now_ms) {
@@ -482,9 +530,11 @@ fn QuicDatagramDriver::on_packet(
     }
     match frame {
       Ack(ack) => {
-        match self.apply_recovery_ack(space, ack, now_ms) {
-          Ok(_) => ()
-          Err(error) => return Err(error)
+        if !has_path_challenge {
+          match self.apply_recovery_ack(space, ack, now_ms) {
+            Ok(_) => ()
+            Err(error) => return Err(error)
+          }
         }
         let connection_actions = match self.connection.receive_frame(Ack(ack)) {
           Ok(value) => value
@@ -551,12 +601,7 @@ fn QuicDatagramDriver::on_packet(
         }
       NewConnectionId(sequence, retire_prior_to, id, token) =>
         match
-          self.connection_ids.receive(sequence, retire_prior_to, id, token) {
-          Ok(_) => ()
-          Err(error) => return Err(error)
-        }
-      RetireConnectionId(sequence) =>
-        match self.connection_ids.retire(sequence) {
+          self.receive_peer_connection_id(sequence, retire_prior_to, id, token) {
           Ok(_) => ()
           Err(error) => return Err(error)
         }
@@ -588,6 +633,17 @@ fn QuicDatagramDriver::on_packet(
     }
     responses.push(Ack(ack))
   }
+  // Application control frames must remain pending while replying to delayed
+  // Initial/Handshake packets whose keys have not yet been discarded.
+  // A retirement makes an ACK-only reply tracked and retransmittable. Keep it
+  // pending when either queue is full so the ACK can still be sent.
+  let retirement_count = if space == Application &&
+    self.retransmissions.length() < self.max_retransmissions &&
+    self.recovery.sent.length() < self.recovery.config.max_tracked_packets {
+    self.append_pending_retirements(responses)
+  } else {
+    0
+  }
   if !responses.is_empty() && self.state() != Closed && self.state() != Draining {
     match
       self.send_frames_internal_to(
@@ -598,8 +654,11 @@ fn QuicDatagramDriver::on_packet(
         None,
         source,
       ) {
-      Ok(value) => actions.push(value)
-      Err(AmplificationBlocked) => ()
+      Ok(value) => {
+        self.consume_pending_retirements(retirement_count)
+        actions.push(value)
+      }
+      Err(AmplificationBlocked) | Err(FlowControl(0L, _)) => ()
       Err(error) => return Err(error)
     }
   }

@@ -98,6 +98,7 @@ pub(all) struct ServerConfig {
   h2_receive_window_bytes : Int
   read_timeout_ms : Int?
   write_timeout_ms : Int?
+  h2_eof_drain_timeout_ms : Int
   close_callback : ((Error?) -> Unit)?
 }
 pub fn ServerConfig::defaults() -> Self

@@ -7,10 +7,16 @@ fn QuicDatagramDriver::discard_packet_space(
 ) -> Unit {
   match space {
     Initial => {
+      if self.initial_send_keys is None && self.initial_receive_keys is None {
+        return
+      }
       self.initial_send_keys = None
       self.initial_receive_keys = None
     }
     Handshake => {
+      if self.handshake_send_keys is None && self.handshake_receive_keys is None {
+        return
+      }
       self.handshake_send_keys = None
       self.handshake_receive_keys = None
     }

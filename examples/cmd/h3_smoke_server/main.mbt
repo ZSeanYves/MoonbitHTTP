@@ -255,29 +255,50 @@ async fn main {
           if connections.length() >= 16 {
             continue
           }
-          let (_, initial_destination, peer_id, kind, _, _) = match
+          if payload.length() < 1200 {
+            continue
+          }
+          let (version, initial_destination, peer_id, kind, _, _) = match
             @quic.quic_long_header_fields(payload) {
             Ok(value) => value
             Err(_) => continue
           }
-          if kind != 0 {
+          if version != 1 ||
+            kind != 0 ||
+            initial_destination.bytes().length() < 8 {
             continue
           }
           let id = @quic.ConnectionId::new(b"mbt-h3-1").unwrap()
-          let driver = @quic.QuicDatagramDriver::new(
-            Server,
-            source,
-            initial_destination,
-            id,
-            peer_id,
-            now_ms~,
-            authorize=fn(endpoint, operation) {
-              policy.authorize(endpoint, operation)
-            },
-          ).unwrap()
+          let driver = match
+            @quic.QuicDatagramDriver::new(
+              Server,
+              source,
+              initial_destination,
+              id,
+              peer_id,
+              now_ms~,
+              authorize=fn(endpoint, operation) {
+                policy.authorize(endpoint, operation)
+              },
+            ) {
+            Ok(value) => value
+            Err(_) => continue
+          }
           let provider = @tls_native.NativeQuicTlsProvider::new(server=true)
-          let tls = @quic.QuicTlsDriver::new(driver, provider).unwrap()
-          ignore(tls.start(options, now_ms).unwrap())
+          let tls = match @quic.QuicTlsDriver::new(driver, provider) {
+            Ok(value) => value
+            Err(_) => {
+              provider.close()
+              continue
+            }
+          }
+          match tls.start(options, now_ms) {
+            Ok(_) => ()
+            Err(_) => {
+              provider.close()
+              continue
+            }
+          }
           let connection = {
             tls,
             provider,

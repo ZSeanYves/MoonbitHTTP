@@ -150,7 +150,9 @@ test "cache stale revalidation: validators, conditional headers, and 304 merge" 
         headers: not_modified_headers,
         body: (),
       }
-      let refreshed = cache.revalidate(request, not_modified, 102L).unwrap()
+      let refreshed = cache
+        .revalidate({ ..request, headers: conditional, }, not_modified, 102L)
+        .unwrap()
       assert_eq(refreshed.body(), b"payload")
       assert_eq(refreshed.freshness_lifetime(), 30L)
       assert_eq(

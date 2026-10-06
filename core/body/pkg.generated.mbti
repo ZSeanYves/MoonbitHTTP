@@ -34,8 +34,8 @@ pub struct BodyStream {
 pub fn BodyStream::cancel(Self, Error) -> Unit
 pub fn BodyStream::fail(Self, Error) -> Unit
 pub fn BodyStream::finish(Self) -> Unit
-pub fn BodyStream::from_pull(async () -> Frame?, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit) -> Self
-pub fn BodyStream::new(capacity? : Int, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit) -> Result[Self, BodyError]
+pub fn BodyStream::from_pull(async () -> Frame?, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit, on_cancel? : (Error) -> Unit) -> Self
+pub fn BodyStream::new(capacity? : Int, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit, on_cancel? : (Error) -> Unit) -> Result[Self, BodyError]
 pub async fn BodyStream::next_frame(Self) -> Frame?
 pub async fn BodyStream::push(Self, Frame) -> Unit
 pub fn BodyStream::size_hint(Self) -> SizeHint

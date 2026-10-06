@@ -63,8 +63,8 @@ async fn main {
     return
   }
   // Keep the package inventory and the release evidence on the same policy.
-  // The checker invokes moon package --list and rejects any member outside
-  // repo-tools/tools/distribution.json before this script reads the archive.
+  // The checker enforces the clean-tree, allowlist, tracked-member and frozen
+  // Git-blob checks before this script reads the archive.
   ignore(command_text("moon", ["run", "repo-tools/tools/check_distribution.mbtx"]))
   let revision = command_text("git", ["rev-parse", "HEAD"]).trim().to_owned()
   let source = @fs.read_file("moon.mod").text()
@@ -82,8 +82,13 @@ async fn main {
     let path = raw.to_owned()
     if path.is_empty() || path.has_suffix("/") { continue }
     guard !path.has_prefix("/") && !path.has_prefix("-") &&
-      !path.split("/").any(fn(part) { part == ".." || part == ".git" || part == "_build" || part == "target" || part == ".mooncakes" }) &&
-      path != "coverage.xml" && !path.has_suffix(".zip") else {
+      !path.split("/").any(fn(part) {
+        part == ".." || part == ".git" || part == "_build" ||
+          part == "target" || part == ".mooncakes" || part == "coverage" ||
+          part == "evidence"
+      }) && path != "coverage.xml" && path != "coverage.json" &&
+      !path.has_suffix(".coverage") && !path.has_suffix(".profraw") &&
+      !path.has_suffix(".zip") else {
       fail("unsafe or generated archive member: \{path}")
     }
     guard seen.get(path) is None && tracked.any(fn(tracked_path) { tracked_path == path }) else {

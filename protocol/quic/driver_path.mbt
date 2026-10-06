@@ -123,5 +123,9 @@ pub fn QuicDatagramDriver::poll(
     }
     output.append(pending)
   }
+  match self.flush_retirements(now_ms) {
+    Ok(actions) => output.append(actions)
+    Err(error) => return Err(error)
+  }
   Ok(output)
 }

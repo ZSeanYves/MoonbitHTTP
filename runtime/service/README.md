@@ -20,6 +20,17 @@ Give each service explicit Reader, Writer, handler, and validated config. Handle
 ## Invariants and scope
 Reader tasks, body queues, flow-control release, deadlines, cancellation, and close are scoped to the service call.
 
+After the read loop observes HTTP/2 peer EOF, finite responses may finish using available send credit.
+`ServerConfig.h2_eof_drain_timeout_ms` bounds this drain across handlers, response
+body producers and writers (default 30000 ms, must be positive), including h2c
+upgrades. Expiry raises an H2 connection `Cancel` error and cancels and joins the
+remaining tasks. Disabling read/write timeouts does not disable this deadline.
+The timer starts only when EOF is observed. Explicitly disabling write timeouts
+still allows a control-frame write to block the read loop before that point.
+Cancellation is cooperative: application code must yield and keep protected
+cleanup finite. Callers constructing a full `ServerConfig` literal must add the
+new field, or use `..ServerConfig::defaults()`.
+
 ## Canonical docs
 - [Package map](../../docs/concepts/packages.md)
 - [Architecture](../../docs/concepts/architecture.md)

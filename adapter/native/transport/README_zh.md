@@ -19,6 +19,7 @@ Last reviewed: 2026-10-01
 
 ## 不变量与范围
 hostname 解析显式进行；TCP/UDP connect 需要数字 endpoint，policy 与 datagram 上限在 host I/O 前执行。
+UdpSocket 只接受数字单播目标，IPv4-mapped IPv6 中的组播地址也在创建 socket 前拒绝；UdpServerSocket 保留每个 datagram 的实际来源，并逐次授权 peer 操作。
 
 ## 规范文档
 - [中文总览](../../../README_zh.md)

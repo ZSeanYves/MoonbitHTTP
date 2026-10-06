@@ -17,6 +17,8 @@ import {
 
 import {
   "moonbit-community/flate/gzip",
+  "moonbit-community/flate/zlib",
+  "hustcer/fbr",
   "moonbitlang/async/aqueue",
   "ZSeanYves/MoonbitHTTP/internal/test_support",
 } for "test"

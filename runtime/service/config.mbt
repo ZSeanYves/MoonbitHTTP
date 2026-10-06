@@ -37,6 +37,9 @@ pub fn ServerConfig::validate(
     self.h2_receive_window_bytes > self.limits.max_buffer_bytes {
     return Err(InvalidReceiveWindow(self.h2_receive_window_bytes))
   }
+  if self.h2_eof_drain_timeout_ms <= 0 {
+    return Err(InvalidTimeout("h2 EOF drain", self.h2_eof_drain_timeout_ms))
+  }
   match validate_timeout("read", self.read_timeout_ms) {
     Ok(_) => ()
     Err(error) => return Err(error)

@@ -1,11 +1,11 @@
 ///|
 fn QpackEncoder::parse_decoder_instruction(
   self : QpackEncoder,
+  input : BytesView,
 ) -> Result[Int, QpackParseError] {
-  if self.decoder_buffer.is_empty() {
+  if input.is_empty() {
     return Err(QpackParseNeedMore)
   }
-  let input = Bytes::from_array(self.decoder_buffer)
   let first = input[0].to_int()
   if (first & 0x80) != 0 {
     let (stream_id, used) = match qpack_decode_integer(input, 7) {
@@ -60,9 +60,23 @@ pub fn QpackEncoder::feed_decoder_stream(
     return Err(error)
   }
   h3_append_bytes(self.decoder_buffer, bytes)
-  while !self.decoder_buffer.is_empty() {
-    match self.parse_decoder_instruction() {
-      Err(QpackParseNeedMore) => return Ok(())
+  let mut cursor = 0
+  while cursor < self.decoder_buffer.length() {
+    let parsed = match
+      qpack_instruction_length(
+        self.decoder_buffer,
+        cursor,
+        false,
+        self.limits.max_decoded_field_section_bytes,
+      ) {
+      Ok(length) =>
+        self.parse_decoder_instruction(
+          Bytes::from_array(self.decoder_buffer[cursor:cursor + length]),
+        )
+      Err(error) => Err(error)
+    }
+    match parsed {
+      Err(QpackParseNeedMore) => break
       Err(error) => {
         let error = qpack_parse_error(
           error,
@@ -72,14 +86,11 @@ pub fn QpackEncoder::feed_decoder_stream(
         self.failure = Some(error)
         return Err(error)
       }
-      Ok(used) => {
-        let remaining : Array[Byte] = []
-        for index in used..<self.decoder_buffer.length() {
-          remaining.push(self.decoder_buffer[index])
-        }
-        self.decoder_buffer = remaining
-      }
+      Ok(used) => cursor += used
     }
+  }
+  if cursor > 0 {
+    self.decoder_buffer = self.decoder_buffer[cursor:].to_owned()
   }
   Ok(())
 }

@@ -3,6 +3,7 @@ package "ZSeanYves/MoonbitHTTP/application/server"
 
 import {
   "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "moonbitlang/async/cond_var",
   "moonbitlang/core/debug",
 }
 
@@ -113,6 +114,9 @@ pub struct ServerSupervisor {
   mut accept_errors : Int
   mut next_connection_id : Int
   metrics : ServerMetrics
+  connections_changed : @cond_var.Cond
+  mut close_listener : (() -> Unit)?
+  mut cancel_accept : (() -> Unit)?
 }
 pub fn ServerSupervisor::active_connections(Self) -> Int
 pub fn ServerSupervisor::begin_shutdown(Self) -> Result[Unit, ServerError]

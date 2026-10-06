@@ -6,6 +6,8 @@ pub(all) struct ServerConfig {
   h2_receive_window_bytes : Int
   read_timeout_ms : Int?
   write_timeout_ms : Int?
+  /// Maximum time to finish H2 handlers and response bodies after peer EOF.
+  h2_eof_drain_timeout_ms : Int
   close_callback : ((Error?) -> Unit)?
 }
 
@@ -18,6 +20,7 @@ pub fn ServerConfig::defaults() -> ServerConfig {
     h2_receive_window_bytes: 65535,
     read_timeout_ms: Some(30000),
     write_timeout_ms: Some(30000),
+    h2_eof_drain_timeout_ms: 30000,
     close_callback: None,
   }
 }
@@ -31,6 +34,7 @@ fn ServerConfig::without_close_callback(self : ServerConfig) -> ServerConfig {
     h2_receive_window_bytes: self.h2_receive_window_bytes,
     read_timeout_ms: self.read_timeout_ms,
     write_timeout_ms: self.write_timeout_ms,
+    h2_eof_drain_timeout_ms: self.h2_eof_drain_timeout_ms,
     close_callback: None,
   }
 }
@@ -252,9 +256,12 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
                 group.spawn(async fn() {
                   defer {
                     handler_done = true
+                    // The outgoing body may consume request input lazily.
+                    // Once it ends, wake any producer blocked on unread input.
+                    stream.cancel(@body.BodyError::Cancelled)
                   }
                   let response = service(request)
-                  with_http1_body_scope(response.body, async fn() {
+                  with_outgoing_body_scope(response.body, async fn() {
                     let request_method = request.http_method
                     let version = request.version
                     let mut framing = @http1.NoBody
@@ -319,11 +326,17 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
             }
             RequestData(data) =>
               if !handler_done && active_stream is Some(stream) {
-                stream.push(Data(data))
+                stream.push(Data(data)) catch {
+                  @body.BodyError::Cancelled if handler_done => ()
+                  error => raise error
+                }
               }
             RequestTrailers(trailers) =>
               if !handler_done && active_stream is Some(stream) {
-                stream.push(Trailers(trailers))
+                stream.push(Trailers(trailers)) catch {
+                  @body.BodyError::Cancelled if handler_done => ()
+                  error => raise error
+                }
               }
             RequestEnd => {
               finish_handler()
@@ -349,11 +362,17 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
           Ok(None) => break
           Ok(Some(RequestData(data))) =>
             if !handler_done && active_stream is Some(stream) {
-              stream.push(Data(data))
+              stream.push(Data(data)) catch {
+                @body.BodyError::Cancelled if handler_done => ()
+                error => raise error
+              }
             }
           Ok(Some(RequestTrailers(trailers))) =>
             if !handler_done && active_stream is Some(stream) {
-              stream.push(Trailers(trailers))
+              stream.push(Trailers(trailers)) catch {
+                @body.BodyError::Cancelled if handler_done => ()
+                error => raise error
+              }
             }
           Ok(Some(RequestEnd)) => {
             finish_handler()
@@ -438,7 +457,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_with_
         error => {
           terminal = Some(error)
           let response = error_responder(error)
-          with_http1_body_scope(response.body, async fn() {
+          with_outgoing_body_scope(response.body, async fn() {
             let head : @types.Response[Unit] = {
               status: response.status,
               version: Http11,

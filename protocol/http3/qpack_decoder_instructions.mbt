@@ -1,11 +1,11 @@
 ///|
 fn QpackDecoder::parse_encoder_instruction(
   self : QpackDecoder,
+  input : BytesView,
 ) -> Result[Int, QpackParseError] {
-  if self.encoder_buffer.is_empty() {
+  if input.is_empty() {
     return Err(QpackParseNeedMore)
   }
-  let input = Bytes::from_array(self.encoder_buffer)
   let first = input[0].to_int()
   if (first & 0x80) != 0 {
     let is_static = (first & 0x40) != 0
@@ -115,9 +115,23 @@ pub fn QpackDecoder::feed_encoder_stream(
     return Err(error)
   }
   h3_append_bytes(self.encoder_buffer, bytes)
-  while !self.encoder_buffer.is_empty() {
-    match self.parse_encoder_instruction() {
-      Err(QpackParseNeedMore) => return Ok(())
+  let mut cursor = 0
+  while cursor < self.encoder_buffer.length() {
+    let parsed = match
+      qpack_instruction_length(
+        self.encoder_buffer,
+        cursor,
+        true,
+        self.limits.max_decoded_field_section_bytes,
+      ) {
+      Ok(length) =>
+        self.parse_encoder_instruction(
+          Bytes::from_array(self.encoder_buffer[cursor:cursor + length]),
+        )
+      Err(error) => Err(error)
+    }
+    match parsed {
+      Err(QpackParseNeedMore) => break
       Err(error) => {
         let error = qpack_parse_error(
           error,
@@ -127,14 +141,11 @@ pub fn QpackDecoder::feed_encoder_stream(
         self.failure = Some(error)
         return Err(error)
       }
-      Ok(used) => {
-        let remaining : Array[Byte] = []
-        for index in used..<self.encoder_buffer.length() {
-          remaining.push(self.encoder_buffer[index])
-        }
-        self.encoder_buffer = remaining
-      }
+      Ok(used) => cursor += used
     }
+  }
+  if cursor > 0 {
+    self.encoder_buffer = self.encoder_buffer[cursor:].to_owned()
   }
   Ok(())
 }

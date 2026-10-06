@@ -151,6 +151,13 @@ pub struct QuicConnectionIdManager {
 } derive(Debug)
 
 ///|
+priv struct QuicConnectionIdUpdate {
+  ids : Array[QuicConnectionId]
+  retire_prior_to : Int64
+  retirements : Array[Int64]
+}
+
+///|
 pub fn QuicConnectionIdManager::new(
   initial : ConnectionId,
   max_active? : Int = 2,
@@ -179,36 +186,6 @@ pub fn QuicConnectionIdManager::active(
 }
 
 ///|
-/// Advance the peer's RETIRE_PRIOR_TO floor and discard retired metadata.
-///
-/// This is also applied to an authenticated duplicate NEW_CONNECTION_ID: the
-/// duplicate still carries a newer floor and must not be allowed to leave an
-/// unbounded retired prefix in memory.
-fn QuicConnectionIdManager::advance_retire_prior_to(
-  self : QuicConnectionIdManager,
-  retire_prior_to : Int64,
-) -> Unit {
-  self.retire_prior_to = self.retire_prior_to.max(retire_prior_to)
-  for value in self.ids {
-    if value.sequence < self.retire_prior_to {
-      value.retired = true
-    }
-  }
-  // Once the peer advances RETIRE_PRIOR_TO, those sequence numbers can never
-  // be announced again. Drop their metadata immediately so a long-lived
-  // connection cannot retain one entry per authenticated NEW_CONNECTION_ID.
-  if self.retire_prior_to > 0L {
-    let retained : Array[QuicConnectionId] = []
-    for value in self.ids {
-      if !value.retired || value.sequence >= self.retire_prior_to {
-        retained.push(value)
-      }
-    }
-    self.ids = retained
-  }
-}
-
-///|
 pub fn QuicConnectionIdManager::receive(
   self : QuicConnectionIdManager,
   sequence : Int64,
@@ -216,31 +193,99 @@ pub fn QuicConnectionIdManager::receive(
   id : ConnectionId,
   reset_token : Bytes,
 ) -> Result[Unit, QuicError] {
+  match self.prepare_announcement(sequence, retire_prior_to, id, reset_token) {
+    Ok(update) => {
+      self.apply_update(update)
+      Ok(())
+    }
+    Err(error) => Err(error)
+  }
+}
+
+///|
+/// Peer-issued CID state only. Build the new bounded set before committing it;
+/// malformed announcements must not retire the currently selected destination.
+/// The caller sends RETIRE_CONNECTION_ID for the returned sequence numbers.
+fn QuicConnectionIdManager::prepare_announcement(
+  self : QuicConnectionIdManager,
+  sequence : Int64,
+  retire_prior_to : Int64,
+  id : ConnectionId,
+  reset_token : Bytes,
+) -> Result[QuicConnectionIdUpdate, QuicError] {
   if sequence < 0L ||
+    sequence > QUIC_MAX_VARINT ||
     retire_prior_to < 0L ||
     retire_prior_to > sequence ||
+    id.bytes().is_empty() ||
     reset_token.length() != 16 {
     return Err(InvalidFrame("invalid NEW_CONNECTION_ID"))
   }
-  if sequence < self.retire_prior_to {
-    return Err(Protocol(0x6L, "connection ID sequence is retired"))
+  if self.ids.any(fn(value) { value.id.bytes().is_empty() }) {
+    return Err(
+      Protocol(0x0aL, "NEW_CONNECTION_ID after a zero-length initial CID"),
+    )
   }
+  if sequence < self.retire_prior_to {
+    // Reordered announcements below the floor must be retired again, without
+    // retaining their metadata or reactivating them.
+    return Ok({
+      ids: self.ids,
+      retire_prior_to: self.retire_prior_to,
+      retirements: [sequence],
+    })
+  }
+  let floor = self.retire_prior_to.max(retire_prior_to)
+  let retained : Array[QuicConnectionId] = []
+  let retirements : Array[Int64] = []
+  let mut duplicate = false
   for value in self.ids {
     if value.sequence == sequence {
-      if value.id != id || value.reset_token != reset_token {
-        return Err(Protocol(0x6L, "connection ID sequence was reused"))
+      if value.id != id ||
+        (!value.reset_token.is_empty() && value.reset_token != reset_token) {
+        return Err(Protocol(0x0aL, "connection ID sequence was reused"))
       }
-      self.advance_retire_prior_to(retire_prior_to)
-      return Ok(())
+      duplicate = true
+    } else if value.id == id {
+      return Err(
+        Protocol(0x0aL, "connection ID was reused with a different sequence"),
+      )
+    }
+    if value.sequence < floor {
+      if !value.retired {
+        retirements.push(value.sequence)
+      }
+    } else if value.sequence == sequence {
+      retained.push({ ..value, reset_token, })
+      if value.retired {
+        retirements.push(sequence)
+      }
+    } else {
+      retained.push(value)
     }
   }
-  self.advance_retire_prior_to(retire_prior_to)
-  let active_count = self.active().length()
-  if active_count >= self.max_active {
+  if !duplicate {
+    retained.push({ sequence, id, reset_token, retired: false, })
+  }
+  let active_count = retained.filter(fn(value) { !value.retired }).length()
+  if active_count > self.max_active {
     return Err(LimitExceeded("active connection IDs", self.max_active))
   }
-  self.ids.push({ sequence, id, reset_token, retired: false, })
-  Ok(())
+  // Standalone callers can retire individual peer IDs. Keep those tombstones
+  // for reuse checks, but do not let that API bypass the metadata budget.
+  if retained.length() > self.max_active {
+    return Err(LimitExceeded("connection ID history", self.max_active))
+  }
+  Ok({ ids: retained, retire_prior_to: floor, retirements, })
+}
+
+///|
+fn QuicConnectionIdManager::apply_update(
+  self : QuicConnectionIdManager,
+  update : QuicConnectionIdUpdate,
+) -> Unit {
+  self.retire_prior_to = update.retire_prior_to
+  self.ids = update.ids
 }
 
 ///|
@@ -253,10 +298,10 @@ pub fn QuicConnectionIdManager::retire(
       if value.retired {
         return Ok(())
       }
-      value.retired = true
-      if self.active().is_empty() {
+      if self.active().length() == 1 {
         return Err(Protocol(0x6L, "cannot retire the active connection ID"))
       }
+      value.retired = true
       return Ok(())
     }
   }

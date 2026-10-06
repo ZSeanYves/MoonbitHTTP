@@ -66,6 +66,7 @@ pub(all) suberror TlsOptionsError {
   RevocationRequiresVerification
   MissingRevocationList
   OcspRequiresClientRole
+  EmptyTrustAnchors
 } derive(Eq, @debug.Debug)
 pub fn TlsOptionsError::equal(Self, Self) -> Bool
 pub fn TlsOptionsError::not_equal(Self, Self) -> Bool

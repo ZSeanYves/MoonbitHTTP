@@ -275,6 +275,38 @@ async test "body: termination callback runs exactly once with the first cause" {
 }
 
 ///|
+async test "body: cancellation after producer termination clears frames and preserves first cause" {
+  for failed in [false, true] {
+    let mut cancellations = 0
+    let mut terminations = 0
+    let stream = @body.BodyStream::new(
+      on_terminate=fn(_) { terminations += 1 },
+      on_cancel=fn(_) { cancellations += 1 },
+    ).unwrap()
+    stream.push(Data(b"unread"))
+    if failed {
+      stream.fail(@types.UriError::InvalidUri("original"))
+    } else {
+      stream.finish()
+    }
+    stream.cancel(@body.BodyError::Cancelled)
+    stream.cancel(@body.BodyError::Cancelled)
+    assert_eq(cancellations, 1)
+    assert_eq(terminations, 1)
+    if failed {
+      try stream.next_frame() catch {
+        @types.UriError::InvalidUri("original") => ()
+        error => raise error
+      } noraise {
+        _ => fail("cancellation lost the original failure")
+      }
+    } else {
+      assert_true(stream.next_frame() is None)
+    }
+  }
+}
+
+///|
 async test "body: queue snapshots frame sequence at construction" {
   let frames : Array[@body.Frame] = [Data(b"original")]
   let body = @body.QueueBody::new(frames)

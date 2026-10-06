@@ -3,7 +3,6 @@
 /// see the capability-bound `Listener` and `StreamConnection` contracts.
 pub struct NativeTcpListener {
   server : @socket.TcpServer
-  bind_endpoint : @types.Endpoint
   handler : async (@transport.StreamConnection) -> Result[Unit, Error]
   authorize_peer : (@types.Endpoint) -> Result[Unit, @transport.PolicyError]
   mut closed : Bool
@@ -50,7 +49,6 @@ pub async fn[P : @transport.NetworkPolicy] NativeTcpListener::bind(
   }
   Ok({
     server,
-    bind_endpoint: endpoint,
     handler,
     authorize_peer: fn(peer) {
       @transport.NetworkPolicy::authorize(policy, peer, Accept)
@@ -87,7 +85,13 @@ pub async fn[P : @transport.NetworkPolicy, T : @transport.TlsProvider] NativeTcp
       defer connection.close()
       let result = @async.with_timeout(handshake_timeout_ms, async fn() {
         @transport.TlsProvider::server_handshake(provider, connection, options)
-      })
+      }) catch {
+        @async.TimeoutError =>
+          return Err(
+            @transport.TlsError::HandshakeFailed("TLS handshake timed out"),
+          )
+        error => raise error
+      }
       match result {
         Err(error) => Err(error)
         Ok(secure) => {
@@ -103,21 +107,23 @@ pub async fn[P : @transport.NetworkPolicy, T : @transport.TlsProvider] NativeTcp
 
 ///|
 fn peer_endpoint(
-  fallback : @types.Endpoint,
   peer : @socket.Addr,
-) -> @types.Endpoint {
+) -> Result[@types.Endpoint, @server_api.ServerError] {
+  let invalid_peer = @server_api.ServerError::Policy(
+    Denied(Accept, "accepted peer address is not representable"),
+  )
   let host = if !peer.is_ipv6() {
     let value = peer.ip()
     "\{value >> 24}.\{(value >> 16) & 255}.\{(value >> 8) & 255}.\{value & 255}"
   } else {
     let rendered = peer.to_string()
-    guard rendered.has_prefix("[") else { return fallback }
-    guard rendered.find("]") is Some(close) else { return fallback }
+    guard rendered.has_prefix("[") else { return Err(invalid_peer) }
+    guard rendered.find("]") is Some(close) else { return Err(invalid_peer) }
     rendered[1:close].to_owned()
   }
   match @types.Endpoint::new("tcp", host, peer.port()) {
-    Ok(endpoint) => endpoint
-    Err(_) => fallback
+    Ok(endpoint) => Ok(endpoint)
+    Err(_) => Err(invalid_peer)
   }
 }
 
@@ -134,7 +140,13 @@ pub impl @server_api.Listener for NativeTcpListener with fn accept(self) {
         Err(AcceptFailed("native TCP accept failed"))
       }
   }
-  let endpoint = peer_endpoint(self.bind_endpoint, peer)
+  let endpoint = match peer_endpoint(peer) {
+    Ok(value) => value
+    Err(error) => {
+      tcp.close()
+      return Err(error)
+    }
+  }
   match (self.authorize_peer)(endpoint) {
     Ok(_) => ()
     Err(error) => {

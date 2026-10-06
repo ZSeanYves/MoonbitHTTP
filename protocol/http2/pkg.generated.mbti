@@ -89,6 +89,7 @@ pub(all) enum H2Action {
   SendSettingsAck
   SendPingAck(Array[Byte])
   HeadersStarted(Int, Bool)
+  HeadersDiscarded(Int, Bool, H2ErrorCode)
   HeadersContinued(Int, Bool)
   DataReceived(Int, Array[Byte], Bool, Int)
   StreamResetReceived(Int, Int)
@@ -109,6 +110,7 @@ pub fn H2Connection::open_local_stream(Self, end_stream? : Bool) -> Result[Int, 
 pub fn H2Connection::receive(Self, H2Frame) -> Result[Array[H2Action], H2ProtocolError]
 pub fn H2Connection::release_capacity(Self, Int, Int) -> Result[Array[H2Action], H2ProtocolError]
 pub fn H2Connection::release_connection_capacity(Self, Int) -> Result[H2Action, H2ProtocolError]
+pub fn H2Connection::release_discarded_capacity(Self) -> Result[Array[H2Action], H2ProtocolError]
 pub fn H2Connection::reserve_send_capacity(Self, Int, Int) -> Result[Int, H2ProtocolError]
 pub fn H2Connection::reset_stream(Self, Int) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::set_local_initial_window(Self, Int) -> Result[Unit, H2ProtocolError]

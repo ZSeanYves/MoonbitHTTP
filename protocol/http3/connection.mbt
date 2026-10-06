@@ -26,6 +26,7 @@ pub struct Http3Connection {
   decoder : QpackDecoder
   encoder : QpackEncoder
   priv streams : Map[Int64, H3RequestStreamState]
+  priv blocked_sections : Map[Int64, Bytes]
   mut remote_control_stream : Int64?
   mut remote_qpack_encoder_stream : Int64?
   mut remote_qpack_decoder_stream : Int64?
@@ -80,6 +81,7 @@ pub fn Http3Connection::new(
     decoder,
     encoder,
     streams: Map([]),
+    blocked_sections: Map([]),
     remote_control_stream: None,
     remote_qpack_encoder_stream: None,
     remote_qpack_decoder_stream: None,
@@ -179,6 +181,9 @@ pub fn Http3Connection::accept_request_stream(
 }
 
 ///|
+/// An empty action list means the caller must retain this frame. Once QPACK
+/// becomes ready, replay the original blocked HEADERS before later frames.
+/// Http3Driver performs this bounded buffering automatically.
 pub fn Http3Connection::receive_request_frame(
   self : Http3Connection,
   stream_id : Int64,
@@ -204,16 +209,24 @@ pub fn Http3Connection::receive_request_frame(
       )
   }
   let actions : Array[H3Action] = []
+  if self.blocked_sections.get(stream_id) is Some(section) &&
+    frame != H3Headers(section) {
+    return Ok([])
+  }
   match frame {
     H3Headers(section) => {
       let decoded = match
         self.decoder.decode_field_section(stream_id, section) {
         Ok(result) => result
-        Err(error) => return Err(error)
+        Err(error) => {
+          self.blocked_sections.remove(stream_id)
+          return Err(error)
+        }
       }
       match decoded {
-        QpackBlocked(_) => ()
+        QpackBlocked(_) => self.blocked_sections.set(stream_id, section)
         QpackDecoded(fields, acknowledgment_required) => {
+          self.blocked_sections.remove(stream_id)
           let (trailers, informational) = match
             stream.receive_headers(fields, self.local_enable_connect_protocol) {
             Ok(result) => result
@@ -237,35 +250,15 @@ pub fn Http3Connection::receive_request_frame(
         Ok(_) => actions.push(H3DataReceived(stream_id, data))
         Err(error) => return Err(error)
       }
-    H3PushPromise(push_id, section) => {
+    H3PushPromise(_, _) => {
       if self.role != H3Client {
         return Err(
           Http3ConnectionError(H3FrameUnexpected, "client sent PUSH_PROMISE"),
         )
       }
-      let decoded = match
-        self.decoder.decode_field_section(stream_id, section) {
-        Ok(result) => result
-        Err(error) => return Err(error)
-      }
-      match decoded {
-        QpackBlocked(_) => ()
-        QpackDecoded(fields, acknowledgment_required) => {
-          match
-            validate_http3_field_section(stream_id, fields, H3PushPromiseFields) {
-            Ok(_) => ()
-            Err(error) => return Err(error)
-          }
-          actions.push(H3PushPromiseReceived(stream_id, push_id, fields))
-          if acknowledgment_required {
-            let instruction = match qpack_section_acknowledgment(stream_id) {
-              Ok(result) => result
-              Err(error) => return Err(error)
-            }
-            actions.push(H3SendQpackDecoderInstruction(instruction))
-          }
-        }
-      }
+      // This connection never grants a MAX_PUSH_ID. Reject before QPACK can
+      // consume resources or expose an unsolicited promise to the application.
+      return Err(Http3ConnectionError(H3IdError, "server push was not granted"))
     }
     H3Unknown(typ, _) => actions.push(H3UnknownFrameIgnored(typ))
     _ =>
@@ -314,6 +307,7 @@ pub fn Http3Connection::cancel_request_stream(
     None => ()
   }
   self.decoder.cancel_stream(stream_id)
+  self.blocked_sections.remove(stream_id)
   self.streams.remove(stream_id)
   qpack_stream_cancellation(stream_id)
 }

@@ -135,6 +135,8 @@ pub(all) struct CacheHit {
   freshness_lifetime : Int64
   stale_seconds : Int64
   stale_if_error : Int64
+  /// Explicit permission, separate from a zero-second allowance.
+  stale_if_error_allowed : Bool
   etag : String?
   last_modified : String?
 }
@@ -167,6 +169,12 @@ pub fn CacheHit::stale_seconds(self : CacheHit) -> Int64 {
 ///|
 pub fn CacheHit::stale_if_error(self : CacheHit) -> Int64 {
   self.stale_if_error
+}
+
+///|
+/// Whether the stored response may replace a failed revalidation now.
+pub fn CacheHit::allows_stale_if_error(self : CacheHit) -> Bool {
+  self.stale_if_error_allowed && self.stale_seconds <= self.stale_if_error
 }
 
 ///|

@@ -347,6 +347,36 @@ static int pem_block_count(const unsigned char *pem, int length,
   return count;
 }
 
+static int pem_certificate_chain_count(const unsigned char *pem, int length) {
+  const char *begin_marker = "-----BEGIN CERTIFICATE-----";
+  const char *end_marker = "-----END CERTIFICATE-----";
+  size_t begin_length = strlen(begin_marker);
+  size_t end_length = strlen(end_marker);
+  size_t position = 0;
+  while (position + begin_length <= (size_t)length &&
+         memcmp(pem + position, begin_marker, begin_length)) {
+    ++position;
+  }
+  if (position + begin_length > (size_t)length) return -1;
+  int count = 0;
+  for (;;) {
+    size_t end = position + begin_length;
+    while (end + end_length <= (size_t)length &&
+           memcmp(pem + end, end_marker, end_length)) {
+      ++end;
+    }
+    if (end + end_length > (size_t)length) return -1;
+    position = end + end_length;
+    ++count;
+    while (position < (size_t)length && pem_byte_is_whitespace(pem[position])) {
+      ++position;
+    }
+    if (position == (size_t)length) return count;
+    if (position + begin_length > (size_t)length ||
+        memcmp(pem + position, begin_marker, begin_length)) return -1;
+  }
+}
+
 static int load_roots(HttpTls *self, const unsigned char *pem, int length) {
   BIO *bio = p_BIO_new_mem_buf(pem, length);
   if (!bio) return 0;
@@ -424,14 +454,19 @@ static int load_identity(HttpTls *self, const unsigned char *certs, int cert_len
   int ok = p_SSL_CTX_use_certificate(self->ctx, leaf);
   p_X509_free(leaf);
   if (ok != 1) { p_BIO_free(bio); return 0; }
+  int certificate_count = 1;
   X509 *extra;
   while ((extra = p_PEM_read_bio_X509(bio, NULL, NULL, NULL))) {
     if (p_SSL_CTX_ctrl(self->ctx, 14, 0, extra) != 1) {
       p_X509_free(extra); p_BIO_free(bio); return 0;
     }
     /* SSL_CTX now owns the extra chain certificate. */
+    ++certificate_count;
   }
+  int expected_certificates = pem_certificate_chain_count(certs, cert_len);
   p_BIO_free(bio);
+  if (expected_certificates <= 0 ||
+      expected_certificates != certificate_count) return 0;
   p_ERR_clear_error();
   bio = p_BIO_new_mem_buf(key, key_len);
   if (!bio) return 0;
