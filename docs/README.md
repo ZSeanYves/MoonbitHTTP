@@ -3,11 +3,12 @@
 > Status: canonical
 > Scope: documentation map for the 0.7.0 development line
 > Source: working-tree (governed by Git)
-> Last reviewed: 2026-10-01
+> Last reviewed: 2026-10-06
 
 This directory separates maintained design and usage guidance from generated
 reference material and historical evidence. The root [README](../README.md)
 is the five-minute entry point; this page is the longer navigation map.
+The version-level change record is [`CHANGELOG.md`](../CHANGELOG.md).
 
 ## Start here
 
@@ -35,6 +36,8 @@ is the five-minute entry point; this page is the longer navigation map.
 - [Distribution contents](release/packaging.md)
 - [Production roadmap](release/roadmap.zh-CN.md)
 - [Generated dependency graph](reference/generated/dependencies.md)
+- [Historical timeline](history/timeline.md) — chronological index of retained
+  snapshots and the current document that absorbed each record.
 - [Historical reports](archive/2026-09/) — preserved snapshots with their
   original claims and source revisions.
 

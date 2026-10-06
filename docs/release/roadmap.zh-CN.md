@@ -4,11 +4,13 @@
 > Scope: 0.7.0 development line and the complete production acceptance scope
 > for the v1 architecture target; this is a roadmap, not a release approval.
 > Source: working-tree (governed by Git)
-> Last reviewed: 2026-10-01
+> Last reviewed: 2026-10-06
 
 状态：生产验收目标；v1 的最新架构与破坏性 API 迁移决策以
 [v1 architecture](../concepts/architecture.md) 为准。本文件的完整生产验收范围继续保留。
 当前运行记录见 [current evidence](current.md)，门槛清单见 [release gates](gates.md)。
+版本级用户可见变化见 [`CHANGELOG.md`](../../CHANGELOG.md)；历史快照见
+[`docs/history/timeline.md`](../history/timeline.md)。
 
 本文档定义 MoonbitHTTP 从“可互操作的 HTTP/1.1、HTTP/2 流式库”扩展为“可实际部署的纯 MoonBit HTTP 协议库”的架构、公共契约、实现顺序和发布门槛。它是实现约束，不是对当前版本已经具备的能力的重新声明。
 
@@ -304,6 +306,16 @@ ServerError(operation, cause)
 
 验收：现有 HTTP/1、HTTP/2 测试全部通过；任意单字节分片、空输入、重复 finish、过量 body 和错误后继续读取均有固定测试。
 
+#### Completion Record
+
+- Status: locally complete for the recorded contract and four-target checks
+- Changelog: [`0.7.0-alpha`](../../CHANGELOG.md#070-alpha)
+- Recorded at: `2026-10-06T12:54:08+08:00`
+- Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted remediation
+- Commit range: `a877c70..391e415` plus current working-tree changes; final range pending
+- Validation summary: generated interfaces, strict check/build/test and body/type regressions passed in the current local matrix
+- Known limitations: current tree is dirty; complete release-revision security coverage is open
+
 ### 阶段 B：HTTP/1.1 生产级核心（P0）
 
 - 完成 RFC 9110/9112 的请求/响应语义：方法、状态码、Host、CONNECT、Expect/100-continue、HEAD、1xx、204/304、升级、trailers、close-delimited 和 keep-alive。
@@ -313,6 +325,16 @@ ServerError(operation, cause)
 
 验收：curl、Wget、标准 HTTP/1 测试服务和故障注入内存 pipe 互操作；所有解析错误都不崩溃、不泄漏后台任务、不产生越界写。
 
+#### Completion Record
+
+- Status: locally complete for the current HTTP/1.1 scope
+- Changelog: [`0.7.0-alpha`](../../CHANGELOG.md#070-alpha)
+- Recorded at: `2026-10-06T12:54:08+08:00`
+- Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted remediation
+- Commit range: `a877c70..391e415` plus current working-tree changes; final range pending
+- Validation summary: HTTP/1 codec and real-socket smoke coverage are recorded; external Go H1 reference remains unmeasured here
+- Known limitations: full production compatibility and public-network capacity are not claimed
+
 ### 阶段 C：HTTP/2 完整连接生命周期（P0）
 
 - 完成 RFC 9113 的帧校验、伪头规则、SETTINGS、PING、GOAWAY、RST_STREAM、优先级兼容处理和错误码映射。
@@ -321,6 +343,16 @@ ServerError(operation, cause)
 - 支持 prior knowledge、h2c Upgrade 和 ALPN 结果驱动；GOAWAY 后只允许已有 stream 完成。
 
 验收：nghttp2/h2spec 类互操作、任意 frame 分片、N 个并行 stream、窗口为零、RST/GOAWAY、异常 handler 和客户端作用域关闭测试全部通过。
+
+#### Completion Record
+
+- Status: implemented with current lifecycle regression coverage; release gate still open
+- Changelog: [`0.7.0-alpha`](../../CHANGELOG.md#070-alpha)
+- Recorded at: `2026-10-06T12:54:08+08:00`
+- Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted remediation
+- Commit range: `de84bb1..391e415` plus current working-tree changes; final range pending
+- Validation summary: four-target tests, H2/h2c EOF drain and cancellation regressions passed
+- Known limitations: candidate review retains an initial-SETTINGS h2c path and an explicitly disabled write-timeout path for disposition
 
 ### 阶段 D：传输、TLS 和客户端策略（P0/P1）
 
@@ -332,6 +364,16 @@ ServerError(operation, cause)
 
 验收：真实 HTTPS 服务、故意错误证书、代理认证、跨 origin 重定向、Cookie 过期、压缩 bomb、DNS/policy 拒绝和超时测试均有可重复结果。
 
+#### Completion Record
+
+- Status: scoped Native capability and TLS work locally complete; strategy breadth remains partial
+- Changelog: [`0.7.0-alpha`](../../CHANGELOG.md#070-alpha)
+- Recorded at: `2026-10-06T12:54:08+08:00`
+- Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted remediation
+- Commit range: `de84bb1..391e415` plus current working-tree changes; final range pending
+- Validation summary: Native TLS identity/revocation and capability-boundary suites passed in their declared environments
+- Known limitations: online OCSP, Wasm-native revocation and complete client policy matrix are outside this alpha
+
 ### 阶段 E：QUIC 和 HTTP/3（P1）
 
 - 先实现无网络 I/O 的 QUIC packet parser、varint、packet number、ACK ranges、frame state 和 RFC 9001 packet protection。
@@ -342,6 +384,16 @@ ServerError(operation, cause)
 
 验收：RFC 9000/9001/9002、RFC 9114、RFC 9204 向量和受控丢包/乱序网络；至少与一个独立 HTTP/3 实现完成 GET、POST、并发 stream、重置和连接关闭互操作。
 
+#### Completion Record
+
+- Status: protocol engine and Native driver smoke locally complete; generic service integration remains planned
+- Changelog: [`0.7.0-alpha`](../../CHANGELOG.md#070-alpha)
+- Recorded at: `2026-10-06T12:54:08+08:00`
+- Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted remediation
+- Commit range: `a877c70..391e415` plus current working-tree changes; final range pending
+- Validation summary: QUIC/H3 state tests, TLS driver checks and bounded impaired loopback control passed
+- Known limitations: no generic HTTP/3 client/server service; candidate review retains a mixed CID/PATH admission path for disposition
+
 ### 阶段 F：服务端、缓存和发布硬化（P1）
 
 - 提供 listener/acceptor 能力接口、优雅关闭、连接并发上限、请求超时、handler 取消和错误 responder。
@@ -350,6 +402,16 @@ ServerError(operation, cause)
 - 固化 semver、弃用窗口、`pkg.generated.mbti` 审查、许可证/依赖清单和跨目标发布工件。
 
 验收：长时间连接、并发压力、资源上限、优雅关闭、重复发布构建、Native/Wasm/Wasm-GC/JS 编译和文档示例全部通过。
+
+#### Completion Record
+
+- Status: in progress; publication gate intentionally open
+- Changelog: [`Unreleased`](../../CHANGELOG.md#unreleased)
+- Recorded at: `2026-10-06T12:54:08+08:00`
+- Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted documentation and remediation
+- Commit range: pending final commit
+- Validation summary: release docs, distribution allowlist, CI evidence boundary and Go reference harness are implemented; clean package evidence and Go comparison are not complete in this environment
+- Known limitations: failed/partial deep scans, three candidate-review paths, no clean release revision, no public-network or cross-platform production claim
 
 ## 6. 测试和验证体系
 

@@ -25,10 +25,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup MoonBit
-        uses: hustcer/setup-moonbit@v1.22
+        uses: hustcer/setup-moonbit@9199da0ab63ea0c0bab1dc15f03d76e17ed4f75f # v1.22
         with:
           version: 0.10.14+7d59c7ec9
 
@@ -110,10 +112,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup MoonBit
-        uses: hustcer/setup-moonbit@v1.22
+        uses: hustcer/setup-moonbit@9199da0ab63ea0c0bab1dc15f03d76e17ed4f75f # v1.22
         with:
           version: 0.10.14+7d59c7ec9
 
@@ -121,10 +125,10 @@ jobs:
         run: moon update
 
       - name: Install native TLS and interoperability runtimes
-        run: sudo apt-get update && sudo apt-get install -y build-essential perl curl wget nghttp2-client unzip ca-certificates python3-venv
+        run: sudo apt-get update && sudo apt-get install -y build-essential perl curl wget nghttp2-client unzip ca-certificates python3-venv golang-go
 
       - name: Cache pinned OpenSSL 3.5 LTS runtime
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: _build/ci-openssl/install
           key: openssl-3.5.8-linux-${{ runner.arch }}-shared-${{ hashFiles('repo-tools/scripts/install_ci_openssl.mbtx') }}
@@ -173,6 +177,9 @@ jobs:
       - name: Execute native release benchmarks
         run: moon run repo-tools/tools/benchmarks.mbtx
 
+      - name: Prepare Go net/http H1/H2 external reference
+        run: moon run repo-tools/tools/go_net_http_reference.mbtx
+
       - name: Verify frozen package and release evidence
         run: moon run repo-tools/tools/release_evidence.mbtx
 
@@ -184,22 +191,5 @@ jobs:
       - name: Check final worktree hygiene
         run: git diff --check
 
-      - name: Upload validation evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: validation-evidence
-          path: |
-            _build/evidence/
-            _build/publish/
-            coverage.xml
-          if-no-files-found: warn
-
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          slug: ZSeanYves/MoonbitHTTP
-          files: ./coverage.xml
-          fail_ci_if_error: false
-        continue-on-error: true
+      # Validation reports and coverage remain in the ephemeral CI workspace.
+      # They are deliberately not uploaded as artifacts or sent to Codecov.

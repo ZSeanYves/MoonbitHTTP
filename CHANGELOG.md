@@ -1,49 +1,364 @@
 # Changelog
 
-## 0.7.0 — development
+This file is the version-level record of user-visible and maintainer-relevant
+changes. Entries are ordered newest first. A version reconstructed from module
+history is marked explicitly; a Git commit date is not a Mooncakes publication
+date. Raw security scans, coverage, benchmark windows and package archives stay
+in local or CI workspaces and are not part of this file.
 
-Breaking architecture migration from 0.6. This is an alpha worktree, not a
-production release declaration. The original behavior baseline and source
-snapshot are recorded in [`docs/archive/2026-09/v1-baseline-2026-09-29.md`](docs/archive/2026-09/v1-baseline-2026-09-29.md).
+## Unreleased
 
-- Move Endpoint and IP addresses into `core/types`; validated URI, authority and
-  header objects cannot be forged through public record construction.
-- Consolidate all injected capabilities, including stream and QUIC TLS, in
-  `runtime/transport`. Separate pure TLS primitives from Native OpenSSL adapters under
-  `adapter/native/tls`.
-- Remove the unused `io` facade and duplicate nonpooled HTTP/1 round tripper.
-  Native client construction requires explicit resolver, policy, clock and
-  TLS provider; numeric connectors never perform hidden hostname resolution.
-- Make `BodyStream::new` return a checked result. Keep terminal state in one
-  enum, preserve the first failure, and isolate body framing in HTTP/1.
-- Split HTTP/1, HTTP/2, QUIC and HTTP/3 source by codec, state and driver
-  responsibility. Move shared Huffman coding to `core/codec`, reuse immutable
-  lookup tables, and remove the HTTP/3-to-HTTP/2 dependency.
-- Propagate HTTP/2 peer table limits into the send HPACK encoder; serialize
-  dynamic-table mutation with wire writes. Advertise local decoder limits.
-- Validate classic and extended HTTP/3 CONNECT through one field validator;
-  apply the appropriate endpoint's SETTINGS before encoding or accepting
-  extended CONNECT.
-- Enforce QUIC frame legality by packet space and connection phase. Require
-  authenticated peer transport parameters and application keys before opening
-  streams. Model path validation as challenge/response output actions.
-- Add bounded CRYPTO reassembly, a real TLS 1.3 traffic-secret driver, packet
-  key updates, and key retirement. Native QUIC TLS uses OpenSSL 3.5+ callbacks.
-- Support Native TLS CA bytes, client and server credentials, ALPN, mTLS and
-  structured certificate failures. Add certificate negative cases and ASan
-  validation for the Native boundary.
-- Add policy-controlled Native UDP listeners. Reject unauthorized endpoints
-  before socket creation and detect oversized datagrams without silent truncation.
-- Generate and check the actual package dependency graph. Replace shell
-  interoperability automation with mandatory-tool `.mbtx` runners, execute
-  release benchmarks, and require a clean Git snapshot for release packaging.
-- Pin the CI MoonBit toolchain, check generated interfaces and architecture
-  drift, verify OpenSSL selection on Linux/macOS/Windows, and retain coverage,
-  package and interoperability artifacts without making Codecov availability a
-  fork-pull-request gate.
+Current working-tree changes after `0.7.0` are not a release and do not have a
+final commit range yet.
 
-Validation results and remaining production gates are maintained separately in
-[`docs/release/current.md`](docs/release/current.md),
-[`docs/release/gates.md`](docs/release/gates.md), and the production roadmap.
-Passing unit tests does not replace independent interoperability, platform,
-long-duration load, performance-threshold or security-review evidence.
+### Breaking changes
+
+- Continue the 0.7 protocol and lifecycle hardening line. The working tree may
+  change public generated interfaces before the release revision is frozen.
+- Release evidence and distribution checks require a clean, reviewed Git tree;
+  local edits cannot be presented as a published archive.
+
+### Added
+
+- README feature and target-support matrices for Native, Wasm/Wasm-GC and JS.
+- A chronological history index and phase completion records for release work.
+- A standard-library Go `net/http` H1/H2 reference fixture and runner. It
+  reports an explicit `not_run` result when Go is unavailable and never uploads
+  raw windows.
+- A release-document boundary that retains generated architecture references,
+  release gates and packaging rules while excluding `_build` and coverage
+  outputs from distribution.
+
+### Changed
+
+- CI still runs tests, coverage generation, packaging checks and interoperability
+  checks, but no longer uploads raw validation artifacts or sends coverage to
+  Codecov.
+- `docs/release/current.md`, `gates.md` and `packaging.md` now describe stable
+  evidence scope instead of requiring local `_build` paths.
+- Historical archive files remain immutable; their dates, revisions and
+  absorption into the current changelog are indexed separately.
+
+### Fixed
+
+- The current remediation index records local fixes and regression coverage for
+  the 25 deduplicated roots from the failed deep-scan records. This is not a
+  claim that the scans reached complete coverage.
+
+### Security
+
+- Focused lifecycle, protocol, TLS, cache, cookie, content-coding and QUIC
+  regressions remain covered by the current four-target test matrix.
+- Three candidate-review paths still require disposition: initial h2c EOF
+  cleanup, mixed QUIC CID/PATH response admission, and control-frame writes
+  when the write timeout is explicitly disabled. They remain release-gate
+  limitations until reproduced or closed with evidence.
+
+### Performance
+
+- Existing MoonBit old/current and Native socket comparisons remain the scoped
+  local baselines. Go `net/http` is an external reference, not a threshold.
+- Go comparison status is `not_run` in this environment because the `go`
+  executable is unavailable; no silent skip is allowed.
+
+### Validation
+
+- The dirty working tree previously passed Native 511/511, Wasm 452/452,
+  JavaScript 452/452 and Wasm-GC 323/323, strict check/build, formatting and
+  the bounded H3 loopback control. These numbers are local evidence for that
+  source state, not clean-release evidence.
+
+### Known limitations
+
+- The two latest deep scans ended in failed/partial states (429/403) and do not
+  provide a complete release-revision security conclusion.
+- Public-network capacity, cross-platform deployment, online OCSP retrieval,
+  browser networking and generic HTTP/3 application service remain outside the
+  0.7 alpha claim.
+
+#### Phase completion record
+
+- Status: working tree in progress; not a release
+- Recorded at: `2026-10-06T12:54:08+08:00`
+- Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted changes
+- Commit range: pending final commit; do not infer from the source revision
+- Validation summary: local four-target matrix, strict build/check, formatter and bounded H3 control recorded; Go H1/H2 external reference not run
+- Known limitations: partial security scan coverage, candidate-review paths above, no clean package evidence
+
+## 0.7.0-alpha
+
+Architecture and protocol-hardening line, reconstructed from module history
+(`a877c70`, `2026-10-01`) and subsequent repository commits. No Git tag or
+Mooncakes publication timestamp was found.
+
+### Breaking changes
+
+- Move public packages to the `core`, `protocol`, `runtime`, `application`,
+  `policy` and `adapter` namespace layout.
+- Replace implicit transport behavior with explicit capability contracts and
+  checked constructors; package moves change import identity.
+- Remove the legacy `io` facade and duplicate non-pooled HTTP/1 round-tripper.
+
+### Added
+
+- HTTP/1.1, HTTP/2, HTTP/3 and QUIC codec/state/driver separation.
+- Streaming body ownership, bounded queues, backpressure and cancellation.
+- Native TCP/UDP, resolver, clock and OpenSSL stream/QUIC TLS adapters.
+- Certificate identity, mTLS, offline CRL and stapled OCSP validation paths.
+- Architecture, distribution and release-evidence tools with generated package
+  dependency references.
+
+### Changed
+
+- HPACK/QPACK, SETTINGS, CONNECT, QUIC packet-space, path-validation and
+  connection-ID state now enforce protocol phase and resource limits.
+- CI pins the MoonBit toolchain and checks generated interfaces and architecture
+  drift.
+
+### Fixed
+
+- HTTP/2 flow-control credit, body cancellation, EOF drain and h2c lifecycle
+  ownership; QPACK ordering/size accounting; QUIC key retirement and recovery;
+  Native TLS credential and peer-identity error handling.
+
+### Security
+
+- Added malformed-input, certificate-negative, revocation, cancellation and
+  resource-limit regressions across the protocol and adapter boundaries.
+
+### Performance
+
+- Preserved low-level decoder and Native socket old/current comparisons with
+  fixed workloads and AB/BA windows. Results are scoped local evidence.
+
+### Validation
+
+- Four-target builds/tests, Native TLS suites, real-socket H1/H2/h2c cases and
+  bounded H3/QUIC loopback controls were introduced or refreshed.
+
+### Known limitations
+
+- HTTP/1 and HTTP/2 have the broadest application coverage. Generic HTTP/3
+  client/server service integration is not part of this alpha.
+- Wasm and JS require host-provided network/TLS capabilities. Complete security
+  scan coverage and clean-revision publication evidence remain gates.
+
+#### Phase completion record
+
+- Status: architecture/protocol line recorded as alpha development state
+- Recorded at: `2026-10-01T12:03:07+08:00` (source history record)
+- Source revision: `a877c70b03af0e59631489a9d2333e2a75c44926`
+- Commit range: `de84bb1..391e415` for the later hardening and validation records
+- Validation summary: see [current validation facts](docs/release/current.md)
+- Known limitations: historical partial scan coverage and dirty working-tree evidence
+
+## 0.6.0
+
+Protocol library contract, reconstructed from module history. Source revision:
+`aa69847db7c03a3107e741ee9f2d53ae7ad91db3` (`2026-07-23`). No publication tag
+was found.
+
+### Breaking changes
+
+- Adopt the protocol-library contract that became the basis for the later v1
+  architecture migration.
+
+### Added
+
+- Documented HTTP/1.1 and HTTP/2 protocol, service and transport boundaries.
+- Consolidated protocol behavior and public package expectations for the 0.6
+  line.
+
+### Changed
+
+- Updated module version and maintenance-plan scope from the 0.5 streaming
+  contract.
+
+### Fixed
+
+- No separate fix list is recoverable from the version commit alone; later 0.7
+  history supersedes this contract.
+
+### Security
+
+- Security properties were recorded as design requirements; no independent
+  release scan or publication evidence is attributed to this reconstructed entry.
+
+### Performance
+
+- No version-specific performance result is recoverable from the module history.
+
+### Validation
+
+- Contract and package documentation were updated in the source revision.
+
+### Known limitations
+
+- This is a history reconstruction, not proof of a published Mooncakes artifact.
+
+#### Phase completion record
+
+- Status: history reconstructed
+- Recorded at: `2026-07-23T14:45:13+08:00` (source commit time)
+- Source revision: `aa69847db7c03a3107e741ee9f2d53ae7ad91db3`
+- Commit range: source contract commit only; no release tag found
+- Validation summary: protocol contract documentation changed
+- Known limitations: publication date and complete runtime behavior are unknown
+
+## 0.5.0
+
+Streaming API contract, reconstructed from `307b3b8cb6e57ef398e637ccd19f18c1ecd7ab92`
+(`2026-07-23`). No publication tag was found.
+
+### Breaking changes
+
+- Streaming body and service contracts became the compatibility boundary for
+  the following protocol line.
+
+### Added
+
+- Documented streaming body, service and backpressure concepts.
+
+### Changed
+
+- Updated module version and shortened the maintenance plan around the streaming
+  contract.
+
+### Fixed
+
+- No separate version-specific fix list is recoverable from the version commit.
+
+### Security
+
+- No independent security evidence is attributed to this reconstructed entry.
+
+### Performance
+
+- No version-specific performance result is recoverable from the module history.
+
+### Validation
+
+- Source documentation and generated package interfaces were updated.
+
+### Known limitations
+
+- History does not prove a registry publication or complete cross-target support.
+
+#### Phase completion record
+
+- Status: history reconstructed
+- Recorded at: `2026-07-23T12:48:42+08:00` (source commit time)
+- Source revision: `307b3b8cb6e57ef398e637ccd19f18c1ecd7ab92`
+- Commit range: source contract commit only; no release tag found
+- Validation summary: streaming API contract documentation changed
+- Known limitations: publication date and complete runtime behavior are unknown
+
+## 0.4.0
+
+Root package architecture, reconstructed from `eae6ed7259b37285fd6dc69e7131945732929eec`
+(`2026-07-23`). No publication tag was found.
+
+### Breaking changes
+
+- Reorganized the repository from the legacy `src` layout into root protocol,
+  service, transport, type and adapter packages.
+
+### Added
+
+- Initial root package architecture, HTTP/1.1 and HTTP/2 package boundaries,
+  service drivers, transport contracts and generated interfaces.
+
+### Changed
+
+- Removed the legacy source tree and updated CI, examples and package metadata.
+
+### Fixed
+
+- No separate version-specific fix list is recoverable from the version commit.
+
+### Security
+
+- The architecture established explicit transport boundaries; no independent
+  security evidence is attributed to this reconstructed entry.
+
+### Performance
+
+- No version-specific performance result is recoverable from the module history.
+
+### Validation
+
+- The source revision added package tests, conformance fixtures and CI checks.
+
+### Known limitations
+
+- History does not prove a registry publication or complete target coverage.
+
+#### Phase completion record
+
+- Status: history reconstructed
+- Recorded at: `2026-07-23T11:31:17+08:00` (source commit time)
+- Source revision: `eae6ed7259b37285fd6dc69e7131945732929eec`
+- Commit range: architecture commit only; no release tag found
+- Validation summary: root package architecture and CI contract introduced
+- Known limitations: publication date and later hardening are outside this entry
+
+## 0.1.0
+
+Initial module state, reconstructed from `0322d269f0bef4953fd4d003f910b30e048c28ad`
+(`2025-08-24`). No publication tag or Mooncakes publication record was found.
+
+### Breaking changes
+
+- None recoverable from the initial commit.
+
+### Added
+
+- Initial MoonBit module metadata, library package, smoke entry point and basic
+  unit test.
+
+### Changed
+
+- None recoverable from the initial commit.
+
+### Fixed
+
+- None recoverable from the initial commit.
+
+### Security
+
+- No independent security evidence is attributed to this reconstructed entry.
+
+### Performance
+
+- No version-specific performance result is recoverable from the module history.
+
+### Validation
+
+- The initial source included a basic library test.
+
+### Known limitations
+
+- `0.2.0` and `0.3.0` have no verifiable version history in this repository;
+  they are intentionally omitted.
+
+#### Phase completion record
+
+- Status: history reconstructed
+- Recorded at: `2025-08-24T15:54:48+08:00` (source commit time)
+- Source revision: `0322d269f0bef4953fd4d003f910b30e048c28ad`
+- Commit range: initial commit only; no release tag found
+- Validation summary: initial module test present
+- Known limitations: registry publication and production behavior are unknown
+
+## Version evidence
+
+The version chain above is derived from `moon.mod` history. No Git tags were
+present during reconstruction, and no `0.2.0` or `0.3.0` release evidence was
+found. Do not use commit timestamps as publication dates.
+
+Related governance pages:
+
+- [Current validation facts](docs/release/current.md)
+- [Release gates](docs/release/gates.md)
+- [Distribution contents](docs/release/packaging.md)
+- [Roadmap and phase records](docs/release/roadmap.zh-CN.md)

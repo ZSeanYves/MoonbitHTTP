@@ -20,6 +20,8 @@
 !/docs/reference/
 !/docs/reference/generated/
 !/docs/reference/generated/**
+!/docs/history/
+!/docs/history/timeline.md
 !/docs/release/
 !/docs/release/current.md
 !/docs/release/gates.md
@@ -32,9 +34,12 @@
 /target/
 /.mooncakes/
 /coverage.xml
+/coverage/
+/coverage-*.xml
+/*.coverage
+/*.profraw
+/*.zip
 
 # Test-only certificates, keys and revocation fixtures never belong in the
-# published module. Keep the usage note so consumers can see the fixture
-# boundary without receiving private test material.
-/adapter/native/tls/testdata/*
-!/adapter/native/tls/testdata/README.md
+# published module. Native TLS fixture tests run from the source checkout.
+/adapter/native/tls/testdata/

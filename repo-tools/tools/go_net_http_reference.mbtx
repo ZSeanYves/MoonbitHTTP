@@ -1,0 +1,55 @@
+import {
+  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.4/fs",
+  "moonbitlang/async@0.22.4/process",
+  "moonbitlang/core/env",
+}
+
+///|
+async fn main {
+  ignore(@env.args())
+  let temporary = @fs.tmpdir(prefix="moonbithttp-go-reference")
+  let unique = temporary.split("/").to_array().last().unwrap().to_owned()
+  @fs.rmdir(temporary)
+  let directory = "_build/evidence/performance/go-net-http-reference/" + unique
+  @fs.mkdir(directory, recursive=true)
+  @fs.write_file(directory + "/source.txt", "repo-tools/tools/go_net_http_reference/main.go\n", create_mode=CreateNew)
+  let go_probe = @process.run("sh", ["-c", "command -v go >/dev/null 2>&1"])
+  if go_probe != 0 {
+    let result : Json = {
+      "status": "not_run",
+      "reason": "go executable unavailable in the validation environment",
+      "comparison": "not measured",
+      "protocols": ["h1", "h2"],
+      "raw_artifacts": "local ephemeral evidence only",
+    }
+    @fs.write_file(directory + "/result.json", result, create_mode=CreateNew)
+    println("Go net/http H1/H2 reference: NOT RUN (go executable unavailable); evidence: \{directory}")
+    return
+  }
+  let binary = directory + "/go-net-http-reference"
+  let build = @process.run("go", ["build", "-o", binary, "repo-tools/tools/go_net_http_reference/main.go"])
+  guard build == 0 else { fail("Go reference build failed; evidence: \{directory}") }
+  let reference = @async.with_timeout(180000, async fn() {
+    @process.collect_output(binary, ["--mode", "reference", "--duration-seconds", "10", "--concurrency", "4", "--payload-bytes", "65536"])
+  })
+  let (reference_status, reference_stdout, reference_stderr) = reference
+  @fs.write_file(directory + "/go-reference.stdout", reference_stdout.binary(), create_mode=CreateNew)
+  @fs.write_file(directory + "/go-reference.stderr", reference_stderr.binary(), create_mode=CreateNew)
+  guard reference_status == 0 else { fail("Go H1/H2 reference failed; evidence: \{directory}") }
+  @fs.write_file(directory + "/README.txt", "The binary supports --mode=server, --mode=probe and --mode=reference.\nThe reference mode measures Go net/http H1 and H2 with the same payload, concurrency and duration. For a MoonBitHTTP comparison, run --mode=probe against MoonBitHTTP H1/H2 endpoints with the same settings and retain AB/BA summaries separately.\nThe MoonBit target URLs are intentionally supplied by the caller because the current repository service does not provide a generic HTTP/3 service and native H2 TLS fixtures are environment-specific.\n", create_mode=CreateNew)
+  let result : Json = {
+    "status": "reference_measured",
+    "comparison": "not_run",
+    "reason": "Go H1/H2 baseline measured; caller must provide MoonBitHTTP H1/H2 endpoints for an AB/BA comparison",
+    "protocols": ["h1", "h2"],
+    "binary": binary,
+    "payload_bytes": 65536,
+    "duration_seconds": 10,
+    "concurrency": 4,
+    "reference_summary": "go-reference.stdout",
+    "raw_artifacts": "local ephemeral evidence only",
+  }
+  @fs.write_file(directory + "/result.json", result, create_mode=CreateNew)
+  println("Go net/http H1/H2 reference prepared; no comparison run without MoonBitHTTP endpoints. Evidence: \{directory}")
+}
