@@ -324,6 +324,68 @@ async test "H2 EOF deadline covers a writer with IO timeout disabled" {
 }
 
 ///|
+async test "H2 control writes do not hide peer EOF when IO timeout is disabled" {
+  let writer : H2GatedWriter = {
+    control: H2LifecycleWriter::new(),
+    started: Queue(kind=Blocking(1)),
+    release: Queue(kind=Blocking(1)),
+    typ: @http2.H2_FRAME_PING,
+    stream_id: 0,
+    held: false,
+  }
+  defer writer.control.signal.close()
+  let reader = @aio.MemoryReader(async fn(peer) {
+    peer.write(
+      b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" +
+      Bytes::from_array(@http2.encode_settings_frame([], false)) +
+      h2_lifecycle_ping() +
+      @http2.encode_request_headers(
+        @http2.HpackContext::new(),
+        1,
+        security_request(Get),
+        true,
+      ).unwrap(),
+    )
+    // The peer closes its read side after the server starts the PING ACK
+    // write. The ACK remains blocked, so the connection must observe EOF and
+    // cancel that write through the bounded EOF drain.
+    writer.started.get()
+  })
+  defer reader.close()
+  try
+    @async.with_timeout(1000, async fn() {
+      @service.serve_http2_connection(
+        reader,
+        writer,
+        async fn(_) {
+          @async.sleep(60_000)
+          {
+            status: 204,
+            version: Http2,
+            headers: @types.HeaderMap::new(),
+            body: @body.EmptyBody::new(),
+          }
+        },
+        config={
+          ..@service.ServerConfig::defaults(),
+          read_timeout_ms: None,
+          write_timeout_ms: None,
+          h2_eof_drain_timeout_ms: 25,
+        },
+      )
+    })
+  catch {
+    @http2.H2ProtocolError::ConnectionError(
+      Cancel,
+      "HTTP/2 peer EOF drain deadline exceeded"
+    ) => ()
+    error => fail("control write EOF drain failed: \{error}")
+  } noraise {
+    _ => fail("blocked control write hid peer EOF")
+  }
+}
+
+///|
 async test "H2 external cancellation joins handlers before EOF grace expires" {
   let started : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
   let reader = @aio.MemoryReader(async fn(peer) {
