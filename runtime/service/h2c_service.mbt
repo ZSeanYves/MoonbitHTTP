@@ -219,7 +219,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_or_h2c_co
       ) catch {
         @http2.H2ProtocolError::ConnectionError(
           ProtocolError,
-          "HTTP/2 peer closed before initial SETTINGS",
+          "HTTP/2 peer closed before initial SETTINGS"
         ) => {
           // Fail the outer h2c request body before the upgrade task group
           // joins its application handler. This wakes a handler blocked on
