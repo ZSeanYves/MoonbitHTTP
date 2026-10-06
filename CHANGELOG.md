@@ -49,10 +49,11 @@ final commit range yet.
 
 - Focused lifecycle, protocol, TLS, cache, cookie, content-coding and QUIC
   regressions remain covered by the current four-target test matrix.
-- Three candidate-review paths still require disposition: initial h2c EOF
-  cleanup, mixed QUIC CID/PATH response admission, and control-frame writes
-  when the write timeout is explicitly disabled. They remain release-gate
-  limitations until reproduced or closed with evidence.
+- Closed the candidate-review paths for initial h2c EOF cleanup, mixed QUIC
+  CID/PATH response admission, and control-frame writes when the write timeout
+  is explicitly disabled. Each path has a focused regression and is included
+  in the post-fix CI run; cooperative cancellation and partial scan coverage
+  remain separate limitations.
 
 ### Performance
 
@@ -83,7 +84,7 @@ final commit range yet.
 - Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted changes
 - Commit range: pending final commit; do not infer from the source revision
 - Validation summary: local four-target matrix, strict build/check, formatter and bounded H3 control recorded; Go H1/H2 external reference not run
-- Known limitations: partial security scan coverage, candidate-review paths above, no clean package evidence
+- Known limitations: partial security scan coverage and no clean package evidence for this unreleased working tree
 
 ## 0.7.0-alpha
 

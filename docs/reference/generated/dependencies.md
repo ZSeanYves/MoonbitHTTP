@@ -31,6 +31,7 @@ flowchart TD
   p_adapter_native_transport["adapter/native/transport"]
   p_examples_cmd_smoke_server["examples/cmd/smoke_server"]
   p_examples_cmd_h3_smoke_server["examples/cmd/h3_smoke_server"]
+  p_repo_tools_test_support_native_tls_revocation["repo-tools/test_support/native_tls_revocation"]
   p_core_body --> p_core_types
   p_policy_auth --> p_core_types
   p_policy_cache --> p_core_types
@@ -93,7 +94,6 @@ flowchart TD
   p_adapter_native_transport --> p_runtime_transport
   p_examples_cmd_h3_smoke_server --> p_protocol_quic
   p_adapter_native_client --> p_policy_content_coding
-  p_adapter_native_tls --> p_adapter_native_transport
   p_examples_cmd_h3_smoke_server --> p_protocol_http3
   p_adapter_native_transport -. "wbtest" .-> p_runtime_transport
   p_adapter_native_client --> p_adapter_native_transport
@@ -101,4 +101,5 @@ flowchart TD
   p_examples_cmd_h3_smoke_server --> p_adapter_native_tls
   p_adapter_native_server -. "wbtest" .-> p_adapter_native_transport
   p_examples_cmd_h3_smoke_server --> p_adapter_native_transport
+  p_adapter_native_tls -. "wbtest" .-> p_repo_tools_test_support_native_tls_revocation
 ```

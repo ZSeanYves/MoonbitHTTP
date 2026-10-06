@@ -1,5 +1,5 @@
-/* White-box fixture construction only: the MoonBit declarations live in
- * revocation_wbtest.mbt. This does not replace or change verification time.
+/* White-box fixture construction only. This package is imported by wbtest and
+ * excluded from the user distribution; production TLS does not link it.
  * Resolve signing functions lazily, so production TLS has no signing-symbol
  * dependency. All inputs are borrowed; all output is copied into MoonBit. */
 #include <moonbit.h>

@@ -1,0 +1,6 @@
+supported_targets = "+native"
+
+options(
+  "native-stub": [ "revocation_test_stub.c" ],
+  "is-main": false,
+)

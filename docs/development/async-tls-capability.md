@@ -24,23 +24,25 @@ replacement for MoonbitHTTP's provider.
 
 ## Current implementation decision
 
-`NativeStreamIo` is a reusable Native-only Reader/Writer bridge. The
-`AsyncStreamTlsProvider` is retained as an opt-in, fail-closed compatibility
-spike: because async@0.22.4 cannot expose the metadata required by
-`SecureConnection`, it currently returns `Unsupported` before starting a
-handshake. This prevents an apparent success from reporting fabricated TLS
-version, cipher or ALPN data.
+The capability gap is intentionally resolved by omission: MoonbitHTTP does not
+ship an `async/tls` stream facade, a `NativeStreamIo` bridge, or a public
+provider that always returns `Unsupported`. Keeping that dead path in the
+published package would create a second apparent implementation without
+providing TLS semantics.
 
-The existing `NativeTlsProvider` remains the only production stream-TLS
-implementation. It continues to provide the current ALPN, in-memory
-credentials, trust-anchor, CRL, OCSP, mTLS, TLS-version and server semantics.
+`NativeTlsProvider` is the only ordinary stream-TLS implementation. It continues
+to provide the current ALPN, in-memory credentials, trust-anchor, CRL, OCSP,
+mTLS, TLS-version and server semantics. `NativeQuicTlsProvider` remains a
+separate QUIC provider because QUIC needs CRYPTO-level handshake bytes and
+traffic-secret callbacks that stream TLS does not expose.
 
 ## A/B gate
 
-An A/B run may promote the async implementation only after the async public
-API can represent every supported `TlsOptions` field and expose equivalent
-negotiated metadata. The test matrix must then compare handshake, identity,
-ALPN, credentials, revocation, partial I/O, EOF, cancellation, timeout,
-close ordering, error taxonomy, HTTP/1, HTTP/2 and server lifecycle. Until
-all rows pass on the supported Native platforms and remote CI is green, the
-Native provider must not be switched or deleted.
+An A/B migration may be considered only after the async public API can represent
+every supported `TlsOptions` field and expose equivalent negotiated metadata.
+The test matrix must compare handshake, identity, ALPN, credentials,
+revocation, partial I/O, EOF, cancellation, timeout, close ordering, error
+taxonomy, HTTP/1, HTTP/2 and server lifecycle. Until all rows pass on the
+supported Native platforms and remote CI is green, `NativeTlsProvider` remains
+the canonical implementation; no async facade is added merely to satisfy a
+reuse target.

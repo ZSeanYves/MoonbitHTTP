@@ -1,27 +1,4 @@
 ///|
-#borrow(subject, issuer, private_key)
-extern "C" fn test_ocsp(
-  subject : Bytes,
-  issuer : Bytes,
-  private_key : Bytes,
-  status : Int,
-  this_offset : Int,
-  next_offset : Int,
-  omit_next : Bool,
-  corrupt_signature : Bool,
-) -> Bytes = "moon_http_test_ocsp"
-
-///|
-#borrow(issuer, private_key, revoked)
-extern "C" fn test_crl(
-  issuer : Bytes,
-  private_key : Bytes,
-  revoked : Bytes,
-  this_offset : Int,
-  next_offset : Int,
-) -> Bytes = "moon_http_test_crl"
-
-///|
 async fn signed_ocsp(
   subject? : String = "revoked.cert.pem",
   status? : Int = 0,
@@ -30,7 +7,7 @@ async fn signed_ocsp(
   omit_next? : Bool = false,
   corrupt_signature? : Bool = false,
 ) -> Bytes {
-  let response = test_ocsp(
+  let response = @revocation_test.test_ocsp(
     fixture(subject),
     fixture("localhost.cert.pem"),
     fixture("localhost.key.pem"),
@@ -54,7 +31,7 @@ async fn signed_crl(
   this_offset? : Int = -60,
   next_offset? : Int = 3600,
 ) -> Bytes {
-  let response = test_crl(
+  let response = @revocation_test.test_crl(
     fixture(issuer + ".cert.pem"),
     fixture(issuer + ".key.pem"),
     if revoked.is_empty() {

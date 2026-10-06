@@ -5,20 +5,21 @@ groups, cancellation, timeouts, locks, queues, `Reader`/`Writer`, TCP, UDP and
 address lookup are reused through thin Native or host adapters. The portable
 protocol packages continue to depend only on MoonbitHTTP capability contracts.
 
-## Stream TLS trial
+## Stream TLS boundary
 
-`adapter/native/tls` contains an opt-in `AsyncStreamTlsProvider`. The detailed
-field-by-field decision is recorded in the [async TLS capability
-matrix](async-tls-capability.md). Because async@0.22.4 does not expose
-negotiated TLS metadata, the provider currently fails closed before starting a
-handshake. It is a compatibility spike, not a second production TLS path.
+The capability review in the [async TLS capability matrix](async-tls-capability.md)
+found that async@0.22.4 cannot represent the complete `TlsOptions` and
+`SecureConnection` contract. Its stream TLS API lacks negotiated metadata,
+in-memory credentials, revocation controls and the required server semantics.
+MoonbitHTTP therefore does not ship an async stream TLS provider or a
+fail-closed placeholder. `NativeTlsProvider` is the single ordinary stream-TLS
+implementation, with no runtime fallback or second public provider.
 
-The existing Native provider remains the default until a complete A/B suite
-proves equivalent behavior for handshake, identity, ALPN, credentials,
-revocation, timeout, cancellation, close ordering and HTTP/1/HTTP/2
-integration. After that evidence and a successful remote CI run, the old
-ordinary stream implementation will be removed rather than retained as a
-runtime fallback.
+This decision can be revisited only after an async release exposes every
+required security option and metadata field. Until then, reusing individual
+async TLS calls would silently narrow the existing contract, so the project
+continues to reuse async for its runtime substrate while retaining its Native
+OpenSSL stream-TLS boundary.
 
 ## QUIC TLS boundary
 

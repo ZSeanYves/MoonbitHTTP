@@ -352,7 +352,7 @@ ServerError(operation, cause)
 - Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted remediation
 - Commit range: `de84bb1..391e415` plus current working-tree changes; final range pending
 - Validation summary: four-target tests, H2/h2c EOF drain and cancellation regressions passed
-- Known limitations: candidate review retains an initial-SETTINGS h2c path and an explicitly disabled write-timeout path for disposition
+- Known limitations: the repaired initial-SETTINGS h2c and explicitly disabled write-timeout paths still rely on cooperative cancellation; complete security scan coverage remains open
 
 ### 阶段 D：传输、TLS 和客户端策略（P0/P1）
 
@@ -392,7 +392,7 @@ ServerError(operation, cause)
 - Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted remediation
 - Commit range: `a877c70..391e415` plus current working-tree changes; final range pending
 - Validation summary: QUIC/H3 state tests, TLS driver checks and bounded impaired loopback control passed
-- Known limitations: no generic HTTP/3 client/server service; candidate review retains a mixed CID/PATH admission path for disposition
+- Known limitations: no generic HTTP/3 client/server service; the mixed CID/PATH admission repair is covered by focused regression, while complete security scan coverage remains open
 
 ### 阶段 F：服务端、缓存和发布硬化（P1）
 
@@ -411,7 +411,7 @@ ServerError(operation, cause)
 - Source revision: `391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a` plus uncommitted documentation and remediation
 - Commit range: pending final commit
 - Validation summary: release docs, distribution allowlist, CI evidence boundary and Go reference harness are implemented; clean package evidence and Go comparison are not complete in this environment
-- Known limitations: failed/partial deep scans, three candidate-review paths, no clean release revision, no public-network or cross-platform production claim
+- Known limitations: failed/partial deep scans, no clean release revision, no public-network or cross-platform production claim
 
 ## 6. 测试和验证体系
 

@@ -74,9 +74,10 @@ The deadline starts when the read loop observes EOF, not when the connection
 opens. Full `ServerConfig` literals must add the new field or use
 `..ServerConfig::defaults()`. Like the existing async timeouts, cancellation is
 cooperative: application code must yield and protected cleanup must terminate.
-Explicitly setting the existing write timeout to `None` can still let a control
-write block the read loop before EOF is observed; the default keeps finite I/O
-timeouts. This is not a hard preemption mechanism for application code.
+Explicitly setting the existing write timeout to `None` still relies on the
+bounded post-EOF drain for cancellation; control frames are queued separately
+so a blocked control write no longer prevents the read loop from observing EOF.
+This is not a hard preemption mechanism for arbitrary application code.
 
 QUIC CID retirement also received extended checks from the earlier boundary
 review. Both retransmission and recovery capacity are checked before attaching
@@ -95,11 +96,11 @@ the exact encoded frame size, including variable-length type and length fields;
 and the H2 client closes its shared connection and cancels its reader before
 joining a suspended upload after its callback returns.
 
-A fresh independent candidate review found the incomplete h2c SETTINGS cleanup
-and mixed QUIC packet admission gaps above. Both were reproduced and repaired.
-Its disabled-I/O-timeout observation is documented with the EOF-observation and
-cooperative cancellation limits above. The original candidate patch remains
-separate from the final source; it is not evidence for the final fix by itself.
+A fresh independent candidate review found the incomplete h2c SETTINGS cleanup,
+mixed QUIC packet admission and disabled-I/O-timeout control-write gaps above.
+All three were reproduced, repaired and covered by focused regressions. The
+original candidate patch remains separate from the final source; it is not
+evidence for the final fix by itself.
 
 ## Verification
 
