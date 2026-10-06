@@ -131,6 +131,10 @@ fn QuicDatagramDriver::flush_pending_retransmissions(
       // remains pending and can be sent after a later ACK or timer tick.
       Err(FlowControl(0L, _)) => break
       Err(AmplificationBlocked) => break
+      // A response packet may have consumed the final recovery slot before
+      // this retained packet is retried. Preserve the response and leave the
+      // retained entry pending; the next ACK or timer tick can retry it.
+      Err(LimitExceeded("QUIC recovery packet queue", _)) => break
       Err(error) => return Err(error)
     }
   }

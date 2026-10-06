@@ -424,3 +424,62 @@ test "quic mixed CID path challenge applies same packet ACK before admission" {
   assert_eq(client.on_datagram(endpoint, packet, 2L), Ok([PacketIgnored]))
   assert_eq(client.poll(2L), Ok([]))
 }
+
+///|
+test "quic mixed CID path response survives a blocked retransmission refill" {
+  let endpoint = @types.Endpoint::new("udp", "peer.test", 443).unwrap()
+  let recovery_config = {
+    ..QuicRecoveryConfig::defaults(),
+    max_tracked_packets: 2,
+  }
+  let (client, _) = key_limit_driver_pair(endpoint, endpoint, recovery_config~)
+  // Keep one tracked packet and make its retained frames eligible for a
+  // replacement.  The incoming packet below needs the final recovery slot
+  // for PATH_RESPONSE and the CID retirement it schedules.
+  ignore(client.send_frames(Application, [Ping], 0L).unwrap())
+  assert_eq(client.recovery.sent.length(), 1)
+  assert_eq(client.retransmissions.length(), 1)
+  client.retransmissions[0].pending = true
+  let replacement = ConnectionId::new(b"replacement").unwrap()
+  let packet = retirement_security_server_packet(
+    client.local_connection_id(),
+    0L,
+    [
+      NewConnectionId(
+        1L,
+        1L,
+        replacement,
+        Bytes::from_array(FixedArray::make(16, b'\x01')),
+      ),
+      PathChallenge(b"12345678"),
+    ],
+  )
+  guard client.on_datagram(endpoint, packet, 1L).unwrap()
+    is [SendDatagram(_, reply)] else {
+    fail("expected CID/path response despite blocked retransmission refill")
+  }
+  let keys = quic_initial_packet_keys(ConnectionId::new(b"server-id").unwrap()).unwrap()
+  let opened = quic_open_packet_with_keys(
+    keys.0,
+    reply,
+    1 + replacement.bytes().length(),
+    0L,
+    false,
+  ).unwrap()
+  let reply_frames = quic_decode_frames(opened.payload()).unwrap()
+  assert_true(reply_frames.contains(PathResponse(b"12345678")))
+  assert_true(
+    reply_frames.contains(
+      Ack(AckFrame::new(0L, 0L, [AckRange::new(0L, 0L).unwrap()]).unwrap()),
+    ),
+  )
+  assert_true(reply_frames.contains(RetireConnectionId(0L)))
+  assert_eq(client.peer_connection_id(), replacement)
+  assert_true(client.pending_retirements.is_empty())
+  // The old loss is still pending; the response was returned instead of being
+  // discarded behind a recovery-queue LimitExceeded error.
+  assert_eq(client.recovery.sent.length(), 2)
+  assert_eq(client.retransmissions.length(), 2)
+  assert_true(client.retransmissions.any(fn(entry) { entry.pending }))
+  assert_true(client.quic_driver_seen(Application, 0L))
+}
