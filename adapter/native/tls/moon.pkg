@@ -1,8 +1,10 @@
 import {
   "ZSeanYves/MoonbitHTTP/core/types",
   "moonbitlang/async",
+  "moonbitlang/async/tls" @async_tls,
   "moonbitlang/core/encoding/utf8",
   "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @transport_native,
 }
 
 supported_targets = "+native"

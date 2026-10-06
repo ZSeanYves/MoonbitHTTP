@@ -93,6 +93,7 @@ flowchart TD
   p_adapter_native_transport --> p_runtime_transport
   p_examples_cmd_h3_smoke_server --> p_protocol_quic
   p_adapter_native_client --> p_policy_content_coding
+  p_adapter_native_tls --> p_adapter_native_transport
   p_examples_cmd_h3_smoke_server --> p_protocol_http3
   p_adapter_native_transport -. "wbtest" .-> p_runtime_transport
   p_adapter_native_client --> p_adapter_native_transport
