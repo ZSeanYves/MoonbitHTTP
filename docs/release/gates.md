@@ -11,7 +11,7 @@ closed with evidence at the release revision.
 
 | Gate | State | Required evidence |
 | --- | --- | --- |
-| Four target regression matrix | passed on clean revision `b05541e` and hosted CI `37514952238` | Wasm 455/455, Wasm-GC 324/324, JS 455/455, Native 514/514; see [2026-10-06 remediation evidence](../development/security-remediation-2026-10-06.md) |
+| Four target regression matrix | passed on clean revision `201e7ae` and hosted CI `37516695805` | Wasm 455/455, Wasm-GC 324/324, JS 455/455, Native 514/514; see [2026-10-06 remediation evidence](../development/security-remediation-2026-10-06.md) |
 | Native TLS identity and negative suites | passed on clean hosted revision | Native TLS suite passed 131/131 on Ubuntu, macOS and Windows; the earlier 97-test-per-OS identity run remains historical evidence |
 | HTTP/1, HTTP/2 and HTTP/3 interoperability | bounded runs passed | Real-socket H1/H2/h2c cases and three independent impaired H3/QUIC-TLS loopback windows; public cross-host behavior is not implied |
 | QUIC Retry, version negotiation, loss recovery, stream concurrency | regression and bounded pressure evidence passed | Protocol tests plus 8 concurrent H3 requests; the long runs use a loopback peer and controlled impairment |
@@ -21,7 +21,7 @@ closed with evidence at the release revision.
 | Long-duration QUIC/TLS interoperability | historical loopback evidence passed; public cross-host evidence absent | Three requested 3600-second impaired aioquic windows passed with 8 concurrent requests; evidence came from a dirty loopback worktree; the redundant hosted loopback job was removed at the user's request |
 | Final security scan and review | known finding-index roots locally remediated; complete release-revision coverage still open | The two failed Deep Scans retained 58 overlapping records covering 25 repaired roots. Focused regressions, four-target checks and bounded H3 loopback validation passed; the three candidate-review paths were reproduced, repaired and covered by focused tests. See the [remediation index](../development/security-remediation-2026-10-06.md). The scans remain partial and earlier zero-finding scans do not close this gate for the changed tree |
 | CRL/OCSP or documented deployment limitation | passed with scoped limitation | Native OpenSSL offline CRL and stapled OCSP checks cover freshness, identity, revocation and malformed inputs; online OCSP fetching and Wasm host providers are out of scope |
-| Clean package and publication decision | clean package evidence passed; publication remains open | Revision `b05541e` passed the distribution allowlist and Git-blob checks in local and hosted release evidence. A release tag, registry publication decision and final security approval are still required |
+| Clean package and publication decision | clean package evidence passed; publication remains open | Revision `201e7ae` passed the distribution allowlist and Git-blob checks in local and hosted release evidence. A release tag, registry publication decision and final security approval are still required |
 
 The latest passing facts are recorded in [Current validation facts](current.md).
 Historical reports in [the archive](../archive/2026-09/) are evidence for their

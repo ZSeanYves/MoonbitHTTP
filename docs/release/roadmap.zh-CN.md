@@ -408,9 +408,9 @@ ServerError(operation, cause)
 - Status: implementation committed and CI-verified; publication gate intentionally open
 - Changelog: [`Unreleased`](../../CHANGELOG.md#unreleased)
 - Recorded at: `2026-10-06T12:54:08+08:00`
-- Source revision: `b05541e51c75bac121b76372fb2c9837abb5e6dc`
-- Commit range: `391e415..b05541e` for cleanup and release-record updates
-- Validation summary: release docs, distribution allowlist, clean package evidence and hosted CI `37514952238` are complete; Go H1/H2 comparison is not run
+- Source revision: `201e7ae9dccbf6f7a35642673795bf968199de2a`
+- Commit range: `391e415..201e7ae` for cleanup and release-record updates
+- Validation summary: release docs, distribution allowlist, clean package evidence and hosted CI `37516695805` are complete; Go H1/H2 comparison is not run
 - Known limitations: failed/partial deep scans, no release tag or registry publication, no public-network or cross-platform production claim
 
 ## 6. 测试和验证体系

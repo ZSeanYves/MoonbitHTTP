@@ -7,7 +7,7 @@
 
 The latest local security remediation and final validation are recorded in the
 [2026-10-06 remediation index](../development/security-remediation-2026-10-06.md).
-Clean revision `b05541e` passed hosted CI run `37514952238`: Wasm 455/455,
+Clean revision `201e7ae` passed hosted CI run `37516695805`: Wasm 455/455,
 Wasm-GC 324/324, JavaScript 455/455 and Native 514/514; async integration
 passed 92/92 and Native TLS passed 131/131 on Ubuntu, macOS and Windows. The
 run also passed interoperability, frozen package evidence and ephemeral

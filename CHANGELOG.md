@@ -8,7 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
-The post-`0.7.0` cleanup is committed at `b05541e`; it remains unreleased and
+The post-`0.7.0` cleanup is committed at `b05541e`; the current release record
+is committed at `201e7ae`. It remains unreleased and
 has no tag or Mooncakes publication record.
 
 ### Breaking changes
@@ -64,7 +65,7 @@ has no tag or Mooncakes publication record.
 
 ### Validation
 
-- Clean revision `b05541e` passed hosted CI run `37514952238`: Native 514/514,
+- Clean revision `201e7ae` passed hosted CI run `37516695805`: Native 514/514,
   Wasm 455/455, JavaScript 455/455 and Wasm-GC 324/324; the async integration
   suite passed 92/92 and Native TLS passed 131/131 on Ubuntu, macOS and Windows.
   The run also passed package evidence, interoperability, benchmarks and
@@ -82,9 +83,9 @@ has no tag or Mooncakes publication record.
 
 - Status: committed and CI-verified; not a release
 - Recorded at: `2026-10-06T12:54:08+08:00`
-- Source revision: `b05541e51c75bac121b76372fb2c9837abb5e6dc`
-- Commit range: `391e415..b05541e` for the final cleanup and documentation record
-- Validation summary: clean local package evidence and hosted CI `37514952238` passed; Go H1/H2 external comparison remains not run
+- Source revision: `201e7ae9dccbf6f7a35642673795bf968199de2a`
+- Commit range: `391e415..201e7ae` for the final cleanup and documentation record
+- Validation summary: clean local and hosted package evidence and CI `37516695805` passed; Go H1/H2 external comparison remains not run
 - Known limitations: partial security scan coverage, no tag, and no Mooncakes publication record
 
 ## 0.7.0-alpha
