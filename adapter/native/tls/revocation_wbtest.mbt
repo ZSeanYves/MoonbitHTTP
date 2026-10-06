@@ -110,6 +110,7 @@ async fn assert_revocation_rejected(
   client_options : @transport.TlsOptions,
   server_options : @transport.TlsOptions,
   expected : Int64,
+  allow_omitted_staple? : Bool = false,
 ) -> Unit {
   let (client, server) = handshake_pair(client_options, server_options)
   match server {
@@ -118,7 +119,14 @@ async fn assert_revocation_rejected(
   }
   match client {
     Err(NativeFailure(Handshake, _, verification, _)) =>
-      assert_eq(verification, expected)
+      // On some OpenSSL builds a wrong-CertID staple is sent and reports 75;
+      // on others the server omits it and the client reports 100. Both fail
+      // closed, so this exception is enabled only for that fixture.
+      assert_true(
+        verification == expected ||
+        (allow_omitted_staple && verification == 100L),
+        msg="unexpected revocation verification code: expected {expected}, got {verification}",
+      )
     Ok(connection) => {
       connection.close()
       fail("revocation failure was accepted by stream TLS")
@@ -137,7 +145,11 @@ async fn assert_revocation_rejected(
   )
   match result {
     Err(NativeFailure(Handshake, _, verification, _)) =>
-      assert_eq(verification, expected)
+      assert_true(
+        verification == expected ||
+        (allow_omitted_staple && verification == 100L),
+        msg="unexpected QUIC revocation verification code: expected {expected}, got {verification}",
+      )
     other => fail("unexpected QUIC revocation result: \{Repr(other)}")
   }
 }
@@ -166,9 +178,6 @@ async test "native TLS and QUIC: OCSP freshness and status failures never authen
       (signed_ocsp(this_offset=-7200, next_offset=-3600), 99L),
       (signed_ocsp(status=1), 23L),
       (signed_ocsp(status=2), 75L),
-      // OpenSSL refuses to staple this mismatched certificate ID; the client
-      // therefore fails closed at the missing-staple boundary (100).
-      (signed_ocsp(subject="localhost.cert.pem"), 100L),
       (signed_ocsp(corrupt_signature=true), 97L),
       // The native server declines to send malformed DER, so the client
       // observes the same fail-closed missing-staple result.
@@ -180,6 +189,18 @@ async test "native TLS and QUIC: OCSP freshness and status failures never authen
       expected,
     )
   }
+  // OpenSSL versions differ on whether a valid but wrong-CertID response is
+  // stapled. Accept either the response-not-covering-peer code (75) or the
+  // missing-staple code (100), while requiring rejection in both cases.
+  assert_revocation_rejected(
+    client,
+    {
+      ..server,
+      ocsp_response: Some(signed_ocsp(subject="localhost.cert.pem")),
+    },
+    75L,
+    allow_omitted_staple=true,
+  )
   assert_revocation_rejected(client, server, 100L)
 }
 

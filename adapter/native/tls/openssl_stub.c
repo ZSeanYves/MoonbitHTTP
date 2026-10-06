@@ -25,6 +25,11 @@ typedef struct ocsp_response_st OCSP_RESPONSE;
 typedef struct ocsp_basic_response_st OCSP_BASICRESP;
 typedef struct ocsp_cert_id_st OCSP_CERTID;
 typedef struct asn1_generalized_time_st ASN1_GENERALIZEDTIME;
+typedef int (*TlsAlpnSelectCallback)(
+    SSL *, const unsigned char **, unsigned char *, const unsigned char *,
+    unsigned int, void *);
+typedef int (*TlsPemPasswordCallback)(char *, int, int, void *);
+typedef void (*TlsInfoCallback)(void);
 
 typedef struct {
   SSL_CTX *ctx;
@@ -44,6 +49,9 @@ typedef struct {
 #ifdef _WIN32
 #include <windows.h>
 #include <wchar.h>
+#ifdef OCSP_RESPONSE
+#undef OCSP_RESPONSE
+#endif
 #else
 #include <dlfcn.h>
 #include <pthread.h>
@@ -67,8 +75,8 @@ typedef struct {
   F(int, SSL_CTX_use_certificate, (SSL_CTX *, X509 *)) \
   F(int, SSL_CTX_use_PrivateKey, (SSL_CTX *, EVP_PKEY *)) \
   F(int, SSL_CTX_check_private_key, (const SSL_CTX *)) \
-  F(void, SSL_CTX_set_alpn_select_cb, (SSL_CTX *, int (*)(SSL *, const unsigned char **, unsigned char *, const unsigned char *, unsigned int, void *), void *)) \
-  F(long, SSL_CTX_callback_ctrl, (SSL_CTX *, int, void (*)(void))) \
+  F(void, SSL_CTX_set_alpn_select_cb, (SSL_CTX *, TlsAlpnSelectCallback, void *)) \
+  F(long, SSL_CTX_callback_ctrl, (SSL_CTX *, int, TlsInfoCallback)) \
   F(SSL *, SSL_new, (SSL_CTX *)) \
   F(void, SSL_free, (SSL *)) \
   F(void, SSL_set0_rbio, (SSL *, BIO *)) \
@@ -101,9 +109,9 @@ typedef struct {
   F(int, BIO_read, (BIO *, void *, int)) \
   F(size_t, BIO_ctrl_pending, (BIO *)) \
   F(long, BIO_ctrl, (BIO *, int, long, void *)) \
-  F(X509 *, PEM_read_bio_X509, (BIO *, X509 **, int (*)(char *, int, int, void *), void *)) \
-  F(X509_CRL *, PEM_read_bio_X509_CRL, (BIO *, X509_CRL **, int (*)(char *, int, int, void *), void *)) \
-  F(EVP_PKEY *, PEM_read_bio_PrivateKey, (BIO *, EVP_PKEY **, int (*)(char *, int, int, void *), void *)) \
+  F(X509 *, PEM_read_bio_X509, (BIO *, X509 **, TlsPemPasswordCallback, void *)) \
+  F(X509_CRL *, PEM_read_bio_X509_CRL, (BIO *, X509_CRL **, TlsPemPasswordCallback, void *)) \
+  F(EVP_PKEY *, PEM_read_bio_PrivateKey, (BIO *, EVP_PKEY **, TlsPemPasswordCallback, void *)) \
   F(void, X509_free, (X509 *)) \
   F(void, X509_CRL_free, (X509_CRL *)) \
   F(void, EVP_PKEY_free, (EVP_PKEY *)) \
@@ -569,7 +577,7 @@ MOONBIT_FFI_EXPORT HttpTls *moon_http_tls_new(int server, int verify, int system
     if (!install_ocsp_staple(self, ocsp_response, Moonbit_array_length(ocsp_response))) goto failed;
     self->has_ocsp_staple = 1;
     if (p_SSL_CTX_ctrl(self->ctx, 64, 0, self) != 1) goto failed;
-    if (p_SSL_CTX_callback_ctrl(self->ctx, 63, (void (*)(void))ocsp_status_cb) != 1) goto failed;
+    if (p_SSL_CTX_callback_ctrl(self->ctx, 63, (TlsInfoCallback)ocsp_status_cb) != 1) goto failed;
   }
   self->initialized = 1;
   return self;

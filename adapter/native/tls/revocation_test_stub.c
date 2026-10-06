@@ -21,6 +21,7 @@ typedef struct ocsp_basic_response_st OCSP_BASICRESP;
 typedef struct ocsp_response_st OCSP_RESPONSE;
 typedef struct ocsp_cert_id_st OCSP_CERTID;
 typedef struct ocsp_single_response_st OCSP_SINGLERESP;
+typedef int (*TlsPemPasswordCallback)(char *, int, int, void *);
 extern void *moon_http_tls_symbol(const char *);
 
 #define FIXTURE_SYMBOLS(F) \
@@ -30,8 +31,8 @@ extern void *moon_http_tls_symbol(const char *);
   F(int, BIO_free, (BIO *)) \
   F(int, BIO_read, (BIO *, void *, int)) \
   F(size_t, BIO_ctrl_pending, (BIO *)) \
-  F(X509 *, PEM_read_bio_X509, (BIO *, X509 **, int (*)(char *, int, int, void *), void *)) \
-  F(EVP_PKEY *, PEM_read_bio_PrivateKey, (BIO *, EVP_PKEY **, int (*)(char *, int, int, void *), void *)) \
+  F(X509 *, PEM_read_bio_X509, (BIO *, X509 **, TlsPemPasswordCallback, void *)) \
+  F(EVP_PKEY *, PEM_read_bio_PrivateKey, (BIO *, EVP_PKEY **, TlsPemPasswordCallback, void *)) \
   F(int, PEM_write_bio_X509_CRL, (BIO *, const X509_CRL *)) \
   F(void, X509_free, (X509 *)) \
   F(void, EVP_PKEY_free, (EVP_PKEY *)) \
