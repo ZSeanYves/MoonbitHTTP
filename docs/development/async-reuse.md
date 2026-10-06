@@ -7,12 +7,11 @@ protocol packages continue to depend only on MoonbitHTTP capability contracts.
 
 ## Stream TLS trial
 
-`adapter/native/tls` contains an opt-in `AsyncStreamTlsProvider`. It currently
-accepts only the option subset that the public async TLS API can represent
-without silently dropping a MoonbitHTTP security setting. It is not the
-default provider. Unsupported ALPN, credential, trust-anchor, TLS-version,
-CRL, OCSP and server options fail closed with `Unsupported` or an options
-error.
+`adapter/native/tls` contains an opt-in `AsyncStreamTlsProvider`. The detailed
+field-by-field decision is recorded in the [async TLS capability
+matrix](async-tls-capability.md). Because async@0.22.4 does not expose
+negotiated TLS metadata, the provider currently fails closed before starting a
+handshake. It is a compatibility spike, not a second production TLS path.
 
 The existing Native provider remains the default until a complete A/B suite
 proves equivalent behavior for handshake, identity, ALPN, credentials,

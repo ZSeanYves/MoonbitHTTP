@@ -17,22 +17,16 @@ fn render_async_error(error : Error) -> String {
 }
 
 ///|
-fn async_tls_supported(options : @transport.TlsOptions, server : Bool) -> Bool {
-  if server || options.alpn != ["http/1.1"] {
-    return false
-  }
-  options.min_version == Tls13 &&
-  options.max_version is None &&
-  !options.enable_early_data &&
-  options.trust_anchors is None &&
-  options.revocation_lists is None &&
-  !options.require_crl &&
-  !options.require_ocsp &&
-  options.ocsp_response is None &&
-  options.client_certificate is None &&
-  options.client_private_key is None &&
-  options.server_certificate is None &&
-  options.server_private_key is None
+fn async_tls_supported(
+  _options : @transport.TlsOptions,
+  _server : Bool,
+) -> Bool {
+  // async@0.22.4 does not expose the negotiated TLS version, cipher or ALPN.
+  // SecureConnection carries those values as security-relevant metadata, so
+  // accepting a handshake here would manufacture facts the provider cannot
+  // prove. Keep the facade fail-closed until the public async API exposes the
+  // complete metadata and credential surface required by TlsProvider.
+  false
 }
 
 ///|

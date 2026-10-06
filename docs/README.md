@@ -25,6 +25,7 @@ The version-level change record is [`CHANGELOG.md`](../CHANGELOG.md).
 
 - [QUIC and TLS boundary](protocols/quic-tls.md)
 - [Async reuse boundary](development/async-reuse.md)
+- [Async TLS capability matrix](development/async-tls-capability.md)
 - [Testing and validation](development/testing.md)
 - [Interoperability](development/interop.md)
 - [Performance methodology](development/performance.md)
