@@ -1,95 +1,126 @@
-# ZSeanYves/MoonbitHTTP
+# 面向 MoonBit 的流式 HTTP 协议套件
 
-MoonbitHTTP 是 MoonBit 的流式 HTTP 基础库。`0.7.0` 是面向 v1 架构的
-破坏性 alpha 开发线。
+MoonbitHTTP 为 MoonBit 提供可移植的 HTTP/1.1、HTTP/2、HTTP/3、QUIC、TLS、
+流式 Body 和策略组件。`0.7.0` 是破坏性的 alpha 架构线，`1.0.0` 之前公共
+API 可能变化。
 
-## 功能（Features）
+协议包是与能力无关的状态机。网络访问、解析、时钟、熵源、TLS 和授权由
+宿主显式提供，使可移植包可以在 Native、Wasm、Wasm-GC 和 JavaScript 上编译，
+同时清楚区分各目标实际拥有的网络能力。
 
-- **[portable] HTTP/1.1**：增量请求/响应 codec、消息 framing、trailer、输入
-  校验，以及异步服务和客户端接入。
-- **[portable] HTTP/2**：frame、HPACK、SETTINGS、GOAWAY/RST、多路复用流、
-  有界流控、h2c 升级和异步服务驱动。
-- **[portable] HTTP/3 与 QUIC 引擎**：QPACK、关键流、请求流状态、packet
-  protection、恢复、路径验证和传输状态。当前提供的是协议引擎与 driver
-  API，尚未提供通用的 HTTP/3 应用服务层。
-- **[portable] 统一 HTTP 数据类型**：经过校验的 `Request`、`Response`、`HeaderMap`、
-  URI/authority、endpoint、资源限制和类型化错误。
-- **[portable] 流式 Body**：有界队列、背压、取消、trailer，以及请求/响应 Body 的
-  显式生命周期管理。
-- **[portable] 可选策略**：认证、Cookie、缓存决策、重定向、重试和有界的内容编码
-  转换。
-- **[host] 显式能力注入**：由宿主提供 stream/datagram I/O、名称解析、时钟、熵源、
-  TLS 和 `NetworkPolicy`。协议代码不会创建 socket，也不会偷偷执行 DNS。
-- **[native] Native 适配器**：TCP/UDP、resolver、clock、基于 OpenSSL 的普通 TLS
-  与 QUIC TLS，以及 Native client/server 接线。
-- **[host] 回调接入**：`adapter/uv` 把宿主回调桥接为 async `Reader`/`Writer`，
-  但不选择具体 socket 或 TLS 后端。
-- **[driver-level] HTTP/3/QUIC smoke 与互操作**：Native loopback 和独立
-  driver 检查覆盖协议边界；这不等于通用 HTTP/3 应用服务。
+## 安装
+
+`0.7.0` 发布到 Mooncakes 后，可在 MoonBit 项目根目录运行：
+
+```bash
+moon add ZSeanYves/MoonbitHTTP@0.7.0
+```
+
+当前源码请直接 clone 仓库并使用项目锁定的 MoonBit 工具链；发布前的源码验证
+以仓库 CI 和 release 检查为准。
+
+包地图和依赖边界见
+[`docs/concepts/packages.md`](docs/concepts/packages.md)。各包的 API 说明
+放在包目录旁，生成的 `.mbti` 文件仍是规范接口表面。
+
+## 包
+
+- `core/types`、`core/body`、`core/codec`：HTTP 值、流式 Body、取消、背压和
+  有界字节 codec。
+- `protocol/http1`、`protocol/http2`、`protocol/http3`、`protocol/quic`、
+  `protocol/tls`：增量 framing 和协议状态机；这些包不会打开 socket。
+- `runtime/transport`、`runtime/service`、`runtime/detection`：宿主能力契约、
+  协议探测、HTTP/1 与 HTTP/2 服务生命周期以及 h2c。
+- `application/client`、`application/server`：请求编排、连接池和服务端分发契约。
+- `policy/auth`、`policy/cache`、`policy/cookie`、`policy/content_coding`：
+  可选 HTTP 策略。
+- `adapter/native/*`：Native TCP/UDP、resolver、clock、OpenSSL 普通 TLS 和
+  QUIC TLS 适配器。
+- `adapter/uv`：把宿主 callback 接入 async `Reader`/`Writer`。
+
+## 功能
+
+- [x] **[portable] HTTP/1.1**：增量消息、framing、trailer、校验以及服务/客户端接入。
+- [x] **[portable] HTTP/2**：frame、HPACK、SETTINGS、GOAWAY/RST、多路复用、
+  流控、h2c 和具备生命周期管理的服务。
+- [x] **[portable] HTTP/3 与 QUIC 引擎**：QPACK、关键流、请求流状态、packet
+  protection、恢复、CID 和路径状态。
+- [x] **[portable] 统一 HTTP 值**：`Request`、`Response`、`HeaderMap`、URI、
+  authority、endpoint、限制和类型化错误。
+- [x] **[portable] 流式 Body**：有界队列、背压、取消、trailer 和显式 Body 所有权。
+- [x] **[portable] 可选策略**：认证、Cookie、缓存决策、重定向、重试和有界内容编码。
+- [x] **[host] 能力注入**：stream/datagram I/O、resolver、clock、entropy、TLS 和
+  `NetworkPolicy` 都是显式输入。
+- [x] **[host] Callback 接入**：`adapter/uv` 把宿主 callback 转为 async `Reader`/`Writer`。
+- [x] **[native] TCP/UDP、DNS 与 Native client/server 适配器**：提供宿主 socket
+  和 resolver 接线；HTTP 语义与 HTTP/1.1 framing 分别对照
+  [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) 和
+  [RFC 9112](https://www.rfc-editor.org/rfc/rfc9112)。
+- [x] **[native] OpenSSL 普通 TLS**：在适配器边界执行证书身份和信任校验；TLS 1.3
+  对照 [RFC 8446](https://www.rfc-editor.org/rfc/rfc8446)，主机名身份规则对照
+  [RFC 6125](https://www.rfc-editor.org/rfc/rfc6125)。
+- [x] **[native] QUIC TLS provider**：OpenSSL 3.5+ 提供 Native QUIC TLS callback；
+  协议边界对照 [RFC 9001](https://www.rfc-editor.org/rfc/rfc9001) 与
+  [RFC 8446](https://www.rfc-editor.org/rfc/rfc8446)。
+- [x] **[native] HTTP/3/QUIC smoke 与互操作 driver**：Native loopback 和独立
+  driver 检查覆盖 [QUIC v1 RFC 9000](https://www.rfc-editor.org/rfc/rfc9000)、
+  [HTTP/3 RFC 9114](https://www.rfc-editor.org/rfc/rfc9114) 与
+  [QPACK RFC 9204](https://www.rfc-editor.org/rfc/rfc9204)。
+
+RFC 链接说明实现对照的协议契约，不表示所有可选扩展或部署配置都已实现。
 
 ## 目标支持
 
 | 能力 | Native | Wasm / Wasm-GC | JavaScript |
 | --- | --- | --- | --- |
-| `core/*`、`protocol/*`、`runtime/*`、`application/*`、`policy/*` | 可编译，并可在注入能力后运行 | 可编译，并可在宿主能力下运行 | 可编译，并可在宿主能力下运行 |
-| HTTP/1 和 HTTP/2 service 接口 | 可用，网络由 adapter 提供 | 可用，需宿主注入网络能力 | 可用，需宿主注入网络能力 |
-| Native TCP/UDP/DNS/OpenSSL | 支持 | 不支持 | 不支持 |
-| HTTP/3/QUIC 协议状态 | 可编译；提供 Native driver/TLS fixture | 可编译；datagram 和 QUIC TLS 由宿主提供 | 可编译；datagram 和 QUIC TLS 由宿主提供 |
-| HTTP/3 网络 TLS | Native OpenSSL；QUIC TLS 需要 OpenSSL 3.5+ | 宿主提供 | 宿主提供 |
-| 浏览器 fetch/WebSocket | 不适用 | 不承诺 | 不承诺 |
+| core、codec、protocol、policy | 可编译和使用 | 可编译和使用 | 可编译和使用 |
+| HTTP/1.1 与 HTTP/2 service 接口 | 通过 adapter 可用 | 可用，需宿主能力 | 可用，需宿主能力 |
+| Native TCP/UDP/DNS/OpenSSL 适配器 | 支持 | 不支持 | 不支持 |
+| HTTP/3/QUIC 协议状态 | 可编译使用，提供 Native driver fixture | 可编译使用，需宿主 datagram/TLS | 可编译使用，需宿主 datagram/TLS |
+| HTTP/3 网络 TLS | OpenSSL 3.5+ QUIC TLS provider | 宿主提供 | 宿主提供 |
+| 浏览器 `fetch`/WebSocket 接入 | 不适用 | 不承诺 | 不承诺 |
 
-“可移植编译”表示包可以为目标构建，并不表示目标自动拥有网络能力。Wasm
-和 JS 构建不能导入 `adapter/native/*`；库不会假设浏览器 API、DNS、UDP 或
-TLS 已经存在。
+“可编译使用”不等于自动获得网络访问。Wasm 和 JavaScript 必须提供所需宿主
+能力，也不能导入 `adapter/native/*`。
 
-## 包分层
+## 示例
 
-- **`core/*`**：协议无关的类型、有界 codec 基础设施和流式 Body 契约。
-- **`protocol/*`**：HTTP/1.1、HTTP/2、HTTP/3、QUIC 和可移植 TLS 状态。
-- **`runtime/*`**：能力契约、协议检测和 HTTP/1/H2 服务生命周期，包括 h2c。
-- **`application/*`**：客户端策略/连接池和服务端 dispatch 契约。当前具体
-  的 Native 便捷客户端面向 HTTP/1.1。
-- **`policy/*`**：可选的认证、缓存、Cookie 和内容编码策略。
-- **`adapter/native/*`**：Native socket、resolver、clock 和 OpenSSL provider。
-- **`adapter/uv`**：回调到 async I/O 的宿主桥接层。
+- [`examples/cmd/smoke_server`](examples/cmd/smoke_server/README.md)：有界的
+  Native HTTP/1.1 和 h2c 服务 smoke fixture。
+- [`examples/cmd/h3_smoke_server`](examples/cmd/h3_smoke_server/README.md)：有界的
+  Native HTTP/3 与 QUIC loopback 互操作 fixture。
 
-包职责和依赖边界见[包地图](docs/concepts/packages.md)与[架构说明](docs/concepts/architecture.md)。
+请按示例包 README 中的仓库 runner 运行；这些 fixture 用于验证，不是部署模板。
 
-## 范围与限制
+## 标准与范围
 
-当前 HTTP/1.1 和 HTTP/2 的应用覆盖最完整。HTTP/3 与 QUIC 层提供可移植
-codec、状态机和 driver action；当前 service 层不会把它们隐式变成完整的
-HTTP/3 client 或 server。Native QUIC TLS 使用 OpenSSL provider，并需要
-OpenSSL 3.5 或更高版本。
+HTTP/1.1 和 HTTP/2 具有最完整的应用覆盖。HTTP/2 framing 与 HPACK 对照
+[RFC 9113](https://www.rfc-editor.org/rfc/rfc9113) 和
+[RFC 7541](https://www.rfc-editor.org/rfc/rfc7541)。HTTP/3 与 QUIC 当前提供
+协议引擎和 driver action；本版本不承诺通用 HTTP/3 client/server service。
 
-Native TLS 支持显式 trust anchor、证书身份校验、mTLS、离线 CRL 检查和
-stapled OCSP 校验。在线 OCSP 获取以及 Wasm 的 Native 风格撤销 provider
-不在本次发布范围内。
+Native TLS 与 QUIC 必须显式选择 provider。Wasm 和 JavaScript 不会自动获得浏览器
+网络、DNS、UDP 或 TLS。async runtime 使用协作式调度，宿主能力和应用 handler
+需要主动 yield，并让取消清理保持有界。
 
-异步运行时采用协作式调度。应用 handler 和宿主能力实现需要主动 yield，
-并保证受保护清理有界，取消和关闭才能完成。
+## 验证状态
 
-本项目是经过充分验证的开发基础库，不宣称已经达到生产就绪或标准库兼容
-水平。当前的本地/loopback 互操作、受控 Native 性能运行和定向安全回归只
-说明各自声明的环境，不能推出公网、跨平台、长时间运行或完整独立安全审计
-结论。当前修复索引中的已知问题已有针对性修复和回归验证；历史深度扫描的
-覆盖仍不完整。
-当前独立候选复核仍有三个路径待处置，因此不能把这些定向回归当作完整安全
-扫描或生产批准。
+仓库在 CI 中执行 Native、Wasm、Wasm-GC 和 JavaScript 严格检查与测试、架构检查、
+Native TLS 套件、HTTP/3/QUIC 互操作，以及受控 Native 性能/参考运行。这些是有界的
+开发和 loopback 验证，不单独证明公网容量、长时间可靠性、跨平台部署覆盖或完整的
+独立安全审计。
 
-## 验证与后续入口
+见 [`docs/release/current.md`](docs/release/current.md) 的证据摘要、
+[`docs/release/gates.md`](docs/release/gates.md) 的发布条件，以及
+[`CHANGELOG.md`](CHANGELOG.md) 的版本记录。
 
-- [快速开始](docs/guide/getting-started.md)：使用显式能力构造客户端。
-- [架构说明](docs/concepts/architecture.md)：依赖和状态机边界。
-- [验证事实](docs/release/current.md)：当前证据与剩余发布工作。
-- [发布门槛](docs/release/gates.md)：生产发布条件。
-- [性能方法](docs/development/performance.md)：受控 Native 回归与独立 Go
-  `net/http` H1/H2 参考工具。
-- [变更记录](CHANGELOG.md)：版本级行为和 API 变化。
+## 注意事项
 
-规范包路径见[包地图](docs/concepts/packages.md)。在 `0.7.0` alpha 阶段，
-移动包会改变 import identity，属于破坏性变更。
+- `0.7.0` 是 alpha 架构线，包路径可能发生破坏性变化。
+- Native QUIC TLS 需要 OpenSSL 3.5 或更高版本。
+- HTTP/3 service 编排、浏览器 fetch/WebSocket adapter 和在线 OCSP 获取不在当前范围。
+- 可移植目标构建通过只证明包可编译，不证明该目标已经提供可用网络实现。
 
 ## 许可证
 
-Apache License 2.0，见 [LICENSE](LICENSE)。
+Apache License 2.0，见 [`LICENSE`](LICENSE)。
