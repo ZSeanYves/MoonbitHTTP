@@ -1,5 +1,5 @@
-/* White-box fixture construction only. This package is imported by wbtest and
- * excluded from the user distribution; production TLS does not link it.
+/* White-box fixture construction only. This package ships with the colocated
+ * tests to keep their imports resolvable; production TLS does not link it.
  * Resolve signing functions lazily, so production TLS has no signing-symbol
  * dependency. All inputs are borrowed; all output is copied into MoonBit. */
 #include <moonbit.h>

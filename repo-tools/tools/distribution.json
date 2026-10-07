@@ -48,6 +48,9 @@
     "protocol/http2/moon.pkg",
     "protocol/http3/moon.pkg",
     "protocol/quic/moon.pkg",
-    "protocol/tls/moon.pkg"
+    "protocol/tls/moon.pkg",
+    "internal/test_support/native_tls_revocation/moon.pkg",
+    "internal/test_support/native_tls_revocation/revocation.mbt",
+    "internal/test_support/native_tls_revocation/revocation_test_stub.c"
   ]
 }

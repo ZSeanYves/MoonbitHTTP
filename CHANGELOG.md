@@ -42,6 +42,12 @@ has no tag or Mooncakes publication record.
 
 ### Fixed
 
+- Keep the Native TLS white-box revocation helper in the published
+  `internal/test_support` tree. Its former `repo-tools` location was excluded
+  from the archive, so `moon publish` failed when checking the extracted module.
+- Check every distribution in an isolated extracted directory on all four
+  targets, in addition to verifying the inventory and frozen Git contents.
+  This check also runs through the existing CI release-evidence gate.
 - The current remediation index records local fixes and regression coverage for
   the 25 deduplicated roots from the failed deep-scan records. This is not a
   claim that the scans reached complete coverage.

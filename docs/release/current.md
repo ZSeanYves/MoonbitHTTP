@@ -3,7 +3,7 @@
 > Status: local validation and explicitly labelled historical evidence; not production approval
 > Scope: MoonbitHTTP 0.7.0 security remediation and historical release evidence
 > Source: current working tree; exact revisions belong to local/CI evidence
-> Last reviewed: 2026-10-06
+> Last reviewed: 2026-10-07
 
 The latest local security remediation and final validation are recorded in the
 [2026-10-06 remediation index](../development/security-remediation-2026-10-06.md).
@@ -49,6 +49,13 @@ deliberately outside Git and the published archive; keeping the hash outside
 the archive avoids a self-referential digest.
 Resolved dependency versions are captured in that release evidence;
 Moon does not provide a committed lockfile for this module.
+
+The 2026-10-07 publication attempt exposed a gap in the earlier archive checks:
+the TLS white-box tests imported a helper from excluded `repo-tools` sources.
+The helper now lives in the included `internal/test_support` tree and remains
+a test-only dependency. The distribution gate now checks all four targets from
+an isolated extraction. Earlier inventory and Git-blob checks did not exercise
+that step and must not be read as successful extracted-package validation.
 
 The controlled method-v3 Native release HTTP/1 decoder comparison recorded a
 passing local window:

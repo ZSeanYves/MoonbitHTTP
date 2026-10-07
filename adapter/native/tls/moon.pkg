@@ -13,7 +13,7 @@ import {
   "moonbitlang/async/socket",
   "ZSeanYves/MoonbitHTTP/protocol/quic",
   "ZSeanYves/MoonbitHTTP/internal/test_support",
-  "ZSeanYves/MoonbitHTTP/repo-tools/test_support/native_tls_revocation" @revocation_test,
+  "ZSeanYves/MoonbitHTTP/internal/test_support/native_tls_revocation" @revocation_test,
 } for "wbtest"
 
 options(

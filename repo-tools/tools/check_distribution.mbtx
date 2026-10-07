@@ -1,3 +1,4 @@
+///|
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -8,12 +9,18 @@ import {
 }
 
 ///|
-async fn command(program : String, arguments : Array[String]) -> (Bytes, Bytes) {
-  let (status, output, errors) = @async.with_timeout(60000, async fn() {
+async fn command(
+  program : String,
+  arguments : Array[String],
+  timeout_ms? : Int = 60000,
+) -> (Bytes, Bytes) {
+  let (status, output, errors) = @async.with_timeout(timeout_ms, async fn() {
     @process.collect_output(program, arguments)
   })
   guard status == 0 else {
-    fail("\{program} \{arguments.join(" ")}: exit \{status}; \{errors.text()}")
+    fail(
+      "\{program} \{arguments.join(" ")}: exit \{status}; \{output.text()}\n\{errors.text()}",
+    )
   }
   (output.binary(), errors.binary())
 }
@@ -22,24 +29,31 @@ async fn command(program : String, arguments : Array[String]) -> (Bytes, Bytes) 
 async fn command_text(program : String, arguments : Array[String]) -> String {
   let (output, errors) = command(program, arguments)
   let text = @utf8.decode(output)
-  if text.is_empty() { @utf8.decode(errors) } else { text }
+  if text.is_empty() {
+    @utf8.decode(errors)
+  } else {
+    text
+  }
 }
 
 ///|
 fn manifest_strings(manifest : Json, field : String) -> Array[String] raise {
   let values = match field {
-    "include" => match manifest {
-      { "include": Array(values), .. } => values
-      _ => fail("distribution manifest has no include array")
-    }
-    "exclude" => match manifest {
-      { "exclude": Array(values), .. } => values
-      _ => fail("distribution manifest has no exclude array")
-    }
-    "required" => match manifest {
-      { "required": Array(values), .. } => values
-      _ => fail("distribution manifest has no required array")
-    }
+    "include" =>
+      match manifest {
+        { "include": Array(values), .. } => values
+        _ => fail("distribution manifest has no include array")
+      }
+    "exclude" =>
+      match manifest {
+        { "exclude": Array(values), .. } => values
+        _ => fail("distribution manifest has no exclude array")
+      }
+    "required" =>
+      match manifest {
+        { "required": Array(values), .. } => values
+        _ => fail("distribution manifest has no required array")
+      }
     _ => fail("unsupported distribution manifest field: \{field}")
   }
   let result : Array[String] = []
@@ -55,7 +69,7 @@ fn manifest_strings(manifest : Json, field : String) -> Array[String] raise {
 ///|
 fn matches(path : String, pattern : String) -> Bool {
   if pattern.has_suffix("/**") {
-    let prefix = pattern[:(pattern.length() - 3)]
+    let prefix = pattern[:pattern.length() - 3]
     path.has_prefix(prefix + "/")
   } else {
     path == pattern
@@ -63,30 +77,74 @@ fn matches(path : String, pattern : String) -> Bool {
 }
 
 ///|
-fn included(path : String, includes : Array[String], excludes : Array[String]) -> Bool {
+fn included(
+  path : String,
+  includes : Array[String],
+  excludes : Array[String],
+) -> Bool {
   includes.any(fn(pattern) { matches(path, pattern) }) &&
-    !excludes.any(fn(pattern) { matches(path, pattern) })
+  !excludes.any(fn(pattern) { matches(path, pattern) })
 }
 
 ///|
 fn safe_member(path : String) -> Bool {
-  !path.is_empty() && !path.has_prefix("/") && !path.has_prefix("-") &&
-    !path.contains("\\") && !path.contains(":") &&
-    !path.split("/").any(fn(part) {
-      part == "" || part == "." || part == ".." || part == ".git" ||
-        part == "_build" || part == "target" || part == ".mooncakes" ||
-        part == "coverage" || part == "evidence"
-    }) && !path.has_suffix(".zip") && !path.has_suffix(".coverage") &&
-    !path.has_suffix(".profraw") && path != "coverage.xml" &&
-    path != "coverage.json"
+  !path.is_empty() &&
+  !path.has_prefix("/") &&
+  !path.has_prefix("-") &&
+  !path.contains("\\") &&
+  !path.contains(":") &&
+  !path
+  .split("/")
+  .any(fn(part) {
+    part == "" ||
+    part == "." ||
+    part == ".." ||
+    part == ".git" ||
+    part == "_build" ||
+    part == "target" ||
+    part == ".mooncakes" ||
+    part == "coverage" ||
+    part == "evidence"
+  }) &&
+  !path.has_suffix(".zip") &&
+  !path.has_suffix(".coverage") &&
+  !path.has_suffix(".profraw") &&
+  path != "coverage.xml" &&
+  path != "coverage.json"
 }
 
 ///|
 async fn require_clean() -> Unit {
-  let (changes, _) = command("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+  let (changes, _) = command("git", [
+    "status", "--porcelain=v1", "-z", "--untracked-files=all",
+  ])
   guard changes.is_empty() else {
-    fail("release gate closed: tracked edits or untracked files exist; freeze and commit reviewed source before checking the distribution")
+    fail(
+      "release gate closed: tracked edits or untracked files exist; freeze and commit reviewed source before checking the distribution",
+    )
   }
+}
+
+///|
+async fn check_extracted_package(archive : String) -> Unit {
+  // Resolve every import, including wbtest imports, using only the published
+  // sources. A source-tree check cannot catch packages excluded by .moonignore.
+  let directory = @fs.tmpdir(prefix="moonbithttp-distribution")
+  println("Checking extracted package in \{directory}")
+  ignore(command("unzip", ["-q", archive, "-d", directory]))
+  ignore(
+    command(
+      "moon",
+      [
+        "-C", directory, "check", "--target", "all", "--deny-warn", "--warn-list",
+        "+73",
+      ],
+      timeout_ms=300000,
+    ),
+  )
+  // Retain failed extractions for diagnosis; remove only a successful check's
+  // temporary directory. Neither the tree nor its build output is uploaded.
+  @fs.rmdir(directory, recursive=true)
 }
 
 ///|
@@ -100,10 +158,12 @@ async fn main {
   let includes = manifest_strings(manifest, "include")
   let excludes = manifest_strings(manifest, "exclude")
   let required = manifest_strings(manifest, "required")
-  guard manifest is { "schema_version": Number(schema, ..), .. } && schema == 1.0 else {
+  guard manifest is { "schema_version": Number(schema, ..), .. } &&
+    schema == 1.0 else {
     fail("unsupported distribution manifest schema")
   }
-  guard manifest is { "module": String(module_name), "version": String(version), .. } else {
+  guard manifest
+    is { "module": String(module_name), "version": String(version), .. } else {
     fail("distribution manifest must identify module and version")
   }
   require_clean()
@@ -117,21 +177,31 @@ async fn main {
   let actual : Array[String] = []
   for raw in listed.split("\n") {
     let path = raw.trim().to_owned()
-    if path.is_empty() { continue }
-    if path.has_prefix("Package to ") || path == "Check passed" ||
-      path.has_prefix("Running moon check") || path.has_prefix("Finished.") {
+    if path.is_empty() {
       continue
     }
-    guard !actual.contains(path) else { fail("duplicate package member: \{path}") }
+    if path.has_prefix("Package to ") ||
+      path == "Check passed" ||
+      path.has_prefix("Running moon check") ||
+      path.has_prefix("Finished.") {
+      continue
+    }
+    guard !actual.contains(path) else {
+      fail("duplicate package member: \{path}")
+    }
     guard safe_member(path) else { fail("unsafe package member: \{path}") }
     actual.push(path)
   }
   actual.sort()
-  guard !actual.is_empty() else { fail("moon package produced an empty archive") }
+  guard !actual.is_empty() else {
+    fail("moon package produced an empty archive")
+  }
 
   for path in actual {
     guard included(path, includes, excludes) else {
-      fail("archive member is outside the explicit distribution allowlist: \{path}")
+      fail(
+        "archive member is outside the explicit distribution allowlist: \{path}",
+      )
     }
   }
   for pattern in includes {
@@ -140,7 +210,9 @@ async fn main {
     }
   }
   for path in required {
-    guard actual.contains(path) else { fail("required distribution member is missing: \{path}") }
+    guard actual.contains(path) else {
+      fail("required distribution member is missing: \{path}")
+    }
   }
   for path in excludes {
     guard !actual.any(fn(entry) { matches(entry, path) }) else {
@@ -148,16 +220,25 @@ async fn main {
     }
   }
   let revision = command_text("git", ["rev-parse", "HEAD"]).trim().to_owned()
-  let tracked = command_text("git", ["ls-files", "-z"]).split("\u{0}").to_array()
-  let archive = "_build/publish/" + module_name.replace(old="/", new="-") + "-" + version + ".zip"
+  let tracked = command_text("git", ["ls-files", "-z"])
+    .split("\u{0}")
+    .to_array()
+  let archive = "_build/publish/" +
+    module_name.replace(old="/", new="-") +
+    "-" +
+    version +
+    ".zip"
   let archive_members = command_text("unzip", ["-Z1", archive])
   for raw in archive_members.split("\n") {
     let path = raw.trim().to_owned()
-    if path.is_empty() || path.has_suffix("/") { continue }
+    if path.is_empty() || path.has_suffix("/") {
+      continue
+    }
     guard actual.contains(path) else {
       fail("archive member is missing from moon package inventory: \{path}")
     }
-    guard safe_member(path) && tracked.any(fn(tracked_path) { tracked_path == path }) else {
+    guard safe_member(path) &&
+      tracked.any(fn(tracked_path) { tracked_path == path }) else {
       fail("archive member is untracked or unsafe: \{path}")
     }
     let packaged = command("unzip", ["-p", archive, path])
@@ -166,5 +247,8 @@ async fn main {
       fail("archive differs from frozen Git source: \{path}")
     }
   }
-  println("PASS: distribution allowlist verified (\{actual.length()} archive members, module \{module_name}@\{version}).")
+  check_extracted_package(archive)
+  println(
+    "PASS: distribution allowlist, frozen Git source and extracted four-target check verified (\{actual.length()} archive members, module \{module_name}@\{version}).",
+  )
 }
