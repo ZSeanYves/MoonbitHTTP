@@ -14,6 +14,29 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## Development acceptance at `3ba55e4`
+
+On 2026-11-23 the implementation met the development goal for the HTTP/1,
+HTTP/2 and HTTP/3 APIs and host capabilities described in the
+[project scope](../../README.md#standards-and-scope). Production sign-off is
+deferred under the [release gates](gates.md).
+
+| Local regression on macOS | Result |
+| --- | --- |
+| Strict check and build | All four targets passed |
+| Wasm / Wasm-GC / JavaScript / Native tests | 519/519, 368/368, 519/519, 591/591 |
+| Formatting and architecture | Passed across 28 package manifests and 98 local dependency edges |
+
+The regressions exercise a peer waiting for `100 Continue`, a final `417`
+before handler dispatch, and closing a response without pulling its body for
+`HEAD`, `204` and `304`. HTTP/2 exercises shared request and response encoding,
+length enforcement and trailer handling.
+
+At the preceding revision `ee91537`, macOS and Ubuntu arm64 each passed six
+HTTP/1, HTTP/2 and h2c socket cases. On Ubuntu, a Go HTTP server echoed three
+262,144-byte HTTP/1.1 uploads over TCP and three over verified TLS. Both client
+runs returned the connection to the idle pool.
+
 ## Sustained HTTP/3 client connection at `ecb5d62`
 
 Eight workers shared one authenticated native client connection. Each worker
