@@ -181,13 +181,6 @@ fn validate_regular_field(
 }
 
 ///|
-fn authority_matches(left : @types.Authority, right : @types.Authority) -> Bool {
-  left.host == right.host &&
-  left.port == right.port &&
-  left.ip_literal == right.ip_literal
-}
-
-///|
 fn[A] request_hpack_fields(
   stream_id : Int,
   request : @types.Request[A],
@@ -198,80 +191,14 @@ fn[A] request_hpack_fields(
       StreamError(stream_id, ProtocolError, "request version is not HTTP/2"),
     )
   }
-  if request.http_method.validate() is Err(_) ||
-    request.uri.validate_request_target(request.http_method) is Err(_) {
-    return Err(StreamError(stream_id, ProtocolError, "invalid request target"))
+  let target = match @http_fields.request_target(request, requested_scheme) {
+    Ok(target) => target
+    Err(reason) => return Err(StreamError(stream_id, ProtocolError, reason))
   }
-  let host_values = request.headers.get_all_string("host")
-  if host_values.length() > 1 {
-    return Err(StreamError(stream_id, ProtocolError, "multiple Host fields"))
-  }
-  let host_authority : @types.Authority? = if host_values.is_empty() {
-    None
-  } else {
-    let text = @utf8.decode(host_values[0].bytes) catch {
-      _ =>
-        return Err(StreamError(stream_id, ProtocolError, "invalid Host field"))
-    }
-    match @types.Authority::parse_endpoint(text) {
-      Ok(value) => Some(value)
-      Err(_) =>
-        return Err(StreamError(stream_id, ProtocolError, "invalid Host field"))
-    }
-  }
-  let target_authority = request.uri.authority
-  if target_authority is Some(left) &&
-    host_authority is Some(right) &&
-    !authority_matches(left, right) {
-    return Err(StreamError(stream_id, ProtocolError, "authority mismatch"))
-  }
-  let authority = match target_authority {
-    Some(value) => value
-    None =>
-      match host_authority {
-        Some(value) => value
-        None =>
-          return Err(
-            StreamError(
-              stream_id,
-              ProtocolError,
-              "request authority is missing",
-            ),
-          )
-      }
-  }
-  let fields : Array[HpackHeader] = [
-    { name: ":method", value: @utf8.encode(method_text(request.http_method)), },
-  ]
-  if request.http_method == Connect {
-    fields.push({ name: ":authority", value: @utf8.encode(authority.value), })
-  } else {
-    let scheme = request.uri.scheme.unwrap_or(requested_scheme).to_lower()
-    if (scheme != "http" && scheme != "https") ||
-      (request.uri.scheme is Some(value) && value != scheme) {
-      return Err(
-        StreamError(stream_id, ProtocolError, "invalid request scheme"),
-      )
-    }
-    let path = match request.uri.form {
-      AsteriskForm => "*"
-      OriginForm | AbsoluteForm =>
-        match request.uri.origin_form() {
-          Ok(value) => value
-          Err(_) =>
-            return Err(
-              StreamError(stream_id, ProtocolError, "invalid request path"),
-            )
-        }
-      AuthorityForm =>
-        return Err(
-          StreamError(stream_id, ProtocolError, "invalid request path"),
-        )
-    }
-    fields.push({ name: ":scheme", value: @utf8.encode(scheme), })
-    fields.push({ name: ":authority", value: @utf8.encode(authority.value), })
-    fields.push({ name: ":path", value: @utf8.encode(path), })
-  }
+  let fields : Array[HpackHeader] = target.pseudo_fields(request.http_method, (
+    name,
+    value,
+  ) => { name, value, })
   for field in request.headers.fields() {
     if field.name.value == "host" {
       continue
@@ -426,11 +353,6 @@ pub fn encode_data_frames(
       build_data_frames(stream_id, body.to_array(), end_stream, max_frame_size~),
     ),
   )
-}
-
-///|
-fn method_text(http_method : @types.Method) -> String {
-  http_method.as_str()
 }
 
 ///|

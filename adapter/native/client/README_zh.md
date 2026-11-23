@@ -13,6 +13,8 @@ Last reviewed: 2026-11-23
 
 `with_http3_connection` 接受数字 UDP 端点、网络策略、TLS 配置和应用回调。用 `TlsOptions::for_quic(origin_host)` 验证原站身份并协商 h3。作用域管理 UDP 套接字、随机连接 ID 和 OpenSSL provider。回调可在同一连接上开启多个请求流，从 `H3ConnectionIo` 读取事件。
 
+`with_http3_client` 提供绑定到一个 HTTPS 源的 `H3Client`。`send(request)` 收到最终响应头即可返回 `Response[BodyStream]`，此时请求正文可能仍在上传。在作用域内读完或取消响应。默认使用 TLS 主机名和 UDP 对端端口，逻辑 HTTPS 端口不同时传入 `origin_port`。客户端拒绝其他源，直连时会移除代理凭据。
+
 ## 依赖与目标
 本包仅支持 Native。HTTP/3 使用 `protocol/http3`、`protocol/quic` 和 `runtime/service`，网络和 TLS 由 `adapter/native/transport` 和 `adapter/native/tls` 提供。
 

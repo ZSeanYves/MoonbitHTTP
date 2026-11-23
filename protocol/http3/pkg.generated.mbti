@@ -309,6 +309,7 @@ pub fn[P] Http3Session::new(@quic.QuicTlsDriver[P], limits? : @types.Limits, qpa
 pub fn Http3Session::send_data(Self, Int64, Bytes, fin? : Bool) -> Result[Unit, Http3Error]
 pub fn Http3Session::send_headers(Self, Int64, Array[QpackField], fin? : Bool) -> Result[Unit, Http3Error]
 pub fn Http3Session::start_request(Self, Array[QpackField], fin? : Bool) -> Result[Int64, Http3SessionError]
+pub fn Http3Session::stop_reading(Self, Int64) -> Result[Unit, Http3Error]
 pub fn Http3Session::writes_pending(Self) -> Bool
 
 pub(all) enum Http3SessionAction {

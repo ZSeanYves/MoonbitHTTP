@@ -25,9 +25,11 @@ pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http1_with_er
 
 pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http2_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig, upgraded_request? : @types.Request[@body.BodyStream]?, upgrade_settings? : Bytes?) -> Unit
 
-pub async fn[B : @body.Body] serve_http3_connection(H3ConnectionIo, async (@types.Request[@body.BodyStream]) -> @types.Response[B]) -> Unit
+pub async fn[B : @body.Body] serve_http3_connection(H3ConnectionIo, async (@types.Request[@body.BodyStream]) -> @types.Response[B], on_request_error? : (Int64, Error) -> Unit) -> Unit
 
 pub async fn[R : @io.Reader, W : @io.Writer, X] with_h2_client_connection(R, W, async (H2Client) -> X, config? : H2ClientConfig, on_state_change? : () -> Unit) -> X
+
+pub async fn[X] with_h3_client(H3ConnectionIo, async (H3Client) -> X, origin_port? : Int?) -> X
 
 pub async fn[P : @transport.QuicTlsProvider, S : @transport.DatagramSocket, K : @transport.Clock, X] with_http3_connection(@quic.QuicTlsDriver[P], S, K, @transport.TlsOptions, async (H3ConnectionIo) -> X, limits? : @types.Limits, qpack_limits? : @http3.QpackLimits, handshake_timeout_ms? : Int, shutdown_timeout_ms? : Int) -> X
 
@@ -46,6 +48,17 @@ pub(all) suberror ClientConnectionTimeout {
 pub fn ClientConnectionTimeout::equal(Self, Self) -> Bool
 pub fn ClientConnectionTimeout::not_equal(Self, Self) -> Bool
 pub fn ClientConnectionTimeout::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror H3ClientError {
+  InvalidOrigin
+  InvalidRequest(String)
+  ClientClosed
+  Goaway(Int64)
+  PeerReset(Int64, Int64)
+} derive(Eq, @debug.Debug)
+pub fn H3ClientError::equal(Self, Self) -> Bool
+pub fn H3ClientError::not_equal(Self, Self) -> Bool
+pub fn H3ClientError::to_repr(Self) -> @debug.Repr
 
 pub(all) suberror ServiceConfigError {
   InvalidLimits(@types.LimitsError)
@@ -105,6 +118,11 @@ pub(all) struct H2ClientConfig {
 }
 pub fn H2ClientConfig::defaults() -> Self
 pub fn H2ClientConfig::validate(Self) -> Result[Unit, ServiceConfigError]
+
+pub struct H3Client {
+  // private fields
+}
+pub async fn[B : @body.Body] H3Client::send(Self, @types.Request[B]) -> @types.Response[@body.BodyStream]
 
 pub struct H3ConnectionIo {
   session : @http3.Http3Session

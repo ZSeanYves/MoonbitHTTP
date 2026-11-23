@@ -23,3 +23,24 @@ async fn[X] run_connection_scope(
     }
   }
 }
+
+///|
+/// Own the outgoing body until its headers and frames have been written.
+/// The connection scope preserves the original error and handles asynchronous
+/// cancellation; the body receives exactly one cancellation notification.
+async fn[B : @body.Body, X] with_outgoing_body_scope(
+  body : B,
+  operation : async () -> X,
+) -> X {
+  run_connection_scope(
+    operation,
+    Some(fn(error) {
+      match error {
+        Some(ConnectionScopeCancelled) =>
+          body.cancel(@body.BodyError::Cancelled)
+        Some(error) => body.cancel(error)
+        None => ()
+      }
+    }),
+  )
+}

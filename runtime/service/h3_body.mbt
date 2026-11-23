@@ -7,7 +7,7 @@ priv struct H3IncomingBody {
   changed : @cond_var.Cond
   mut trailers : @types.HeaderMap?
   mut finished : Bool
-  mut discarded : Bool
+  mut failure : Error?
 }
 
 ///|
@@ -20,13 +20,19 @@ fn H3IncomingBody::new(io : H3ConnectionIo, id : Int64) -> H3IncomingBody {
     changed: Cond(),
     trailers: None,
     finished: false,
-    discarded: false,
+    failure: None,
   }
 }
 
 ///|
-fn H3IncomingBody::discard(self : H3IncomingBody) -> Unit {
-  self.discarded = true
+fn H3IncomingBody::discard(
+  self : H3IncomingBody,
+  reason? : Error = @body.BodyError::Cancelled,
+) -> Unit {
+  if self.failure is Some(_) {
+    return
+  }
+  self.failure = Some(reason)
   // Release retained data even if an application kept the body handle.
   let count = self.buffered_bytes
   self.chunks.clear()
@@ -53,11 +59,11 @@ fn H3IncomingBody::offer(self : H3IncomingBody, data : Bytes) -> Bool {
 
 ///|
 async fn H3IncomingBody::read(self : H3IncomingBody) -> @body.Frame? {
-  while !self.discarded && self.chunks.is_empty() && !self.finished {
+  while self.failure is None && self.chunks.is_empty() && !self.finished {
     self.changed.wait()
   }
-  if self.discarded {
-    raise @body.BodyError::Cancelled
+  if self.failure is Some(error) {
+    raise error
   }
   if self.chunks.pop_front() is Some(data) {
     self.buffered_bytes -= data.length()

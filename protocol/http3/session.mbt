@@ -133,7 +133,7 @@ fn h3_response_method(fields : Array[QpackField]) -> String? {
 }
 
 ///|
-fn Http3Session::abort_stream(
+fn Http3Session::stop_input(
   self : Http3Session,
   id : Int64,
   code : H3ErrorCode,
@@ -147,10 +147,39 @@ fn Http3Session::abort_stream(
   }
   self.driver.forget_request_input(id)
   self.control.push(self.driver.local_qpack_decoder_stream, bytes, false)
+  self.stops[id] = code
+}
+
+///|
+/// Stop reading the remainder of a message. H3_NO_ERROR lets the peer finish
+/// receiving a successful early response while its upload is interrupted.
+pub fn Http3Session::stop_reading(
+  self : Http3Session,
+  id : Int64,
+) -> Result[Unit, Http3Error] {
+  if self.ended || self.driver.connection.stream_phase(id) is None {
+    return Ok(())
+  }
+  try {
+    self.stop_input(id, H3NoError)
+    Ok(())
+  } catch {
+    error => Err(error)
+  }
+}
+
+///|
+fn Http3Session::abort_stream(
+  self : Http3Session,
+  id : Int64,
+  code : H3ErrorCode,
+) -> Unit raise Http3Error {
+  if !self.stops.contains(id) {
+    self.stop_input(id, code)
+  }
   self.writes.drop(id)
   self.messages.remove(id)
   self.resets[id] = code
-  self.stops[id] = code
 }
 
 ///|

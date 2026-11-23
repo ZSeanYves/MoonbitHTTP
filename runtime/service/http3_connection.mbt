@@ -4,9 +4,11 @@
 /// running while application code handles a batch.
 pub struct H3ConnectionIo {
   session : @http3.Http3Session
+  priv authenticated_origin : @types.Endpoint?
   priv limits : @types.Limits
   priv write_changed : @cond_var.Cond
   priv events : @aqueue.Queue[Array[@http3.Http3SessionAction]]
+  priv cancel_request : (Int64) -> Unit
   priv flush_writes : async () -> Unit
 }
 
@@ -82,6 +84,27 @@ pub async fn[
   let mut peer_close : @quic.QuicError? = None
   let mut connected = false
   let packets = tls.datagram_driver()
+  let pending_resets : Set[Int64] = Set([])
+  let mut reset_error : @http3.Http3Error? = None
+  fn cancel_request(id : Int64) -> Unit {
+    match session.cancel(id) {
+      Ok(_) | Err(Http3StreamError(_, H3RequestCancelled, _)) =>
+        pending_resets.remove(id)
+      Err(Http3WriteBlocked) =>
+        if !pending_resets.contains(id) &&
+          pending_resets.length() >= limits.max_streams {
+          reset_error = Some(
+            Http3LimitExceeded(
+              "HTTP/3 pending cancellations",
+              limits.max_streams,
+            ),
+          )
+        } else {
+          pending_resets.add(id)
+        }
+      Err(error) => reset_error = Some(error)
+    }
+  }
   // Invalidate escaped session handles on cancellation or application errors.
   defer {
     ignore(session.close(clock.monotonic_millis()))
@@ -90,6 +113,16 @@ pub async fn[
   async fn dispatch(actions : Array[@quic.QuicDriverAction]) -> Unit {
     if closing || peer_close is Some(_) {
       return
+    }
+    // Synchronous body cancellation also wakes blocked producers. A full
+    // QPACK output queue delays the wire reset until the next transport turn.
+    if !pending_resets.is_empty() {
+      for id in pending_resets.to_array() {
+        cancel_request(id)
+      }
+    }
+    if reset_error is Some(error) {
+      raise error
     }
     let batch = []
     let advanced = session.advance(actions, clock.monotonic_millis())
@@ -137,7 +170,19 @@ pub async fn[
       events.close(error~)
     }
   }
+  let authenticated_origin = if packets.role() == Client &&
+    options.verify_peer &&
+    options.server_name is Some(host) {
+    match @types.Endpoint::new("https", host, packets.endpoint().port) {
+      Ok(origin) => Some(origin)
+      Err(_) => None
+    }
+  } else {
+    None
+  }
   let io = {
+    authenticated_origin,
+    cancel_request,
     session,
     limits,
     write_changed,
@@ -150,6 +195,8 @@ pub async fn[
         dispatch(h3_io_value(tls.start(options, clock.monotonic_millis())))
         while peer_close is None {
           let packet = h3_io_value(socket.receive(limits.max_datagram_bytes))
+          // MAX_STREAMS can admit a writer without producing an application event.
+          write_changed.broadcast()
           dispatch(
             h3_io_value(
               tls.on_datagram(

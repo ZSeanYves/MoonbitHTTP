@@ -1,11 +1,22 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "ZSeanYves/MoonbitHTTP/internal/http_fields"
 
+import {
+  "ZSeanYves/MoonbitHTTP/core/types",
+}
+
 // Values
+pub fn[B] request_target(@types.Request[B], String, fallback? : @types.Authority?) -> Result[RequestTarget, String]
 
 // Errors
 
 // Types and methods
+pub struct RequestTarget {
+  authority : @types.Authority
+  resource : (String, String)?
+}
+pub fn[A] RequestTarget::pseudo_fields(Self, @types.Method, (String, Bytes) -> A) -> Array[A]
+
 pub(all) enum Section {
   Request
   Response

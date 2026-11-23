@@ -119,7 +119,7 @@ README files; they are verification programs, not deployment templates.
 
 HTTP/1.1 and HTTP/2 have the broadest application coverage. HTTP/2 framing and
 HPACK target [RFC 9113](https://www.rfc-editor.org/rfc/rfc9113) and
-[RFC 7541](https://www.rfc-editor.org/rfc/rfc7541). HTTP/3 offers streaming connection sessions and a scoped native client over authenticated QUIC. The native HTTP/3 listener accepts the same streaming request handler as HTTP/1 and HTTP/2. It routes connection IDs on one UDP socket, and its supervisor bounds concurrent handshakes and drains active peers on shutdown.
+[RFC 7541](https://www.rfc-editor.org/rfc/rfc7541). The native HTTP/3 client sends typed requests concurrently on a verified HTTPS origin and returns streaming responses. The native HTTP/3 listener accepts the same streaming request handler as HTTP/1 and HTTP/2. It routes connection IDs on one UDP socket, and its supervisor bounds concurrent handshakes and drains active peers on shutdown.
 
 Native TLS and QUIC require an explicitly selected provider. Wasm and
 JavaScript do not receive browser networking, DNS, UDP, or TLS automatically.

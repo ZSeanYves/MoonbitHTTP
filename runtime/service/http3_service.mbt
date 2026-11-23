@@ -2,6 +2,7 @@
 priv struct H3ServerRequest {
   incoming : H3IncomingBody
   mut task : @async.Task[Unit]?
+  mut cancelled : Bool
 }
 
 ///|
@@ -85,6 +86,13 @@ async fn[B : @body.Body] H3ConnectionIo::respond(
         "handler must return a final response",
       )
     }
+    if meth == Connect && response.status >= 200 && response.status < 300 {
+      raise @http3.Http3Error::Http3StreamError(
+        id,
+        H3ConnectError,
+        "a successful CONNECT requires a tunnel handler",
+      )
+    }
     let fields = [
       h3_io_value(
         @http3.QpackField::from_strings(":status", response.status.to_string()),
@@ -109,12 +117,14 @@ async fn[B : @body.Body] H3ConnectionIo::respond(
 pub async fn[B : @body.Body] serve_http3_connection(
   io : H3ConnectionIo,
   handler : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
+  on_request_error? : (Int64, Error) -> Unit = (_, _) => (),
 ) -> Unit {
   io.session.defer_body_credit()
   let active : Map[Int64, H3ServerRequest] = Map([])
   @async.with_task_group(async fn(group) {
     fn cancel(id : Int64) -> Unit {
       if active.get(id) is Some(request) {
+        request.cancelled = true
         request.incoming.discard()
         if request.task is Some(task) {
           task.cancel()
@@ -130,11 +140,11 @@ pub async fn[B : @body.Body] serve_http3_connection(
               continue
             }
             if active.length() >= io.limits.max_concurrent_requests {
-              h3_io_value(io.session.cancel(id))
+              (io.cancel_request)(id)
               continue
             }
             let incoming = H3IncomingBody::new(io, id)
-            let request = { incoming, task: None, }
+            let request = { incoming, task: None, cancelled: false, }
             active[id] = request
             request.task = Some(
               group.spawn(async fn() {
@@ -150,33 +160,40 @@ pub async fn[B : @body.Body] serve_http3_connection(
                   let message = h3_request(id, fields, body)
                   let response = handler(message)
                   io.respond(id, message.http_method, response)
+                  if !incoming.finished {
+                    io.write_when_ready(fn() { io.session.stop_reading(id) })
+                  }
                 } catch {
                   err => {
+                    // A body reader woken by a reset may see its terminal
+                    // body error before task cancellation takes effect.
+                    if request.cancelled {
+                      return
+                    }
                     if @async.is_being_cancelled() {
                       raise err
                     }
                     // A handler or body failure terminates only its own exchange.
-                    match io.session.cancel(id) {
-                      Ok(_) | Err(Http3StreamError(_, H3RequestCancelled, _)) =>
-                        ()
-                      Err(error) => raise error
-                    }
+                    on_request_error(id, err)
+                    (io.cancel_request)(id)
                   }
                 }
               }),
             )
           }
           Message(H3DataReceived(id, bytes)) =>
-            if active.get(id) is Some({ incoming, .. }) && !incoming.discarded {
+            if active.get(id) is Some({ incoming, .. }) &&
+              incoming.failure is None {
               if !incoming.offer(bytes) {
-                h3_io_value(io.session.cancel(id))
+                (io.cancel_request)(id)
                 cancel(id)
               }
             } else {
               h3_io_value(io.session.consume_body(id, bytes.length()))
             }
           Message(H3HeadersReceived(id, fields, true, _)) =>
-            if active.get(id) is Some({ incoming, .. }) && !incoming.discarded {
+            if active.get(id) is Some({ incoming, .. }) &&
+              incoming.failure is None {
               incoming.trailers = Some(h3_trailers(id, fields))
             }
           Message(H3MessageFinished(id)) =>

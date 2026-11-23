@@ -39,3 +39,9 @@ pub extend StreamIo with @aio.Writer::{write_once, write, write_reader}
 
 ///|
 pub extend StreamIoError with @debug.Debug::{to_repr}
+
+///|
+pub extend H3ClientError with Eq::{equal, not_equal}
+
+///|
+pub extend H3ClientError with @debug.Debug::{to_repr}

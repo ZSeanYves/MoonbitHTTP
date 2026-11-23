@@ -17,6 +17,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_connection(
   run : async (@service.H3ConnectionIo) -> X,
   limits? : @types.Limits = @types.Limits::defaults(),
   qpack_limits? : @http3.QpackLimits = @http3.QpackLimits::defaults(),
+  transport_params? : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
   handshake_timeout_ms? : Int = 10000,
   shutdown_timeout_ms? : Int = 5000,
 ) -> X {
@@ -32,6 +33,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_connection(
       local_id,
       original,
       now_ms=clock.monotonic_millis(),
+      transport_params~,
       authorize=fn(peer, operation) { policy.authorize(peer, operation) },
     ),
   )
@@ -53,6 +55,42 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_connection(
     run,
     limits~,
     qpack_limits~,
+    handshake_timeout_ms~,
+    shutdown_timeout_ms~,
+  )
+}
+
+///|
+/// Use concurrent HTTP requests on one verified HTTPS origin. The connection
+/// uses the numeric UDP endpoint and the hostname in the TLS options.
+pub async fn[P : @transport.NetworkPolicy, X] with_http3_client(
+  endpoint : @types.Endpoint,
+  policy : P,
+  options : @transport.TlsOptions,
+  run : async (@service.H3Client) -> X,
+  origin_port? : Int? = None,
+  limits? : @types.Limits = @types.Limits::defaults(),
+  qpack_limits? : @http3.QpackLimits = @http3.QpackLimits::defaults(),
+  transport_params? : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
+  handshake_timeout_ms? : Int = 10000,
+  shutdown_timeout_ms? : Int = 5000,
+) -> X {
+  if !options.verify_peer {
+    raise @service.H3ClientError::InvalidOrigin
+  }
+  with_http3_connection(
+    endpoint,
+    policy,
+    options,
+    io => @service.with_h3_client(io, run, origin_port~),
+    limits~,
+    qpack_limits~,
+    transport_params={
+      ..transport_params,
+      initial_max_stream_data_bidi_local: transport_params.initial_max_stream_data_bidi_local.min(
+        limits.max_buffer_bytes.to_int64(),
+      ),
+    },
     handshake_timeout_ms~,
     shutdown_timeout_ms~,
   )

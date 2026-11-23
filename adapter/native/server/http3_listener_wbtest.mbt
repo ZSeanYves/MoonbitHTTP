@@ -1,13 +1,14 @@
 ///|
+async fn unused_udp_endpoint() -> @types.Endpoint {
+  let socket = @socket.UdpServer(@socket.Addr::new(0x7f000001U, 0))
+  defer socket.close()
+  @types.Endpoint::new("udp", "127.0.0.1", socket.addr.port()).unwrap()
+}
+
+///|
 async test "HTTP/3 listener: draining continues to route concurrent peers and final response bytes" {
   @async.with_timeout(10000, async fn() {
-    let reservation = @socket.UdpServer(@socket.Addr::new(0x7f000001U, 0))
-    let endpoint = @types.Endpoint::new(
-      "udp",
-      "127.0.0.1",
-      reservation.addr.port(),
-    ).unwrap()
-    reservation.close()
+    let endpoint = unused_udp_endpoint()
     let (client_tls, server_tls) = listener_tls_options()
     let policy = @transport.AllowAllPolicy::new()
     let entered : @aqueue.Queue[Unit] = Queue(kind=Blocking(2))
@@ -91,13 +92,7 @@ async test "HTTP/3 listener: draining continues to route concurrent peers and fi
 
 ///|
 async test "HTTP/3 admissions distinguish connection IDs on one address and cap pending datagrams" {
-  let reservation = @socket.UdpServer(@socket.Addr::new(0x7f000001U, 0))
-  let endpoint = @types.Endpoint::new(
-    "udp",
-    "127.0.0.1",
-    reservation.addr.port(),
-  ).unwrap()
-  reservation.close()
+  let endpoint = unused_udp_endpoint()
   let (_, options) = listener_tls_options()
   let listener = NativeHttp3Listener::bind(
     endpoint,
@@ -142,19 +137,14 @@ async test "HTTP/3 admissions distinguish connection IDs on one address and cap 
 ///|
 async test "HTTP/3 typed handler: stalled upload and cancelled handler leave a streaming echo and its trailers intact" {
   @async.with_timeout(12000, async fn() {
-    let reservation = @socket.UdpServer(@socket.Addr::new(0x7f000001U, 0))
-    let endpoint = @types.Endpoint::new(
-      "udp",
-      "127.0.0.1",
-      reservation.addr.port(),
-    ).unwrap()
-    reservation.close()
+    let endpoint = unused_udp_endpoint()
     let (client_tls, server_tls) = listener_tls_options()
     let policy = @transport.AllowAllPolicy::new()
     let entered : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
     let cancelled : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
     let stalled : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
     let mut verified = false
+    let errors : Array[Int64] = []
     let listener = NativeHttp3Listener::bind_http(
       endpoint,
       policy,
@@ -184,6 +174,7 @@ async test "HTTP/3 typed handler: stalled upload and cancelled handler leave a s
           body: request.body,
         }
       },
+      on_request_error=(id, _) => errors.push(id),
       transport_params={
         ..@quic.QuicTransportParams::defaults(),
         initial_max_stream_data_bidi_remote: 256L,
@@ -254,6 +245,7 @@ async test "HTTP/3 typed handler: stalled upload and cancelled handler leave a s
             }
           }
           assert_true(status && trailer && verified)
+          assert_eq(errors, [bad])
           assert_eq(Bytes::from_array(received), payload)
           h3_listener_value(io.session.cancel(idle))
           io.flush()
@@ -272,5 +264,185 @@ async test "HTTP/3 typed handler: stalled upload and cancelled handler leave a s
       assert_eq(serving.wait(), Ok(()))
     })
     assert_eq(supervisor.metrics().handler_errors(), 0L)
+  })
+}
+
+///|
+async test "HTTP/3 typed client: cancel a duplex response and reuse one stream slot for byte-exact trailers" {
+  @async.with_timeout(10000, async fn() {
+    let endpoint = unused_udp_endpoint()
+    let (client_tls, server_tls) = listener_tls_options()
+    let policy = @transport.AllowAllPolicy::new()
+    let hold : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let mut upload_cancelled = 0
+    let mut calls = 0
+    let mut clean = false
+    let listener = NativeHttp3Listener::bind_http(
+      endpoint,
+      policy,
+      { ..server_tls, alpn: ["h3"], },
+      request => {
+        calls += 1
+        clean = request.headers.get_string("proxy-authorization") is None
+        if request.uri.path == "/early" {
+          return {
+            status: 413,
+            version: Http3,
+            headers: @types.HeaderMap::new(),
+            body: @body.BodyStream::from_pull(() => None),
+          }
+        }
+        {
+          status: 200,
+          version: Http3,
+          headers: @types.HeaderMap::new(),
+          body: request.body,
+        }
+      },
+      transport_params={
+        ..@quic.QuicTransportParams::defaults(),
+        initial_max_streams_bidi: 1L,
+      },
+    ).unwrap()
+    defer listener.close()
+    let supervisor = @server_api.ServerSupervisor::new().unwrap()
+    @async.with_task_group(async fn(group) {
+      let serving = group.spawn(async fn() { listener.serve(supervisor) })
+      @client_native.with_http3_client(
+        endpoint,
+        policy,
+        { ..client_tls, alpn: ["h3"], },
+        async fn(client) {
+          let waiting = @body.BodyStream::from_pull(
+            async fn() {
+              hold.get()
+              None
+            },
+            on_cancel=fn(_) { upload_cancelled += 1 },
+          )
+          let headers = @types.HeaderMap::new()
+          headers
+          .append_string("proxy-authorization", "private proxy credential")
+          .unwrap()
+          let target = @types.Uri::parse("/duplex").unwrap()
+          let first = client.send({
+            http_method: Post,
+            uri: target,
+            version: Http3,
+            headers,
+            body: waiting,
+          })
+          assert_eq(first.status, 200)
+          first.body.cancel(@body.BodyError::Cancelled)
+          let stopped : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+          let early_body = @body.BodyStream::from_pull(
+            async fn() {
+              hold.get()
+              None
+            },
+            on_cancel=fn(_) { ignore(stopped.try_put(()) catch { _ => false }) },
+          )
+          let early = client.send({
+            http_method: Post,
+            uri: @types.Uri::parse("/early").unwrap(),
+            version: Http3,
+            headers,
+            body: early_body,
+          })
+          assert_eq(early.status, 413)
+          let (empty, _) = @body.collect(early.body)
+          assert_true(empty.is_empty())
+          stopped.get()
+          let trailers = @types.HeaderMap::new()
+          trailers.append_string("x-proof", "received").unwrap()
+          let payload = Bytes::from_array(
+            FixedArray::makei(32768, i => (i % 239).to_byte()),
+          )
+          let next = client.send({
+            http_method: Post,
+            uri: target,
+            version: Http3,
+            headers,
+            body: @body.QueueBody::new([Data(payload), Trailers(trailers)]),
+          })
+          let (received, tail) = @body.collect(next.body, max_bytes=32768)
+          assert_eq(received, payload)
+          assert_eq(
+            tail.unwrap().get_string("x-proof").unwrap().bytes,
+            b"received",
+          )
+          assert_eq(upload_cancelled, 1)
+          assert_true(clean)
+          assert_eq(calls, 3)
+        },
+      )
+      supervisor.begin_shutdown().unwrap()
+      assert_eq(serving.wait(), Ok(()))
+      assert_eq(supervisor.metrics().handler_errors(), 0L)
+    })
+  })
+}
+
+///|
+async test "HTTP/3 typed client: a complete response survives peer close during an unfinished upload" {
+  @async.with_timeout(8000, async fn() {
+    let endpoint = unused_udp_endpoint()
+    let (ct, st) = listener_tls_options()
+    let policy = @transport.AllowAllPolicy::new()
+    let data = b"delivered before close"
+    let listener = NativeHttp3Listener::bind(
+      endpoint,
+      policy,
+      { ..st, alpn: ["h3"], },
+      async fn(_, io) {
+        while true {
+          for action in io.next_events() {
+            if action is Message(H3HeadersReceived(id, _, false, false)) {
+              h3_listener_value(
+                io.session.send_headers(id, [
+                  @http3.QpackField::from_strings(":status", "413").unwrap(),
+                ]),
+              )
+              h3_listener_value(io.session.send_data(id, data, fin=true))
+              return
+            }
+          }
+        }
+      },
+    ).unwrap()
+    defer listener.close()
+    let supervisor = @server_api.ServerSupervisor::new().unwrap()
+    @async.with_task_group(async fn(group) {
+      let serving = group.spawn(async fn() { listener.serve(supervisor) })
+      @client_native.with_http3_client(
+        endpoint,
+        policy,
+        { ..ct, alpn: ["h3"], },
+        async fn(client) {
+          let waiting : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+          let stopped : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+          let upload = @body.BodyStream::from_pull(
+            async fn() {
+              waiting.get()
+              None
+            },
+            on_cancel=fn(_) { ignore(stopped.try_put(()) catch { _ => false }) },
+          )
+          let response = client.send({
+            http_method: Post,
+            uri: @types.Uri::parse("/").unwrap(),
+            version: Http3,
+            headers: @types.HeaderMap::new(),
+            body: upload,
+          })
+          stopped.get()
+          let (body, _) = @body.collect(response.body)
+          assert_eq(response.status, 413)
+          assert_eq(body, data)
+        },
+      )
+      supervisor.begin_shutdown().unwrap()
+      assert_eq(serving.wait(), Ok(()))
+    })
   })
 }

@@ -1,22 +1,4 @@
 ///|
-fn fields(verb : String, path : String) -> Array[@http3.QpackField] {
-  [
-    (":method", verb),
-    (":scheme", "https"),
-    (":authority", "localhost:18444"),
-    (":path", path),
-  ].map(pair => @http3.QpackField::from_strings(pair.0, pair.1).unwrap())
-}
-
-///|
-fn[T, E : Error] checked(value : Result[T, E]) -> T raise E {
-  match value {
-    Ok(v) => v
-    Err(e) => raise e
-  }
-}
-
-///|
 async fn main {
   let cert = @fs.read_file("adapter/native/tls/testdata/localhost.cert.pem").binary()
   let options = {
@@ -28,67 +10,66 @@ async fn main {
     FixedArray::makei(4096, i => (i % 251).to_byte()),
   )
   @async.with_timeout(20000, async fn() {
-    @native_client.with_http3_connection(
+    @native_client.with_http3_client(
       endpoint,
       @transport.AllowAllPolicy::new(),
       options,
-      async fn(io) {
-        let post = checked(io.session.start_request(fields("POST", "/echo")))
-        let get = checked(
-          io.session.start_request(fields("GET", "/131072"), fin=true),
-        )
-        checked(io.session.send_data(post, payload, fin=true))
-        let finished : Set[Int64] = Set([])
-        let status_ok : Set[Int64] = Set([])
-        let sizes : Map[Int64, Int] = Map([(post, 0), (get, 0)])
-        while finished.length() < 2 {
-          for action in io.next_events() {
-            match action {
-              Message(H3HeadersReceived(id, headers, false, false)) =>
-                if headers.any(f => f.name == ":status" && f.value == b"200") {
-                  status_ok.add(id)
-                }
-              Message(H3DataReceived(id, chunk)) => {
-                guard sizes.get(id) is Some(offset) else {
-                  fail("unexpected response stream")
-                }
-                if id == post {
-                  guard chunk.length() <= payload.length() - offset &&
-                    chunk[:] == payload[offset:offset + chunk.length()] else {
-                    fail("echo mismatch")
-                  }
-                } else {
-                  guard chunk.length() <= 131072 - offset else {
-                    fail("oversized response")
-                  }
-                  for byte in chunk {
-                    if byte != b'Z' {
-                      fail("response data mismatch")
-                    }
-                  }
-                }
-                sizes[id] = offset + chunk.length()
-              }
-              Message(H3MessageFinished(id)) => {
-                guard status_ok.contains(id) &&
-                  sizes.get(id) ==
-                  Some(if id == post { payload.length() } else { 131072 }) else {
-                  fail("status or response length mismatch")
-                }
-                finished.add(id)
-              }
-              StreamFailed(_, _)
-              | Transport(StreamReset(_, _) | SendStopped(_, _)) =>
-                fail("request stream failed")
-              _ => ()
-            }
+      async fn(client) {
+        fn request(
+          path : String,
+          meth : @types.Method,
+          data : Bytes,
+        ) -> @types.Request[@body.FullBody] {
+          {
+            http_method: meth,
+            uri: @types.Uri::parse(path).unwrap(),
+            version: Http3,
+            headers: @types.HeaderMap::new(),
+            body: @body.FullBody::new(data),
           }
         }
+        let foreign = request("https://other.test/echo", Post, payload)
+        let rejected = try {
+          ignore(client.send(foreign))
+          false
+        } catch {
+          @service.H3ClientError::InvalidOrigin => true
+          error => raise error
+        }
+        guard rejected else {
+          fail("client sent a request to a different HTTPS origin")
+        }
+        @async.with_task_group(async fn(group) {
+          let echo = group.spawn(async fn() {
+            let response = client.send(request("/echo", Post, payload))
+            let (body, _) = @body.collect(response.body, max_bytes=4096)
+            guard response.version == Http3 &&
+              response.status == 200 &&
+              body == payload else {
+              fail("echo mismatch")
+            }
+          })
+          let download = client.send(
+            request("https://localhost:18444/131072", Get, b""),
+          )
+          let (body, _) = @body.collect(download.body, max_bytes=131072)
+          guard download.version == Http3 &&
+            download.status == 200 &&
+            body.length() == 131072 else {
+            fail("invalid download")
+          }
+          for byte in body {
+            if byte != b'Z' {
+              fail("invalid download byte")
+            }
+          }
+          echo.wait()
+        })
       },
     )
   })
   let wrong_name = { ..options, server_name: Some("wrong.test"), }
-  @native_client.with_http3_connection(
+  @native_client.with_http3_client(
     endpoint,
     @transport.AllowAllPolicy::new(),
     wrong_name,

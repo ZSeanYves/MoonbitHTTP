@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Add a typed, multiplexed HTTP/3 client bound to one verified HTTPS origin. HTTP/2 and HTTP/3 clients share request target and pseudo-field construction. A server can end an upload with `STOP_SENDING(H3_NO_ERROR)` after an early response. Cancelling a duplex exchange releases its slot while the connection continues serving other requests.
+
 - Serve streaming `Request[BodyStream]` and `Response[B]` through the HTTP/3 listener. Receive credit follows application consumption, and `Http3WriteBlocked` distinguishes queue backpressure from a frame that can never fit.
 
 - Add a shared-UDP HTTP/3 listener with connection-ID routing, per-peer queues and supervised admission and shutdown. Orderly QUIC close preserves application events already delivered to a slow response consumer.

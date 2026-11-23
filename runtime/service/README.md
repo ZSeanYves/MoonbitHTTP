@@ -33,7 +33,7 @@ Cancellation is cooperative: application code must yield and keep protected
 cleanup finite. Callers constructing a full `ServerConfig` literal must add the
 new field, or use `..ServerConfig::defaults()`.
 
-`serve_http3_connection(io, handler)` dispatches one task per admitted request. The handler shares the HTTP/1 and HTTP/2 streaming request/response signature. An individual handler failure resets its stream. On a successful early response the service discards subsequent request bytes and returns their flow-control credit.
+`serve_http3_connection(io, handler)` dispatches one task per admitted request. The handler shares the HTTP/1 and HTTP/2 streaming request/response signature. An individual handler failure resets its stream. After an early response it stops the upload with `STOP_SENDING(H3_NO_ERROR)`. Supply `on_request_error` to observe individual handler errors. `with_h3_client` uses the same I/O scope for concurrent typed client requests. It keeps completed response bodies readable while the application finishes consuming them.
 
 ## Canonical docs
 - [Package map](../../docs/concepts/packages.md)

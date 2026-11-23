@@ -4,7 +4,8 @@ import {
   "ZSeanYves/MoonbitHTTP/core/types",
   "ZSeanYves/MoonbitHTTP/runtime/transport",
   "ZSeanYves/MoonbitHTTP/adapter/native/client" @native_client,
-  "ZSeanYves/MoonbitHTTP/protocol/http3",
+  "ZSeanYves/MoonbitHTTP/core/body",
+  "ZSeanYves/MoonbitHTTP/runtime/service",
   "ZSeanYves/MoonbitHTTP/protocol/quic",
 }
 

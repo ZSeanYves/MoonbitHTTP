@@ -334,6 +334,7 @@ pub async fn[P : @transport.NetworkPolicy, B : @body.Body] NativeHttp3Listener::
   policy : P,
   options : @transport.TlsOptions,
   handler : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
+  on_request_error? : (Int64, Error) -> Unit = (_, _) => (),
   limits? : @types.Limits = @types.Limits::defaults(),
   qpack_limits? : @http3.QpackLimits = @http3.QpackLimits::defaults(),
   transport_params? : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
@@ -346,7 +347,7 @@ pub async fn[P : @transport.NetworkPolicy, B : @body.Body] NativeHttp3Listener::
     endpoint,
     policy,
     options,
-    (_, io) => @service.serve_http3_connection(io, handler),
+    (_, io) => @service.serve_http3_connection(io, handler, on_request_error~),
     limits~,
     qpack_limits~,
     transport_params={
