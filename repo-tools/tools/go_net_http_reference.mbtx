@@ -126,11 +126,11 @@ async fn main {
   @fs.write_file(directory + "/go-reference.stdout", reference_stdout.binary(), create_mode=CreateNew)
   @fs.write_file(directory + "/go-reference.stderr", reference_stderr.binary(), create_mode=CreateNew)
   guard reference_status == 0 else { fail("Go H1/H2 reference failed; evidence: \{directory}") }
-  @fs.write_file(directory + "/README.txt", "The binary supports --mode=server, --mode=probe and --mode=reference.\nThe reference mode measures Go net/http H1 and H2 with the same payload, concurrency and duration. For a MoonBitHTTP comparison, run --mode=probe against MoonBitHTTP H1/H2 endpoints with the same settings and retain AB/BA summaries separately.\nThe MoonBit target URLs are intentionally supplied by the caller because the current repository service does not provide a generic HTTP/3 service and native H2 TLS fixtures are environment-specific.\n", create_mode=CreateNew)
+  @fs.write_file(directory + "/README.txt", "The recorded window measured the Go standard-library HTTP servers. Run moon run repo-tools/tools/go_net_http_reference.mbtx -- --compare to measure both native servers with the same probe and AB/BA windows.\n", create_mode=CreateNew)
   let result : Json = {
     "status": "reference_measured",
     "comparison": "not_run",
-    "reason": "Go H1/H2 baseline measured; caller must provide MoonBitHTTP H1/H2 endpoints for an AB/BA comparison",
+    "reason": "Baseline-only mode selected. Use --compare to include the MoonBit servers.",
     "protocols": ["h1", "h2"],
     "binary": binary,
     "payload_bytes": 65536,
@@ -140,5 +140,5 @@ async fn main {
     "raw_artifacts": "local ephemeral evidence only",
   }
   @fs.write_file(directory + "/result.json", result, create_mode=CreateNew)
-  println("Go net/http H1/H2 reference prepared; no comparison run without MoonBitHTTP endpoints. Evidence: \{directory}")
+  println("Go net/http H1/H2 baseline measured. Evidence: \{directory}")
 }
