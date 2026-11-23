@@ -96,6 +96,7 @@ pub fn H3ErrorCode::wire_value(self : H3ErrorCode) -> Int64 {
 ///|
 pub(all) suberror Http3Error {
   Http3NeedMoreInput
+  Http3WriteBlocked
   Http3UnexpectedEof(String)
   Http3ConnectionError(H3ErrorCode, String)
   Http3StreamError(Int64, H3ErrorCode, String)

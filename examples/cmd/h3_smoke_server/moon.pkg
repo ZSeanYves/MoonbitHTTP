@@ -6,9 +6,8 @@ import {
   "ZSeanYves/MoonbitHTTP/runtime/transport",
   "ZSeanYves/MoonbitHTTP/adapter/native/server" @server_native,
   "ZSeanYves/MoonbitHTTP/application/server" @server_api,
-  "ZSeanYves/MoonbitHTTP/runtime/service",
+  "ZSeanYves/MoonbitHTTP/core/body",
   "ZSeanYves/MoonbitHTTP/protocol/quic",
-  "ZSeanYves/MoonbitHTTP/protocol/http3",
 }
 
 supported_targets = "+native"

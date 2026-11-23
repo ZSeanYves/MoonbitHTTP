@@ -30,6 +30,8 @@ Last reviewed: 2026-11-23
 ## 不变量与范围
 统一检查 critical stream、重复字段、CONNECT gate、QPACK、body 长度和 request 生命周期；不做 socket。
 
+写队列暂时已满时会返回 `Http3WriteBlocked`，传输取得进展后可原样重试。单帧超过整个队列容量时返回 `Http3LimitExceeded`。按需读取正文时调用 `defer_body_credit`，在读取或丢弃 DATA 后调用 `consume_body(id, bytes_read)`，帧头和关键流的流控额度会继续归还。
+
 ## 规范文档
 - [中文总览](../../README_zh.md)
 - [包地图](../../docs/concepts/packages.md)

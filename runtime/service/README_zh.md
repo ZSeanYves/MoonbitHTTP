@@ -31,6 +31,8 @@ reader task、body queue、流控释放、deadline、取消和 close 均受 serv
 使用完整 `ServerConfig` 字面量的调用方需补充该字段，或使用
 `..ServerConfig::defaults()`。
 
+`serve_http3_connection(io, handler)` 为每个接纳的请求运行一个任务，处理器使用 HTTP/1 和 HTTP/2 同款流式请求和响应接口。单个处理器失败会重置对应请求流。响应提前完成时，服务会丢弃该请求余下的正文并归还流控额度。
+
 ## 规范文档
 - [中文总览](../../README_zh.md)
 - [包地图](../../docs/concepts/packages.md)

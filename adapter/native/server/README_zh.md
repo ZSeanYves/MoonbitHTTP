@@ -24,6 +24,8 @@ TCP 上的 TLS 处理成功后，监听器发出关闭通知。`shutdown_timeout
 ## 不变量与范围
 policy 拒绝必须先于 socket 创建或 handler；adapter 负责 socket close/握手 timeout，不负责协议状态机。
 
+`NativeHttp3Listener::bind_http` 接受与 TCP 监听器相同签名的请求处理器。请求包含 HTTP/3 版本、解析后的目标和 Host 字段。处理器可把请求正文和尾部字段直接作为流式响应返回。每条流的缓冲都有上限，读取正文才会归还相应的 QUIC 流控额度。
+
 ## 规范文档
 - [中文总览](../../../README_zh.md)
 - [包地图](../../../docs/concepts/packages.md)

@@ -25,6 +25,8 @@ pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http1_with_er
 
 pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http2_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig, upgraded_request? : @types.Request[@body.BodyStream]?, upgrade_settings? : Bytes?) -> Unit
 
+pub async fn[B : @body.Body] serve_http3_connection(H3ConnectionIo, async (@types.Request[@body.BodyStream]) -> @types.Response[B]) -> Unit
+
 pub async fn[R : @io.Reader, W : @io.Writer, X] with_h2_client_connection(R, W, async (H2Client) -> X, config? : H2ClientConfig, on_state_change? : () -> Unit) -> X
 
 pub async fn[P : @transport.QuicTlsProvider, S : @transport.DatagramSocket, K : @transport.Clock, X] with_http3_connection(@quic.QuicTlsDriver[P], S, K, @transport.TlsOptions, async (H3ConnectionIo) -> X, limits? : @types.Limits, qpack_limits? : @http3.QpackLimits, handshake_timeout_ms? : Int, shutdown_timeout_ms? : Int) -> X

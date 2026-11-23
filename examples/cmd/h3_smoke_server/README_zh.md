@@ -12,7 +12,7 @@ Last reviewed: 2026-10-01
 由 repo-tools/tools/http3_interoperability.mbtx 启动，绑定 127.0.0.1:18443 并提供有限 GET/POST。
 
 ## 依赖与目标
-使用 `NativeHttp3Listener`、连接 supervisor 和 HTTP/3 流事件。实际收发依赖原生 UDP 和 OpenSSL QUIC TLS provider。
+使用 `NativeHttp3Listener::bind_http`、连接 supervisor 和流式请求处理器。实际收发依赖原生 UDP 和 OpenSSL QUIC TLS provider。
 
 ## 使用边界
 让仓库 runner 负责启动和停止；内置凭据绝不可用于部署。

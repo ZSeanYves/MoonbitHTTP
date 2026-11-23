@@ -30,6 +30,8 @@ Forward QUIC `StreamReset` and `SendStopped` to `on_stream_reset` and `on_stop_s
 ## Invariants and scope
 Critical streams, duplicate fields, CONNECT settings gates, QPACK bounds, body lengths, and request lifecycle transitions are enforced here; sockets are outside.
 
+`Http3WriteBlocked` permits retry after further transport progress. A frame larger than the entire write budget raises `Http3LimitExceeded`. Call `defer_body_credit` for a pull-driven consumer and `consume_body(id, bytes_read)` as it reads or discards DATA. QUIC framing and the critical streams continue to receive credit.
+
 ## Canonical docs
 - [Package map](../../docs/concepts/packages.md)
 - [Architecture](../../docs/concepts/architecture.md)

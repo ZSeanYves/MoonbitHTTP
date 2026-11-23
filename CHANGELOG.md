@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Serve streaming `Request[BodyStream]` and `Response[B]` through the HTTP/3 listener. Receive credit follows application consumption, and `Http3WriteBlocked` distinguishes queue backpressure from a frame that can never fit.
+
 - Add a shared-UDP HTTP/3 listener with connection-ID routing, per-peer queues and supervised admission and shutdown. Orderly QUIC close preserves application events already delivered to a slow response consumer.
 
 - Add a scoped HTTP/3 client over native UDP and OpenSSL, and a portable single-peer I/O loop that drives TLS, HTTP/3 events and QUIC recovery. The interoperability runner now exercises the MoonBit client against the upstream aioquic server with `--reverse`.

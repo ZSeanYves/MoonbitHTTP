@@ -153,7 +153,7 @@ fn decode_h2_request(
         }
         continue
       }
-      if !append_h2_regular_header(headers, field) {
+      if !append_regular_header(headers, field.name, field.value) {
         return Err(
           StreamError(stream_id, ProtocolError, "invalid request header"),
         )
@@ -698,7 +698,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         for field in fields {
           if field.name.has_prefix(":") ||
             !@http_fields.Trailers.allows(field.name, field.value) ||
-            !append_h2_regular_header(trailers, field) {
+            !append_regular_header(trailers, field.name, field.value) {
             reset_stream(stream_id, ProtocolError)
             return
           }

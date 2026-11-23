@@ -13,10 +13,12 @@ fn session_peer(
   remote_id : @quic.ConnectionId,
   destination : @quic.ConnectionId,
   queue_limit : Int,
+  stream_window? : Int64 = 1048576L,
 ) -> SessionPeer {
   let params = {
     ..@quic.QuicTransportParams::defaults(),
     initial_max_streams_bidi: 1L,
+    initial_max_stream_data_bidi_remote: stream_window,
   }
   let packets = @quic.QuicDatagramDriver::new(
     role,
@@ -102,8 +104,7 @@ test "http3 session: backpressure retries preserve stream identifiers, body leng
   let id = client.session.start_request(fields).unwrap()
   assert_eq(id, 0L)
   assert_true(
-    client.session.send_data(id, b"hello", fin=true)
-    is Err(Http3LimitExceeded("HTTP/3 queued writes", 1)),
+    client.session.send_data(id, b"hello", fin=true) is Err(Http3WriteBlocked),
   )
   pump_sessions(client, server, 20L)
   assert_true(
@@ -150,4 +151,47 @@ test "http3 session: backpressure retries preserve stream identifiers, body leng
     client.session.start_request(driver_request_fields(), fin=true),
     Ok(4L),
   )
+}
+
+///|
+test "http3 session: body consumption returns only the requested amount of receive credit" {
+  let endpoint = @types.Endpoint::new("udp", "localhost", 443).unwrap()
+  let c = @quic.ConnectionId::new(b"clientid").unwrap()
+  let s = @quic.ConnectionId::new(b"serverid").unwrap()
+  let client = session_peer(Client, endpoint, c, s, s, 8, stream_window=128L)
+  let server = session_peer(Server, endpoint, s, c, s, 8, stream_window=128L)
+  server.session.defer_body_credit()
+  pump_sessions(client, server, 0L)
+  let id = client.session.start_request(driver_request_fields()).unwrap()
+  client.session
+  .send_data(id, Bytes::from_array(FixedArray::make(512, b'a')), fin=true)
+  .unwrap()
+  fn delivered() -> Int {
+    server.events.fold(init=0, (sum, event) => {
+      match event {
+        Message(H3DataReceived(stream, bytes)) if stream == id =>
+          sum + bytes.length()
+        _ => sum
+      }
+    })
+  }
+  for tick in 1..<10 {
+    pump_sessions(client, server, tick.to_int64() * 30L)
+  }
+  let first = delivered()
+  assert_true(first > 0 && first <= 128)
+  server.session.consume_body(id, 17).unwrap()
+  for tick in 10..<16 {
+    pump_sessions(client, server, tick.to_int64() * 30L)
+  }
+  assert_eq(delivered(), first + 17)
+  let mut consumed = 17
+  for tick in 16..<35 {
+    let received = delivered()
+    server.session.consume_body(id, received - consumed).unwrap()
+    consumed = received
+    pump_sessions(client, server, tick.to_int64() * 30L)
+  }
+  assert_eq(delivered(), 512)
+  assert_true(server.events.contains(Message(H3MessageFinished(id))))
 }

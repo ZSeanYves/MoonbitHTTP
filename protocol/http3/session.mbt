@@ -23,6 +23,7 @@ pub struct Http3Session {
   priv control : H3WriteQueue
   priv resets : Map[Int64, H3ErrorCode]
   priv stops : Map[Int64, H3ErrorCode]
+  priv mut withheld : Map[Int64, Int]?
   priv mut initialized : Bool
   priv mut ended : Bool
 }
@@ -55,6 +56,7 @@ pub fn[P] Http3Session::new(
     ),
     resets: Map([]),
     stops: Map([]),
+    withheld: None,
     initialized: false,
     ended: false,
   })
@@ -140,6 +142,9 @@ fn Http3Session::abort_stream(
   // exact QPACK instruction size before releasing receive state.
   let bytes = h3_value(qpack_stream_cancellation(id))
   self.control.admit(bytes.length())
+  if self.withheld is Some(credit) {
+    credit.remove(id)
+  }
   self.driver.forget_request_input(id)
   self.control.push(self.driver.local_qpack_decoder_stream, bytes, false)
   self.writes.drop(id)
@@ -202,6 +207,9 @@ fn Http3Session::dispatch(
         self.control.push(id, bytes, fin)
       }
       ResetStream(id, code) => {
+        if self.withheld is Some(credit) {
+          credit.remove(id)
+        }
         self.writes.drop(id)
         self.messages.remove(id)
         self.resets[id] = code
@@ -223,18 +231,37 @@ fn Http3Session::receive(
 ) -> Unit raise Http3SessionError {
   let result = match action {
     StreamData(id, bytes, fin) => {
+      let result = if self.stops.contains(id) {
+        Ok([])
+      } else {
+        self.driver.on_stream_data(id, bytes, fin)
+      }
+      let mut immediate = bytes.length()
+      if self.withheld is Some(credit) && result is Ok(events) {
+        // Framing and QPACK instructions advance independently of a body
+        // consumer. Replayed sections from another stream already had credit.
+        for event in events {
+          if event is Event(H3DataReceived(stream, data)) && stream == id {
+            immediate -= data.length().min(immediate)
+          }
+        }
+        if immediate < bytes.length() {
+          credit[id] = credit.get(id).unwrap_or(0) +
+            (bytes.length() - immediate)
+        }
+      }
       h3_value(
         self.quic
         .connection()
-        .consume_stream_data(id, bytes.length())
+        .consume_stream_data(id, immediate)
         .map_err(e => Http3Transport(e)),
       )
-      if self.stops.contains(id) {
-        return
-      }
-      self.driver.on_stream_data(id, bytes, fin)
+      result
     }
     StreamReset(id, _) => {
+      if self.withheld is Some(credit) {
+        credit.remove(id)
+      }
       out.push(Transport(action))
       self.driver.on_stream_reset(id)
     }
@@ -343,7 +370,8 @@ pub fn Http3Session::advance(
       self.ended = true
       let code = match error {
         Http3Protocol(Http3ConnectionError(code, _)) => code
-        Http3Protocol(Http3LimitExceeded(_, _)) => H3ExcessiveLoad
+        Http3Protocol(Http3LimitExceeded(_, _) | Http3WriteBlocked) =>
+          H3ExcessiveLoad
         Http3Protocol(Http3UnexpectedEof(_)) => H3FrameError
         _ => H3InternalError
       }
@@ -393,4 +421,41 @@ pub fn Http3Session::writes_pending(self : Http3Session) -> Bool {
   !self.stops.is_empty() ||
   !self.resets.is_empty() ||
   self.quic.connection().stream_writes_pending()
+}
+
+///|
+/// Withhold QUIC receive credit for subsequently delivered body bytes until
+/// the consumer reads or discards them. Framing and critical streams keep
+/// their automatic credit. Call once before driving a streaming application.
+pub fn Http3Session::defer_body_credit(self : Http3Session) -> Unit {
+  if self.withheld is None {
+    self.withheld = Some(Map([]))
+  }
+}
+
+///|
+/// Return credit for a delivered body chunk. Buffered QPACK replays and
+/// bytes delivered before deferred mode can already have received credit.
+pub fn Http3Session::consume_body(
+  self : Http3Session,
+  id : Int64,
+  count : Int,
+) -> Result[Unit, @quic.QuicError] {
+  if count < 0 {
+    return Err(InvalidFrame("negative HTTP/3 consumption count"))
+  }
+  guard self.withheld is Some(credit) && credit.get(id) is Some(held) else {
+    return Ok(())
+  }
+  let consumed = count.min(held)
+  match self.quic.connection().consume_stream_data(id, consumed) {
+    Err(error) => return Err(error)
+    Ok(_) => ()
+  }
+  if held == consumed {
+    credit.remove(id)
+  } else {
+    credit[id] = held - consumed
+  }
+  Ok(())
 }

@@ -56,6 +56,7 @@ pub fn validate_http3_field_section(Int64, Array[QpackField], H3FieldSectionKind
 // Errors
 pub(all) suberror Http3Error {
   Http3NeedMoreInput
+  Http3WriteBlocked
   Http3UnexpectedEof(String)
   Http3ConnectionError(H3ErrorCode, String)
   Http3StreamError(Int64, H3ErrorCode, String)
@@ -300,6 +301,8 @@ pub fn Http3Session::advance(Self, Array[@quic.QuicDriverAction], Int64) -> Arra
 pub fn Http3Session::can_write(Self, Int64) -> Bool
 pub fn Http3Session::cancel(Self, Int64) -> Result[Unit, Http3Error]
 pub fn Http3Session::close(Self, Int64) -> Result[@quic.QuicDriverAction?, @quic.QuicError]
+pub fn Http3Session::consume_body(Self, Int64, Int) -> Result[Unit, @quic.QuicError]
+pub fn Http3Session::defer_body_credit(Self) -> Unit
 pub fn Http3Session::ended(Self) -> Bool
 pub fn Http3Session::finish(Self, Int64) -> Result[Unit, Http3Error]
 pub fn[P] Http3Session::new(@quic.QuicTlsDriver[P], limits? : @types.Limits, qpack_limits? : QpackLimits, max_pending_writes? : Int) -> Result[Self, Http3Error]

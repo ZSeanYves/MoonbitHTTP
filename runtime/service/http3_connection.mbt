@@ -4,6 +4,8 @@
 /// running while application code handles a batch.
 pub struct H3ConnectionIo {
   session : @http3.Http3Session
+  priv limits : @types.Limits
+  priv write_changed : @cond_var.Cond
   priv events : @aqueue.Queue[Array[@http3.Http3SessionAction]]
   priv flush_writes : async () -> Unit
 }
@@ -72,6 +74,7 @@ pub async fn[
   let events : @aqueue.Queue[Array[@http3.Http3SessionAction]] = Queue(
     kind=Blocking(1),
   )
+  let write_changed = @cond_var.Cond()
   let ready : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
   let drained : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
   let mut draining = false
@@ -89,7 +92,11 @@ pub async fn[
       return
     }
     let batch = []
-    for event in session.advance(actions, clock.monotonic_millis()) {
+    let advanced = session.advance(actions, clock.monotonic_millis())
+    if !advanced.is_empty() || !actions.is_empty() {
+      write_changed.broadcast()
+    }
+    for event in advanced {
       match event {
         Transport(SendDatagram(_, _) as packet) =>
           h3_io_value(packets.send_action(socket, packet))
@@ -130,7 +137,13 @@ pub async fn[
       events.close(error~)
     }
   }
-  let io = { session, events, flush_writes: async fn() { dispatch([]) }, }
+  let io = {
+    session,
+    limits,
+    write_changed,
+    events,
+    flush_writes: async fn() { dispatch([]) },
+  }
   @async.with_task_group(async fn(group) {
     group.spawn_bg(
       async fn() {

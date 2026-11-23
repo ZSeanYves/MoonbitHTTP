@@ -368,7 +368,7 @@ fn decode_client_response(
           ),
         )
       }
-      if !append_h2_regular_header(headers, field) {
+      if !append_regular_header(headers, field.name, field.value) {
         return Err(
           StreamError(stream_id, ProtocolError, "invalid response header"),
         )
@@ -398,7 +398,7 @@ fn decode_client_trailers(
         ),
       )
     }
-    if !append_h2_regular_header(headers, field) {
+    if !append_regular_header(headers, field.name, field.value) {
       return Err(
         StreamError(stream_id, ProtocolError, "invalid response trailers"),
       )

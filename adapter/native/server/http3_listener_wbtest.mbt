@@ -138,3 +138,139 @@ async test "HTTP/3 admissions distinguish connection IDs on one address and cap 
   (accepted_b.close)()
   assert_eq(listener.initials.length(), 0)
 }
+
+///|
+async test "HTTP/3 typed handler: stalled upload and cancelled handler leave a streaming echo and its trailers intact" {
+  @async.with_timeout(12000, async fn() {
+    let reservation = @socket.UdpServer(@socket.Addr::new(0x7f000001U, 0))
+    let endpoint = @types.Endpoint::new(
+      "udp",
+      "127.0.0.1",
+      reservation.addr.port(),
+    ).unwrap()
+    reservation.close()
+    let (client_tls, server_tls) = listener_tls_options()
+    let policy = @transport.AllowAllPolicy::new()
+    let entered : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let cancelled : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let stalled : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let mut verified = false
+    let listener = NativeHttp3Listener::bind_http(
+      endpoint,
+      policy,
+      { ..server_tls, alpn: ["h3"], },
+      async fn(request) {
+        if request.uri.path == "/stall" {
+          defer ignore(cancelled.try_put(()))
+          entered.put(())
+          stalled.get()
+        }
+        if request.uri.path == "/fail" {
+          fail("application failure for one request")
+        }
+        if request.version == Http3 &&
+          request.http_method == Post &&
+          request.uri.path == "/echo" &&
+          request.headers.get_string("host").map(v => v.to_string_lossy()) ==
+          Some(endpoint.authority()) &&
+          request.headers.get_string("x-bytes").map(v => v.bytes) ==
+          Some(b"\xff") {
+          verified = true
+        }
+        {
+          status: 200,
+          version: Http3,
+          headers: @types.HeaderMap::new(),
+          body: request.body,
+        }
+      },
+      transport_params={
+        ..@quic.QuicTransportParams::defaults(),
+        initial_max_stream_data_bidi_remote: 256L,
+        initial_max_data: 8192L,
+      },
+    ).unwrap()
+    defer listener.close()
+    let supervisor = @server_api.ServerSupervisor::new().unwrap()
+    @async.with_task_group(async fn(group) {
+      let serving = group.spawn(async fn() { listener.serve(supervisor) })
+      @client_native.with_http3_connection(
+        endpoint,
+        policy,
+        { ..client_tls, alpn: ["h3"], },
+        async fn(io) {
+          fn fields(path : String) -> Array[@http3.QpackField] {
+            let head = [
+              (":method", "POST"),
+              (":scheme", "https"),
+              (":authority", endpoint.authority()),
+              (":path", path),
+            ].map(p => @http3.QpackField::from_strings(p.0, p.1).unwrap())
+            head.push(@http3.QpackField::new("x-bytes", b"\xff").unwrap())
+            head
+          }
+          let payload = Bytes::from_array(
+            FixedArray::makei(4096, i => (i % 251).to_byte()),
+          )
+          let idle = h3_listener_value(
+            io.session.start_request(fields("/stall")),
+          )
+          h3_listener_value(io.session.send_data(idle, payload))
+          io.flush()
+          entered.get()
+          let bad = h3_listener_value(
+            io.session.start_request(fields("/fail"), fin=true),
+          )
+          let stream = h3_listener_value(
+            io.session.start_request(fields("/echo")),
+          )
+          h3_listener_value(io.session.send_data(stream, payload))
+          let trailers = [
+            @http3.QpackField::from_strings("x-check", "done").unwrap(),
+          ]
+          h3_listener_value(io.session.send_headers(stream, trailers, fin=true))
+          let received = []
+          let mut status = false
+          let mut trailer = false
+          let mut ended = false
+          let mut failed = false
+          while !ended || !failed {
+            for event in io.next_events() {
+              match event {
+                Message(H3HeadersReceived(id, head, false, false)) if id ==
+                  stream =>
+                  status = head.any(f => {
+                    f.name == ":status" && f.value == b"200"
+                  })
+                Message(H3DataReceived(id, bytes)) if id == stream =>
+                  received.append(bytes.to_array())
+                Message(H3HeadersReceived(id, head, true, _)) if id == stream =>
+                  trailer = head == trailers
+                Message(H3MessageFinished(id)) if id == stream => ended = true
+                Transport(StreamReset(id, _) | SendStopped(id, _))
+                | StreamFailed(id, _) if id == bad => failed = true
+                _ => ()
+              }
+            }
+          }
+          assert_true(status && trailer && verified)
+          assert_eq(Bytes::from_array(received), payload)
+          h3_listener_value(io.session.cancel(idle))
+          io.flush()
+          cancelled.get()
+          let last = h3_listener_value(
+            io.session.start_request(fields("/echo"), fin=true),
+          )
+          while true {
+            if io.next_events().any(e => e == Message(H3MessageFinished(last))) {
+              break
+            }
+          }
+        },
+      )
+      supervisor.begin_shutdown().unwrap()
+      assert_eq(serving.wait(), Ok(()))
+    })
+    assert_eq(supervisor.metrics().handler_errors(), 0L)
+  })
+}

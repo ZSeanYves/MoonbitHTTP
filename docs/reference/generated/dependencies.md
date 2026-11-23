@@ -93,6 +93,7 @@ flowchart TD
   p_runtime_service --> p_internal_http_fields
   p_adapter_native_client --> p_runtime_service
   p_adapter_native_server --> p_runtime_service
+  p_examples_cmd_h3_smoke_server --> p_core_body
   p_adapter_native_client --> p_runtime_transport
   p_adapter_native_server --> p_runtime_transport
   p_examples_cmd_h3_smoke_client --> p_core_types
@@ -113,10 +114,8 @@ flowchart TD
   p_examples_cmd_h3_smoke_server --> p_protocol_quic
   p_adapter_native_client --> p_policy_content_coding
   p_examples_cmd_h3_smoke_client --> p_protocol_http3
-  p_examples_cmd_h3_smoke_server --> p_protocol_http3
   p_examples_cmd_smoke_server --> p_runtime_transport
   p_adapter_native_transport -. "wbtest" .-> p_runtime_transport
-  p_examples_cmd_h3_smoke_server --> p_runtime_service
   p_examples_cmd_smoke_server --> p_adapter_native_tls
   p_examples_cmd_smoke_server --> p_application_server
   p_adapter_native_server -. "wbtest" .-> p_adapter_native_client

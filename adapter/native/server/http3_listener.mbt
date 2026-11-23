@@ -325,3 +325,38 @@ pub async fn NativeHttp3Listener::serve(
     error => Err(AcceptFailed(error.to_string()))
   }
 }
+
+///|
+/// Serve the same streaming request handler used by the HTTP/1 and HTTP/2
+/// listeners. Incoming request windows are capped by the body buffer limit.
+pub async fn[P : @transport.NetworkPolicy, B : @body.Body] NativeHttp3Listener::bind_http(
+  endpoint : @types.Endpoint,
+  policy : P,
+  options : @transport.TlsOptions,
+  handler : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
+  limits? : @types.Limits = @types.Limits::defaults(),
+  qpack_limits? : @http3.QpackLimits = @http3.QpackLimits::defaults(),
+  transport_params? : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
+  pending_datagrams_per_peer? : Int = 16,
+  handshake_timeout_ms? : Int = 10000,
+  shutdown_timeout_ms? : Int = 5000,
+) -> Result[NativeHttp3Listener, @server_api.ServerError] {
+  let budget = limits.max_buffer_bytes.to_int64()
+  NativeHttp3Listener::bind(
+    endpoint,
+    policy,
+    options,
+    (_, io) => @service.serve_http3_connection(io, handler),
+    limits~,
+    qpack_limits~,
+    transport_params={
+      ..transport_params,
+      initial_max_stream_data_bidi_remote: transport_params.initial_max_stream_data_bidi_remote.min(
+        budget,
+      ),
+    },
+    pending_datagrams_per_peer~,
+    handshake_timeout_ms~,
+    shutdown_timeout_ms~,
+  )
+}

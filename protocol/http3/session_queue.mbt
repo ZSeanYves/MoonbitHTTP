@@ -25,11 +25,14 @@ fn H3WriteQueue::admit(
   self : H3WriteQueue,
   size : Int,
 ) -> Unit raise Http3Error {
-  if size > self.max_bytes - self.bytes {
-    raise Http3LimitExceeded("HTTP/3 queued write bytes", self.max_bytes)
+  if size > self.max_bytes {
+    raise Http3LimitExceeded(
+      "HTTP/3 write exceeds queue capacity",
+      self.max_bytes,
+    )
   }
-  if self.count >= self.max_writes {
-    raise Http3LimitExceeded("HTTP/3 queued writes", self.max_writes)
+  if size > self.max_bytes - self.bytes || self.count >= self.max_writes {
+    raise Http3WriteBlocked
   }
 }
 
