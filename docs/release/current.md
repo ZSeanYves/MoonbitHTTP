@@ -14,6 +14,53 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## Typed HTTP/3 applications at `e5ca13e`
+
+HTTP/3 now runs the same streaming request handler as HTTP/1 and HTTP/2.
+The native client sends concurrent `Request[B]` values to one authenticated
+HTTPS origin and returns `Response[BodyStream]` as soon as final headers arrive.
+The client and server share body streaming and HTTP/2 and HTTP/3 share request
+target and pseudo-field construction.
+
+The native regressions exercise a stalled handler alongside a streaming echo,
+handler failure, cancellation with only one permitted stream, a server returning
+413 during upload, and a completed response read after the peer closes. They
+check that the next request can acquire the released slot, that a stopped
+producer is cancelled once, and that response bytes and trailers survive.
+
+| Check | macOS arm64 | Ubuntu 24.04 arm64 VM |
+| --- | --- | --- |
+| Strict check, build and tests | Wasm 479/479, Wasm-GC 338/338, JS 479/479, Native 544/544 | Native 544/544 |
+| Native QUIC, TLS, client and listener packages (included above) | 157/157 | 157/157 |
+| Independent HTTP/1.1, HTTP/2 and h2c socket cases | 6/6 | 6/6 |
+| Impaired HTTP/3 window with one fresh authenticated connection per request | 58 in 121.681 s | 59 in 120.950 s |
+
+Both OSes used the pinned MoonBit compiler `0.10.14+7d59c7ec9` and aioquic
+1.3.0. On each OS the independent client also completed 256 requests on one
+MoonBit connection, eight concurrent requests on another, and a 4,096-byte echo
+across the configured stream and connection flow-control windows. The relay
+introduced loss, delay and reordering with MoonBit serving. In the reverse
+direction, the MoonBit client verified a concurrent 4,096-byte echo and
+131,072-byte download against aioquic on direct loopback.
+
+Across the VM gateway three simultaneous Ubuntu aioquic clients each posted
+32 requests to the typed macOS listener. All 96 responses had status 200 and
+matched the connection's distinct 4,096-byte payload byte for byte. In the
+reverse role the Ubuntu MoonBit client additionally verified both responses,
+rejected a foreign request origin and rejected a mismatched certificate hostname.
+The macOS peer logged both requests and a normal HTTP/3 close on the same connection.
+
+The macOS package boundary check covered 28 manifests and 96 local dependencies.
+The frozen 425-file source package passed a strict four-target check after
+extraction. Its SHA-256 was
+`d725113a3c87eacbcb1953066b6bb1e276bfd405bf6cff3f551f6955fe3e6788`.
+
+The typed HTTP/3 client still takes a numeric endpoint and owns one connection
+per scope. Origin pooling with DNS and server-initiated GOAWAY during shutdown
+remain open. Both systems here share one physical Mac. Windows verification of
+this revision, sustained capacity and recovery on independent hosts, and
+independent security review remain release gates.
+
 ## HTTP/3 client and listener at `4355e04`
 
 The portable `Http3Session` drives client and server streams, shares message
@@ -57,11 +104,9 @@ generated public interfaces passed their checks. The frozen source package
 contained 421 files, passed a strict four-target check after extraction, and
 had SHA-256 `e633ea0c8cf6577cc2d898ca314f7a2b34f94f8171615779b9d650cc2e07d469`.
 
-The HTTP/3 native client currently manages one connection per scope. A
-pooled origin client and integration with the common request/response
-handler remain open. Production approval still needs Windows verification
-of this code, sustained capacity and recovery measurements across independent
-hosts, and independent security review of the release candidate.
+At this revision the native HTTP/3 client managed one connection per scope
+and applications consumed raw stream events. The later typed application
+API and its validation are recorded above.
 
 ## Streaming and field handling at `9a58bfe`
 
