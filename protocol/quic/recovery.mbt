@@ -84,6 +84,8 @@ pub(all) struct QuicRecovery {
   // An unpadded ACK can be the largest number in a mixed ACK. Its timestamp
   // is optional RTT history and must never consume a recovery admission slot.
   priv recent_untracked : Map[(PacketNumberSpace, Int64), QuicSentPacket]
+  priv timers : (QuicSpaceTimer, QuicSpaceTimer, QuicSpaceTimer)
+  priv mut restart_idle_on_send : Bool
   mut bytes_in_flight : Int64
   mut largest_initial_sent : Int64
   mut largest_handshake_sent : Int64
@@ -125,6 +127,12 @@ pub fn QuicRecovery::new(
     sent: [],
     padded_non_eliciting: Set([]),
     recent_untracked: {},
+    timers: (
+      QuicSpaceTimer::new(),
+      QuicSpaceTimer::new(),
+      QuicSpaceTimer::new(),
+    ),
+    restart_idle_on_send: true,
     bytes_in_flight: 0L,
     largest_initial_sent: -1L,
     largest_handshake_sent: -1L,
@@ -283,37 +291,6 @@ pub fn QuicRecovery::oldest_probe_packet(
 }
 
 ///|
-fn QuicRecovery::recovery_pto(
-  self : QuicRecovery,
-  space : PacketNumberSpace,
-) -> Int64 {
-  let smoothed = self.smoothed_rtt_ms.unwrap_or(self.config.initial_rtt_ms)
-  let variance = self.rttvar_ms.unwrap_or(self.config.initial_rtt_ms / 2L)
-  let granularity = 1L
-  let max_ack_delay = if space == Application {
-    self.peer_max_ack_delay_ms
-  } else {
-    0L
-  }
-  let base = smoothed + (4L * variance).max(granularity) + max_ack_delay
-  base.min(self.config.max_pto_ms).max(1L)
-}
-
-///|
-fn pto_backoff(base : Int64, count : Int) -> Int64 {
-  let mut result = base
-  let mut remaining = count
-  while remaining > 0 {
-    if result > QUIC_MAX_VARINT / 2L {
-      return QUIC_MAX_VARINT
-    }
-    result *= 2L
-    remaining -= 1
-  }
-  result
-}
-
-///|
 /// Supply contains_padding for packets with explicit or builder-added PADDING.
 /// Congestion uses their full wire size even when they do not elicit an ACK.
 pub fn QuicRecovery::on_packet_sent(
@@ -377,7 +354,15 @@ fn QuicRecovery::record_sent(
     self.bytes_in_flight += packet.bytes.to_int64()
   }
   self.set_largest_sent(packet.space, packet.number)
-  self.last_activity_ms = packet.sent_at_ms
+  if packet.ack_eliciting {
+    let timer = self.timer(packet.space)
+    timer.last_eliciting_ms = packet.sent_at_ms
+    timer.outstanding_eliciting += 1
+    if self.restart_idle_on_send {
+      self.last_activity_ms = packet.sent_at_ms
+      self.restart_idle_on_send = false
+    }
+  }
 }
 
 ///|
@@ -394,6 +379,9 @@ fn QuicRecovery::timestamp_slot(
 /// Returns whether it supplied congestion feedback.
 fn QuicRecovery::remove_sent(self : QuicRecovery, index : Int) -> Bool {
   let packet = self.sent.remove(index)
+  if packet.ack_eliciting {
+    self.timer(packet.space).outstanding_eliciting -= 1
+  }
   let in_flight = packet.ack_eliciting ||
     self.padded_non_eliciting.remove_and_check((packet.space, packet.number))
   if in_flight {
@@ -411,6 +399,7 @@ pub fn QuicRecovery::on_receive(
     return Err(InvalidPacket("recovery clock cannot be negative"))
   }
   self.last_activity_ms = now_ms
+  self.restart_idle_on_send = true
   Ok(())
 }
 
@@ -427,14 +416,18 @@ pub fn QuicRecovery::on_ack(
   ack.validate() catch {
     error => return Err(error)
   }
-  self.apply_ack(
+  let events = []
+  self
+  .apply_ack(
     space,
     ack,
     now_ms,
     ack_delay_exponent~,
     reset_pto~,
     handshake_confirmed~,
+    acknowledged=Some(events),
   )
+  .map(_ => events)
 }
 
 ///|
@@ -448,7 +441,8 @@ fn QuicRecovery::apply_ack(
   ack_delay_exponent~ : Int,
   reset_pto~ : Bool,
   handshake_confirmed~ : Bool,
-) -> Result[Array[QuicRecoveryEvent], QuicError] {
+  acknowledged? : Array[QuicRecoveryEvent]? = None,
+) -> Result[Unit, QuicError] {
   if now_ms < 0L || ack_delay_exponent < 0 || ack_delay_exponent > 20 {
     return Err(InvalidFrame("invalid recovery ACK"))
   }
@@ -467,7 +461,7 @@ fn QuicRecovery::apply_ack(
       self.recent_untracked.remove(slot)
     }
   }
-  let events : Array[QuicRecoveryEvent] = []
+  let previously_tracked = self.sent.length()
   let mut acked_eliciting = false
   let mut acknowledged_after_recovery_start = false
   let mut acknowledged_bytes : Int64 = 0L
@@ -484,7 +478,11 @@ fn QuicRecovery::apply_ack(
       if packet.number == largest && packet.sent_at_ms <= now_ms {
         rtt_packet = Some(packet)
       }
-      events.push(PacketAcknowledged(packet.number, packet.space, packet.bytes))
+      if acknowledged is Some(events) {
+        events.push(
+          PacketAcknowledged(packet.number, packet.space, packet.bytes),
+        )
+      }
     }
     index -= 1
   }
@@ -512,7 +510,7 @@ fn QuicRecovery::apply_ack(
       } else {
         decoded_delay_ms
       }
-      let sample = if raw_sample >= min_rtt + delay_ms {
+      let sample = if raw_sample - min_rtt >= delay_ms {
         raw_sample - delay_ms
       } else {
         raw_sample
@@ -525,15 +523,15 @@ fn QuicRecovery::apply_ack(
         }
         (Some(smoothed), Some(variance)) => {
           let delta = (smoothed - sample).abs()
-          self.rttvar_ms = Some((3L * variance + delta) / 4L)
-          self.smoothed_rtt_ms = Some((7L * smoothed + sample) / 8L)
+          self.rttvar_ms = Some(quic_rtt_average(variance, delta, 4L))
+          self.smoothed_rtt_ms = Some(quic_rtt_average(smoothed, sample, 8L))
         }
         _ => ()
       }
     }
     _ => ()
   }
-  if reset_pto && !events.is_empty() {
+  if reset_pto && self.sent.length() < previously_tracked {
     self.pto_count = 0
     self.last_probe_ms = None
   }
@@ -541,6 +539,9 @@ fn QuicRecovery::apply_ack(
     self.in_recovery = false
   }
   self.last_activity_ms = now_ms
+  self.restart_idle_on_send = true
+  // Public callers may drive loss detection solely through poll after an ACK.
+  self.timer(space).loss_at_ms = Some(now_ms)
   if acknowledged_bytes > 0L {
     if self.congestion_window < self.ssthresh {
       self.congestion_window = (self.congestion_window + acknowledged_bytes).min(
@@ -555,55 +556,15 @@ fn QuicRecovery::apply_ack(
       )
     }
   }
-  Ok(events)
+  Ok(())
 }
 
 ///|
-pub fn QuicRecovery::poll(
-  self : QuicRecovery,
-  now_ms : Int64,
-  application_confirmed? : Bool = true,
-) -> Result[Array[QuicRecoveryEvent], QuicError] {
-  if now_ms < 0L {
-    return Err(InvalidPacket("recovery clock cannot be negative"))
-  }
-  if now_ms - self.last_activity_ms >= self.config.idle_timeout_ms {
-    return Ok([IdleTimeout])
-  }
-  let oldest : QuicSentPacket? = for packet in self.sent; result = None {
-    if !packet.ack_eliciting ||
-      (packet.space == Application && !application_confirmed) {
-      continue result
-    }
-    match result {
-      None => continue Some(packet)
-      Some(previous) if packet.sent_at_ms < previous.sent_at_ms =>
-        continue Some(packet)
-      _ => continue result
-    }
-  } nobreak {
-    result
-  }
-  match oldest {
-    None => Ok([])
-    Some(packet) => {
-      let timeout = pto_backoff(self.recovery_pto(packet.space), self.pto_count).min(
-        self.config.max_pto_ms,
-      )
-      let deadline = if packet.sent_at_ms > QUIC_MAX_VARINT - timeout {
-        QUIC_MAX_VARINT
-      } else {
-        packet.sent_at_ms + timeout
-      }
-      if now_ms >= deadline && self.last_probe_ms != Some(deadline) {
-        self.pto_count += 1
-        self.last_probe_ms = Some(deadline)
-        Ok([ProbeTimeout(packet.space)])
-      } else {
-        Ok([])
-      }
-    }
-  }
+/// Floor of the weighted average without overflowing on long clock intervals.
+fn quic_rtt_average(previous : Int64, sample : Int64, divisor : Int64) -> Int64 {
+  let diff = sample - previous
+  let rounded = diff / divisor
+  previous + rounded - (if diff % divisor < 0L { 1L } else { 0L })
 }
 
 ///|
@@ -617,26 +578,28 @@ pub fn QuicRecovery::detect_loss(
   if now_ms < 0L {
     return Err(InvalidPacket("recovery clock cannot be negative"))
   }
+  let timer = self.timer(space)
+  timer.loss_at_ms = None
   let largest = self.largest_acked(space)
   if largest < 0L {
     return Ok([])
   }
   let rtt = self.latest_rtt_ms.unwrap_or(self.config.initial_rtt_ms)
   let smoothed = self.smoothed_rtt_ms.unwrap_or(rtt)
-  let time_threshold = (smoothed.max(rtt) * 9L / 8L).max(1L)
+  let base = smoothed.max(rtt)
+  let time_threshold = quic_deadline_ms(base, base / 8L).max(1L)
   let events : Array[QuicRecoveryEvent] = []
   let mut lost_after_recovery_start = false
   let mut index = self.sent.length() - 1
   while index >= 0 {
     let packet = self.sent[index]
-    if packet.space == space &&
-      (
-        packet.number + 3L <= largest ||
-        (
-          packet.number <= largest &&
-          packet.sent_at_ms <= now_ms - time_threshold
-        )
-      ) {
+    if packet.space == space && packet.number <= largest {
+      let due = quic_deadline_ms(packet.sent_at_ms, time_threshold)
+      if largest - packet.number < 3L && now_ms < due {
+        timer.loss_at_ms = Some(timer.loss_at_ms.unwrap_or(due).min(due))
+        index -= 1
+        continue
+      }
       let in_flight = self.remove_sent(index)
       if in_flight && self.sent_after_recovery_start(packet) {
         lost_after_recovery_start = true

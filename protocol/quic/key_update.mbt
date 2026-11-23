@@ -208,9 +208,11 @@ fn QuicDatagramDriver::advance_receive_keys(
     }
   }
   state.previous_receive = self.application_receive_keys
-  state.previous_until_ms = now_ms +
-    self.recovery.recovery_pto(Application).min((QUIC_MAX_VARINT - now_ms) / 3L) *
-    3L
+  state.previous_until_ms = quic_deadline_ms(
+    now_ms,
+    self.recovery.recovery_pto(Application),
+    periods=3L,
+  )
   self.application_receive_keys = Some(next)
   state.next_receive = Some(following)
   state.receive_phase = !state.receive_phase

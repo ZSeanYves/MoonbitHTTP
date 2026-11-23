@@ -67,10 +67,38 @@ pub fn QuicDatagramDriver::poll(
   self : QuicDatagramDriver,
   now_ms : Int64,
 ) -> Result[Array[QuicDriverAction], QuicError] {
+  if self.state() == Closed || self.state() == Draining {
+    return if now_ms < 0L {
+      Err(InvalidPacket("recovery clock cannot be negative"))
+    } else {
+      Ok([])
+    }
+  }
+  // A client whose address validation is still outstanding can need a probe
+  // even after the server has acknowledged its complete Initial flight.
+  let validation_space : PacketNumberSpace? = if self.role == Client &&
+    !self.peer_address_validated &&
+    !self.key_update.confirmed &&
+    (
+      self.next_initial_packet > 0L ||
+      self.next_handshake_packet > 0L ||
+      self.state() == Established
+    ) {
+    if self.handshake_send_keys is Some(_) {
+      Some(Handshake)
+    } else if self.initial_send_keys is Some(_) {
+      Some(Initial)
+    } else {
+      None
+    }
+  } else {
+    None
+  }
   let events = match
-    self.recovery.poll(
+    self.recovery.timer_events(
       now_ms,
-      application_confirmed=self.state() == Established,
+      self.key_update.confirmed,
+      validation_space,
     ) {
     Ok(value) => value
     Err(error) => return Err(error)
@@ -107,16 +135,18 @@ pub fn QuicDatagramDriver::poll(
           Err(error) if error.send_blocked() => continue
           Err(error) => return Err(error)
         }
+        self.recovery.probe_sent(space, now_ms)
         output.push(packet)
       }
-      _ => ()
+      PacketLost(number, space, _) =>
+        self.mark_retransmission_pending(space, number)
+      PacketAcknowledged(_, _, _) => ()
     }
   }
   if self.state() == Closed || self.state() == Draining {
     return Ok(output)
   }
-  let spaces : Array[PacketNumberSpace] = [Initial, Handshake, Application]
-  for space in spaces {
+  for space in quic_number_spaces {
     let received = self.received(space)
     if received.pending_ack(space, self.limits, now_ms) is Some(ack) {
       match self.send_frames(space, [ack], now_ms) {

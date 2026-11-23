@@ -67,6 +67,14 @@ and can include an older out-of-order trigger. Its RTT sampling keeps a bounded
 history for unpadded ACKs that may be the largest packet in a mixed ACK.
 [RFC 9002 section 5.1](https://www.rfc-editor.org/rfc/rfc9002.html#section-5.1)
 
+The recovery timer uses each packet-number space's latest ACK-eliciting send
+to choose the next probe. A pending time-threshold loss takes precedence and
+can retransmit stream data without a second ACK. Before address validation a
+client can probe with Handshake keys or a padded Initial even after the peer
+acknowledges the entire flight. A blocked send preserves the probe count. The
+standalone recovery API treats a returned `ProbeTimeout` as a dispatched probe.
+[RFC 9002 section 6.2](https://www.rfc-editor.org/rfc/rfc9002.html#section-6.2)
+
 ## Dependency audit on 2026-10-01
 
 The checked versions were `mizchi/experimental_crypto@0.0.2` and

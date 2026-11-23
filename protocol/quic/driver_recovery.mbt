@@ -101,7 +101,6 @@ fn QuicDatagramDriver::flush_pending_retransmissions(
   self : QuicDatagramDriver,
   space : PacketNumberSpace,
   now_ms : Int64,
-  congestion_exempt? : Bool = false,
 ) -> Result[Array[QuicDriverAction], QuicError] {
   let actions : Array[QuicDriverAction] = []
   while self.next_pending_retransmission(space) is Some(entry) {
@@ -110,7 +109,7 @@ fn QuicDatagramDriver::flush_pending_retransmissions(
         space,
         entry.frames,
         now_ms,
-        congestion_exempt,
+        false,
         Some(entry),
         entry.endpoint.unwrap_or(self.path.active()),
       ) {
@@ -136,7 +135,7 @@ fn QuicDatagramDriver::apply_recovery_ack(
     Some(params) => params.ack_delay_exponent
     None => 3
   }
-  let events = match
+  match
     self.recovery.apply_ack(
       space,
       ack,
@@ -148,11 +147,12 @@ fn QuicDatagramDriver::apply_recovery_ack(
         self.key_update.confirmed,
       handshake_confirmed=self.key_update.confirmed,
     ) {
-    Ok(value) => value
+    Ok(_) => ()
     Err(error) => return Err(error)
   }
-  if space != Initial &&
-    events.any(fn(event) { event is PacketAcknowledged(_, _, _) }) {
+  // A valid ACK proves the peer processed this encryption level even when
+  // the referenced packet no longer needs congestion or retransmission state.
+  if space != Initial {
     self.peer_address_validated = true
   }
   let lost = match self.recovery.detect_loss(space, now_ms) {
@@ -160,17 +160,11 @@ fn QuicDatagramDriver::apply_recovery_ack(
     Err(error) => return Err(error)
   }
   if space == Application {
-    for event in events {
-      if event is PacketAcknowledged(number, _, _) {
-        self.key_update.confirmed = true
-        if number >= self.key_update.send_phase_start {
-          self.key_update.send_phase_acked = true
-        }
-      }
+    self.key_update.confirmed = true
+    if ack.largest_acknowledged >= self.key_update.send_phase_start {
+      self.key_update.send_phase_acked = true
     }
-    if self.key_update.confirmed {
-      self.discard_packet_space(Handshake)
-    }
+    self.discard_packet_space(Handshake)
   }
   // A late ACK can arrive after a packet was declared lost but before its
   // retained frames could be retransmitted. Remove every acknowledged copy,
@@ -188,12 +182,8 @@ fn QuicDatagramDriver::apply_recovery_ack(
     retained_index -= 1
   }
   for event in lost {
-    match event {
-      PacketLost(number, event_space, bytes) => {
-        ignore(bytes)
-        self.mark_retransmission_pending(event_space, number)
-      }
-      _ => ()
+    if event is PacketLost(number, event_space, _) {
+      self.mark_retransmission_pending(event_space, number)
     }
   }
   Ok(())

@@ -20,7 +20,7 @@ test "quic recovery: ACK samples RTT and releases bytes" {
 }
 
 ///|
-test "quic recovery: packet threshold loss and PTO are bounded" {
+test "quic recovery: packet threshold loss releases acknowledged predecessors" {
   let recovery = @quic.QuicRecovery::new(now_ms=0L).unwrap()
   for number in 0L..<4L {
     recovery
@@ -45,19 +45,6 @@ test "quic recovery: packet threshold loss and PTO are bounded" {
   )
   let lost = recovery.detect_loss(Application, 1000L).unwrap()
   assert_eq(lost.length(), 3)
-  let probe_recovery = @quic.QuicRecovery::new(now_ms=0L).unwrap()
-  probe_recovery
-  .on_packet_sent({
-    number: 0L,
-    space: Handshake,
-    bytes: 1200,
-    sent_at_ms: 0L,
-    ack_eliciting: true,
-    retransmittable: true,
-  })
-  .unwrap()
-  let probe = probe_recovery.poll(2000L).unwrap()
-  assert_eq(probe, [ProbeTimeout(Handshake)])
 }
 
 ///|
@@ -126,27 +113,10 @@ test "quic recovery: handshake PTO excludes application ACK delay and backs off 
   // until the Application packet number space is active.
   assert_eq(recovery.poll(996L).unwrap(), [])
   assert_eq(recovery.poll(997L).unwrap(), [ProbeTimeout(Handshake)])
-  assert_eq(recovery.poll(1993L).unwrap(), [])
-  assert_eq(recovery.poll(1994L).unwrap(), [ProbeTimeout(Handshake)])
-}
-
-///|
-test "quic recovery: non-ACK receive does not reset PTO backoff" {
-  let recovery = @quic.QuicRecovery::new(now_ms=0L).unwrap()
-  recovery
-  .on_packet_sent({
-    number: 0L,
-    space: Handshake,
-    bytes: 1200,
-    sent_at_ms: 0L,
-    ack_eliciting: true,
-    retransmittable: true,
-  })
-  .unwrap()
-  assert_eq(recovery.poll(997L).unwrap(), [ProbeTimeout(Handshake)])
+  // Receiving a packet without an ACK does not reset probe backoff.
   recovery.on_receive(1000L).unwrap()
-  assert_eq(recovery.poll(1993L).unwrap(), [])
-  assert_eq(recovery.poll(1994L).unwrap(), [ProbeTimeout(Handshake)])
+  assert_eq(recovery.poll(2990L).unwrap(), [])
+  assert_eq(recovery.poll(2991L).unwrap(), [ProbeTimeout(Handshake)])
 }
 
 ///|
@@ -658,4 +628,78 @@ test "quic recovery: mixed ACK samples the time of its largest non-eliciting pac
     assert_eq(recovery.smoothed_rtt_ms(), Some(33L))
     assert_eq(recovery.bytes_in_flight(), 0L)
   }
+}
+
+///|
+test "quic timers choose the earliest space deadline from the last eliciting send" {
+  let recovery = @quic.QuicRecovery::new().unwrap()
+  let first : @quic.QuicSentPacket = {
+    number: 0L,
+    space: Initial,
+    bytes: 100,
+    sent_at_ms: 0L,
+    ack_eliciting: true,
+    retransmittable: true,
+  }
+  recovery.on_packet_sent(first).unwrap()
+  recovery
+  .on_packet_sent({ ..first, space: Handshake, sent_at_ms: 40L, })
+  .unwrap()
+  recovery.on_packet_sent({ ..first, number: 1L, sent_at_ms: 90L, }).unwrap()
+  assert_eq(recovery.poll(997L).unwrap(), [])
+  assert_eq(recovery.poll(1037L).unwrap(), [ProbeTimeout(Handshake)])
+  // Probing Handshake advances its clock; the Initial deadline remains tied
+  // to its last transmission, with the connection-wide backoff applied.
+  assert_eq(recovery.poll(2083L).unwrap(), [])
+  assert_eq(recovery.poll(2084L).unwrap(), [ProbeTimeout(Initial)])
+  assert_eq(recovery.oldest_probe_packet(Initial), Some(first))
+}
+
+///|
+test "quic timers release time-threshold losses without another ACK" {
+  let recovery = @quic.QuicRecovery::new().unwrap()
+  for number in 0L..<2L {
+    recovery
+    .on_packet_sent({
+      number,
+      space: Application,
+      bytes: 100,
+      sent_at_ms: 0L,
+      ack_eliciting: true,
+      retransmittable: true,
+    })
+    .unwrap()
+  }
+  let ack = @quic.AckFrame::new(1L, 0L, [@quic.AckRange::new(1L, 1L).unwrap()]).unwrap()
+  ignore(recovery.on_ack(Application, ack, 80L).unwrap())
+  assert_eq(recovery.poll(89L).unwrap(), [])
+  assert_eq(recovery.poll(90L).unwrap(), [PacketLost(0L, Application, 100)])
+  assert_eq(recovery.bytes_in_flight(), 0L)
+  assert_eq(recovery.poll(1000L).unwrap(), [])
+}
+
+///|
+test "quic recovery caps successive probe intervals and permits idle expiry while sending" {
+  let recovery = @quic.QuicRecovery::new(config={
+    ..@quic.QuicRecoveryConfig::defaults(),
+    max_pto_ms: 100L,
+    idle_timeout_ms: 410L,
+  }).unwrap()
+  let first : @quic.QuicSentPacket = {
+    number: 0L,
+    space: Handshake,
+    bytes: 40,
+    sent_at_ms: 10L,
+    ack_eliciting: true,
+    retransmittable: true,
+  }
+  recovery.on_packet_sent(first).unwrap()
+  for i in 1L..<5L {
+    let now = 10L + i * 100L
+    assert_eq(recovery.poll(now - 1L).unwrap(), [])
+    assert_eq(recovery.poll(now).unwrap(), [ProbeTimeout(Handshake)])
+    recovery.on_packet_sent({ ..first, number: i, sent_at_ms: now, }).unwrap()
+    assert_eq(recovery.poll(now).unwrap(), [])
+  }
+  assert_eq(recovery.poll(420L).unwrap(), [IdleTimeout])
 }

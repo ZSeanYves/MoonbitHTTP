@@ -515,7 +515,6 @@ test "QUIC charges explicit and automatic PADDING through key retirement" {
   assert_eq(initial.length(), 1200)
   assert_eq(client.recovery.bytes_in_flight(), 1200L)
   assert_true(client.recovery.oldest_probe_packet(Initial) is None)
-  assert_eq(client.poll(1500L).unwrap(), [])
   // A client Handshake retires Initial state. This tiny payload also needs
   // PADDING so header protection can take a complete sample.
   guard client.send_frames(Handshake, [Padding], 1501L).unwrap()

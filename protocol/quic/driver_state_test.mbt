@@ -266,6 +266,11 @@ test "quic driver path: two drivers validate and switch after challenge response
   let original = @types.Endpoint::new("udp", "server.test", 443).unwrap()
   let candidate = @types.Endpoint::new("udp", "new-server.test", 443).unwrap()
   let (client, server) = established_driver_pair(client_endpoint, original)
+  guard server.send_frames(Application, [HandshakeDone], 0L).unwrap()
+    is SendDatagram(_, done) else {
+    fail("expected handshake confirmation")
+  }
+  ignore(client.on_datagram(original, done, 0L).unwrap())
   guard client.begin_path_validation(candidate, b"12345678", 0L).unwrap()
     is SendDatagram(destination, challenge) else {
     fail("expected PATH_CHALLENGE action")
@@ -356,42 +361,44 @@ test "quic driver path: matching response on active path validates candidate" {
 
 ///|
 test "quic keys: confirmation and ACK gates, peer response and bounded old-key retention" {
+  // Clock origins are independent of the QUIC wire varint range.
+  let start = 1L << 62
   let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
   let (client, server) = established_driver_pair(endpoint, endpoint)
   assert_true(client.initiate_key_update() is Err(Unsupported(_)))
   assert_true(server.initiate_key_update() is Err(Unsupported(_)))
-  guard client.send_frames(Application, [Ping], 0L).unwrap()
+  guard client.send_frames(Application, [Ping], start).unwrap()
     is SendDatagram(_, first) else {
     fail("expected packet")
   }
-  guard server.on_datagram(endpoint, first, 1L).unwrap()
+  guard server.on_datagram(endpoint, first, start + 1L).unwrap()
     is [SendDatagram(_, ack)] else {
     fail("expected ACK")
   }
-  ignore(client.on_datagram(endpoint, ack, 2L).unwrap())
+  ignore(client.on_datagram(endpoint, ack, start + 2L).unwrap())
   assert_true(client.handshake_confirmed())
-  guard client.send_frames(Application, [Ping], 3L).unwrap()
+  guard client.send_frames(Application, [Ping], start + 3L).unwrap()
     is SendDatagram(_, reordered) else {
     fail("expected packet")
   }
-  guard client.send_frames(Application, [Ping], 4L).unwrap()
+  guard client.send_frames(Application, [Ping], start + 4L).unwrap()
     is SendDatagram(_, expired) else {
     fail("expected packet")
   }
   client.initiate_key_update().unwrap()
   assert_true(client.initiate_key_update() is Err(Unsupported(_)))
-  guard client.send_frames(Application, [Ping], 5L).unwrap()
+  guard client.send_frames(Application, [Ping], start + 5L).unwrap()
     is SendDatagram(_, updated) else {
     fail("expected packet")
   }
-  guard server.on_datagram(endpoint, updated, 6L).unwrap()
+  guard server.on_datagram(endpoint, updated, start + 6L).unwrap()
     is [SendDatagram(_, updated_ack)] else {
     fail("expected updated ACK")
   }
   // The new-phase ACK authenticates with newly derived keys at the client.
-  ignore(client.on_datagram(endpoint, updated_ack, 7L).unwrap())
-  assert_true(server.on_datagram(endpoint, reordered, 8L) is Ok(_))
-  assert_true(server.on_datagram(endpoint, expired, 100000L) is Err(_))
+  ignore(client.on_datagram(endpoint, updated_ack, start + 7L).unwrap())
+  assert_true(server.on_datagram(endpoint, reordered, start + 8L) is Ok(_))
+  assert_true(server.on_datagram(endpoint, expired, start + 100000L) is Err(_))
   client.initiate_key_update().unwrap()
 }
 
@@ -422,4 +429,28 @@ test "quic stream packet rejection preserves offsets and reset final size" {
   )
   assert_true(client.send_stream(id, b"x", false, 5L) is Err(StreamClosed(_)))
   assert_true(server.send_stream(id, b"ok", true, 6L) is Ok(_))
+}
+
+///|
+test "quic driver retransmits stream data when the loss timer expires in silence" {
+  let endpoint = @types.Endpoint::new("udp", "peer.test", 443).unwrap()
+  let (client, server) = established_driver_pair(endpoint, endpoint)
+  let id = client.connection().open_bidirectional_stream().unwrap()
+  ignore(client.send_stream(id, b"ordered", true, 0L).unwrap())
+  guard client.send_frames(Application, [Ping], 0L).unwrap()
+    is SendDatagram(_, ping) else {
+    fail("expected packet following the missing stream data")
+  }
+  guard server.on_datagram(endpoint, ping, 0L).unwrap()
+    is [SendDatagram(_, ack)] else {
+    fail("expected ACK for the later packet")
+  }
+  assert_eq(client.on_datagram(endpoint, ack, 80L).unwrap(), [])
+  assert_eq(client.poll(89L).unwrap(), [])
+  guard client.poll(90L).unwrap() is [SendDatagram(_, retry)] else {
+    fail("expected timer-driven stream retransmission")
+  }
+  let received = server.on_datagram(endpoint, retry, 91L).unwrap()
+  assert_true(received.contains(StreamData(id, b"ordered", true)))
+  assert_eq(client.poll(91L).unwrap(), [])
 }

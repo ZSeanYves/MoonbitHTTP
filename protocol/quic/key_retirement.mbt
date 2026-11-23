@@ -23,6 +23,7 @@ fn QuicDatagramDriver::discard_packet_space(
     Application => return
   }
   self.received(space).pending = None
+  self.recovery.timer(space).loss_at_ms = None
   let mut index = self.retransmissions.length() - 1
   while index >= 0 {
     if self.retransmissions[index].space == space {

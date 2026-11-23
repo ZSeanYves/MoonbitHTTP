@@ -5,6 +5,7 @@ import {
   "moonbitlang/core/deque",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/int",
+  "moonbitlang/core/int64",
   "ZSeanYves/MoonbitHTTP/runtime/transport",
   "ZSeanYves/MoonbitHTTP/protocol/tls",
   "cc06b/mooncry/lib" @mooncry,
