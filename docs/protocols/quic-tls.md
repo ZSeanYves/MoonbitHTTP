@@ -4,7 +4,7 @@
 > Scope: boundary between the portable QUIC driver and an injected TLS 1.3
 > provider; this page describes implemented interfaces and explicit limits.
 > Source: working-tree (governed by Git)
-> Last reviewed: 2026-10-01
+> Last reviewed: 2026-11-23
 
 `QuicCryptoReassembler` in the QUIC package orders CRYPTO ranges independently
 for Initial, Handshake and Application packet-number spaces. Its `CryptoData`
@@ -43,9 +43,33 @@ Packet numbers never reset. Initial keys are discarded when Handshake CRYPTO
 is exchanged; Handshake keys and their recovery state are discarded on
 confirmation. Reinstallation cannot bypass those transitions.
 
-## Installed dependency audit
+## Datagram boundaries and recovery
 
-The checked versions are `mizchi/experimental_crypto@0.0.2` and
+The raw datagram driver and the TLS driver open each QUIC packet in a coalesced
+datagram in wire order. TLS processes each packet's CRYPTO data before the next
+packet is opened. A server checks the complete UDP payload against the
+1,200-byte minimum for client Initials. Its own Initial ACK can be shorter.
+[RFC 9000 section 14.1](https://www.rfc-editor.org/rfc/rfc9000.html#section-14.1)
+
+The send path calculates the protected wire length before checking congestion
+and the path's amplification budget. Recovery charges packets that elicit an ACK
+or contain PADDING, including padding inserted by the builder. The driver
+retains retransmittable frames separately. ACK, loss and key retirement release
+the original charge once. Standalone recovery callers pass `contains_padding`
+to `on_packet_sent` when their own builder includes padding. The boolean in
+`can_send(bytes, in_flight)` is true for either ACK-eliciting or padded packets.
+[RFC 9002 section 2](https://www.rfc-editor.org/rfc/rfc9002.html#section-2)
+
+Received packet numbers share a 4,096-number replay and ACK window per
+encryption level. A blocked ACK stays pending for the next received packet or
+timer poll. The sender uses up to 16 recent ACK ranges within its byte budget
+and can include an older out-of-order trigger. Its RTT sampling keeps a bounded
+history for unpadded ACKs that may be the largest packet in a mixed ACK.
+[RFC 9002 section 5.1](https://www.rfc-editor.org/rfc/rfc9002.html#section-5.1)
+
+## Dependency audit on 2026-10-01
+
+The checked versions were `mizchi/experimental_crypto@0.0.2` and
 `moonbitlang/async@0.20.2` from this repository's dependency installation.
 
 - `experimental_crypto/tls13` provides key-schedule, raw-handshake and

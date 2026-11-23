@@ -14,6 +14,60 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## QUIC congestion and cumulative ACKs at `dd0c77b`
+
+The original client sent a 1,200-byte Initial containing an ACK and automatic
+PADDING while recovery reported zero bytes in flight. The packet builder now
+computes the protected length before encryption, and the driver checks its
+amplification, congestion and tracking budgets against that length. Padded
+packets supply congestion feedback on ACK or loss, and retiring a key space
+releases its outstanding bytes. ACK-only traffic can still pass a full window
+when the packet has no PADDING. A focused test checks the original failure and
+a second test forces a pending Initial ACK through a one-entry recovery queue.
+[RFC 9002 section 2](https://www.rfc-editor.org/rfc/rfc9002.html#section-2)
+
+The raw and TLS drivers share parsing for coalesced UDP datagrams and a bounded
+received-range history. Tests cover missing numbers, reordered arrivals, ACK
+retry, RTT sampling across mixed ranges, full packet numbers above 32 bits and
+a 1,200-byte datagram composed of two independently authenticated Initials.
+
+| Check | macOS arm64 | Ubuntu 24.04 arm64 VM |
+| --- | --- | --- |
+| Strict check, build and full suite | Wasm 493/493, Wasm-GC 352/352, JS 493/493, Native 560/560 | Native 560/560 |
+| Native QUIC, TLS, client and listener packages, included above | 172/172 | 172/172 |
+| Independent HTTP/1.1, HTTP/2 and h2c socket cases | 6/6 | 6/6 |
+| aioquic 1.3.0 with loss, delay and reordering, one new connection per request | 56 in 120.735 s | 56 in 121.276 s |
+
+On both systems the peer completed 256 requests on one connection and eight
+concurrent requests on another. In the reverse role the typed MoonBit client
+verified a 4,096-byte echo, a 131,072-byte download and hostname rejection.
+Across the VM gateway the ngtcp2/nghttp3 GnuTLS client received the exact
+upload bytes, GOAWAY(4) and an application close with code 0x100. The reverse
+gateway run used a UDP relay with a stable source port per connection. The
+aioquic qlog recorded the same application close. A per-datagram relay had
+changed ports throughout the exchange and elicited a path validation error.
+
+During the first guest run, parallel native compilation and the impairment
+runner shared a 4 GiB VM. The guest kernel killed a C compiler under memory
+pressure. On a separate connection the upstream client received its response
+and sent a close, then exceeded the runner's 30-second process deadline.
+The guest suite passed with one compiler job. The table reports the subsequent
+standalone impairment run using the original timeout and loss settings.
+
+The pinned compiler was `0.10.14+7d59c7ec9`. The architecture check covered
+28 manifests and 96 local dependencies. All 33 macOS Native TLS ASan tests
+passed with leak detection disabled, and the runtime and manifest hashes were
+restored. The 426-file package passed its extracted four-target check with
+SHA-256 `06155f8f820c6c890b8a0be6405b29b6d67d4a7557bcc2e724c6aa771bc3c481`.
+
+QUIC's probe timer still selects the oldest outstanding eliciting packet, and
+time-threshold loss detection currently runs when processing an ACK. Timer
+behavior across packet-number spaces remains a recovery milestone.
+The native HTTP/3 client takes a numeric endpoint and scopes a connection to
+one origin. A current Windows run, sustained testing on separate physical
+hosts and independent release-revision security review remain open.
+[RFC 9002 section 6.2](https://www.rfc-editor.org/rfc/rfc9002.html#section-6.2)
+
 ## HTTP/3 shutdown and QUIC frame handling at `abf4e1a`
 
 The supervisor sends a GOAWAY boundary on each established HTTP/3 connection.
@@ -67,11 +121,9 @@ script verified restoration of the runtime and package manifest. The frozen
 `2c1ca2436f5f22211656142986fddae94075f53a34bf91a8274da492629bfaba`.
 
 The native HTTP/3 client still requires a numeric endpoint and manages one
-origin connection per scope. QUIC recovery also needs separate accounting for
-non-ACK-eliciting packets containing PADDING as defined in
-[RFC 9002 section 2](https://www.rfc-editor.org/rfc/rfc9002.html#section-2).
-Both OSes shared one physical
-Mac. Windows at the candidate revision, sustained capacity and recovery on
+origin connection per scope. At this revision QUIC recovery still omitted non-eliciting padded packets.
+The [subsequent congestion and ACK record](#quic-congestion-and-cumulative-acks-at-dd0c77b)
+covers the repair. Both OSes shared one physical Mac. Windows at the candidate revision, sustained capacity and recovery on
 independent hosts, and independent security review remain open.
 
 ## Typed HTTP/3 applications at `e5ca13e`
