@@ -8,8 +8,8 @@ pub async fn[B : Body] collect(
   body : B,
   max_bytes? : Int = 16 * 1024 * 1024,
 ) -> (Bytes, @types.HeaderMap?) {
-  let mut cause : Error = BodyError::Cancelled
-  errdefer body.cancel(cause)
+  let mut failure : Error? = None
+  errdefer body.cancel(failure.unwrap_or(BodyError::Cancelled))
   let result : Result[(Bytes, @types.HeaderMap?), Error] = try {
     if max_bytes < 0 {
       raise BodyError::InvalidLimit(max_bytes)
@@ -39,7 +39,7 @@ pub async fn[B : Body] collect(
   match result {
     Ok(value) => value
     Err(error) => {
-      cause = error
+      failure = Some(error)
       raise error
     }
   }
