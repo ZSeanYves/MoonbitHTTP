@@ -6,6 +6,7 @@ import {
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
+  "moonbitlang/x@0.5.5/crypto",
 }
 
 ///|
@@ -13,7 +14,7 @@ async fn command(
   program : String,
   arguments : Array[String],
   timeout_ms? : Int = 60000,
-) -> (Bytes, Bytes) {
+) -> Bytes {
   let (status, output, errors) = @async.with_timeout(timeout_ms, async fn() {
     @process.collect_output(program, arguments)
   })
@@ -22,39 +23,18 @@ async fn command(
       "\{program} \{arguments.join(" ")}: exit \{status}; \{output.text()}\n\{errors.text()}",
     )
   }
-  (output.binary(), errors.binary())
+  output.binary()
 }
 
 ///|
 async fn command_text(program : String, arguments : Array[String]) -> String {
-  let (output, errors) = command(program, arguments)
-  let text = @utf8.decode(output)
-  if text.is_empty() {
-    @utf8.decode(errors)
-  } else {
-    text
-  }
+  @utf8.decode(command(program, arguments))
 }
 
 ///|
 fn manifest_strings(manifest : Json, field : String) -> Array[String] raise {
-  let values = match field {
-    "include" =>
-      match manifest {
-        { "include": Array(values), .. } => values
-        _ => fail("distribution manifest has no include array")
-      }
-    "exclude" =>
-      match manifest {
-        { "exclude": Array(values), .. } => values
-        _ => fail("distribution manifest has no exclude array")
-      }
-    "required" =>
-      match manifest {
-        { "required": Array(values), .. } => values
-        _ => fail("distribution manifest has no required array")
-      }
-    _ => fail("unsupported distribution manifest field: \{field}")
+  guard manifest is Object(fields) && fields.get(field) is Some(Array(values)) else {
+    fail("distribution manifest requires an array for \{field}")
   }
   let result : Array[String] = []
   for value in values {
@@ -115,7 +95,7 @@ fn safe_member(path : String) -> Bool {
 
 ///|
 async fn require_clean() -> Unit {
-  let (changes, _) = command("git", [
+  let changes = command("git", [
     "status", "--porcelain=v1", "-z", "--untracked-files=all",
   ])
   guard changes.is_empty() else {
@@ -126,129 +106,196 @@ async fn require_clean() -> Unit {
 }
 
 ///|
-async fn check_extracted_package(archive : String) -> Unit {
-  // Resolve every import, including wbtest imports, using only the published
-  // sources. A source-tree check cannot catch packages excluded by .moonignore.
-  let directory = @fs.tmpdir(prefix="moonbithttp-distribution")
-  println("Checking extracted package in \{directory}")
-  ignore(command("unzip", ["-q", archive, "-d", directory]))
+fn digest(bytes : Bytes) -> String {
+  @crypto.bytes_to_hex_string(@crypto.sha256(bytes))
+}
+
+///|
+async fn main {
+  let args = @env.args()
+  let evidence_requested = args.length() == 2 && args[1] == "--release-evidence"
+  let clean_only = args.length() == 2 && args[1] == "--check-clean"
+  guard args.length() == 1 || evidence_requested || clean_only else {
+    fail("usage: check_distribution.mbtx [--release-evidence | --check-clean]")
+  }
+  require_clean()
+  if clean_only {
+    println("PASS: worktree is clean; no package created.")
+    return
+  }
+  let revision = command_text("git", ["rev-parse", "HEAD"]).trim().to_owned()
+  let distribution_manifest = @fs.read_file(
+    "repo-tools/tools/distribution.json",
+  ).text()
+  let manifest = @json.parse(distribution_manifest)
+  guard manifest
+    is {
+      "schema_version": Number(schema, ..),
+      "module": String(name),
+      "version": String(version),
+      ..
+    } &&
+    schema == 1.0 else {
+    fail("invalid distribution manifest header")
+  }
+  let includes = manifest_strings(manifest, "include")
+  let excludes = manifest_strings(manifest, "exclude")
+  let required = manifest_strings(manifest, "required")
+  let source = @fs.read_file("moon.mod").text()
+  guard source.contains("name = \"\{name}\"") &&
+    source.contains("version = \"\{version}\"") else {
+    fail("distribution manifest module/version differs from moon.mod")
+  }
+  let expected : Set[String] = Set([])
+  for
+    entry in command_text("git", [
+      "ls-tree", "-r", "-z", "--name-only", revision,
+    ]).split("\u{0}") {
+    let path = entry.to_owned()
+    if !path.is_empty() && included(path, includes, excludes) {
+      expected.add(path)
+    }
+  }
+  for path in required {
+    guard expected.contains(path) else {
+      fail("required distribution member is missing: \{path}")
+    }
+  }
+  for pattern in includes {
+    guard expected.iter().any(path => matches(path, pattern)) else {
+      fail("empty distribution include: \{pattern}")
+    }
+  }
+  ignore(command("moon", ["package", "--frozen"]))
+  let archive = "_build/publish/" +
+    name.replace(old="/", new="-") +
+    "-" +
+    version +
+    ".zip"
+  let bytes = @fs.read_file(archive).binary()
+  // All following checks read this snapshot, even if another package build starts.
+  let temporary = @fs.tmpdir(prefix="moonbithttp-distribution")
+  let snapshot = temporary + "/package.zip"
+  let extracted = temporary + "/extracted"
+  @fs.write_file(snapshot, bytes, create_mode=CreateNew)
+  let actual : Set[String] = Set([])
+  let paths : Array[String] = []
+  for entry in command_text("unzip", ["-Z1", snapshot]).split("\n") {
+    if entry.is_empty() {
+      continue
+    }
+    if entry.strip_suffix("/") is Some(directory) {
+      guard safe_member(directory.to_owned()) else {
+        fail("unsafe archive directory: \{entry}")
+      }
+      continue
+    }
+    let path = entry.to_owned()
+    guard safe_member(path) && expected.contains(path) else {
+      fail("unexpected archive member: \{path}")
+    }
+    guard !actual.contains(path) else {
+      fail("duplicate archive member: \{path}")
+    }
+    actual.add(path)
+    paths.push(path)
+  }
+  for path in expected {
+    guard actual.contains(path) else {
+      fail("frozen source is missing from archive: \{path}")
+    }
+  }
+  paths.sort()
+  guard !paths.is_empty() else { fail("empty distribution") }
+  println("Checking extracted package in \{extracted}")
+  ignore(command("unzip", ["-q", snapshot, "-d", extracted]))
+  let files : Array[Json] = []
+  let mut unpacked_bytes = 0
+  for path in paths {
+    let packaged = @fs.read_file(extracted + "/" + path).binary()
+    let committed = command("git", ["show", revision + ":" + path])
+    guard packaged == committed else {
+      fail("archive differs from frozen Git source: \{path}")
+    }
+    if evidence_requested {
+      unpacked_bytes += packaged.length()
+      files.push({
+        "path": path,
+        "bytes": packaged.length(),
+        "sha256": digest(packaged),
+      })
+    }
+  }
   ignore(
     command(
       "moon",
       [
-        "-C", directory, "check", "--target", "all", "--deny-warn", "--warn-list",
+        "-C", extracted, "check", "--target", "all", "--deny-warn", "--warn-list",
         "+73",
       ],
       timeout_ms=300000,
     ),
   )
-  // Retain failed extractions for diagnosis; remove only a successful check's
-  // temporary directory. Neither the tree nor its build output is uploaded.
-  @fs.rmdir(directory, recursive=true)
-}
-
-///|
-async fn main {
-  let arguments = @env.args()
-  guard arguments.length() == 1 else {
-    fail("usage: moon run repo-tools/tools/check_distribution.mbtx")
-  }
-  let manifest_source = @fs.read_file("repo-tools/tools/distribution.json").text()
-  let manifest = @json.parse(manifest_source)
-  let includes = manifest_strings(manifest, "include")
-  let excludes = manifest_strings(manifest, "exclude")
-  let required = manifest_strings(manifest, "required")
-  guard manifest is { "schema_version": Number(schema, ..), .. } &&
-    schema == 1.0 else {
-    fail("unsupported distribution manifest schema")
-  }
-  guard manifest
-    is { "module": String(module_name), "version": String(version), .. } else {
-    fail("distribution manifest must identify module and version")
+  let snapshot_metadata = if evidence_requested {
+    let toolchain = command_text("moon", ["version", "--all"])
+    let dependencies = command_text("moon", ["tree", "--json"])
+    ignore(@json.parse(dependencies))
+    Some((toolchain, dependencies))
+  } else {
+    None
   }
   require_clean()
-  let module_source = @fs.read_file("moon.mod").text()
-  guard module_source.contains("name = \"\{module_name}\"") &&
-    module_source.contains("version = \"\{version}\"") else {
-    fail("distribution manifest module/version differs from moon.mod")
+  guard command_text("git", ["rev-parse", "HEAD"]).trim() == revision &&
+    @fs.read_file(archive).binary() == bytes else {
+    fail("revision or archive changed during packaging")
   }
-
-  let listed = command_text("moon", ["package", "--frozen", "--list"])
-  let actual : Array[String] = []
-  for raw in listed.split("\n") {
-    let path = raw.trim().to_owned()
-    if path.is_empty() {
-      continue
-    }
-    if path.has_prefix("Package to ") ||
-      path == "Check passed" ||
-      path.has_prefix("Running moon check") ||
-      path.has_prefix("Finished.") {
-      continue
-    }
-    guard !actual.contains(path) else {
-      fail("duplicate package member: \{path}")
-    }
-    guard safe_member(path) else { fail("unsafe package member: \{path}") }
-    actual.push(path)
-  }
-  actual.sort()
-  guard !actual.is_empty() else {
-    fail("moon package produced an empty archive")
-  }
-
-  for path in actual {
-    guard included(path, includes, excludes) else {
-      fail(
-        "archive member is outside the explicit distribution allowlist: \{path}",
-      )
-    }
-  }
-  for pattern in includes {
-    guard actual.any(fn(path) { matches(path, pattern) }) else {
-      fail("distribution allowlist entry matched no archive member: \{pattern}")
-    }
-  }
-  for path in required {
-    guard actual.contains(path) else {
-      fail("required distribution member is missing: \{path}")
-    }
-  }
-  for path in excludes {
-    guard !actual.any(fn(entry) { matches(entry, path) }) else {
-      fail("excluded distribution member was packaged: \{path}")
-    }
-  }
-  let revision = command_text("git", ["rev-parse", "HEAD"]).trim().to_owned()
-  let tracked = command_text("git", ["ls-files", "-z"])
-    .split("\u{0}")
-    .to_array()
-  let archive = "_build/publish/" +
-    module_name.replace(old="/", new="-") +
-    "-" +
-    version +
-    ".zip"
-  let archive_members = command_text("unzip", ["-Z1", archive])
-  for raw in archive_members.split("\n") {
-    let path = raw.trim().to_owned()
-    if path.is_empty() || path.has_suffix("/") {
-      continue
-    }
-    guard actual.contains(path) else {
-      fail("archive member is missing from moon package inventory: \{path}")
-    }
-    guard safe_member(path) &&
-      tracked.any(fn(tracked_path) { tracked_path == path }) else {
-      fail("archive member is untracked or unsafe: \{path}")
-    }
-    let packaged = command("unzip", ["-p", archive, path])
-    let committed = command("git", ["show", revision + ":" + path])
-    guard packaged.0 == committed.0 else {
-      fail("archive differs from frozen Git source: \{path}")
-    }
-  }
-  check_extracted_package(archive)
+  @fs.rmdir(temporary, recursive=true)
   println(
-    "PASS: distribution allowlist, frozen Git source and extracted four-target check verified (\{actual.length()} archive members, module \{module_name}@\{version}).",
+    "PASS: verified \{paths.length()} files and extracted four-target check for \{name}@\{version}.",
+  )
+  guard snapshot_metadata is Some((toolchain, dependencies)) else { return }
+  let listed = paths.join("\n") + "\n"
+  let directory = "_build/evidence/release/" + revision
+  @fs.mkdir(directory, recursive=true)
+  @fs.write_file(
+    directory + "/package-list.txt",
+    listed,
+    create_mode=CreateOrTruncate,
+  )
+  @fs.write_file(
+    directory + "/toolchain.txt",
+    toolchain,
+    create_mode=CreateOrTruncate,
+  )
+  @fs.write_file(directory + "/moon.mod", source, create_mode=CreateOrTruncate)
+  @fs.write_file(
+    directory + "/resolved-dependencies.json",
+    dependencies,
+    create_mode=CreateOrTruncate,
+  )
+  let evidence : Json = {
+    "status": "frozen-package-verified",
+    "production_release_approved": false,
+    "git_revision": revision,
+    "module": name,
+    "version": version,
+    "archive": archive,
+    "sha256": digest(bytes),
+    "compressed_bytes": bytes.length(),
+    "unpacked_bytes": unpacked_bytes,
+    "file_count": files.length(),
+    "files": files,
+    "dependency_snapshot": "resolved-dependencies.json",
+    "dependency_lock": "moon has no committed lockfile here; pinned moon.mod plus resolved dependency snapshot are evidence, not a resolver lock",
+    "distribution_manifest_sha256": digest(@utf8.encode(distribution_manifest)),
+    "release_gate_assessment": "not assessed by packaging tool; consult docs/release/roadmap.zh-CN.md",
+  }
+  @fs.write_file(
+    directory + "/evidence.json",
+    evidence,
+    create_mode=CreateOrTruncate,
+  )
+  println(
+    "Frozen package verified: \{archive}\nSHA-256: \{digest(bytes)}\nEvidence: \{directory}\nProduction release gates remain separate; nothing was published.",
   )
 }

@@ -2,7 +2,7 @@
 
 Status: canonical
 Scope: the `0.7.0` MoonBit module archive
-Last reviewed: 2026-10-07
+Last reviewed: 2026-11-23
 Source of truth: [`repo-tools/tools/distribution.json`](https://github.com/ZSeanYves/MoonbitHTTP/blob/main/repo-tools/tools/distribution.json)
 Enforcement: [`repo-tools/tools/check_distribution.mbtx`](https://github.com/ZSeanYves/MoonbitHTTP/blob/main/repo-tools/tools/check_distribution.mbtx)
 
@@ -37,14 +37,14 @@ Run the checker from a clean worktree:
 moon run repo-tools/tools/check_distribution.mbtx
 ```
 
-The checker invokes `moon package --frozen --list`; it may regenerate the
-local package archive. It does not publish anything. It rejects `_build`,
-`target`, `.mooncakes`, coverage, evidence and zip members, then compares each
-archive member with the frozen Git blob. It then extracts the archive into a
-fresh temporary directory outside the checkout and runs `moon check --target
-all --deny-warn --warn-list +73` there. This verifies that packaged manifests
-and imports resolve without excluded repository tools or source files. It
-removes successful temporary extractions and retains failed ones for local
-diagnosis. `release_evidence.mbtx` invokes the same checker before it performs
-its Git blob and SHA-256 checks. Neither tool
-uploads artifacts; CI keeps their temporary outputs only for the job lifetime.
+The checker builds the package once with `moon package --frozen`. It obtains
+the expected file set from the commit and the distribution manifest, then
+compares it with the ZIP directory. It rejects missing, extra, duplicate and
+unsafe file paths. It extracts a snapshot into a fresh temporary directory,
+compares each file with its Git blob and runs `moon check --target all
+--deny-warn --warn-list +73` on the extraction. Successful extractions are
+removed. Failed extractions remain available for diagnosis.
+
+`release_evidence.mbtx` also records the SHA-256 of the archive and each
+verified member, the toolchain and resolved dependencies under
+`_build/evidence/release/<revision>/`. CI keeps these local to the job.
