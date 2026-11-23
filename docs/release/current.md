@@ -14,6 +14,28 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## Origin-managed HTTP/2 at `4d3dab7`
+
+The pinned toolchain passed the strict four-target build and tests on macOS
+(470 Wasm, 332 Wasm-GC, 470 JS and 529 Native), plus 93 async integration
+tests and 140 Native QUIC/TLS tests. Ubuntu 24.04 arm64 also passed the strict
+Native build and all 529 tests. The six independent HTTP/1.1, HTTP/2 and h2c
+socket exercises passed on both systems.
+
+The native pool on macOS concurrently issued 32 requests from a cold start
+to two Linux nghttpd 1.59.0 origins through the VM's TCP port forward. Each
+origin advertised one concurrent stream. Each served 16 successful requests
+on one connection. One origin used cleartext prior knowledge. The other used
+the test certificate as a trust anchor and negotiated TLS with `h2` ALPN.
+The client checked status 200 and exact body bytes for every response.
+
+The distribution contained 406 files and passed a strict four-target check
+after extraction. Its SHA-256 was
+`4d694086b4f02888a650536b2c42ba102485edff149e8204c0d3f9c5f6a2f190`.
+The host and VM share physical hardware. A general HTTP/3 client/server API,
+Windows validation for the candidate, independent-host soak and capacity
+measurements, a paired Go comparison and final independent review remain open.
+
 ## Unreleased protocol suite at `128f9fd`
 
 The pinned toolchain built and tested the clean revision on macOS. Wasm passed
@@ -28,10 +50,7 @@ guest passed the strict Native check, build and all 524 tests.
 | Impaired HTTP/3 loopback | Each OS completed a separate 256-request connection, an eight-request concurrent batch, a flow-controlled 4096-byte echo, a key update and wrong-CA rejection. The duration window completed 45 fresh connections in 91.848 seconds on macOS and 30 in 60.413 seconds on Linux. |
 | Distribution | The frozen archive contained 401 files and passed a strict four-target check after extraction. SHA-256 was `e71923d13bca673acd7c25fe51cb4e0567320f5ff6ff68e9ddd03835d4a0c701`. |
 
-The host and guest share one physical machine. Windows validation for this
-revision, independent-host soak and capacity measurements, the Go comparison
-and final independent review remain open. The application layer also needs an
-origin-managed HTTP/2 client and a general HTTP/3 client and server API.
+These HTTP/3 runs used a host and guest on one physical machine.
 
 ## Earlier evidence
 
