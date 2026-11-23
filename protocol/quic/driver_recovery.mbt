@@ -3,10 +3,28 @@
 /// identify packets, while retransmission needs the original frame sequence.
 struct QuicRetransmission {
   space : PacketNumberSpace
-  mut number : Int64
+  live : Array[Int64]
+  mut first : Int64?
+  mut last_lost : Int64?
   endpoint : @types.Endpoint?
   frames : Array[QuicFrame]
-  mut pending : Bool
+}
+
+///|
+priv enum QuicSendMode {
+  Regular
+  Retransmit(QuicRetransmission)
+  Probe(QuicRetransmission?)
+}
+
+///|
+fn QuicRetransmission::acknowledged(
+  self : QuicRetransmission,
+  ack : AckFrame,
+) -> Bool {
+  (self.first is Some(number) && ack.covers(number)) ||
+  (self.last_lost is Some(number) && ack.covers(number)) ||
+  self.live.any(number => ack.covers(number))
 }
 
 ///|
@@ -21,6 +39,7 @@ fn quic_frame_is_ack_eliciting(frame : QuicFrame) -> Bool {
 fn quic_frame_is_retransmittable(frame : QuicFrame) -> Bool {
   match frame {
     Ack(_)
+    | Ping
     | Padding
     | ConnectionClose(_, _, _, _)
     | PathResponse(_)
@@ -53,16 +72,14 @@ fn AckFrame::covers(self : AckFrame, number : Int64) -> Bool {
 }
 
 ///|
-fn QuicDatagramDriver::mark_retransmission_pending(
+fn QuicDatagramDriver::note_retransmission_loss(
   self : QuicDatagramDriver,
   space : PacketNumberSpace,
   number : Int64,
 ) -> Unit {
-  for entry in self.retransmissions {
-    if entry.space == space && entry.number == number {
-      entry.pending = true
-      return
-    }
+  if self.retransmission_for_number(space, number) is Some(entry) {
+    entry.live.retain(copy => copy != number)
+    entry.last_lost = Some(entry.last_lost.unwrap_or(number).max(number))
   }
 }
 
@@ -72,7 +89,7 @@ fn QuicDatagramDriver::next_pending_retransmission(
   space : PacketNumberSpace,
 ) -> QuicRetransmission? {
   for entry in self.retransmissions {
-    if entry.space == space && entry.pending {
+    if entry.space == space && entry.live.is_empty() {
       return Some(entry)
     }
   }
@@ -80,20 +97,36 @@ fn QuicDatagramDriver::next_pending_retransmission(
 }
 
 ///|
-/// Finds retained frames for a packet without changing their pending state.
-/// PTO uses this to build a new packet while leaving the source packet in the
-/// recovery engine until its own ACK or loss notification arrives.
 fn QuicDatagramDriver::retransmission_for_number(
   self : QuicDatagramDriver,
   space : PacketNumberSpace,
   number : Int64,
-) -> (Array[QuicFrame], @types.Endpoint)? {
+) -> QuicRetransmission? {
   for entry in self.retransmissions {
-    if entry.space == space && entry.number == number {
-      return Some((entry.frames, entry.endpoint.unwrap_or(self.path.active())))
+    if entry.space == space && entry.live.contains(number) {
+      return Some(entry)
     }
   }
   None
+}
+
+///|
+/// Reuse the oldest outstanding payload when available. Each copy keeps its
+/// own recovery metadata until acknowledged, lost or discarded with its keys.
+fn QuicDatagramDriver::send_probe(
+  self : QuicDatagramDriver,
+  space : PacketNumberSpace,
+  now_ms : Int64,
+) -> Result[QuicDriverAction, QuicError] {
+  let entry = self.retransmissions
+    .iter()
+    .find_first(entry => entry.space == space)
+  let (frames, destination) = match entry {
+    Some(payload) =>
+      (payload.frames, payload.endpoint.unwrap_or(self.path.active()))
+    None => ([Ping], self.path.active())
+  }
+  self.send_frames_internal_to(space, frames, now_ms, Probe(entry), destination)
 }
 
 ///|
@@ -109,8 +142,7 @@ fn QuicDatagramDriver::flush_pending_retransmissions(
         space,
         entry.frames,
         now_ms,
-        false,
-        Some(entry),
+        Retransmit(entry),
         entry.endpoint.unwrap_or(self.path.active()),
       ) {
       Ok(action) => actions.push(action)
@@ -123,8 +155,8 @@ fn QuicDatagramDriver::flush_pending_retransmissions(
 
 ///|
 /// Applies recovery notifications to the driver's retained frame payloads.
-/// ACKed payloads are discarded and lost payloads are marked pending. They are
-/// removed only after a replacement packet has been accepted by recovery.
+/// An ACK releases the shared payload once. A loss schedules retransmission
+/// only after recovery has lost every outstanding copy.
 fn QuicDatagramDriver::apply_recovery_ack(
   self : QuicDatagramDriver,
   space : PacketNumberSpace,
@@ -172,7 +204,7 @@ fn QuicDatagramDriver::apply_recovery_ack(
   let mut retained_index = self.retransmissions.length() - 1
   while retained_index >= 0 {
     let entry = self.retransmissions[retained_index]
-    if entry.space == space && ack.covers(entry.number) {
+    if entry.space == space && entry.acknowledged(ack) {
       for frame in entry.frames {
         // Raw send_frames can also carry frames outside connection-owned streams.
         ignore(self.connection.acknowledge_stream_frame(frame))
@@ -183,7 +215,7 @@ fn QuicDatagramDriver::apply_recovery_ack(
   }
   for event in lost {
     if event is PacketLost(number, event_space, _) {
-      self.mark_retransmission_pending(event_space, number)
+      self.note_retransmission_loss(event_space, number)
     }
   }
   Ok(())
@@ -199,13 +231,14 @@ fn QuicDatagramDriver::queue_retransmission(
 ) -> Unit {
   self.retransmissions.push({
     space,
-    number,
+    first: Some(number),
+    last_lost: None,
+    live: [number],
     endpoint: if frames.any(fn(frame) { frame is PathChallenge(_) }) {
       Some(endpoint)
     } else {
       None
     },
     frames: frames.filter(quic_frame_is_retransmittable),
-    pending: false,
   })
 }

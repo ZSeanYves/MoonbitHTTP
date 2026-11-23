@@ -265,7 +265,9 @@ fn QuicDatagramDriver::receive_retry(
     Err(error) => return Err(error)
   }
   for entry in self.retransmissions {
-    entry.pending = true
+    entry.live.clear()
+    entry.first = None
+    entry.last_lost = None
   }
   self.initial_peer_id = None
   self.received_initial = QuicReceivedPackets::new()
@@ -451,7 +453,7 @@ fn QuicDatagramDriver::on_packet(
         }
       }
     }
-    if self.recovery.sent.length() >= self.recovery.config.max_tracked_packets {
+    if self.recovery.tracking_full() {
       return Ok([PacketIgnored])
     }
   }
@@ -585,22 +587,15 @@ fn QuicDatagramDriver::on_packet(
   // A retirement makes an ACK-only reply tracked and retransmittable. Keep it
   // pending when either queue is full so the ACK can still be sent.
   let retirement_count = if space == Application &&
-    self.retransmissions.length() < self.max_retransmissions &&
-    self.recovery.sent.length() < self.recovery.config.max_tracked_packets {
+    self.retransmissions.length() < self.recovery.config.max_tracked_packets &&
+    !self.recovery.tracking_full() {
     self.append_pending_retirements(responses)
   } else {
     0
   }
   if !responses.is_empty() && self.state() != Closed && self.state() != Draining {
     match
-      self.send_frames_internal_to(
-        space,
-        responses,
-        now_ms,
-        false,
-        None,
-        source,
-      ) {
+      self.send_frames_internal_to(space, responses, now_ms, Regular, source) {
       Ok(value) => {
         received.pending = None
         self.consume_pending_retirements(retirement_count)

@@ -61,7 +61,6 @@ pub struct QuicDatagramDriver {
   priv crypto_handshake : QuicCryptoReassembler
   priv crypto_application : QuicCryptoReassembler
   priv retransmissions : Array[QuicRetransmission]
-  priv max_retransmissions : Int
   priv authorize_endpoint : (@types.Endpoint, @transport.PolicyOperation) -> Result[
     Unit,
     @transport.PolicyError,
@@ -402,7 +401,6 @@ pub fn QuicDatagramDriver::new(
     crypto_handshake: handshake_crypto,
     crypto_application: application_crypto,
     retransmissions: [],
-    max_retransmissions: recovery_config.max_tracked_packets,
     authorize_endpoint: authorize,
   })
 }

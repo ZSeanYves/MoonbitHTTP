@@ -83,7 +83,11 @@ test "STOP_SENDING cancels a lost FIN and reliably resets through congestion" {
   // remember the outgoing final size and remain able to honour STOP_SENDING.
   ignore(client.send_stream(id, b"last", true, 3L).unwrap())
   let mixed = StreamFrame::new(id, 5L, b"last", true).unwrap()
-  ignore(client.send_frames(Application, [Stream(mixed), Ping], 3L).unwrap())
+  ignore(
+    client
+    .send_frames(Application, [Stream(mixed), MaxData(1048576L)], 3L)
+    .unwrap(),
+  )
   guard server.send_stream(id, b"reply", true, 4L).unwrap()
     is SendDatagram(_, reply) else {
     fail("response datagram")
@@ -107,7 +111,9 @@ test "STOP_SENDING cancels a lost FIN and reliably resets through congestion" {
     .contains(SendStopped(id, 42L)),
   )
   assert_eq(client.connection().retained_send_bytes, 0L)
-  assert_eq(client.retransmissions.map(entry => entry.frames), [[Ping]])
+  assert_eq(client.retransmissions.map(entry => entry.frames), [
+    [MaxData(1048576L)],
+  ])
   assert_true(client.send_stream(id, b"x", false, 8L) is Err(StreamClosed(_)))
   assert_eq(client.poll(8L).unwrap(), [])
   assert_eq(client.pending_resets.length(), 1)

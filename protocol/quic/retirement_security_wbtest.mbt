@@ -1,5 +1,7 @@
 ///|
-fn retirement_security_pair() -> (QuicDatagramDriver, QuicDatagramDriver) {
+fn retirement_security_pair(
+  recovery_config? : QuicRecoveryConfig = QuicRecoveryConfig::defaults(),
+) -> (QuicDatagramDriver, QuicDatagramDriver) {
   let endpoint = @types.Endpoint::new("udp", "peer.test", 443).unwrap()
   let server_id = ConnectionId::new(b"serverid").unwrap()
   let client_id = ConnectionId::new(b"clientid").unwrap()
@@ -9,6 +11,7 @@ fn retirement_security_pair() -> (QuicDatagramDriver, QuicDatagramDriver) {
     server_id,
     client_id,
     server_id,
+    recovery_config~,
   ).unwrap()
   let server = QuicDatagramDriver::new(
     Server,
@@ -16,6 +19,7 @@ fn retirement_security_pair() -> (QuicDatagramDriver, QuicDatagramDriver) {
     server_id,
     server_id,
     client_id,
+    recovery_config~,
   ).unwrap()
   let hs_client = @tls.derive_quic_packet_keys(
     Bytes::from_array(FixedArray::make(32, b'h')),
@@ -190,7 +194,7 @@ test "quic CID retirement waits for retransmission queue capacity" {
     max_tracked_packets: 1,
   }
   let (client, _) = key_limit_driver_pair(endpoint, endpoint, recovery_config~)
-  ignore(client.send_frames(Application, [Ping], 0L).unwrap())
+  ignore(client.send_frames(Application, [MaxData(1048576L)], 0L).unwrap())
   client.pending_retirements.push(0L)
   assert_eq(client.poll(1L), Ok([]))
   assert_eq(client.pending_retirements, [0L])
@@ -219,11 +223,11 @@ test "quic received CID retirement preserves ACKs through queue saturation" {
     ..QuicRecoveryConfig::defaults(),
     max_tracked_packets: 1,
   }
-  // Ping fills both queues; PATH_RESPONSE fills recovery without retaining a
+  // MAX_DATA fills both queues; PING fills recovery without retaining a
   // retransmission. Both cases must accept and ACK the authenticated CID update.
   let outstanding_frames : Array[(QuicFrame, Int)] = [
-    (Ping, 1),
-    (PathResponse(b"12345678"), 0),
+    (MaxData(1048576L), 1),
+    (Ping, 0),
   ]
   for (outstanding, retained) in outstanding_frames {
     let (client, _) = key_limit_driver_pair(
@@ -456,10 +460,10 @@ test "quic mixed CID path response survives a blocked retransmission refill" {
   // Keep one tracked packet and make its retained frames eligible for a
   // replacement.  The incoming packet below needs the final recovery slot
   // for PATH_RESPONSE and the CID retirement it schedules.
-  ignore(client.send_frames(Application, [Ping], 0L).unwrap())
+  ignore(client.send_frames(Application, [MaxData(1048576L)], 0L).unwrap())
   assert_eq(client.recovery.sent.length(), 1)
   assert_eq(client.retransmissions.length(), 1)
-  client.retransmissions[0].pending = true
+  client.note_retransmission_loss(Application, 0L)
   let replacement = ConnectionId::new(b"replacement").unwrap()
   let packet = retirement_security_server_packet(
     client.local_connection_id(),
@@ -500,7 +504,7 @@ test "quic mixed CID path response survives a blocked retransmission refill" {
   // discarded behind a recovery-queue LimitExceeded error.
   assert_eq(client.recovery.sent.length(), 2)
   assert_eq(client.retransmissions.length(), 2)
-  assert_true(client.retransmissions.any(fn(entry) { entry.pending }))
+  assert_true(client.retransmissions.any(fn(entry) { entry.live.is_empty() }))
   assert_true(client.received_application.seen(0L))
 }
 
@@ -549,7 +553,12 @@ test "QUIC retries a padded Initial ACK when receive processing releases a recov
     is SendDatagram(_, padding) else {
     fail("expected padded Initial")
   }
-  assert_eq(server.on_datagram(server.endpoint(), padding, 1L).unwrap(), [])
+  // The padding reaches the tracking limit, so its peer elicits feedback.
+  // Hold that ACK until a later incoming PING also needs a reply.
+  guard server.on_datagram(server.endpoint(), padding, 1L).unwrap()
+    is [SendDatagram(_, ack)] else {
+    fail("expected ACK for the full padding flight")
+  }
   guard server.send_frames(Initial, [Ping], 2L).unwrap()
     is SendDatagram(_, ping) else {
     fail("expected server ping")
@@ -557,20 +566,19 @@ test "QUIC retries a padded Initial ACK when receive processing releases a recov
   assert_eq(client.on_datagram(client.endpoint(), ping, 3L).unwrap(), [])
   assert_eq(client.poll(4L).unwrap(), [])
   assert_eq(client.key_update.initial_send_packets, 1L)
-  let release = AckFrame::new(0L, 0L, [AckRange::new(0L, 0L).unwrap()]).unwrap()
-  guard server.send_frames(Initial, [Ack(release)], 5L).unwrap()
-    is SendDatagram(_, ack) else {
-    fail("expected server ACK")
-  }
   guard client.on_datagram(client.endpoint(), ack, 6L).unwrap()
     is [SendDatagram(_, deferred)] else {
     fail("expected one deferred client ACK")
   }
   assert_eq(deferred.length(), 1200)
   assert_eq(client.recovery.bytes_in_flight(), 1200L)
-  assert_eq(server.on_datagram(server.endpoint(), deferred, 7L).unwrap(), [])
+  guard server.on_datagram(server.endpoint(), deferred, 7L).unwrap()
+    is [SendDatagram(_, final_ack)] else {
+    fail("expected the deferred ACK plus PING to elicit feedback")
+  }
   assert_eq(server.recovery.bytes_in_flight(), 0L)
-  assert_eq(client.poll(8L).unwrap(), [])
+  assert_eq(client.on_datagram(client.endpoint(), final_ack, 8L).unwrap(), [])
+  assert_eq(client.recovery.bytes_in_flight(), 0L)
 }
 
 ///|

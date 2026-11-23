@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Keep QUIC recovery moving when ordinary packet tracking is full. Timer probes have a separate 64-packet limit and reuse retained frames. An ACK releases shared data once, while recovery accounts for every packet copy. Padded flights elicit feedback before exhausting available credit.
+
 - Recover QUIC time-threshold losses during a timer poll. Probe deadlines follow the last ACK-eliciting send in each eligible packet-number space. Clients can advance an unconfirmed handshake after their Initial flight was acknowledged, and a blocked probe preserves its retry interval. Repeated outbound probes allow a silent connection to reach its idle timeout.
 
 - Account for explicit and automatic QUIC PADDING at its full wire size. Cumulative ACKs cover received ranges and survive send backpressure. Raw and TLS drivers share coalesced datagram parsing. Congestion and path admission now run before packet encryption. Callers that build their own packets can pass `contains_padding` to `QuicRecovery::on_packet_sent`. Construct live recovery state with `QuicRecovery::new` so its bounded packet history is initialized.

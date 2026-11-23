@@ -34,8 +34,7 @@ pub fn QuicDatagramDriver::begin_path_validation(
       Application,
       [PathChallenge(challenge)],
       now_ms,
-      false,
-      None,
+      Regular,
       endpoint,
     ) {
     Ok(action) =>
@@ -111,26 +110,7 @@ pub fn QuicDatagramDriver::poll(
         output.push(ConnectionClosed(0L, "QUIC idle timeout"))
       }
       ProbeTimeout(space) => {
-        // A PTO probe is a new packet. Keep the source packet in recovery so
-        // a late ACK still releases its own bytes-in-flight accounting.
-        let (destination, probe_frames) = match
-          self.recovery.oldest_probe_packet(space) {
-          Some(packet) =>
-            match self.retransmission_for_number(space, packet.number()) {
-              Some((frames, endpoint)) => (endpoint, frames)
-              None => (self.path.active(), [Ping])
-            }
-          None => (self.path.active(), [Ping])
-        }
-        let packet = match
-          self.send_frames_internal_to(
-            space,
-            probe_frames,
-            now_ms,
-            true,
-            None,
-            destination,
-          ) {
+        let packet = match self.send_probe(space, now_ms) {
           Ok(value) => value
           Err(error) if error.send_blocked() => continue
           Err(error) => return Err(error)
@@ -139,7 +119,7 @@ pub fn QuicDatagramDriver::poll(
         output.push(packet)
       }
       PacketLost(number, space, _) =>
-        self.mark_retransmission_pending(space, number)
+        self.note_retransmission_loss(space, number)
       PacketAcknowledged(_, _, _) => ()
     }
   }

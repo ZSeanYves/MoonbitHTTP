@@ -20,9 +20,12 @@ fn QuicDatagramDriver::receive_peer_connection_id(
     }
   }
   if additional.length() >
-    self.max_retransmissions - self.pending_retirements.length() {
+    self.recovery.config.max_tracked_packets - self.pending_retirements.length() {
     return Err(
-      LimitExceeded("pending CID retirements", self.max_retransmissions),
+      LimitExceeded(
+        "pending CID retirements",
+        self.recovery.config.max_tracked_packets,
+      ),
     )
   }
   self.peer_connection_ids.apply_update(update)

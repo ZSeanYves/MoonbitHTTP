@@ -97,8 +97,7 @@ pub fn QuicDatagramDriver::send_frames(
     space,
     frames,
     now_ms,
-    false,
-    None,
+    Regular,
     self.path.active(),
   )
 }
@@ -177,8 +176,7 @@ fn QuicDatagramDriver::send_frames_internal_to(
   space : PacketNumberSpace,
   frames : Array[QuicFrame],
   now_ms : Int64,
-  congestion_exempt : Bool,
-  replacement : QuicRetransmission?,
+  mode : QuicSendMode,
   destination : @types.Endpoint,
 ) -> Result[QuicDriverAction, QuicError] {
   if now_ms < 0L {
@@ -204,15 +202,17 @@ fn QuicDatagramDriver::send_frames_internal_to(
   }
   let retransmittable = frames.any(quic_frame_is_retransmittable)
   if retransmittable &&
-    replacement is None &&
-    self.retransmissions.length() >= self.max_retransmissions {
+    mode is Regular &&
+    self.retransmissions.length() >= self.recovery.config.max_tracked_packets {
     return Err(
-      LimitExceeded("QUIC retransmission queue", self.max_retransmissions),
+      LimitExceeded(
+        "QUIC retransmission queue",
+        self.recovery.config.max_tracked_packets,
+      ),
     )
   }
-  let payload = match quic_encode_frames(frames, limits=self.limits) {
-    Ok(value) => value
-    Err(error) => return Err(error)
+  let (payload, padding_offset) = quic_write_frames(frames, self.limits) catch {
+    error => return Err(error)
   }
   if payload.is_empty() {
     return Err(InvalidFrame("cannot send an empty QUIC packet"))
@@ -225,9 +225,26 @@ fn QuicDatagramDriver::send_frames_internal_to(
       }) => 1200
     _ => 0
   }
-  let layout = match self.packet_layout(space, payload, minimum) {
+  let mut layout = match self.packet_layout(space, payload, minimum) {
     Ok(value) => value
     Err(error) => return Err(error)
+  }
+  let padded = layout.padding > 0 || padding_offset is Some(_)
+  let feedback_at = if !ack_eliciting &&
+    padded &&
+    !frames.any(frame => frame is ConnectionClose(_, _, _, _)) &&
+    self.recovery.needs_padding_feedback(layout.wire_size()) {
+    // Periodically elicit an ACK before padding absorbs all available credit.
+    // A server Initial carrying PING must be at least 1,200 bytes.
+    if space == Initial && layout.wire_size() < 1200 {
+      layout = match self.packet_layout(space, payload, 1200) {
+        Ok(value) => value
+        Err(error) => return Err(error)
+      }
+    }
+    Some(padding_offset.unwrap_or(payload.length()))
+  } else {
+    None
   }
   let packet_number = layout.number
   let packet_size = layout.wire_size()
@@ -236,17 +253,16 @@ fn QuicDatagramDriver::send_frames_internal_to(
     space,
     bytes: packet_size,
     sent_at_ms: now_ms,
-    ack_eliciting,
+    ack_eliciting: ack_eliciting || feedback_at is Some(_),
     retransmittable,
   }
-  let in_flight = ack_eliciting ||
-    layout.padding > 0 ||
-    frames.contains(Padding)
+  let in_flight = ack_eliciting || padded
   match self.check_amplification(destination, packet_size) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
-  match self.recovery.check_sent(meta, in_flight, congestion_exempt) {
+  let probe = mode is Probe(_)
+  match self.recovery.check_sent(meta, in_flight, probe~) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
@@ -259,11 +275,12 @@ fn QuicDatagramDriver::send_frames_internal_to(
     Err(error) => return Err(error)
   }
   self.count_encrypted_packet(space)
-  let packet = match layout.seal(keys, key_phase=self.key_update.send_phase) {
+  let packet = match
+    layout.seal(keys, key_phase=self.key_update.send_phase, feedback_at~) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  self.recovery.record_sent(meta, in_flight)
+  self.recovery.record_sent(meta, in_flight, probe~)
   self.count_sent_datagram(destination, packet_size)
   self.quic_driver_commit_number(space)
   if space == Application &&
@@ -276,14 +293,16 @@ fn QuicDatagramDriver::send_frames_internal_to(
     }) {
     self.key_update.receive_phase_acked = true
   }
-  match replacement {
-    Some(entry) => {
-      entry.number = packet_number
-      entry.pending = false
+  match mode {
+    Retransmit(entry) | Probe(Some(entry)) => {
+      if entry.first is None {
+        entry.first = Some(packet_number)
+      }
+      entry.live.push(packet_number)
     }
-    None if retransmittable =>
+    Regular if retransmittable =>
       self.queue_retransmission(space, packet_number, destination, frames)
-    None => ()
+    _ => ()
   }
   if space == Handshake && self.role == Client {
     self.discard_packet_space(Initial)

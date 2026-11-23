@@ -282,41 +282,18 @@ test "quic datagram driver: PTO retransmits retained frames" {
     destination,
   ).unwrap()
   ignore(driver.send_frames(Initial, [Crypto(0L, b"handshake")], 0L).unwrap())
-  let actions = driver.poll(2000L).unwrap()
-  guard actions is [SendDatagram(_, packet)] else {
-    fail("expected a PTO retransmission")
-  }
-  let (offset, _) = @quic.quic_long_header_packet_layout(packet).unwrap()
   let keys = @quic.quic_initial_packet_key(destination, Client).unwrap()
-  let opened = @quic.quic_open_packet_with_keys(keys, packet, offset, 0L, true).unwrap()
-  let frames = @quic.quic_decode_frames(opened.payload()).unwrap()
-  assert_true(
-    frames.any(fn(frame) {
-      match frame {
-        Crypto(offset, data) => offset == 0L && data == b"handshake"
-        _ => false
-      }
-    }),
-  )
-  // PTO does not consume the source payload.  A second timeout must still
-  // retransmit CRYPTO when the first probe is also lost.
-  let second_actions = driver.poll(4000L).unwrap()
-  guard second_actions is [SendDatagram(_, second_packet)] else {
-    fail("expected a second PTO retransmission")
+  for (now, previous) in [(2000L, 0L), (4000L, 1L)] {
+    guard driver.poll(now).unwrap() is [SendDatagram(_, packet)] else {
+      fail("expected protected CRYPTO at each PTO")
+    }
+    let (offset, _) = @quic.quic_long_header_packet_layout(packet).unwrap()
+    let opened = @quic.quic_open_packet_with_keys(
+      keys, packet, offset, previous, true,
+    ).unwrap()
+    let frames = @quic.quic_decode_frames(opened.payload()).unwrap()
+    assert_true(frames.contains(Crypto(0L, b"handshake")))
   }
-  let (second_offset, _) = @quic.quic_long_header_packet_layout(second_packet).unwrap()
-  let second_opened = @quic.quic_open_packet_with_keys(
-    keys, second_packet, second_offset, 1L, true,
-  ).unwrap()
-  let second_frames = @quic.quic_decode_frames(second_opened.payload()).unwrap()
-  assert_true(
-    second_frames.any(fn(frame) {
-      match frame {
-        Crypto(offset, data) => offset == 0L && data == b"handshake"
-        _ => false
-      }
-    }),
-  )
 }
 
 ///|
@@ -336,10 +313,10 @@ test "quic datagram driver: retransmission retention is bounded" {
     destination,
     recovery_config~,
   ).unwrap()
-  ignore(driver.send_frames(Initial, [Ping], 0L).unwrap())
+  ignore(driver.send_frames(Initial, [Crypto(0L, b"a")], 0L).unwrap())
   assert_true(
-    driver.send_frames(Initial, [Crypto(0L, b"next")], 1L)
-    is Err(LimitExceeded(_)),
+    driver.send_frames(Initial, [Crypto(1L, b"next")], 1L)
+    is Err(LimitExceeded("QUIC retransmission queue", 1)),
   )
 }
 

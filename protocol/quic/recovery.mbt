@@ -37,6 +37,11 @@ pub fn QuicRecoveryConfig::validate(
 }
 
 ///|
+/// Normal sends observe max_tracked_packets. Additional slots only admit
+/// timer-driven probes, including when the congestion window is exhausted.
+const QUIC_PROBE_RESERVE : Int = 64
+
+///|
 pub(all) struct QuicSentPacket {
   number : Int64
   space : PacketNumberSpace
@@ -81,6 +86,7 @@ pub(all) struct QuicRecovery {
   sent : Array[QuicSentPacket]
   // Only packets that need padding to count as in flight require an entry.
   priv padded_non_eliciting : Set[(PacketNumberSpace, Int64)]
+  priv probe_numbers : Set[(PacketNumberSpace, Int64)]
   // An unpadded ACK can be the largest number in a mixed ACK. Its timestamp
   // is optional RTT history and must never consume a recovery admission slot.
   priv recent_untracked : Map[(PacketNumberSpace, Int64), QuicSentPacket]
@@ -126,6 +132,7 @@ pub fn QuicRecovery::new(
     peer_max_ack_delay_ms: config.max_ack_delay_ms,
     sent: [],
     padded_non_eliciting: Set([]),
+    probe_numbers: Set([]),
     recent_untracked: {},
     timers: (
       QuicSpaceTimer::new(),
@@ -301,8 +308,26 @@ pub fn QuicRecovery::on_packet_sent(
 ) -> Result[Unit, QuicError] {
   let in_flight = packet.ack_eliciting || contains_padding
   self
-  .check_sent(packet, in_flight, congestion_exempt)
+  .check_sent(packet, in_flight, congestion_exempt~)
   .map(_ => self.record_sent(packet, in_flight))
+}
+
+///|
+fn QuicRecovery::needs_padding_feedback(
+  self : QuicRecovery,
+  bytes : Int,
+) -> Bool {
+  self.tracking_full(additional=1) ||
+  self.congestion_window - self.bytes_in_flight - bytes.to_int64() < 1200L
+}
+
+///|
+fn QuicRecovery::tracking_full(
+  self : QuicRecovery,
+  additional? : Int = 0,
+) -> Bool {
+  self.sent.length() - self.probe_numbers.length() >=
+  self.config.max_tracked_packets - additional
 }
 
 ///|
@@ -310,7 +335,8 @@ fn QuicRecovery::check_sent(
   self : QuicRecovery,
   packet : QuicSentPacket,
   in_flight : Bool,
-  congestion_exempt : Bool,
+  congestion_exempt? : Bool = false,
+  probe? : Bool = false,
 ) -> Result[Unit, QuicError] {
   if packet.number < 0L ||
     packet.number > QUIC_MAX_VARINT ||
@@ -321,8 +347,10 @@ fn QuicRecovery::check_sent(
   if packet.number <= self.largest_sent(packet.space) {
     return Err(InvalidPacket("packet numbers must increase within their space"))
   }
-  if (in_flight || packet.retransmittable) &&
-    self.sent.length() >= self.config.max_tracked_packets {
+  if probe && self.probe_numbers.length() >= QUIC_PROBE_RESERVE {
+    return Err(LimitExceeded("QUIC PTO probe reserve", QUIC_PROBE_RESERVE))
+  }
+  if !probe && (in_flight || packet.retransmittable) && self.tracking_full() {
     return Err(
       LimitExceeded(
         "QUIC recovery packet queue",
@@ -330,7 +358,11 @@ fn QuicRecovery::check_sent(
       ),
     )
   }
-  self.can_send(packet.bytes, in_flight, congestion_exempt~)
+  self.can_send(
+    packet.bytes,
+    in_flight,
+    congestion_exempt=congestion_exempt || probe,
+  )
 }
 
 ///|
@@ -338,7 +370,11 @@ fn QuicRecovery::record_sent(
   self : QuicRecovery,
   packet : QuicSentPacket,
   in_flight : Bool,
+  probe? : Bool = false,
 ) -> Unit {
+  if probe {
+    self.probe_numbers.add((packet.space, packet.number))
+  }
   if in_flight || packet.retransmittable {
     self.sent.push(packet)
   } else if !self.sent.is_empty() {
@@ -379,6 +415,9 @@ fn QuicRecovery::timestamp_slot(
 /// Returns whether it supplied congestion feedback.
 fn QuicRecovery::remove_sent(self : QuicRecovery, index : Int) -> Bool {
   let packet = self.sent.remove(index)
+  if !self.probe_numbers.is_empty() {
+    self.probe_numbers.remove((packet.space, packet.number))
+  }
   if packet.ack_eliciting {
     self.timer(packet.space).outstanding_eliciting -= 1
   }

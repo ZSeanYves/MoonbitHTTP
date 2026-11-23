@@ -2,6 +2,7 @@
 priv struct QuicFrameWriter {
   output : @buffer.Buffer
   limits : QuicLimits
+  mut padding_offset : Int?
 }
 
 ///|
@@ -68,7 +69,10 @@ fn QuicFrameWriter::frame(
   frame : QuicFrame,
 ) -> Unit raise QuicError {
   match frame {
-    Padding => self.put(b"\x00")
+    Padding => {
+      self.padding_offset = Some(self.output.length())
+      self.put(b"\x00")
+    }
     Ping => self.put(b"\x01")
     Ack(ack) => self.ack(ack)
     ResetStream(id, code, final_size) => {
@@ -195,12 +199,27 @@ pub fn quic_encode_frames(
 ) -> Result[Bytes, QuicError] {
   try {
     limits.validate().unwrap_or_error()
-    let writer : QuicFrameWriter = { output: Buffer(), limits, }
-    for frame in frames {
-      writer.frame(frame)
-    }
-    Ok(writer.output.to_bytes())
+    let (payload, _) = quic_write_frames(frames, limits)
+    Ok(payload)
   } catch {
     error => Err(error)
   }
+}
+
+///|
+/// The public codec checks its limits at the call boundary. A datagram driver
+/// has already validated its immutable limits when constructing the connection.
+fn quic_write_frames(
+  frames : Array[QuicFrame],
+  limits : QuicLimits,
+) -> (Bytes, Int?) raise QuicError {
+  let writer : QuicFrameWriter = {
+    output: Buffer(),
+    limits,
+    padding_offset: None,
+  }
+  for frame in frames {
+    writer.frame(frame)
+  }
+  (writer.output.to_bytes(), writer.padding_offset)
 }

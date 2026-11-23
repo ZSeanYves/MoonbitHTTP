@@ -75,6 +75,23 @@ acknowledges the entire flight. A blocked send preserves the probe count. The
 standalone recovery API treats a returned `ProbeTimeout` as a dispatched probe.
 [RFC 9002 section 6.2](https://www.rfc-editor.org/rfc/rfc9002.html#section-6.2)
 
+The packet driver reserves 64 additional packet records per connection for
+timer probes. An ordinary send uses the configured tracking limit. A probe
+can retransmit the oldest retained payload in the selected space or send PING
+when there is no payload. Copies share the frames and keep individual wire-byte
+charges. An ACK releases the payload once. Each packet leaves congestion
+accounting on ACK, detected loss or key discard. With all 64 probe records
+outstanding, `poll` returns `LimitExceeded("QUIC PTO probe reserve", 64)`.
+The raw driver can receive feedback and retry. Repeated timeouts alone never
+declare any of those packets lost.
+[RFC 9002 section 6.2](https://www.rfc-editor.org/rfc/rfc9002.html#section-6.2)
+
+When a padded flight would consume the last ordinary slot or leave less than
+1,200 bytes of congestion credit, the driver can replace one PADDING byte
+with PING to elicit an ACK. An ACK-eliciting server Initial is padded to at
+least 1,200 bytes and must pass path amplification admission.
+[RFC 9000 section 13.2.7](https://www.rfc-editor.org/rfc/rfc9000.html#section-13.2.7)
+
 ## Dependency audit on 2026-10-01
 
 The checked versions were `mizchi/experimental_crypto@0.0.2` and

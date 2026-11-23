@@ -36,7 +36,7 @@ test "quic CID retirement survives congestion and pending limits are atomic" {
   // Saturate only the bounded control queue to test rejection without issuing
   // thousands of encrypted packets. The rejected announcement must not change
   // its floor, active IDs, or destination.
-  for sequence in 0..<server.max_retransmissions {
+  for sequence in 0..<server.recovery.config.max_tracked_packets {
     server.pending_retirements.push(sequence.to_int64() + 100L)
   }
   let previous_ids = server.peer_connection_ids.active()

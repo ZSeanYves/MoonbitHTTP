@@ -335,17 +335,21 @@ fn QuicPacketLayout::seal(
   self : QuicPacketLayout,
   keys : @tls.QuicPacketKeys,
   key_phase? : Bool = false,
+  feedback_at? : Int? = None,
 ) -> Result[Bytes, QuicError] {
   let prefix = if key_phase && !self.long_header {
     quic_copy_with_byte(self.prefix, 0, b'\x44')
   } else {
     self.prefix
   }
-  let plaintext = if self.padding == 0 {
+  let plaintext = if self.padding == 0 && feedback_at is None {
     self.payload
   } else {
     let padded = FixedArray::make(self.payload.length() + self.padding, b'\x00')
     padded.blit_from_bytes(0, self.payload, 0, self.payload.length())
+    if feedback_at is Some(index) {
+      padded[index] = b'\x01'
+    }
     padded.unsafe_reinterpret_as_bytes()
   }
   quic_protect_packet_with_keys(
