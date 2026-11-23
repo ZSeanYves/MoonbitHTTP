@@ -3,7 +3,7 @@
 > Status: canonical
 > Scope: independent HTTP/1.1, HTTP/2, h2c and HTTP/3 checks for 0.7.0
 > Source: working-tree (governed by Git)
-> Last reviewed: 2026-10-01
+> Last reviewed: 2026-11-23
 
 Interoperability checks exercise the built library through real sockets and an
 independent client. They complement codec and state-machine tests; they do not
@@ -67,6 +67,8 @@ moon run repo-tools/tools/http3_interoperability.mbtx \
   --reverse --impair --concurrent-requests 8 --duration-seconds 300
 ```
 
+With `--reverse`, the runner also starts the pinned aioquic server and its unmodified ASGI application on 127.0.0.1:18444. The native MoonBit client verifies a concurrent 4 KiB POST echo and 128 KiB download on one authenticated connection, then checks that OpenSSL rejects a mismatched hostname before the application callback runs. The reverse leg uses direct loopback. Its result includes the client binary and independent server/application hashes.
+
 The independent client revision and dependency version are part of the
 evidence. Changing either requires a new report. Native QUIC fixture tests
 prove the provider/driver boundary and recovery actions, but only independent
@@ -80,5 +82,3 @@ Do not turn a missing executable, unavailable OpenSSL callback API or skipped
 client into a successful result. Link completed runs from
 [current evidence](../release/current.md), and track unresolved scope in
 [release gates](../release/gates.md).
-
-With `--reverse`, the runner also starts the pinned aioquic server and its unmodified ASGI application on 127.0.0.1:18444. The native MoonBit client verifies a concurrent 4 KiB POST echo and 128 KiB download on one authenticated connection, then checks that OpenSSL rejects a mismatched hostname before the application callback runs. The reverse leg uses direct loopback. Its result includes the client binary and independent server/application hashes.

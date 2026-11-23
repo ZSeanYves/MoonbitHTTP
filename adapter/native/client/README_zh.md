@@ -6,23 +6,20 @@ Source: working-tree (governed by Git)
 Last reviewed: 2026-11-23
 
 ## 用途
-将 Native TCP、resolver、clock、TLS 和 network policy 组装为 HTTP/1 客户端或 HTTP/2 连接池。
+提供 HTTP/1 客户端、HTTP/2 连接池和 HTTP/3 单连接会话的原生入口。
 
 ## 入口
 使用 `new_http1_client` 创建 HTTP/1 客户端，使用 `with_http2_client` 执行作用域内的 HTTP/2 请求。两者均显式接收 resolver、policy、clock 和 TLS provider。
 
+`with_http3_connection` 接受数字 UDP 端点、网络策略、TLS 配置和应用回调。用 `TlsOptions::for_quic(origin_host)` 验证原站身份并协商 h3。作用域管理 UDP 套接字、随机连接 ID 和 OpenSSL provider。回调可在同一连接上开启多个请求流，从 `H3ConnectionIo` 读取事件。
+
 ## 依赖与目标
-依赖 client、transport、adapter/native/transport、content_coding；仅支持 native。
+本包仅支持 Native。HTTP/3 使用 `protocol/http3`、`protocol/quic` 和 `runtime/service`，网络和 TLS 由 `adapter/native/transport` 和 `adapter/native/tls` 提供。
 
 ## 使用边界
-所有能力都要显式传入；hostname 必须使用 resolver，数字 endpoint 仍在打开 socket 前经 policy 授权。
-
-## 不变量与范围
-不提供无 resolver 的 hostname 路径、隐式 policy 或隐藏 TLS provider。
+HTTP/1 和 HTTP/2 使用传入的 resolver 解析主机名。HTTP/3 单独接收数字 UDP 地址和 TLS 身份。三种入口在打开套接字前检查网络策略。
 
 ## 规范文档
 - [中文总览](../../../README_zh.md)
 - [包地图](../../../docs/concepts/packages.md)
 - [架构](../../../docs/concepts/architecture.md)
-
-`with_http3_connection` 接受数字 UDP 端点、网络策略、TLS 配置和应用回调。用 `TlsOptions::for_quic(origin_host)` 验证原站身份并协商 h3。作用域管理 UDP 套接字、随机连接 ID 和 OpenSSL provider。回调可在同一连接上开启多个请求流，从 `H3ConnectionIo` 读取事件。

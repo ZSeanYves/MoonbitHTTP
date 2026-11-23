@@ -39,7 +39,7 @@ to serve HTTP/1.1 and HTTP/2 on the same TLS listener.
   `protocol/tls`: incremental framing and protocol state machines. These
   packages do not open sockets.
 - `runtime/transport`, `runtime/service`, `runtime/detection`: host capability
-  contracts, protocol selection, HTTP/1 and HTTP/2 service lifecycle, and h2c.
+  contracts, protocol selection, HTTP/1 and HTTP/2 service lifecycle, h2c, and scoped HTTP/3 datagram I/O.
 - `application/client`, `application/server`: request orchestration, pooling,
   and server dispatch contracts.
 - `policy/auth`, `policy/cache`, `policy/cookie`, `policy/content_coding`:
@@ -95,7 +95,7 @@ implemented.
 | Core, codec, protocol, policy | Compile and use | Compile and use | Compile and use |
 | HTTP/1.1 and HTTP/2 service interfaces | Available through an adapter | Available with host capabilities | Available with host capabilities |
 | Native TCP/UDP/DNS/OpenSSL adapters | Supported | Unsupported | Unsupported |
-| HTTP/3/QUIC protocol state | Compile and use; Native driver fixtures | Compile and use; host datagram/TLS required | Compile and use; host datagram/TLS required |
+| HTTP/3/QUIC protocol state | Streaming client sessions and supervised UDP listeners | Compile and use; host datagram/TLS required | Compile and use; host datagram/TLS required |
 | HTTP/3 network TLS | OpenSSL 3.5+ QUIC TLS provider | Host supplied | Host supplied |
 | Browser `fetch`/WebSocket integration | Not applicable | Not promised | Not promised |
 
@@ -108,7 +108,9 @@ not import `adapter/native/*`.
 - [`examples/cmd/smoke_server`](examples/cmd/smoke_server/README.md) — bounded
   Native HTTP/1.1 and h2c service smoke fixture.
 - [`examples/cmd/h3_smoke_server`](examples/cmd/h3_smoke_server/README.md) —
-  bounded Native HTTP/3 and QUIC loopback interoperability fixture.
+  uses the supervised UDP listener to serve HTTP/3 requests.
+- [`examples/cmd/h3_smoke_client`](examples/cmd/h3_smoke_client/README.md) —
+  opens two request streams on one authenticated HTTP/3 connection.
 
 Run these fixtures through the repository runners described in their package
 README files; they are verification programs, not deployment templates.

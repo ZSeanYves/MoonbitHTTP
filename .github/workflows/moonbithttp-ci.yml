@@ -103,8 +103,8 @@ jobs:
             throw "OpenSSL 3.5 or newer is required; found $version"
           }
 
-      - name: Run Native TLS certificate and identity suite
-        run: moon test protocol/quic adapter/native/tls --target native --no-parallelize --deny-warn --warn-list +73
+      - name: Run Native QUIC, TLS, client and listener suites
+        run: moon test protocol/quic adapter/native/tls adapter/native/client adapter/native/server --target native --no-parallelize --deny-warn --warn-list +73
 
   build-and-test:
     runs-on: ubuntu-latest

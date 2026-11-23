@@ -14,6 +14,55 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## HTTP/3 client and listener at `4355e04`
+
+The portable `Http3Session` drives client and server streams, shares message
+validation in both directions, and retains blocked writes within bounded
+queues. The native client opens an authenticated connection to a numeric UDP
+endpoint. The native server routes multiple peers through one UDP socket and
+keeps accepted peers reachable during supervisor shutdown. Applications
+consume per-stream events and can send body chunks and trailers.
+
+The release checks below used MoonBit compiler `0.10.14+7d59c7ec9` and
+aioquic 1.3.0. Both operating systems ran on one physical arm64 Mac.
+
+| Check | macOS arm64 | Ubuntu arm64 VM |
+| --- | --- | --- |
+| Strict check, build and suite | Wasm 478/478, Wasm-GC 337/337, JS 478/478, Native 540/540 | Native 540/540 |
+| Native QUIC, TLS, client and server packages | 154/154 | 154/154 |
+| Independent HTTP/1.1, HTTP/2 and h2c socket cases | 6/6 | 6/6 |
+| Impaired HTTP/3 window with a fresh authenticated connection per request | 147 connections in 300.440 s | 142 connections in 301.793 s |
+
+With MoonBit serving, the independent client on each OS completed 256
+requests on one connection, eight concurrent requests on another, and a
+4,096-byte echo across both connection and stream flow-control windows. It
+also exercised key update and rejected an untrusted CA. The UDP relay
+introduced loss, delay and reordering in this direction. With aioquic
+serving on direct loopback, the MoonBit client verified a concurrent 4,096-byte
+echo and 131,072-byte download on one connection. The peer observed the
+normal HTTP/3 close. A separate handshake with a mismatched hostname failed
+before the application callback.
+
+Across the VM gateway, three independent Ubuntu aioquic clients connected
+concurrently to the same macOS listener. Each issued 32 POSTs over one
+authenticated connection. All 96 returned the expected 4,096 bytes, with a
+distinct payload digest per connection. In the reverse role, the Ubuntu
+MoonBit client completed the same concurrent echo and download against the
+macOS aioquic server and rejected the mismatched hostname.
+
+The macOS async integration subset passed 96/96. All 33 native TLS tests
+passed under AddressSanitizer on macOS with leak detection disabled. The
+manifest and runtime restoration hashes matched. Package boundaries and the
+generated public interfaces passed their checks. The frozen source package
+contained 421 files, passed a strict four-target check after extraction, and
+had SHA-256 `e633ea0c8cf6577cc2d898ca314f7a2b34f94f8171615779b9d650cc2e07d469`.
+
+The HTTP/3 native client currently manages one connection per scope. A
+pooled origin client and integration with the common request/response
+handler remain open. Production approval still needs Windows verification
+of this code, sustained capacity and recovery measurements across independent
+hosts, and independent security review of the release candidate.
+
 ## Streaming and field handling at `9a58bfe`
 
 The HTTP/1 decoder now applies line limits to the unread line and accepts

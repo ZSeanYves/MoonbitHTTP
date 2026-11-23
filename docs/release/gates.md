@@ -6,13 +6,13 @@
 > Last reviewed: 2026-11-23
 
 Mooncakes published the 0.7.0 alpha on 2026-10-07. The table records the release baseline. Production approval remains open until every remaining gate below is
-closed with evidence at the release revision. The [unreleased validation record](current.md#streaming-and-field-handling-at-9a58bfe) covers the current protocol changes and local macOS/Linux interoperability.
+closed with evidence at the release revision. The [unreleased HTTP/3 validation record](current.md#http3-client-and-listener-at-4355e04) covers both peer roles on macOS and Ubuntu, including traffic across the VM gateway. Windows and independent-host results remain open for this revision.
 
 | Gate | State | Required evidence |
 | --- | --- | --- |
 | Four target regression matrix | passed on `0967034` in [hosted CI](https://github.com/ZSeanYves/MoonbitHTTP/actions/runs/37583031544) | Wasm 455/455, Wasm-GC 324/324, JS 455/455, Native 514/514; see [2026-10-06 remediation evidence](../development/security-remediation-2026-10-06.md) |
 | Native TLS identity and negative suites | passed on clean hosted revision | Native TLS suite passed 131/131 on Ubuntu, macOS and Windows; the earlier 97-test-per-OS identity run remains historical evidence |
-| HTTP/1, HTTP/2 and HTTP/3 interoperability | bounded runs passed | Real-socket H1/H2/h2c cases and three independent impaired H3/QUIC-TLS loopback windows; public cross-host behavior is not implied |
+| HTTP/1, HTTP/2 and HTTP/3 interoperability | bounded runs passed at `4355e04` | Six independent H1/H2/h2c socket cases per OS. HTTP/3 passed against aioquic in both roles, including 96 verified uploads from three simultaneous VM clients to the host listener. See the [candidate record](current.md#http3-client-and-listener-at-4355e04). |
 | QUIC Retry, version negotiation, loss recovery, stream concurrency | regression and bounded pressure evidence passed | Protocol tests plus 8 concurrent H3 requests; the long runs use a loopback peer and controlled impairment |
 | Certificate identity and negative suites | configured suites passed on all three OSes | Hostname, expiry, chain, trust, wildcard, mTLS and wrong-CA rejection cases |
 | Performance threshold and controlled old/new comparison | passed for the scoped socket workload | Method-v6 local/CI evidence contains six AB/BA pairs for independent 20-second HTTP/1, HTTP/2 and cancellation phases; all 8 metrics passed behavior, regression and 10% noise checks. Scope remains local Native loopback only |

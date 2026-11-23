@@ -35,7 +35,7 @@ TLS 监听地址提供 HTTP/1.1 和 HTTP/2 服务。
 - `protocol/http1`、`protocol/http2`、`protocol/http3`、`protocol/quic`、
   `protocol/tls`：增量 framing 和协议状态机；这些包不会打开 socket。
 - `runtime/transport`、`runtime/service`、`runtime/detection`：宿主能力契约、
-  协议探测、HTTP/1 与 HTTP/2 服务生命周期以及 h2c。
+  协议探测、HTTP/1 与 HTTP/2 服务生命周期、h2c，以及 HTTP/3 连接作用域内的数据报收发。
 - `application/client`、`application/server`：请求编排、连接池和服务端分发契约。
 - `policy/auth`、`policy/cache`、`policy/cookie`、`policy/content_coding`：
   可选 HTTP 策略。
@@ -48,7 +48,7 @@ TLS 监听地址提供 HTTP/1.1 和 HTTP/2 服务。
 - [x] **[portable] HTTP/1.1**：增量消息、framing、trailer、校验以及服务/客户端接入。
 - [x] **[portable] HTTP/2**：frame、HPACK、SETTINGS、GOAWAY/RST、多路复用、
   流控、h2c 和具备生命周期管理的服务。
-- [x] **[portable] HTTP/3 与 QUIC 引擎**：QPACK、关键流、请求流状态、packet
+- [x] **[portable] HTTP/3 与 QUIC 引擎**：QPACK、关键流、客户端与服务端流式会话、packet
   protection、恢复、CID 和路径状态。
 - [x] **[portable] 统一 HTTP 值**：`Request`、`Response`、`HeaderMap`、URI、
   authority、endpoint、限制和类型化错误。
@@ -81,7 +81,7 @@ RFC 链接说明实现对照的协议契约，不表示所有可选扩展或部�
 | core、codec、protocol、policy | 可编译和使用 | 可编译和使用 | 可编译和使用 |
 | HTTP/1.1 与 HTTP/2 service 接口 | 通过 adapter 可用 | 可用，需宿主能力 | 可用，需宿主能力 |
 | Native TCP/UDP/DNS/OpenSSL 适配器 | 支持 | 不支持 | 不支持 |
-| HTTP/3/QUIC 协议状态 | 可编译使用，提供 Native driver fixture | 可编译使用，需宿主 datagram/TLS | 可编译使用，需宿主 datagram/TLS |
+| HTTP/3/QUIC 协议状态 | 流式客户端会话和受监管的 UDP 监听器 | 可编译使用，需宿主 datagram/TLS | 可编译使用，需宿主 datagram/TLS |
 | HTTP/3 网络 TLS | OpenSSL 3.5+ QUIC TLS provider | 宿主提供 | 宿主提供 |
 | 浏览器 `fetch`/WebSocket 接入 | 不适用 | 不承诺 | 不承诺 |
 
@@ -92,8 +92,8 @@ RFC 链接说明实现对照的协议契约，不表示所有可选扩展或部�
 
 - [`examples/cmd/smoke_server`](examples/cmd/smoke_server/README.md)：有界的
   Native HTTP/1.1 和 h2c 服务 smoke fixture。
-- [`examples/cmd/h3_smoke_server`](examples/cmd/h3_smoke_server/README.md)：有界的
-  Native HTTP/3 与 QUIC loopback 互操作 fixture。
+- [`examples/cmd/h3_smoke_server`](examples/cmd/h3_smoke_server/README_zh.md) 使用受监管的 UDP 监听器处理 HTTP/3 请求。
+- [`examples/cmd/h3_smoke_client`](examples/cmd/h3_smoke_client/README_zh.md) 在同一条经过认证的 HTTP/3 连接上并发收发两个请求。
 
 请按示例包 README 中的仓库 runner 运行；这些 fixture 用于验证，不是部署模板。
 
