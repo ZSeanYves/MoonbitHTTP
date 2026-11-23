@@ -85,9 +85,6 @@ pub fn QuicDatagramDriver::poll(
       ProbeTimeout(space) => {
         // A PTO probe is a new packet. Keep the source packet in recovery so
         // a late ACK still releases its own bytes-in-flight accounting.
-        // Once the probe is accepted, its retained frames supersede the
-        // source entry in the driver queue; recovery still tracks both packet
-        // numbers independently.
         let (destination, probe_frames) = match
           self.recovery.oldest_probe_packet(space) {
           Some(packet) =>
@@ -107,7 +104,7 @@ pub fn QuicDatagramDriver::poll(
             destination,
           ) {
           Ok(value) => value
-          Err(AmplificationBlocked) => continue
+          Err(error) if error.send_blocked() => continue
           Err(error) => return Err(error)
         }
         output.push(packet)
@@ -128,6 +125,18 @@ pub fn QuicDatagramDriver::poll(
     Err(error) => return Err(error)
   }
   if self.state() == Established {
+    // The stream stays live until its reset is acknowledged, bounding this
+    // queue by max_streams. Leave a blocked frame in place for the next poll.
+    while self.pending_resets.front() is Some(reset) {
+      match self.send_frames(Application, [reset], now_ms) {
+        Ok(action) => {
+          ignore(self.pending_resets.pop_front())
+          output.push(action)
+        }
+        Err(error) if error.send_blocked() => break
+        Err(error) => return Err(error)
+      }
+    }
     let frames = self.connection.credit_updates(
       self.application_payload_limit(),
     )

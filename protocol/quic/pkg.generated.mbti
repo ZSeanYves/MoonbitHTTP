@@ -163,6 +163,7 @@ pub(all) enum QuicAction {
   SendFrame(QuicFrame)
   StreamData(Int64, Bytes, Bool)
   StreamReset(Int64, Int64)
+  SendStopped(Int64, Int64)
   ConnectionError(Int64, String)
   PeerAck(AckFrame)
   PacketIgnored
@@ -174,7 +175,8 @@ pub fn QuicAction::to_repr(Self) -> @debug.Repr
 pub struct QuicConnection {
   // private fields
 }
-pub fn QuicConnection::acknowledge_stream_data(Self, Int64, Int64, Int) -> Result[Unit, QuicError]
+pub fn QuicConnection::acknowledge_stream_data(Self, Int64, Int64, Int, fin? : Bool) -> Result[Unit, QuicError]
+pub fn QuicConnection::acknowledge_stream_frame(Self, QuicFrame) -> Result[Unit, QuicError]
 pub fn QuicConnection::close_reason(Self) -> (Int64, String)?
 pub fn QuicConnection::consume_stream_data(Self, Int64, Int) -> Result[Unit, QuicError]
 pub fn QuicConnection::establish(Self) -> Result[Unit, QuicError]
@@ -187,6 +189,7 @@ pub fn QuicConnection::reset_stream(Self, Int64, Int64) -> Result[QuicFrame, Qui
 pub fn QuicConnection::send_stream(Self, Int64, Bytes, Bool) -> Result[QuicFrame, QuicError]
 pub fn QuicConnection::set_peer_transport_params(Self, QuicTransportParams) -> Result[Unit, QuicError]
 pub fn QuicConnection::state(Self) -> QuicConnectionState
+pub fn QuicConnection::stop_sending(Self, Int64, Int64) -> Result[QuicFrame?, QuicError]
 pub fn QuicConnection::take_credit_updates(Self) -> Array[QuicFrame]
 
 pub(all) struct QuicConnectionId {
@@ -261,11 +264,13 @@ pub fn QuicDatagramDriver::send_stream(Self, Int64, Bytes, Bool, Int64) -> Resul
 pub fn QuicDatagramDriver::send_stream_prefix(Self, Int64, BytesView, Bool, Int64) -> Result[(Int, QuicDriverAction)?, QuicError]
 pub fn QuicDatagramDriver::set_peer_transport_parameters(Self, QuicTransportParameters) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::state(Self) -> QuicConnectionState
+pub fn QuicDatagramDriver::stop_sending(Self, Int64, Int64, Int64) -> Result[QuicDriverAction?, QuicError]
 
 pub(all) enum QuicDriverAction {
   SendDatagram(@types.Endpoint, Bytes)
   StreamData(Int64, Bytes, Bool)
   StreamReset(Int64, Int64)
+  SendStopped(Int64, Int64)
   CryptoData(PacketNumberSpace, Int64, Bytes)
   PathValidated(@types.Endpoint)
   ConnectionClosed(Int64, String)

@@ -49,6 +49,24 @@ fn QuicDatagramDriver::take_retransmission(
 }
 
 ///|
+/// RESET_STREAM supersedes all outstanding STREAM frames for this ID. Leave
+/// packet numbers in recovery for congestion accounting and preserve any other
+/// retransmittable frames that shared those packets.
+fn QuicDatagramDriver::discard_stream_retransmissions(
+  self : QuicDatagramDriver,
+  id : Int64,
+) -> Unit {
+  self.retransmissions.retain(entry => {
+    if entry.space == Application {
+      entry.frames.retain(frame => {
+        !(frame is Stream(data) && data.stream_id == id)
+      })
+    }
+    !entry.frames.is_empty()
+  })
+}
+
+///|
 fn quic_ack_contains(ack : AckFrame, number : Int64) -> Bool {
   ack
   .ranges()
@@ -199,16 +217,8 @@ fn QuicDatagramDriver::apply_recovery_ack(
     let entry = self.retransmissions[retained_index]
     if entry.space == space && quic_ack_contains(ack, entry.number) {
       for frame in entry.frames {
-        if frame is Stream(data) {
-          // Raw send_frames callers can supply frames outside connection-owned streams.
-          ignore(
-            self.connection.acknowledge_stream_data(
-              data.stream_id,
-              data.offset,
-              data.data.length(),
-            ),
-          )
-        }
+        // Raw send_frames can also carry frames outside connection-owned streams.
+        ignore(self.connection.acknowledge_stream_frame(frame))
       }
       self.retransmissions.remove(retained_index) |> ignore
     }

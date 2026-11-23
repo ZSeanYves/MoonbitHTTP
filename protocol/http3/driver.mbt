@@ -5,6 +5,7 @@ pub(all) enum H3DriverAction {
   Event(H3Action)
   SendOnStream(Int64, Bytes, Bool)
   ResetStream(Int64, H3ErrorCode)
+  StopSending(Int64, H3ErrorCode)
   CloseConnection(H3ErrorCode)
   QpackStreamReady(Int64)
 } derive(Eq, Debug)
@@ -122,20 +123,25 @@ fn Http3Driver::append_events(
 }
 
 ///|
+/// Detach a stream's blocked frames and their buffer charge together.
+fn Http3Driver::take_blocked_frames(
+  self : Http3Driver,
+  id : Int64,
+) -> Array[Http3Frame] {
+  guard self.blocked_frames.get(id) is Some(frames) else { return [] }
+  self.blocked_frames.remove(id)
+  for frame in frames {
+    self.blocked_bytes -= h3_driver_blocked_frame_bytes(frame)
+  }
+  frames
+}
+
+///|
 fn Http3Driver::h3_driver_replay_blocked(
   self : Http3Driver,
   stream_id : Int64,
 ) -> Result[Array[H3DriverAction], Http3Error] {
-  let frames = match self.blocked_frames.get(stream_id) {
-    Some(value) => value
-    None => return Ok([])
-  }
-  // Detach ownership and its charge together, before replay can fail. A later
-  // blocked section explicitly requeues the untouched suffix below.
-  self.blocked_frames.remove(stream_id)
-  for frame in frames {
-    self.blocked_bytes -= h3_driver_blocked_frame_bytes(frame)
-  }
+  let frames = self.take_blocked_frames(stream_id)
   let output : Array[H3DriverAction] = []
   for index, frame in frames {
     let actions = match
@@ -513,28 +519,82 @@ pub fn Http3Driver::initial_stream_actions(
 }
 
 ///|
-pub fn Http3Driver::cancel_request_stream(
+fn Http3Driver::discard_request_input(
   self : Http3Driver,
   stream_id : Int64,
-) -> Result[Array[H3DriverAction], Http3Error] {
+) -> Result[H3DriverAction, Http3Error] {
   let instruction = match self.connection.cancel_request_stream(stream_id) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  match self.blocked_frames.get(stream_id) {
-    Some(frames) =>
-      for frame in frames {
-        self.blocked_bytes -= h3_driver_blocked_frame_bytes(frame)
-      }
-    None => ()
-  }
-  self.blocked_frames.remove(stream_id)
+  ignore(self.take_blocked_frames(stream_id))
   self.pending_fin.remove(stream_id)
   self.decoders.remove(stream_id)
-  Ok([
-    ResetStream(stream_id, H3RequestCancelled),
-    SendOnStream(self.local_qpack_decoder_stream, instruction, false),
-  ])
+  Ok(SendOnStream(self.local_qpack_decoder_stream, instruction, false))
+}
+
+///|
+/// Release incoming request state and abort both QUIC stream directions.
+pub fn Http3Driver::cancel_request_stream(
+  self : Http3Driver,
+  stream_id : Int64,
+) -> Result[Array[H3DriverAction], Http3Error] {
+  self
+  .discard_request_input(stream_id)
+  .map(instruction => {
+    [
+      ResetStream(stream_id, H3RequestCancelled),
+      StopSending(stream_id, H3RequestCancelled),
+      instruction,
+    ]
+  })
+}
+
+///|
+/// Handle RESET_STREAM on the receiving half. A request reset releases QPACK
+/// state without changing the opposite direction. An unidentified or unknown
+/// unidirectional stream can be discarded.
+pub fn Http3Driver::on_stream_reset(
+  self : Http3Driver,
+  stream_id : Int64,
+) -> Result[Array[H3DriverAction], Http3Error] {
+  if self.failure is Some(error) {
+    return Err(error)
+  }
+  if (stream_id & 2L) == 0L {
+    return self
+      .discard_request_input(stream_id)
+      .map(instruction => [instruction])
+  }
+  self.prefixes.remove(stream_id)
+  self.kinds.remove(stream_id)
+  match self.connection.remote_unidirectional_closed(stream_id) {
+    Err(error) => self.h3_driver_fail(error)
+    Ok(_) => Ok([])
+  }
+}
+
+///|
+/// QUIC has already scheduled the reset. Stopping an outgoing critical stream
+/// additionally terminates HTTP/3. A request's receiving half stays usable.
+pub fn Http3Driver::on_stop_sending(
+  self : Http3Driver,
+  stream_id : Int64,
+) -> Result[Array[H3DriverAction], Http3Error] {
+  if self.failure is Some(error) {
+    return Err(error)
+  }
+  if stream_id == self.local_control_stream ||
+    stream_id == self.local_qpack_encoder_stream ||
+    stream_id == self.local_qpack_decoder_stream {
+    return self.h3_driver_fail(
+      Http3ConnectionError(
+        H3ClosedCriticalStream,
+        "peer stopped a critical HTTP/3 stream",
+      ),
+    )
+  }
+  Ok([])
 }
 
 ///|

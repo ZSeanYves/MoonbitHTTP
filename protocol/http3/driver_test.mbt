@@ -35,6 +35,8 @@ test "http3 driver: a peer can finish before identifying a unidirectional stream
   assert_eq(driver.on_stream_data(2L, b"", true), Ok([]))
   assert_eq(driver.on_stream_data(6L, b"\x40", false), Ok([]))
   assert_eq(driver.on_stream_data(6L, b"", true), Ok([]))
+  assert_eq(driver.on_stream_reset(6L), Ok([]))
+  assert_eq(driver.on_stop_sending(0L), Ok([]))
   assert_eq(driver.failure(), None)
   assert_true(
     driver.on_stream_data(10L, b"\x00", true)
@@ -54,8 +56,18 @@ test "http3 driver: critical streams and cancellation produce QUIC actions" {
     .open_request_stream(request_method=Some("GET"))
     .unwrap()
   let cancelled = driver.cancel_request_stream(stream_id).unwrap()
-  assert_true(cancelled[0] is ResetStream(0L, H3RequestCancelled))
-  assert_true(cancelled[1] is SendOnStream(10L, _, false))
+  assert_true(
+    driver.on_stop_sending(6L)
+    is Err(Http3ConnectionError(H3ClosedCriticalStream, _)),
+  )
+  assert_true(
+    cancelled
+    is [
+      ResetStream(0L, H3RequestCancelled),
+      StopSending(0L, H3RequestCancelled),
+      SendOnStream(10L, _, false),
+    ],
+  )
 }
 
 ///|

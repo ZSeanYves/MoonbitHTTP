@@ -27,7 +27,7 @@ pub fn QuicConnection::consume_stream_data(
   guard self.streams.get(id) is Some(stream) else {
     return Err(StreamClosed(id))
   }
-  if stream.reset || count == 0 {
+  if stream.reset || stream.recv_stopped || count == 0 {
     return Ok(())
   }
   if count > stream.reassembler.delivered.length() {

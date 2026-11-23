@@ -86,6 +86,7 @@ pub(all) enum H3DriverAction {
   Event(H3Action)
   SendOnStream(Int64, Bytes, Bool)
   ResetStream(Int64, H3ErrorCode)
+  StopSending(Int64, H3ErrorCode)
   CloseConnection(H3ErrorCode)
   QpackStreamReady(Int64)
 } derive(Eq, @debug.Debug)
@@ -253,7 +254,9 @@ pub fn Http3Driver::local_control_stream(Self) -> Int64
 pub fn Http3Driver::local_qpack_decoder_stream(Self) -> Int64
 pub fn Http3Driver::local_qpack_encoder_stream(Self) -> Int64
 pub fn Http3Driver::new(H3Role, limits? : @types.Limits, qpack_limits? : QpackLimits) -> Result[Self, Http3Error]
+pub fn Http3Driver::on_stop_sending(Self, Int64) -> Result[Array[H3DriverAction], Http3Error]
 pub fn Http3Driver::on_stream_data(Self, Int64, Bytes, Bool) -> Result[Array[H3DriverAction], Http3Error]
+pub fn Http3Driver::on_stream_reset(Self, Int64) -> Result[Array[H3DriverAction], Http3Error]
 pub fn Http3Driver::open_request_stream(Self, request_method? : String?) -> Result[Int64, Http3Error]
 
 pub(all) enum Http3Frame {

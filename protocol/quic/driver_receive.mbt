@@ -73,30 +73,6 @@ fn quic_driver_packet_space(
 }
 
 ///|
-fn quic_driver_append_connection_actions(
-  actions : Array[QuicDriverAction],
-  connection_actions : Array[QuicAction],
-  space : PacketNumberSpace,
-) -> Result[Array[QuicFrame], QuicError] {
-  let responses : Array[QuicFrame] = []
-  for action in connection_actions {
-    match action {
-      StreamData(id, data, fin) => actions.push(StreamData(id, data, fin))
-      StreamReset(id, code) => actions.push(StreamReset(id, code))
-      ConnectionError(code, reason) => {
-        actions.push(ConnectionClosed(code, reason))
-        responses.push(ConnectionClose(true, code, 0L, b""))
-      }
-      PeerAck(_) => ()
-      SendFrame(frame) => responses.push(frame)
-      PacketIgnored => actions.push(PacketIgnored)
-    }
-  }
-  ignore(space)
-  Ok(responses)
-}
-
-///|
 /// Opens one datagram and feeds all authenticated frames into the QUIC
 /// connection.  A malformed or unauthenticated packet returns a typed error;
 /// callers may choose to drop it at the transport boundary.
@@ -528,26 +504,13 @@ fn QuicDatagramDriver::on_packet(
       _ => ack_eliciting = true
     }
     match frame {
-      Ack(ack) => {
+      Ack(ack) =>
         if !has_path_challenge {
           match self.apply_recovery_ack(space, ack, now_ms) {
             Ok(_) => ()
             Err(error) => return Err(error)
           }
         }
-        let connection_actions = match self.connection.receive_frame(Ack(ack)) {
-          Ok(value) => value
-          Err(error) => return Err(error)
-        }
-        let generated = match
-          quic_driver_append_connection_actions(
-            actions, connection_actions, space,
-          ) {
-          Ok(value) => value
-          Err(error) => return Err(error)
-        }
-        responses.append(generated)
-      }
       Crypto(offset, data) => {
         let output_start = match space {
           Initial => self.crypto_initial.next_offset()
@@ -609,14 +572,25 @@ fn QuicDatagramDriver::on_packet(
           Ok(value) => value
           Err(error) => return Err(error)
         }
-        let generated = match
-          quic_driver_append_connection_actions(
-            actions, connection_actions, space,
-          ) {
-          Ok(value) => value
-          Err(error) => return Err(error)
+        for action in connection_actions {
+          match action {
+            StreamData(id, data, fin) => actions.push(StreamData(id, data, fin))
+            StreamReset(id, code) => actions.push(StreamReset(id, code))
+            SendStopped(id, code) => {
+              self.discard_stream_retransmissions(id)
+              actions.push(SendStopped(id, code))
+            }
+            SendFrame(ResetStream(_, _, _) as reset) =>
+              self.pending_resets.push_back(reset)
+            SendFrame(reply) => responses.push(reply)
+            ConnectionError(code, reason) => {
+              actions.push(ConnectionClosed(code, reason))
+              responses.push(ConnectionClose(true, code, 0L, b""))
+            }
+            PeerAck(_) => ()
+            PacketIgnored => actions.push(PacketIgnored)
+          }
         }
-        responses.append(generated)
       }
     }
   }

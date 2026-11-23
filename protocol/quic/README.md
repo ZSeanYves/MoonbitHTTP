@@ -11,8 +11,10 @@ negotiation and path validation remain explicit state transitions.
 
 After accepting bytes from a `StreamData` event, call `consume_stream_data(stream_id, count)` once for those bytes. Consumption releases receive storage and advances both byte windows. Delaying consumption applies backpressure on an active stream. A receive reset returns the remaining final-size credit. Once both directions finish, the connection releases any remaining storage and replenishes the peer's stream-count credit.
 
-`QuicDatagramDriver::poll()` sends pending window updates, and the driver releases outstanding send bytes on packet acknowledgement. A custom transport advertises `local_transport_params()` during the handshake, reliably sends frames from `take_credit_updates()` and reports acknowledged STREAM ranges with `acknowledge_stream_data(stream_id, offset, length)`.
+`QuicDatagramDriver::poll()` sends pending window updates, and the driver releases outstanding send bytes on packet acknowledgement. A custom transport advertises `local_transport_params()` during the handshake, reliably sends frames from `take_credit_updates()` and reports delivery with `acknowledge_stream_frame(frame)` for each acknowledged STREAM or RESET_STREAM. Report empty FINs as well. Stream-count credit is returned after the sending half has been acknowledged. A transport that reports ranges separately can pass `fin=true` to `acknowledge_stream_data` when the final frame is acknowledged.
 
 For nonblocking writes, `QuicDatagramDriver::send_stream_prefix` returns the accepted byte count and its datagram. Keep the remaining bytes until a later receive or timer callback. A blocked write preserves its offset and a final write carries FIN only on the last portion.
 
 See [the QUIC/TLS boundary](../../docs/protocols/quic-tls.md).
+
+Use `stop_sending` to relinquish unread input. It suppresses further data delivery for that half while still accounting for in-flight bytes and the final size. A peer stop produces `SendStopped(id, code)`. Drop queued output for that stream. The datagram driver sends the reset in `poll()` and retains it across congestion and packet loss. Custom transports must discard obsolete STREAM retransmissions and reliably send the accompanying `SendFrame(ResetStream(...))`.

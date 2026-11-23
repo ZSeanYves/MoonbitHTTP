@@ -69,6 +69,13 @@ fn SmokeConnection::flush_writes(
         }
       }
       Ok(None) => ()
+      Err(StreamClosed(_)) =>
+        // A stop can reach us before the peer finishes sending its request.
+        // A response enqueued after that point has no writable stream.
+        while queue.pop_front() is Some(pending) {
+          self.queued_bytes -= pending.bytes.length()
+          self.queued_writes -= 1
+        }
       Err(error) => return Err(error)
     }
     if queue.is_empty() {
@@ -130,6 +137,15 @@ fn SmokeConnection::h3_actions(
             .reset_stream(id, code.wire_value(), now_ms),
           ),
         )
+      StopSending(id, code) =>
+        if checked(
+            self.tls
+            .datagram_driver()
+            .stop_sending(id, code.wire_value(), now_ms),
+          )
+          is Some(packet) {
+          output.push(packet)
+        }
       CloseConnection(code) =>
         output.push(
           checked(
@@ -137,7 +153,7 @@ fn SmokeConnection::h3_actions(
             .datagram_driver()
             .send_frames(
               Application,
-              [ConnectionClose(false, code.wire_value(), 0L, b"")],
+              [ConnectionClose(true, code.wire_value(), 0L, b"")],
               now_ms,
             ),
           ),
@@ -146,6 +162,20 @@ fn SmokeConnection::h3_actions(
     }
   }
   output
+}
+
+///|
+fn SmokeConnection::dispatch_h3(
+  self : SmokeConnection,
+  result : Result[Array[@http3.H3DriverAction], @http3.Http3Error],
+  now_ms : Int64,
+) -> Array[@quic.QuicDriverAction] raise {
+  let actions = match result {
+    Ok(value) => value
+    Err(Http3ConnectionError(code, _)) => [CloseConnection(code)]
+    Err(error) => raise error
+  }
+  self.h3_actions(actions, now_ms)
 }
 
 ///|
@@ -178,12 +208,8 @@ fn SmokeConnection::receive(
   for action in actions {
     match action {
       StreamData(id, bytes, fin) => {
-        output.append(
-          self.h3_actions(
-            checked(self.h3.on_stream_data(id, bytes, fin)),
-            now_ms,
-          ),
-        )
+        let result = self.h3.on_stream_data(id, bytes, fin)
+        output.append(self.dispatch_h3(result, now_ms))
         checked(
           self.tls
           .datagram_driver()
@@ -191,10 +217,18 @@ fn SmokeConnection::receive(
           .consume_stream_data(id, bytes.length()),
         )
       }
+      SendStopped(id, _) =>
+        output.append(self.dispatch_h3(self.h3.on_stop_sending(id), now_ms))
+      StreamReset(id, _) => {
+        self.post_bodies.remove(id)
+        output.append(self.dispatch_h3(self.h3.on_stream_reset(id), now_ms))
+      }
       _ => output.push(action)
     }
   }
-  checked(self.flush_writes(output, now_ms))
+  if self.h3.failure() is None {
+    checked(self.flush_writes(output, now_ms))
+  }
   output
 }
 
@@ -236,7 +270,8 @@ async fn main {
           let output : Array[@quic.QuicDriverAction] = []
           for key, connection in connections {
             let driver = connection.tls.datagram_driver()
-            if driver.state() == Closed ||
+            if connection.h3.failure() is Some(_) ||
+              driver.state() == Closed ||
               driver.state() == Draining ||
               now_ms - connection.last_received_ms >= 30000L {
               expired.push(key)

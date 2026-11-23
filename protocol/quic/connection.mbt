@@ -7,6 +7,14 @@ pub(all) enum QuicConnectionState {
 } derive(Eq, Debug)
 
 ///|
+priv enum StreamSendState {
+  Writable
+  FinSent(Bool) // Whether the packet carrying FIN was acknowledged.
+  ResetSent
+  ResetAcknowledged
+}
+
+///|
 priv struct QuicStreamState {
   mut send_max : Int64
   mut recv_max : Int64
@@ -14,7 +22,8 @@ priv struct QuicStreamState {
   outstanding : SentStreamRanges
   mut send_offset : Int64
   mut recv_offset : Int64
-  mut fin_sent : Bool
+  mut send_state : StreamSendState
+  mut recv_stopped : Bool
   mut fin_received : Bool
   mut recv_final_size : Int64?
   reassembler : QuicCryptoReassembler
@@ -39,7 +48,8 @@ fn quic_new_stream_state(
     outstanding: { ranges: [], bytes: 0L, },
     send_offset: 0L,
     recv_offset: 0L,
-    fin_sent: false,
+    send_state: Writable,
+    recv_stopped: false,
     fin_received: false,
     recv_final_size: None,
     reassembler,
@@ -52,6 +62,7 @@ pub(all) enum QuicAction {
   SendFrame(QuicFrame)
   StreamData(Int64, Bytes, Bool)
   StreamReset(Int64, Int64)
+  SendStopped(Int64, Int64)
   ConnectionError(Int64, String)
   PeerAck(AckFrame)
   PacketIgnored
@@ -242,16 +253,18 @@ pub fn QuicConnection::receive_frame(
       self.connection_recv_offset += new_bytes
       let complete = stream.recv_final_size ==
         Some(stream.reassembler.next_offset())
-      for index, chunk in chunks {
-        let fin = complete && index == chunks.length() - 1
-        actions.push(StreamData(id, chunk, fin))
-      }
-      if complete && !stream.fin_received {
-        stream.fin_received = true
-        if chunks.is_empty() {
+      if stream.recv_stopped {
+        self.discard_delivered(stream)
+      } else {
+        for index, chunk in chunks {
+          let fin = complete && index == chunks.length() - 1
+          actions.push(StreamData(id, chunk, fin))
+        }
+        if complete && !stream.fin_received && chunks.is_empty() {
           actions.push(StreamData(id, b"", true))
         }
       }
+      stream.fin_received = complete
       self.retire_if_finished(id, stream)
     }
     MaxData(value) => {
@@ -264,21 +277,25 @@ pub fn QuicConnection::receive_frame(
       if value < 0L || value > QUIC_MAX_VARINT {
         return Err(InvalidFrame("invalid MAX_STREAM_DATA limit"))
       }
-      if (id & 2L) != 0L && !self.locally_initiated(id) {
-        return Err(Protocol(0x5L, "MAX_STREAM_DATA for a receive-only stream"))
+      match self.peer_send_stream(id) {
+        Ok(Some(stream)) => stream.send_max = stream.send_max.max(value)
+        Ok(None) => ()
+        Err(error) => return Err(error)
       }
-      if self.is_retired(id) {
-        return Ok(actions)
+    }
+    StopSending(id, code) => {
+      if code < 0L || code > QUIC_MAX_VARINT {
+        return Err(InvalidFrame("invalid STOP_SENDING application error code"))
       }
-      let stream = match self.streams.get(id) {
-        Some(stream) => stream
-        None =>
-          match self.receive_stream(id) {
-            Ok(stream) => stream
-            Err(error) => return Err(error)
-          }
+      match self.peer_send_stream(id) {
+        Ok(Some(stream)) if stream.can_reset_send() => {
+          self.commit_send_reset(stream)
+          actions.push(SendStopped(id, code))
+          actions.push(SendFrame(ResetStream(id, code, stream.send_offset)))
+        }
+        Ok(_) => ()
+        Err(error) => return Err(error)
       }
-      stream.send_max = stream.send_max.max(value)
     }
     MaxStreams(uni, value) => {
       if value > 0x1000000000000000L || value < 0L {

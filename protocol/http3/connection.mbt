@@ -298,14 +298,19 @@ pub fn Http3Connection::cancel_request_stream(
   self : Http3Connection,
   stream_id : Int64,
 ) -> Result[Bytes, Http3Error] {
-  match self.streams.get(stream_id) {
-    Some(stream) => stream.cancel()
-    None => ()
+  if (stream_id & 3L) != 0L {
+    return Err(
+      Http3ConnectionError(H3StreamCreationError, "invalid request stream ID"),
+    )
+  }
+  let instruction = match qpack_stream_cancellation(stream_id) {
+    Ok(bytes) => bytes
+    Err(error) => return Err(error)
   }
   self.decoder.cancel_stream(stream_id)
   self.blocked_sections.remove(stream_id)
   self.streams.remove(stream_id)
-  qpack_stream_cancellation(stream_id)
+  Ok(instruction)
 }
 
 ///|

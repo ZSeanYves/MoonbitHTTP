@@ -60,8 +60,12 @@ test "h3 blocked replay releases ownership once on semantic failure and cancella
   assert_true(
     driver.on_stream_data(12L, extra, false) is Err(Http3LimitExceeded(_, 512)),
   )
-  ignore(driver.cancel_request_stream(12L).unwrap())
+  // A transport reset must release the same queued frames as local cancellation.
+  assert_true(
+    driver.on_stream_reset(12L).unwrap() is [SendOnStream(_, _, false)],
+  )
   assert_eq(driver.blocked_bytes, 0)
+  assert_eq(driver.connection().stream_phase(12L), None)
 }
 
 ///|

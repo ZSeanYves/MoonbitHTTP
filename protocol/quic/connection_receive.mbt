@@ -64,3 +64,24 @@ fn QuicConnection::receive_stream(
   self.streams.set(id, value)
   Ok(value)
 }
+
+///|
+/// Resolve the sending half referenced by peer STOP_SENDING or MAX_STREAM_DATA.
+/// A peer may implicitly open its own bidirectional streams.
+fn QuicConnection::peer_send_stream(
+  self : QuicConnection,
+  id : Int64,
+) -> Result[QuicStreamState?, QuicError] {
+  if id < 0L ||
+    id > QUIC_MAX_VARINT ||
+    ((id & 2L) != 0L && !self.locally_initiated(id)) {
+    return Err(Protocol(0x5L, "invalid send stream direction"))
+  }
+  if self.is_retired(id) {
+    return Ok(None)
+  }
+  if self.streams.get(id) is Some(stream) {
+    return Ok(Some(stream))
+  }
+  self.receive_stream(id).map(stream => Some(stream))
+}

@@ -6,6 +6,7 @@ pub(all) enum QuicDriverAction {
   SendDatagram(@types.Endpoint, Bytes)
   StreamData(Int64, Bytes, Bool)
   StreamReset(Int64, Int64)
+  SendStopped(Int64, Int64)
   CryptoData(PacketNumberSpace, Int64, Bytes)
   PathValidated(@types.Endpoint)
   ConnectionClosed(Int64, String)
@@ -65,6 +66,7 @@ pub struct QuicDatagramDriver {
   priv mut active_budget : QuicPathBudget
   priv mut candidate_budget : QuicPathBudget?
   priv peer_connection_ids : QuicConnectionIdManager
+  priv pending_resets : @deque.Deque[QuicFrame]
   priv pending_retirements : Array[Int64]
   priv mut largest_initial_received : Int64
   priv mut largest_handshake_received : Int64
@@ -403,6 +405,7 @@ pub fn QuicDatagramDriver::new(
     ),
     candidate_budget: None,
     peer_connection_ids,
+    pending_resets: @deque.from_array([]),
     pending_retirements: [],
     largest_initial_received: -1L,
     largest_handshake_received: -1L,

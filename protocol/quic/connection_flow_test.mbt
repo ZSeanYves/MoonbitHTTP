@@ -59,7 +59,9 @@ test "QUIC RESET_STREAM accounts final size even without preceding STREAM" {
   )
   // Reset releases both missing and buffered bytes before the reply finishes.
   assert_eq(connection.take_credit_updates(), [MaxData(20L)])
-  ignore(connection.send_stream(0L, b"reply", true).unwrap())
+  let reply = connection.send_stream(0L, b"reply", true).unwrap()
+  assert_eq(connection.take_credit_updates(), [])
+  connection.acknowledge_stream_frame(reply).unwrap()
   assert_eq(connection.take_credit_updates(), [MaxStreams(false, 101L)])
 }
 
@@ -115,6 +117,8 @@ test "QUIC reuses one connection across stream and byte windows" {
     ])
     assert_eq(server.receive_frame(request).unwrap(), [])
     assert_eq(client.receive_frame(response).unwrap(), [])
+    client.acknowledge_stream_frame(request).unwrap()
+    server.acknowledge_stream_frame(response).unwrap()
     for (sender, receiver) in [(client, server), (server, client)] {
       for frame in sender.take_credit_updates() {
         assert_eq(receiver.receive_frame(frame).unwrap(), [])
@@ -135,15 +139,18 @@ test "QUIC peer streams can arrive out of order and reset only their receive dir
   assert_eq(server.receive_frame(stream(8L, 0L, b"c", fin=true)).unwrap(), [
     StreamData(8L, b"c", true),
   ])
-  ignore(server.send_stream(8L, b"", true).unwrap())
+  let last = server.send_stream(8L, b"", true).unwrap()
+  server.acknowledge_stream_frame(last).unwrap()
   assert_eq(server.receive_frame(ResetStream(0L, 42L, 3L)).unwrap(), [
     StreamReset(0L, 42L),
   ])
-  assert_true(server.send_stream(0L, b"reply", true) is Ok(_))
+  let reply = server.send_stream(0L, b"reply", true).unwrap()
+  server.acknowledge_stream_frame(reply).unwrap()
   assert_eq(server.receive_frame(stream(4L, 0L, b"b", fin=true)).unwrap(), [
     StreamData(4L, b"b", true),
   ])
-  ignore(server.send_stream(4L, b"", true).unwrap())
+  let fin = server.send_stream(4L, b"", true).unwrap()
+  server.acknowledge_stream_frame(fin).unwrap()
   assert_eq(server.receive_frame(MaxStreamData(4L, 100L)).unwrap(), [])
   assert_eq(server.receive_frame(ResetStream(0L, 42L, 3L)).unwrap(), [])
   assert_eq(server.take_credit_updates(), [
@@ -199,8 +206,45 @@ test "QUIC consumption and ACKs advance bounded windows on one active stream" {
   }
   let fin = client.send_stream(id, b"", true).unwrap()
   assert_eq(server.receive_frame(fin).unwrap(), [StreamData(id, b"", true)])
-  ignore(server.send_stream(id, b"", true).unwrap())
+  let reply = server.send_stream(id, b"", true).unwrap()
+  server.acknowledge_stream_frame(reply).unwrap()
   assert_eq(server.take_credit_updates(), [
     MaxStreams(false, params.initial_max_streams_bidi + 1L),
+  ])
+}
+
+///|
+test "peer send controls share stream direction, opening and replay rules" {
+  let server = receive_connection(12L)
+  for
+    frame in [
+      @quic.QuicFrame::StopSending(2L, 42L),
+      MaxStreamData(2L, 4L),
+      StopSending(1L, 0L),
+      StopSending(3L, 0L),
+    ] {
+    assert_true(server.receive_frame(frame) is Err(Protocol(5L, _)))
+  }
+  assert_eq(server.receive_frame(StopSending(4L, 42L)).unwrap(), [
+    SendStopped(4L, 42L),
+    SendFrame(ResetStream(4L, 42L, 0L)),
+  ])
+  assert_eq(server.receive_frame(StopSending(4L, 17L)).unwrap(), [])
+  assert_eq(server.receive_frame(stream(4L, 0L, b"body", fin=true)).unwrap(), [
+    StreamData(4L, b"body", true),
+  ])
+  server.acknowledge_stream_frame(ResetStream(4L, 42L, 0L)).unwrap()
+  assert_eq(server.receive_frame(StopSending(4L, 17L)).unwrap(), [])
+  // Stop reading while both unread bytes and an out-of-order suffix exist.
+  ignore(server.receive_frame(stream(0L, 0L, b"ab")).unwrap())
+  ignore(server.receive_frame(stream(0L, 4L, b"ef")).unwrap())
+  assert_eq(server.stop_sending(0L, 42L), Ok(Some(StopSending(0L, 42L))))
+  assert_eq(server.receive_frame(stream(0L, 2L, b"cd")).unwrap(), [])
+  assert_eq(server.receive_frame(ResetStream(0L, 42L, 8L)).unwrap(), [
+    StreamReset(0L, 42L),
+  ])
+  assert_eq(server.take_credit_updates(), [
+    MaxData(24L),
+    MaxStreams(false, 101L),
   ])
 }

@@ -155,9 +155,6 @@ fn H3RequestStreamState::finish(
       ),
     )
   }
-  if self.phase == H3MessageCancelled {
-    return Ok(())
-  }
   if self.expected_content_length is Some(expected) &&
     !self.body_forbidden &&
     self.received_content_length != expected {
@@ -171,9 +168,4 @@ fn H3RequestStreamState::finish(
   }
   self.phase = H3MessageComplete
   Ok(())
-}
-
-///|
-fn H3RequestStreamState::cancel(self : H3RequestStreamState) -> Unit {
-  self.phase = H3MessageCancelled
 }

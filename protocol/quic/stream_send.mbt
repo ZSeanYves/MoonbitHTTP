@@ -28,17 +28,18 @@ fn[T] QuicConnection::write_stream(
   if (id & 2L) != 0L && !self.locally_initiated(id) {
     return Err(Protocol(0x5L, "cannot send on peer unidirectional stream"))
   }
-  if stream.fin_sent {
-    return Err(StreamClosed(id))
-  }
   let (frame, length, finished) = match write {
     Reset(code) => {
+      if !stream.can_reset_send() {
+        return Err(StreamClosed(id))
+      }
       if code < 0L || code > QUIC_MAX_VARINT {
         return Err(InvalidFrame("invalid RESET_STREAM application error code"))
       }
       (QuicFrame::ResetStream(id, code, stream.send_offset), 0L, true)
     }
     Data(data, fin, packet_budget) => {
+      guard stream.send_state is Writable else { return Err(StreamClosed(id)) }
       let offered = match packet_budget {
         None => {
           if data.length() > self.limits.max_frame_payload {
@@ -98,13 +99,30 @@ fn[T] QuicConnection::write_stream(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  stream.outstanding.append(stream.send_offset, length)
-  stream.send_offset += length
-  self.connection_send_offset += length
-  self.retained_send_bytes += length
-  stream.fin_sent = finished
-  self.retire_if_finished(id, stream)
+  match write {
+    Reset(_) => self.commit_send_reset(stream)
+    Data(_, _, _) => {
+      stream.outstanding.append(stream.send_offset, length)
+      stream.send_offset += length
+      self.connection_send_offset += length
+      self.retained_send_bytes += length
+      if finished {
+        stream.send_state = FinSent(false)
+      }
+    }
+  }
   Ok(result)
+}
+
+///|
+fn QuicConnection::commit_send_reset(
+  self : QuicConnection,
+  stream : QuicStreamState,
+) -> Unit {
+  self.retained_send_bytes -= stream.outstanding.bytes
+  stream.outstanding.ranges.clear()
+  stream.outstanding.bytes = 0L
+  stream.send_state = ResetSent
 }
 
 ///|
@@ -189,7 +207,12 @@ pub fn QuicDatagramDriver::reset_stream(
   now_ms : Int64,
 ) -> Result[QuicDriverAction, QuicError] {
   self.connection.write_stream(stream_id, Reset(code), fn(frame, _) {
-    self.send_frames(Application, [frame], now_ms)
+    self
+    .send_frames(Application, [frame], now_ms)
+    .map(action => {
+      self.discard_stream_retransmissions(stream_id)
+      action
+    })
   })
 }
 
@@ -202,6 +225,7 @@ pub fn QuicConnection::acknowledge_stream_data(
   id : Int64,
   offset : Int64,
   length : Int,
+  fin? : Bool = false,
 ) -> Result[Unit, QuicError] {
   if offset < 0L || length < 0 || offset > QUIC_MAX_VARINT - length.to_int64() {
     return Err(InvalidFrame("invalid acknowledged stream range"))
@@ -216,6 +240,49 @@ pub fn QuicConnection::acknowledge_stream_data(
   if end > stream.send_offset {
     return Err(InvalidFrame("acknowledged unsent stream data"))
   }
+  if fin {
+    if end != stream.send_offset || stream.send_state is Writable {
+      return Err(InvalidFrame("acknowledged unsent stream FIN"))
+    }
+    if stream.send_state is FinSent(_) {
+      stream.send_state = FinSent(true)
+    }
+  }
   self.retained_send_bytes -= stream.outstanding.release(offset, end)
+  self.retire_if_finished(id, stream)
   Ok(())
+}
+
+///|
+/// Report delivery of a frame handed to a custom reliable transport; this
+/// accounts for zero-length FINs and RESET_STREAM as well as byte ranges.
+pub fn QuicConnection::acknowledge_stream_frame(
+  self : QuicConnection,
+  frame : QuicFrame,
+) -> Result[Unit, QuicError] {
+  match frame {
+    Stream(data) =>
+      self.acknowledge_stream_data(
+        data.stream_id,
+        data.offset,
+        data.data.length(),
+        fin=data.fin,
+      )
+    ResetStream(id, _, size) => {
+      if self.is_retired(id) {
+        return Ok(())
+      }
+      guard self.streams.get(id) is Some(stream) else {
+        return Err(StreamClosed(id))
+      }
+      guard stream.send_state is (ResetSent | ResetAcknowledged) &&
+        size == stream.send_offset else {
+        return Err(InvalidFrame("acknowledged unsent stream reset"))
+      }
+      stream.send_state = ResetAcknowledged
+      self.retire_if_finished(id, stream)
+      Ok(())
+    }
+    _ => Ok(())
+  }
 }

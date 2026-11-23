@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Handle QUIC stream cancellation in both directions. HTTP/3 releases blocked request input and treats critical-stream cancellation as a connection error. Custom QUIC transports now report acknowledged FIN and reset frames using `acknowledge_stream_frame` to replenish stream-count credit.
+
 - Add one-shot streaming uploads to the pooled HTTP/1 executor, with the response lease retained until EOF or cancellation.
 - Preserve representation framing fields on HEAD and 304 responses and leave tunnel bytes available after successful CONNECT.
 - Accept a server's HTTP/2 ENABLE_PUSH setting of zero. Ignore undefined frame flags and reserved stream-ID bits. Share header-fragment validation across frame and connection decoding.

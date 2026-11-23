@@ -53,8 +53,25 @@ fn QuicConnection::check_retired_range(
 }
 
 ///|
-/// Packet recovery owns retransmissions after the application hands off FIN.
-/// Release application stream storage once both directions have finished.
+fn QuicStreamState::send_complete(self : QuicStreamState) -> Bool {
+  match self.send_state {
+    FinSent(true) => self.outstanding.bytes == 0L
+    ResetAcknowledged => true
+    _ => false
+  }
+}
+
+///|
+fn QuicStreamState::can_reset_send(self : QuicStreamState) -> Bool {
+  match self.send_state {
+    Writable => true
+    FinSent(_) => !self.send_complete()
+    _ => false
+  }
+}
+
+///|
+/// Keep final-size and cancellation state until the sending half is acknowledged.
 fn QuicConnection::retire_if_finished(
   self : QuicConnection,
   id : Int64,
@@ -62,7 +79,7 @@ fn QuicConnection::retire_if_finished(
 ) -> Unit {
   let uni = (id & 2L) != 0L
   let initiated_here = self.locally_initiated(id)
-  let send_done = stream.fin_sent || (uni && !initiated_here)
+  let send_done = stream.send_complete() || (uni && !initiated_here)
   let receive_done = stream.fin_received ||
     stream.reset ||
     (uni && initiated_here)
@@ -70,7 +87,6 @@ fn QuicConnection::retire_if_finished(
     return
   }
   self.streams.remove(id)
-  self.retained_send_bytes -= stream.outstanding.bytes
   self.release_receive_credit(
     stream.recv_offset - stream.reassembler.history_start(),
   )
