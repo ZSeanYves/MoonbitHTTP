@@ -257,6 +257,7 @@ pub(all) struct TlsOptions {
 pub fn TlsOptions::defaults() -> Self
 pub fn TlsOptions::for_quic(String) -> Self
 pub fn TlsOptions::for_server_name(Self, String) -> Self
+pub fn TlsOptions::quic_defaults() -> Self
 pub fn TlsOptions::validate_client(Self) -> Result[Unit, TlsOptionsError]
 pub fn TlsOptions::validate_common(Self) -> Result[Unit, TlsOptionsError]
 pub fn TlsOptions::validate_server(Self) -> Result[Unit, TlsOptionsError]

@@ -23,14 +23,35 @@ pub struct H3Client {
   priv authority : @types.Authority
   priv streams : Map[Int64, H3ClientRequest]
   priv spawn : (async () -> Unit) -> @async.Task[Unit]
+  priv state_changed : () -> Unit
   priv mut terminal : Error?
+}
+
+///|
+/// A peer that is closing or has sent GOAWAY cannot accept new requests.
+pub fn H3Client::accepts_requests(self : H3Client) -> Bool {
+  self.terminal is None &&
+  self.io.session.peer_goaway() is None &&
+  !self.io.session.ended()
+}
+
+///|
+/// Includes responses retained by the caller and unfinished uploads.
+pub fn H3Client::is_idle(self : H3Client) -> Bool {
+  self.streams.is_empty()
+}
+
+///|
+fn H3Client::notify_state_change(self : H3Client) -> Unit {
+  self.io.write_changed.broadcast()
+  (self.state_changed)()
 }
 
 ///|
 fn H3Client::release(self : H3Client, stream : H3ClientRequest) -> Unit {
   if stream.upload_done && stream.consumed {
     self.streams.remove(stream.incoming.id)
-    self.io.write_changed.broadcast()
+    self.notify_state_change()
   }
 }
 
@@ -51,7 +72,7 @@ fn H3Client::fail_request(
   if reset {
     (self.io.cancel_request)(id, H3RequestCancelled)
   }
-  self.io.write_changed.broadcast()
+  self.notify_state_change()
 }
 
 ///|
@@ -81,7 +102,7 @@ fn H3Client::close(
     }
     self.fail_request(id, error, reset=!preserve_complete)
   }
-  self.io.write_changed.broadcast()
+  self.notify_state_change()
 }
 
 ///|
@@ -273,7 +294,7 @@ async fn H3Client::read(self : H3Client) -> Unit {
           )
         Message(H3GoawayReceived(first)) => {
           self.terminal = Some(H3ClientError::Goaway(first))
-          self.io.write_changed.broadcast()
+          self.notify_state_change()
           for id in self.streams.keys().to_array() {
             if id >= first {
               self.fail_request(
@@ -302,6 +323,7 @@ pub async fn[X] with_h3_client(
   io : H3ConnectionIo,
   run : async (H3Client) -> X,
   origin_port? : Int? = None,
+  on_state_change? : () -> Unit = fn() {  },
 ) -> X {
   guard io.authenticated_origin is Some(peer) else {
     raise H3ClientError::InvalidOrigin
@@ -320,6 +342,7 @@ pub async fn[X] with_h3_client(
       authority,
       streams: Map([]),
       terminal: None,
+      state_changed: on_state_change,
       spawn: task => group.spawn(task, no_wait=true),
     }
     defer client.close(H3ClientError::ClientClosed, preserve_complete=false)

@@ -167,14 +167,18 @@ pub fn TlsOptions::validate_server(
 }
 
 ///|
-pub fn TlsOptions::for_quic(server_name : String) -> TlsOptions {
+pub fn TlsOptions::quic_defaults() -> TlsOptions {
   {
     ..TlsOptions::defaults(),
-    server_name: Some(server_name),
     alpn: ["h3"],
     min_version: Tls13,
     max_version: Some(Tls13),
   }
+}
+
+///|
+pub fn TlsOptions::for_quic(server_name : String) -> TlsOptions {
+  TlsOptions::quic_defaults().for_server_name(server_name)
 }
 
 ///|

@@ -7,32 +7,6 @@ pub(all) struct ClientEndpoint {
 } derive(Eq, Debug)
 
 ///|
-fn client_render_host(host : String) -> String {
-  if host.contains(":") && !host.has_prefix("[") {
-    "[" + host + "]"
-  } else {
-    host
-  }
-}
-
-///|
-fn client_ascii_lower(value : String) -> String {
-  let bytes = @utf8.encode(value)
-  let lowered = FixedArray::make(bytes.length(), b'0')
-  for index in 0..<bytes.length() {
-    let byte = bytes[index]
-    lowered[index] = if byte >= b'A' && byte <= b'Z' {
-      (byte.to_int() + 32).to_byte()
-    } else {
-      byte
-    }
-  }
-  @utf8.decode(lowered.unsafe_reinterpret_as_bytes()) catch {
-    _ => value
-  }
-}
-
-///|
 pub fn ClientEndpoint::from_uri(
   uri : @types.Uri,
 ) -> Result[ClientEndpoint, ClientError] {
@@ -63,16 +37,11 @@ pub fn ClientEndpoint::from_uri(
     Some(value) => value
     None => if scheme == "https" { 443 } else { 80 }
   }
-  let normalized_host = client_ascii_lower(authority.host)
-  let transport = match @types.Endpoint::new(scheme, normalized_host, port) {
+  let transport = match @types.Endpoint::new(scheme, authority.host, port) {
     Ok(value) => value
     Err(error) => return Err(ClientInvalidEndpoint(error))
   }
-  let origin = scheme +
-    "://" +
-    client_render_host(normalized_host) +
-    ":" +
-    port.to_string()
+  let origin = scheme + "://" + transport.authority()
   Ok({ uri, transport, secure: scheme == "https", origin, })
 }
 

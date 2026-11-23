@@ -22,6 +22,8 @@ Last reviewed: 2026-11-23
 ## 不变量与范围
 每次建连前都对 DNS 返回的数字地址授权。`with_http2_client` 按源站共享建连及 HTTP/2 会话，收到对端初始 SETTINGS 后才调度请求。HTTPS 要求协商 `h2`，明文连接使用 prior knowledge。`Http2PoolOptions.max_connections` 限制物理连接总数，含正在建连和收到 GOAWAY 后仍在完成请求的连接。`execute` 返回有大小上限的字节响应，`execute_body` 支持流式上传和响应。在作用域内读完或取消响应体，退出时连接和后台任务统一回收。
 
+`with_http3_pool` 接受已验证的 HTTP/3 建连回调。`Http3Client::send` 使用绝对 HTTPS URI，按主机和有效端口复用连接。同源并发请求共用一次握手。达到容量上限时，其他源等待连接释放。请在作用域内读完或取消响应体。
+
 ## 规范文档
 - [中文总览](../../README_zh.md)
 - [包地图](../../docs/concepts/packages.md)

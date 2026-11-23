@@ -1,12 +1,4 @@
 ///|
-fn[T, E : Error] h3_native_value(value : Result[T, E]) -> T raise E {
-  match value {
-    Ok(value) => value
-    Err(error) => raise error
-  }
-}
-
-///|
 /// Connect one policy-authorized numeric UDP endpoint. Supply the origin's
 /// TLS identity in options (TlsOptions::for_quic enables peer verification).
 /// The callback owns application streams within this authenticated connection.
@@ -23,30 +15,26 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_connection(
 ) -> X {
   let entropy = @tls_native.NativeEntropy::new()
   let clock = @transport_native.NativeClock::new()
-  let original = h3_native_value(@quic.ConnectionId::random(entropy))
-  let local_id = h3_native_value(@quic.ConnectionId::random(entropy))
-  let packets = h3_native_value(
-    @quic.QuicDatagramDriver::new(
-      Client,
-      endpoint,
-      original,
-      local_id,
-      original,
-      now_ms=clock.monotonic_millis(),
-      transport_params~,
-      authorize=fn(peer, operation) { policy.authorize(peer, operation) },
-    ),
-  )
+  let original = @quic.ConnectionId::random(entropy).unwrap_or_error()
+  let local_id = @quic.ConnectionId::random(entropy).unwrap_or_error()
+  let packets = @quic.QuicDatagramDriver::new(
+    Client,
+    endpoint,
+    original,
+    local_id,
+    original,
+    now_ms=clock.monotonic_millis(),
+    transport_params~,
+    authorize=fn(peer, operation) { policy.authorize(peer, operation) },
+  ).unwrap_or_error()
   let provider = @tls_native.NativeQuicTlsProvider::new()
   defer provider.close()
-  let tls = h3_native_value(@quic.QuicTlsDriver::new(packets, provider))
-  let socket = h3_native_value(
-    @transport_native.UdpSocket::connect(
-      endpoint,
-      policy,
-      max_datagram_size=limits.max_datagram_bytes,
-    ),
-  )
+  let tls = @quic.QuicTlsDriver::new(packets, provider).unwrap_or_error()
+  let socket = @transport_native.UdpSocket::connect(
+    endpoint,
+    policy,
+    max_datagram_size=limits.max_datagram_bytes,
+  ).unwrap_or_error()
   @service.with_http3_connection(
     tls,
     socket,
@@ -70,6 +58,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_client(
   options : @transport.TlsOptions,
   run : async (@service.H3Client) -> X,
   origin_port? : Int? = None,
+  on_state_change? : () -> Unit = fn() {  },
   resolver? : &@transport.NameResolver? = None,
   resolve_options? : @transport.ResolveOptions = @transport.ResolveOptions::defaults(),
   limits? : @types.Limits = @types.Limits::defaults(),
@@ -84,18 +73,16 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_client(
   let candidates = match resolver {
     None => [endpoint]
     Some(resolver) =>
-      h3_native_value(
-        @transport.resolve_endpoints(
-          endpoint,
-          async fn(host, options) {
-            match policy.authorize(endpoint, Resolve) {
-              Err(error) => Err(Policy(error))
-              Ok(_) => resolver.resolve(host, options)
-            }
-          },
-          options=resolve_options,
-        ),
-      )
+      @transport.resolve_endpoints(
+        endpoint,
+        async fn(host, options) {
+          match policy.authorize(endpoint, Resolve) {
+            Err(error) => Err(Policy(error))
+            Ok(_) => resolver.resolve(host, options)
+          }
+        },
+        options=resolve_options,
+      ).unwrap_or_error()
   }
   let clock = @transport_native.NativeClock::new()
   let started = clock.monotonic_millis()
@@ -119,7 +106,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_client(
         options,
         async fn(io) {
           authenticated = true
-          @service.with_h3_client(io, run, origin_port~)
+          @service.with_h3_client(io, run, origin_port~, on_state_change~)
         },
         limits~,
         qpack_limits~,
@@ -155,4 +142,49 @@ fn h3_try_next_address(error : Error) -> Bool {
     @quic.QuicError::Transport(cause) => h3_try_next_address(cause)
     _ => false
   }
+}
+
+///|
+/// Open a bounded pool for absolute HTTPS requests. Each origin uses its own
+/// verified TLS identity and UDP connection. An explicit server name pins
+/// this pool to that hostname while still isolating distinct origin ports.
+pub async fn[R : @transport.NameResolver, P : @transport.NetworkPolicy, X] with_http3_pool(
+  resolver : R,
+  policy : P,
+  run : async (@client_api.Http3Client) -> X,
+  tls? : @transport.TlsOptions = @transport.TlsOptions::quic_defaults(),
+  max_connections? : Int = 32,
+  resolve_options? : @transport.ResolveOptions = @transport.ResolveOptions::defaults(),
+  limits? : @types.Limits = @types.Limits::defaults(),
+  qpack_limits? : @http3.QpackLimits = @http3.QpackLimits::defaults(),
+  transport_params? : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
+  handshake_timeout_ms? : Int = 10000,
+  shutdown_timeout_ms? : Int = 5000,
+) -> X {
+  if !tls.verify_peer {
+    raise @service.H3ClientError::InvalidOrigin
+  }
+  @client_api.with_http3_pool(
+    async fn(endpoint, ready, changed) {
+      let host = endpoint.transport.host()
+      let peer = @types.Endpoint::new("udp", host, endpoint.transport.port()).unwrap_or_error()
+      with_http3_client(
+        peer,
+        policy,
+        { ..tls, server_name: Some(host), },
+        ready,
+        resolver=Some(resolver),
+        on_state_change=changed,
+        resolve_options~,
+        limits~,
+        qpack_limits~,
+        transport_params~,
+        handshake_timeout_ms~,
+        shutdown_timeout_ms~,
+      )
+    },
+    run,
+    max_connections~,
+    server_name=tls.server_name,
+  )
 }

@@ -24,5 +24,7 @@ Call `execute_body` for streaming uploads and responses or `execute` for a
 bounded byte response. Consume or cancel streamed responses inside the scope.
 The scope closes its sockets and joins the connection workers on exit.
 
+Use `with_http3_pool` with an authenticated connection opener, or call the native factory with a resolver and policy. Send absolute HTTPS requests with `Http3Client::send`. Concurrent callers for one origin share a handshake. Distinct hosts or ports require separate connections, even when they resolve to the same IP. A response holds its connection until its body is consumed or cancelled and its upload finishes. The pool retires idle connections when another origin needs the capacity.
+
 The 0.7 line is an alpha API boundary; consult [migration](../../docs/guide/migration.md)
 before upgrading from 0.6.

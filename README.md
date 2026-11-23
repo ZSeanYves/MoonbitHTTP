@@ -119,7 +119,7 @@ README files; they are verification programs, not deployment templates.
 
 HTTP/1.1 and HTTP/2 have the broadest application coverage. HTTP/2 framing and
 HPACK target [RFC 9113](https://www.rfc-editor.org/rfc/rfc9113) and
-[RFC 7541](https://www.rfc-editor.org/rfc/rfc7541). The native HTTP/3 client accepts a numeric peer or a hostname with an explicit resolver, sends concurrent requests on one verified HTTPS origin and returns streaming responses. The native HTTP/3 listener accepts the same streaming request handler as HTTP/1 and HTTP/2. It routes connection IDs on one UDP socket, and its supervisor bounds concurrent handshakes and drains active peers on shutdown.
+[RFC 7541](https://www.rfc-editor.org/rfc/rfc7541). The native HTTP/3 client accepts a numeric peer or a hostname with an explicit resolver and returns streaming responses. Use `with_http3_pool` for multiple HTTPS origins, or `with_http3_client` for one authenticated connection. The native HTTP/3 listener accepts the same streaming request handler as HTTP/1 and HTTP/2. It routes connection IDs on one UDP socket, and its supervisor bounds concurrent handshakes and drains active peers on shutdown.
 
 Native TLS and QUIC require an explicitly selected provider. Wasm and
 JavaScript do not receive browser networking, DNS, UDP, or TLS automatically.
@@ -143,8 +143,7 @@ conditions, and [`CHANGELOG.md`](CHANGELOG.md) for version history.
 
 - `0.7.0` is an alpha architecture line with breaking package paths.
 - Native QUIC TLS requires OpenSSL 3.5 or newer.
-- A pooled HTTP/3 origin client, browser fetch/WebSocket adapters, and online
-  OCSP retrieval are outside the current scope.
+- Browser fetch/WebSocket adapters and online OCSP retrieval are outside the current scope.
 - A portable build proves compilation for a target; it does not prove that the
   target supplies a usable network implementation.
 

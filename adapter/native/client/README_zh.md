@@ -6,10 +6,12 @@ Source: working-tree (governed by Git)
 Last reviewed: 2026-11-23
 
 ## 用途
-提供 HTTP/1 客户端、HTTP/2 连接池和 HTTP/3 单连接会话的原生入口。
+提供 HTTP/1 客户端、HTTP/2、HTTP/3 连接池和 HTTP/3 单连接会话的原生入口。
 
 ## 入口
 使用 `new_http1_client` 创建 HTTP/1 客户端，使用 `with_http2_client` 执行作用域内的 HTTP/2 请求。两者均显式接收 resolver、policy、clock 和 TLS provider。
+
+`with_http3_pool(resolver, policy, run)` 接受多个源的绝对 HTTPS 请求，逐源验证证书。`tls` 可指定信任根和客户端证书，设置 `tls.server_name` 会把允许的请求限制在该主机。`max_connections` 默认 32，包含正在握手和排空的连接。GOAWAY 拒绝的请求由调用方决定是否重试。
 
 `with_http3_connection` 接受数字 UDP 端点、网络策略、TLS 配置和应用回调。用 `TlsOptions::for_quic(origin_host)` 验证原站身份并协商 h3。作用域管理 UDP 套接字、随机连接 ID 和 OpenSSL provider。回调可在同一连接上开启多个请求流，从 `H3ConnectionIo` 读取事件。
 

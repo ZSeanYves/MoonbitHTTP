@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Add a scoped HTTP/3 pool for absolute HTTPS requests. HTTP/2 and HTTP/3 share origin reservation, cancellation and connection limits. Requests retain their response bodies while the pool drains GOAWAY. The native factory resolves and verifies each origin independently.
+
 - Accept UDP hostnames in the native typed HTTP/3 client through an explicit resolver. HTTP/1, HTTP/2 and HTTP/3 share DNS deadlines, ordered numeric candidates and result bounds. The HTTP/3 client can try another permitted address before authentication, while certificate failure and application errors propagate to the caller.
 
 - Keep QUIC recovery moving when ordinary packet tracking is full. Timer probes have a separate 64-packet limit and reuse retained frames. An ACK releases shared data once, while recovery accounts for every packet copy. Padded flights elicit feedback before exhausting available credit.

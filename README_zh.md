@@ -108,6 +108,8 @@ Native TLS 与 QUIC 必须显式选择 provider。Wasm 和 JavaScript 不会自�
 网络、DNS、UDP 或 TLS。async runtime 使用协作式调度，宿主能力和应用 handler
 需要主动 yield，并让取消清理保持有界。
 
+Native `with_http3_pool` 按 HTTPS 源共享握手和连接，`max_connections` 同时限制建连中、可用和排空中的连接总数。
+
 ## 验证状态
 
 仓库在 CI 中执行 Native、Wasm、Wasm-GC 和 JavaScript 严格检查与测试、架构检查、
@@ -123,7 +125,7 @@ Native TLS 套件、HTTP/3/QUIC 互操作，以及受控 Native 性能/参考运
 
 - `0.7.0` 是 alpha 架构线，包路径可能发生破坏性变化。
 - Native QUIC TLS 需要 OpenSSL 3.5 或更高版本。
-- HTTP/3 按源连接池仍待实现。浏览器 fetch/WebSocket adapter 和在线 OCSP 获取属于后续范围。
+- 浏览器 fetch/WebSocket adapter 和在线 OCSP 获取属于后续范围。
 - 可移植目标构建通过只证明包可编译，不证明该目标已经提供可用网络实现。
 
 ## 许可证

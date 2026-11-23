@@ -11,11 +11,10 @@ async fn main {
     FixedArray::makei(4096, i => (i % 251).to_byte()),
   )
   @async.with_timeout(20000, async fn() {
-    @native_client.with_http3_client(
-      endpoint,
+    @native_client.with_http3_pool(
+      resolver,
       @transport.AllowAllPolicy::new(),
-      options,
-      resolver=Some(resolver),
+      tls=options,
       async fn(client) {
         fn request(
           path : String,
@@ -43,7 +42,9 @@ async fn main {
         }
         @async.with_task_group(async fn(group) {
           let echo = group.spawn(async fn() {
-            let response = client.send(request("/echo", Post, payload))
+            let response = client.send(
+              request("https://localhost:18444/echo", Post, payload),
+            )
             let (body, _) = @body.collect(response.body, max_bytes=4096)
             guard response.version == Http3 &&
               response.status == 200 &&
@@ -66,6 +67,7 @@ async fn main {
             }
           }
           echo.wait()
+          assert_eq(client.connection_count(), 1)
         })
       },
     )
