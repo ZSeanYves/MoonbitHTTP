@@ -14,6 +14,66 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## HTTP/3 shutdown and QUIC frame handling at `abf4e1a`
+
+The supervisor sends a GOAWAY boundary on each established HTTP/3 connection.
+The listener tests check GOAWAY(0) on an idle peer and GOAWAY(4) on a
+connection with one admitted request. The waiting caller receives the cutoff,
+the admitted handler delivers all 32 KiB, and an expired shutdown deadline
+cancels and joins a suspended handler and releases its UDP route. The cutoff
+follows [RFC 9114 section 5.2](https://www.rfc-editor.org/rfc/rfc9114.html#section-5.2).
+
+On macOS, a full-suite run exposed a race between an orderly peer close and
+the server sending GOAWAY. Repeated duplex tests exposed a second race when
+an earlier datagram send resumed during local shutdown. After both repairs,
+four batches of 250 real-socket runs each completed all three requests, with
+the 413 early response, one upload cancellation, byte-exact echo and trailers,
+and a single completed connection.
+
+QUIC frame encoding now checks the batch byte budget as it writes. A value
+outside the 62-bit varint range previously aborted the Native process. The
+public encoder now returns a typed error. ACK wire fields and caller-provided
+ACKs share the same bounds. Recovery consumes validated incoming ranges
+directly. A close-only packet also reaches the peer when the recovery queue
+has no free slots.
+
+| Check | macOS arm64 | Ubuntu 24.04 arm64 VM |
+| --- | --- | --- |
+| Strict check, build and full suite | Wasm 485/485, Wasm-GC 344/344, JS 485/485, Native 552/552 | Native 552/552 |
+| Native QUIC, TLS, client and listener packages, included above | 164/164 | 164/164 |
+| Independent HTTP/1.1, HTTP/2 and h2c socket cases | 6/6 | 6/6 |
+| Impaired HTTP/3 window, one authenticated connection per request | 60 in 121.653 s | 56 in 120.579 s |
+
+On each OS, aioquic 1.3.0 completed 256 requests on one MoonBit connection
+and eight concurrent requests on another. Its 4,096-byte upload crossed the
+initial 256-byte stream and 1,024-byte connection windows. In the reverse
+role the typed MoonBit client verified a concurrent echo and 131,072-byte
+download and rejected a mismatched TLS hostname. The aioquic qlog confirmed
+the HTTP/3 application close code in both OS runs.
+
+Across the VM gateway, Ubuntu's ngtcp2 0.12.1 / nghttp3 0.8.0 GnuTLS
+client verified a 4,096-byte binary echo against the one-shot macOS server.
+The independent trace recorded GOAWAY(4) on the server control stream and
+CONNECTION_CLOSE frame type 0x1d with application error 0x100. With the roles
+reversed, the Ubuntu MoonBit client completed the concurrent echo and download
+against macOS aioquic through a UDP relay. The host qlog recorded the same
+application close code.
+
+The pinned compiler was `0.10.14+7d59c7ec9`. The package boundary check
+covered 28 manifests and 96 local dependencies. All 33 macOS Native TLS
+AddressSanitizer tests passed with leak detection disabled. The validation
+script verified restoration of the runtime and package manifest. The frozen
+425-file package passed its extracted four-target check with SHA-256
+`2c1ca2436f5f22211656142986fddae94075f53a34bf91a8274da492629bfaba`.
+
+The native HTTP/3 client still requires a numeric endpoint and manages one
+origin connection per scope. QUIC recovery also needs separate accounting for
+non-ACK-eliciting packets containing PADDING as defined in
+[RFC 9002 section 2](https://www.rfc-editor.org/rfc/rfc9002.html#section-2).
+Both OSes shared one physical
+Mac. Windows at the candidate revision, sustained capacity and recovery on
+independent hosts, and independent security review remain open.
+
 ## Typed HTTP/3 applications at `e5ca13e`
 
 HTTP/3 now runs the same streaming request handler as HTTP/1 and HTTP/2.
@@ -55,11 +115,9 @@ The frozen 425-file source package passed a strict four-target check after
 extraction. Its SHA-256 was
 `d725113a3c87eacbcb1953066b6bb1e276bfd405bf6cff3f551f6955fe3e6788`.
 
-The typed HTTP/3 client still takes a numeric endpoint and owns one connection
-per scope. Origin pooling with DNS and server-initiated GOAWAY during shutdown
-remain open. Both systems here share one physical Mac. Windows verification of
-this revision, sustained capacity and recovery on independent hosts, and
-independent security review remain release gates.
+At this revision the typed client used one numeric endpoint per scope. The
+later shutdown record above covers server-initiated GOAWAY. Both systems
+shared one physical Mac.
 
 ## HTTP/3 client and listener at `4355e04`
 
