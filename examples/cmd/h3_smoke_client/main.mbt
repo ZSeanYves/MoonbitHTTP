@@ -5,7 +5,8 @@ async fn main {
     ..@transport.TlsOptions::for_quic("localhost"),
     trust_anchors: Some(cert),
   }
-  let endpoint = @types.Endpoint::new("udp", "127.0.0.1", 18444).unwrap()
+  let endpoint = @types.Endpoint::new("udp", "localhost", 18444).unwrap()
+  let resolver = @transport_native.NativeResolver::new()
   let payload = Bytes::from_array(
     FixedArray::makei(4096, i => (i % 251).to_byte()),
   )
@@ -14,6 +15,7 @@ async fn main {
       endpoint,
       @transport.AllowAllPolicy::new(),
       options,
+      resolver=Some(resolver),
       async fn(client) {
         fn request(
           path : String,
@@ -73,6 +75,7 @@ async fn main {
     endpoint,
     @transport.AllowAllPolicy::new(),
     wrong_name,
+    resolver=Some(resolver),
     _ => fail("handshake callback accepted a mismatched identity"),
   ) catch {
     // OpenSSL X509_V_ERR_HOSTNAME_MISMATCH.

@@ -54,6 +54,12 @@ pub fn Endpoint::new(
 }
 
 ///|
+/// Pin a validated endpoint to a numeric peer without changing its scheme or port.
+pub fn Endpoint::with_address(self : Endpoint, address : IpAddress) -> Endpoint {
+  { ..self, host: address.value(), }
+}
+
+///|
 pub fn Endpoint::scheme(self : Endpoint) -> String {
   self.scheme
 }

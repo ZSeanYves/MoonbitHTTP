@@ -14,5 +14,7 @@ entry point. The HTTP/2 pool limits and timeouts are in `Http2PoolOptions`.
 
 `with_http3_client` supplies a typed `H3Client` for one verified HTTPS origin. `send(request)` returns `Response[BodyStream]` as soon as final headers arrive, while the request body can still be uploading. Read or cancel each response inside the scope. The default origin uses the TLS hostname and UDP peer port. Set `origin_port` if the logical HTTPS port differs. The client rejects a different origin and omits proxy credentials on this direct connection.
 
+For a UDP hostname, pass `resolver=Some(resolver)` to `with_http3_client` and supply the HTTPS origin's identity in `TlsOptions::for_quic`. The client checks the lookup policy before DNS and the endpoint policy before opening each socket. Candidate addresses follow resolver order and share the handshake time budget. Certificate failure ends the handshake. After authentication the application callback runs once. `resolve_options` controls DNS time and the maximum number of returned addresses examined.
+
 See [`adapter/native/transport`](../transport/) and [`adapter/native/tls`](../tls/)
 for the injected providers.

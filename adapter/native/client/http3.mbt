@@ -61,14 +61,17 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_connection(
 }
 
 ///|
-/// Use concurrent HTTP requests on one verified HTTPS origin. The connection
-/// uses the numeric UDP endpoint and the hostname in the TLS options.
+/// Use concurrent HTTP requests on one verified HTTPS origin. An explicit
+/// resolver enables hostname endpoints. All addresses share the handshake
+/// timeout, and the TLS options retain the authenticated origin identity.
 pub async fn[P : @transport.NetworkPolicy, X] with_http3_client(
   endpoint : @types.Endpoint,
   policy : P,
   options : @transport.TlsOptions,
   run : async (@service.H3Client) -> X,
   origin_port? : Int? = None,
+  resolver? : &@transport.NameResolver? = None,
+  resolve_options? : @transport.ResolveOptions = @transport.ResolveOptions::defaults(),
   limits? : @types.Limits = @types.Limits::defaults(),
   qpack_limits? : @http3.QpackLimits = @http3.QpackLimits::defaults(),
   transport_params? : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
@@ -78,20 +81,78 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_client(
   if !options.verify_peer {
     raise @service.H3ClientError::InvalidOrigin
   }
-  with_http3_connection(
-    endpoint,
-    policy,
-    options,
-    io => @service.with_h3_client(io, run, origin_port~),
-    limits~,
-    qpack_limits~,
-    transport_params={
-      ..transport_params,
-      initial_max_stream_data_bidi_local: transport_params.initial_max_stream_data_bidi_local.min(
-        limits.max_buffer_bytes.to_int64(),
-      ),
-    },
-    handshake_timeout_ms~,
-    shutdown_timeout_ms~,
-  )
+  let candidates = match resolver {
+    None => [endpoint]
+    Some(resolver) =>
+      h3_native_value(
+        @transport.resolve_endpoints(
+          endpoint,
+          async fn(host, options) {
+            match policy.authorize(endpoint, Resolve) {
+              Err(error) => Err(Policy(error))
+              Ok(_) => resolver.resolve(host, options)
+            }
+          },
+          options=resolve_options,
+        ),
+      )
+  }
+  let clock = @transport_native.NativeClock::new()
+  let started = clock.monotonic_millis()
+  for index = 0; ; index = index + 1 {
+    let remaining = candidates.length() - index
+    let timeout = if candidates.length() == 1 || handshake_timeout_ms <= 0 {
+      handshake_timeout_ms
+    } else {
+      let budget = handshake_timeout_ms.to_int64() -
+        (clock.monotonic_millis() - started)
+      if budget <= 0L {
+        raise @transport.TransportError::Timeout(Connect)
+      }
+      (budget / remaining.to_int64()).max(1L).to_int()
+    }
+    let mut authenticated = false
+    try {
+      return with_http3_connection(
+        candidates[index],
+        policy,
+        options,
+        async fn(io) {
+          authenticated = true
+          @service.with_h3_client(io, run, origin_port~)
+        },
+        limits~,
+        qpack_limits~,
+        transport_params={
+          ..transport_params,
+          initial_max_stream_data_bidi_local: transport_params.initial_max_stream_data_bidi_local.min(
+            limits.max_buffer_bytes.to_int64(),
+          ),
+        },
+        handshake_timeout_ms=timeout,
+        shutdown_timeout_ms~,
+      )
+    } catch {
+      error if !authenticated && remaining > 1 && h3_try_next_address(error) =>
+        continue
+      error => raise error
+    }
+  }
+}
+
+///|
+/// Policy denial and a path that cannot carry UDP apply to this address.
+/// An authentication error or a failure from the callback ends the scope.
+fn h3_try_next_address(error : Error) -> Bool {
+  match error {
+    @async.TimeoutError
+    | @quic.QuicError::Policy(Denied(QuicEndpoint, _))
+    | @transport.TransportError::Policy(Denied(QuicEndpoint, _)) => true
+    @transport.TransportError::SystemFailure(op, _, _)
+    | @transport.TransportError::NativeFailure(op, _, _, _)
+    | @transport.TransportError::Failed(op, _)
+    | @transport.TransportError::Timeout(op) => op is (Connect | Send | Receive)
+    @quic.QuicError::Transport(cause) => h3_try_next_address(cause)
+    _ => false
+  }
 }

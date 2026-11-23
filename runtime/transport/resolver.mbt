@@ -51,3 +51,48 @@ pub impl NameResolver for StaticResolver with fn resolve(self, host, options) {
     None => Err(Failed(Resolve, "host was not found by resolver"))
   }
 }
+
+///|
+/// Resolve a transport endpoint once, preserving address order and bounding the
+/// result and wait even when the injected resolver does not enforce its options.
+/// The caller authorizes the lookup and each numeric destination before use.
+pub async fn resolve_endpoints(
+  endpoint : Endpoint,
+  lookup : async (String, ResolveOptions) -> Result[
+    Array[IpAddress],
+    TransportError,
+  ],
+  options? : ResolveOptions = ResolveOptions::defaults(),
+) -> Result[Array[Endpoint], TransportError] {
+  match options.validate() {
+    Err(error) => return Err(error)
+    Ok(_) => ()
+  }
+  if IpAddress::parse(endpoint.host()) is Ok(_) {
+    return Ok([endpoint])
+  }
+  let result = match options.timeout_ms {
+    Some(timeout) =>
+      @async.with_timeout(timeout, async fn() {
+        lookup(endpoint.host(), options)
+      }) catch {
+        @async.TimeoutError => return Err(Timeout(Resolve))
+        error => raise error
+      }
+    None => lookup(endpoint.host(), options)
+  }
+  let addresses = match result {
+    Err(error) => return Err(error)
+    Ok([]) => return Err(Failed(Resolve, "resolver returned no addresses"))
+    Ok(addresses) => addresses
+  }
+  let candidates : Array[Endpoint] = []
+  let seen : Set[String] = Set([])
+  for index in 0..<addresses.length().min(options.max_results) {
+    let address = addresses[index]
+    if seen.add_and_check(address.value()) {
+      candidates.push(endpoint.with_address(address))
+    }
+  }
+  Ok(candidates)
+}

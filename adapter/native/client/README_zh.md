@@ -19,7 +19,7 @@ Last reviewed: 2026-11-23
 本包仅支持 Native。HTTP/3 使用 `protocol/http3`、`protocol/quic` 和 `runtime/service`，网络和 TLS 由 `adapter/native/transport` 和 `adapter/native/tls` 提供。
 
 ## 使用边界
-HTTP/1 和 HTTP/2 使用传入的 resolver 解析主机名。HTTP/3 单独接收数字 UDP 地址和 TLS 身份。三种入口在打开套接字前检查网络策略。
+HTTP/3 的 `with_http3_client` 接受主机名。通过 `resolver=Some(resolver)` 显式传入解析器，用 `TlsOptions::for_quic` 指定原始 HTTPS 身份。客户端在 DNS 查询前检查主机名策略，按返回顺序尝试允许连接的数字地址。候选地址共享握手时间预算，`resolve_options` 控制 DNS 超时和结果数。证书校验失败会立即结束握手，认证成功后应用回调只执行一次。
 
 ## 规范文档
 - [中文总览](../../../README_zh.md)

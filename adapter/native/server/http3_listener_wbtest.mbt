@@ -422,6 +422,29 @@ async test "HTTP/3 typed client: cancel a duplex response and reuse one stream s
 }
 
 ///|
+struct H3TestRoutePolicy {
+  denied : Array[String]
+  lookups : Array[String]
+}
+
+///|
+impl @transport.NetworkPolicy for H3TestRoutePolicy with fn authorize(
+  self,
+  endpoint,
+  operation,
+) {
+  match operation {
+    Resolve => self.lookups.push(endpoint.host())
+    QuicEndpoint if endpoint.host() == "127.0.0.2" => {
+      self.denied.push(endpoint.host())
+      return Err(Denied(operation, "blocked test address"))
+    }
+    _ => ()
+  }
+  Ok(())
+}
+
+///|
 async test "HTTP/3 typed client: a complete response survives peer close during an unfinished upload" {
   @async.with_timeout(8000, async fn() {
     let (ct, st) = listener_tls_options()
@@ -451,9 +474,25 @@ async test "HTTP/3 typed client: a complete response survives peer close during 
     let supervisor = @server_api.ServerSupervisor::new().unwrap()
     @async.with_task_group(async fn(group) {
       let serving = group.spawn(async fn() { listener.serve(supervisor) })
+      let routes : H3TestRoutePolicy = { denied: [], lookups: [], }
+      let destination = @types.Endpoint::new(
+        "udp",
+        "route.test",
+        endpoint.port(),
+      ).unwrap()
+      let resolver = @transport.StaticResolver::new([
+        (
+          "route.test",
+          [
+            @types.IpAddress::parse("127.0.0.2").unwrap(),
+            @types.IpAddress::parse("127.0.0.1").unwrap(),
+            @types.IpAddress::parse("224.0.0.2").unwrap(),
+          ],
+        ),
+      ])
       @client_native.with_http3_client(
-        endpoint,
-        policy,
+        destination,
+        routes,
         { ..ct, alpn: ["h3"], },
         async fn(client) {
           let waiting : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
@@ -477,7 +516,33 @@ async test "HTTP/3 typed client: a complete response survives peer close during 
           assert_eq(response.status, 413)
           assert_eq(body, data)
         },
+        resolver=Some(resolver),
       )
+      // A transport-shaped error from the application must propagate once.
+      let mut callbacks = 0
+      try
+        @client_native.with_http3_client(
+          destination,
+          routes,
+          { ..ct, alpn: ["h3"], },
+          fn(_) -> Unit raise {
+            callbacks += 1
+            raise @transport.TransportError::Failed(
+              Receive,
+              "application finished",
+            )
+          },
+          resolver=Some(resolver),
+        )
+      catch {
+        @transport.TransportError::Failed(Receive, "application finished") => ()
+        other => raise other
+      } noraise {
+        _ => fail("application error was lost")
+      }
+      assert_eq(callbacks, 1)
+      assert_eq(routes.lookups, ["route.test", "route.test"])
+      assert_eq(routes.denied, ["127.0.0.2", "127.0.0.2"])
       supervisor.begin_shutdown().unwrap()
       assert_eq(serving.wait(), Ok(()))
     })

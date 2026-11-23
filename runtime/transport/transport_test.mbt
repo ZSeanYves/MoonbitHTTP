@@ -50,6 +50,50 @@ async test "transport: resolver enforces explicit limits" {
 }
 
 ///|
+async test "transport resolves ordered numeric endpoints within the caller's bounds" {
+  let origin = @types.Endpoint::new("udp", "example.test", 8443).unwrap()
+  let v4 = @types.IpAddress::parse("127.0.0.1").unwrap()
+  let v6 = @types.IpAddress::parse("::1").unwrap()
+  let mut calls = 0
+  let resolved = @transport.resolve_endpoints(
+    origin,
+    (host, _) => {
+      calls += 1
+      assert_eq(host, "example.test")
+      Ok([v6, v6, v4, @types.IpAddress::parse("192.0.2.2").unwrap()])
+    },
+    options={ timeout_ms: None, max_results: 3, },
+  ).unwrap()
+  assert_eq(resolved.map(e => (e.scheme(), e.authority())), [
+    ("udp", "[::1]:8443"),
+    ("udp", "127.0.0.1:8443"),
+  ])
+  assert_eq(
+    @transport.resolve_endpoints(resolved[0], fn(_, _) {
+      calls += 1
+      Ok([])
+    }).unwrap(),
+    [resolved[0]],
+  )
+  assert_eq(calls, 1)
+  assert_true(
+    @transport.resolve_endpoints(origin, fn(_, _) { Ok([]) })
+    is Err(Failed(Resolve, _)),
+  )
+  assert_true(
+    @transport.resolve_endpoints(
+      origin,
+      async fn(_, _) {
+        @async.sleep(1000)
+        Ok([v4])
+      },
+      options={ timeout_ms: Some(10), max_results: 1, },
+    )
+    is Err(Timeout(Resolve)),
+  )
+}
+
+///|
 test "transport: resolved addresses are unambiguous numeric IP literals" {
   assert_eq(@types.IpAddress::parse("192.0.2.1").unwrap().value(), "192.0.2.1")
   assert_eq(

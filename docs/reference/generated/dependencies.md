@@ -129,5 +129,6 @@ flowchart TD
   p_examples_cmd_smoke_server --> p_adapter_native_server
   p_examples_cmd_h3_smoke_client --> p_adapter_native_client
   p_examples_cmd_h3_smoke_server --> p_adapter_native_server
+  p_examples_cmd_h3_smoke_client --> p_adapter_native_transport
   p_adapter_native_tls -. "wbtest" .-> p_internal_test_support_native_tls_revocation
 ```

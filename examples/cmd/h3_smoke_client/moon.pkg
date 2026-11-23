@@ -4,6 +4,7 @@ import {
   "ZSeanYves/MoonbitHTTP/core/types",
   "ZSeanYves/MoonbitHTTP/runtime/transport",
   "ZSeanYves/MoonbitHTTP/adapter/native/client" @native_client,
+  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @transport_native,
   "ZSeanYves/MoonbitHTTP/core/body",
   "ZSeanYves/MoonbitHTTP/runtime/service",
   "ZSeanYves/MoonbitHTTP/protocol/quic",

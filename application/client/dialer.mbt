@@ -174,63 +174,33 @@ async fn ClientDialer::resolve_candidates(
   self : ClientDialer,
   endpoint : @types.Endpoint,
 ) -> Result[Array[@types.Endpoint], ClientError] {
-  if @types.IpAddress::parse(endpoint.host()) is Ok(_) {
-    return Ok([endpoint])
-  }
   let resolve = match self.network.resolve {
-    Some(value) => value
+    Some(resolve) => resolve
+    None if @types.IpAddress::parse(endpoint.host()) is Ok(_) =>
+      return Ok([endpoint])
     None =>
       return Err(
         ClientInvalidOptions("hostname endpoints require an explicit resolver"),
       )
   }
   let started = (self.network.now_millis)().max(0L)
-  let result = match self.resolve_options.timeout_ms {
-    Some(timeout) =>
-      @async.with_timeout(timeout, async fn() {
-        resolve(endpoint.host(), self.resolve_options)
-      }) catch {
-        @async.TimeoutError =>
-          return Err(client_phase_timeout(ClientResolve, started, timeout))
-        error => raise error
-      }
-    None => resolve(endpoint.host(), self.resolve_options)
+  match
+    @transport.resolve_endpoints(
+      endpoint,
+      resolve,
+      options=self.resolve_options,
+    ) {
+    Ok(candidates) => Ok(candidates)
+    Err(Timeout(Resolve)) =>
+      Err(
+        client_phase_timeout(
+          ClientResolve,
+          started,
+          self.resolve_options.timeout_ms.unwrap_or(0),
+        ),
+      )
+    Err(error) => Err(ClientTransport(error))
   }
-  let addresses = match result {
-    Ok(value) => value
-    Err(Timeout(Resolve)) => {
-      let timeout = self.resolve_options.timeout_ms.unwrap_or(0)
-      return Err(client_phase_timeout(ClientResolve, started, timeout))
-    }
-    Err(error) => return Err(ClientTransport(error))
-  }
-  if addresses.is_empty() {
-    return Err(
-      ClientTransport(Failed(Resolve, "resolver returned no addresses")),
-    )
-  }
-  let candidates : Array[@types.Endpoint] = []
-  let count = addresses.length().min(self.resolve_options.max_results)
-  for index in 0..<count {
-    let address = match @types.IpAddress::parse(addresses[index].value()) {
-      Ok(value) => value
-      Err(_) =>
-        return Err(
-          ClientTransport(
-            Failed(Resolve, "resolver returned a non-numeric address"),
-          ),
-        )
-    }
-    let candidate = match
-      @types.Endpoint::new(endpoint.scheme(), address.value(), endpoint.port()) {
-      Ok(value) => value
-      Err(error) => return Err(ClientTransport(InvalidEndpoint(error)))
-    }
-    if !candidates.contains(candidate) {
-      candidates.push(candidate)
-    }
-  }
-  Ok(candidates)
 }
 
 ///|

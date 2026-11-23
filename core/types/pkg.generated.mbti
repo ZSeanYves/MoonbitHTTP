@@ -122,6 +122,7 @@ pub fn Endpoint::op_lt(Self, Self) -> Bool
 pub fn Endpoint::port(Self) -> Int
 pub fn Endpoint::scheme(Self) -> String
 pub fn Endpoint::to_repr(Self) -> @debug.Repr
+pub fn Endpoint::with_address(Self, IpAddress) -> Self
 
 pub(all) struct HeaderField {
   name : HeaderName

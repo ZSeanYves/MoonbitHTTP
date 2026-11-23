@@ -7,6 +7,7 @@ import {
 }
 
 // Values
+pub async fn resolve_endpoints(@types.Endpoint, async (String, ResolveOptions) -> Result[Array[@types.IpAddress], TransportError], options? : ResolveOptions) -> Result[Array[@types.Endpoint], TransportError]
 
 // Errors
 pub(all) suberror ConnectOptionsError {

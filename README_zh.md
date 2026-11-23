@@ -102,7 +102,7 @@ RFC 链接说明实现对照的协议契约，不表示所有可选扩展或部�
 HTTP/1.1 和 HTTP/2 具有最完整的应用覆盖。HTTP/2 framing 与 HPACK 对照
 [RFC 9113](https://www.rfc-editor.org/rfc/rfc9113) 和
 [RFC 7541](https://www.rfc-editor.org/rfc/rfc7541)。HTTP/3 与 QUIC 当前提供
-可流式读写的连接会话。原生客户端可在同一个经过认证的 HTTPS 源上并发发送带类型的请求，返回流式响应。HTTP/3 原生监听器可接入与 HTTP/1、HTTP/2 相同的流式请求处理器。它在同一个 UDP 套接字上按连接 ID 分发，使用 supervisor 限制并发连接，并在关闭时等待已接入的连接完成。
+可流式读写的连接会话。原生客户端接受数字地址，也可使用显式解析器连接主机名。它在同一个经过认证的 HTTPS 源上并发发送请求并返回流式响应。HTTP/3 原生监听器可接入与 HTTP/1、HTTP/2 相同的流式请求处理器。它在同一个 UDP 套接字上按连接 ID 分发，使用 supervisor 限制并发连接，并在关闭时等待已接入的连接完成。
 
 Native TLS 与 QUIC 必须显式选择 provider。Wasm 和 JavaScript 不会自动获得浏览器
 网络、DNS、UDP 或 TLS。async runtime 使用协作式调度，宿主能力和应用 handler
