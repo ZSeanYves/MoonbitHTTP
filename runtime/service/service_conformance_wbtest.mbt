@@ -47,6 +47,13 @@ test "http2 request semantics require authority and constrain TE" {
     decode_h2_request(1, bad_te) is Err(StreamError(1, ProtocolError, _)),
     true,
   )
+  let te : @http2.HpackHeader = { name: "te", value: b"TrAiLeRs", }
+  bad_te[4] = te
+  assert_true(decode_h2_request(1, bad_te) is Ok(_))
+  assert_true(
+    decode_client_response(1, [{ name: ":status", value: b"200", }, te])
+    is Err(StreamError(1, ProtocolError, _)),
+  )
 }
 
 ///|

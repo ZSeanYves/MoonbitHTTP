@@ -32,6 +32,11 @@ test "h2 incremental: response encoder emits HEADERS and DATA" {
   assert_eq(headers.header.typ, @http2.H2_FRAME_HEADERS)
   assert_eq(data.header.typ, @http2.H2_FRAME_DATA)
   assert_eq((data.header.flags & @http2.H2_FLAGS_END_STREAM) != 0, true)
+  response.headers.append_string("te", "trailers").unwrap()
+  assert_true(
+    @http2.encode_response_frames(@http2.HpackContext::new(), 1, response)
+    is Err(StreamError(1, ProtocolError, _)),
+  )
 }
 
 ///|

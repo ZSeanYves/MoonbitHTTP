@@ -128,21 +128,12 @@ fn decode_h2_request(
       }
     } else {
       saw_regular = true
-      if h2_connection_specific(field.name) {
+      if !@http_fields.Request.allows(field.name, field.value) {
         return Err(
           StreamError(
             stream_id,
             ProtocolError,
-            "connection-specific HTTP/2 header",
-          ),
-        )
-      }
-      if field.name == "te" && !h2_ascii_equal_fold(field.value, b"trailers") {
-        return Err(
-          StreamError(
-            stream_id,
-            ProtocolError,
-            "HTTP/2 TE only permits trailers",
+            "forbidden HTTP/2 request field",
           ),
         )
       }
@@ -706,7 +697,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         let trailers = @types.HeaderMap::new()
         for field in fields {
           if field.name.has_prefix(":") ||
-            h2_forbidden_trailer(field.name) ||
+            !@http_fields.Trailers.allows(field.name, field.value) ||
             !append_h2_regular_header(trailers, field) {
             reset_stream(stream_id, ProtocolError)
             return

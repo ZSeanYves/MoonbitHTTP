@@ -359,7 +359,7 @@ fn decode_client_response(
       }
     } else {
       regular = true
-      if h2_connection_specific(field.name) {
+      if !@http_fields.Response.allows(field.name, field.value) {
         return Err(
           StreamError(
             stream_id,
@@ -388,12 +388,13 @@ fn decode_client_trailers(
 ) -> Result[@types.HeaderMap, @http2.H2ProtocolError] {
   let headers = @types.HeaderMap::new()
   for field in fields {
-    if field.name.has_prefix(":") || h2_forbidden_trailer(field.name) {
+    if field.name.has_prefix(":") ||
+      !@http_fields.Trailers.allows(field.name, field.value) {
       return Err(
         StreamError(
           stream_id,
           ProtocolError,
-          "pseudo-header in response trailers",
+          "forbidden HTTP/2 response trailer",
         ),
       )
     }

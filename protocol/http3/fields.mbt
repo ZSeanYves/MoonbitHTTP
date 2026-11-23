@@ -16,34 +16,6 @@ pub(all) struct H3MessageMetadata {
 } derive(Eq, Debug)
 
 ///|
-fn h3_ascii_equal_fold(value : BytesView, expected : BytesView) -> Bool {
-  if value.length() != expected.length() {
-    return false
-  }
-  for index in 0..<value.length() {
-    let byte = value[index]
-    let folded = if byte >= b'A' && byte <= b'Z' {
-      (byte.to_int() + 32).to_byte()
-    } else {
-      byte
-    }
-    if folded != expected[index] {
-      return false
-    }
-  }
-  true
-}
-
-///|
-fn h3_connection_specific_field(name : String) -> Bool {
-  name == "connection" ||
-  name == "proxy-connection" ||
-  name == "keep-alive" ||
-  name == "transfer-encoding" ||
-  name == "upgrade"
-}
-
-///|
 fn h3_parse_decimal(value : BytesView) -> Result[Int64, Unit] {
   if value.is_empty() {
     return Err(())
@@ -139,16 +111,6 @@ fn h3_field_text(
 }
 
 ///|
-fn h3_has_pseudo(seen : Array[String], name : String) -> Bool {
-  for value in seen {
-    if value == name {
-      return true
-    }
-  }
-  false
-}
-
-///|
 /// Validates the HTTP semantics of a decoded field section. Extended CONNECT
 /// is disabled unless the receiving server has advertised its support. Callers
 /// validating outgoing requests pass the peer server's SETTINGS value; callers
@@ -160,6 +122,11 @@ pub fn validate_http3_field_section(
   request_method? : String? = None,
   enable_connect_protocol? : Bool = false,
 ) -> Result[H3MessageMetadata, Http3Error] {
+  let regular_section : @http_fields.Section = match kind {
+    H3RequestFields | H3PushPromiseFields => Request
+    H3ResponseFields => Response
+    H3TrailerFields => Trailers
+  }
   let seen_pseudo : Array[String] = []
   let mut saw_regular = false
   let mut method_field : String? = None
@@ -180,7 +147,7 @@ pub fn validate_http3_field_section(
     if field.name.has_prefix(":") {
       if kind == H3TrailerFields ||
         saw_regular ||
-        h3_has_pseudo(seen_pseudo, field.name) {
+        seen_pseudo.contains(field.name) {
         return Err(
           Http3StreamError(
             stream_id,
@@ -223,29 +190,9 @@ pub fn validate_http3_field_section(
       }
     } else {
       saw_regular = true
-      if h3_connection_specific_field(field.name) ||
-        (field.name == "te" && !h3_ascii_equal_fold(field.value, b"trailers")) {
+      if !regular_section.allows(field.name, field.value) {
         return Err(
-          Http3StreamError(
-            stream_id,
-            H3MessageError,
-            "connection-specific field in HTTP/3",
-          ),
-        )
-      }
-      if kind == H3TrailerFields &&
-        (
-          field.name == "content-length" ||
-          field.name == "host" ||
-          field.name == "te" ||
-          field.name == "trailer"
-        ) {
-        return Err(
-          Http3StreamError(
-            stream_id,
-            H3MessageError,
-            "forbidden HTTP/3 trailer field",
-          ),
+          Http3StreamError(stream_id, H3MessageError, "forbidden HTTP/3 field"),
         )
       }
       if field.name == "host" {

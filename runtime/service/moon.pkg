@@ -1,4 +1,5 @@
 import {
+  "ZSeanYves/MoonbitHTTP/internal/http_fields",
   "moonbitlang/async",
   "moonbitlang/async/cond_var",
   "moonbitlang/async/io" @aio,

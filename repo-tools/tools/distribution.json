@@ -15,6 +15,7 @@
     "policy/**",
     "adapter/**",
     "internal/test_support/**",
+    "internal/http_fields/**",
     "docs/README.md",
     "docs/concepts/**",
     "docs/development/**",

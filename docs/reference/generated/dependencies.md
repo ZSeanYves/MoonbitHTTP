@@ -24,6 +24,7 @@ flowchart TD
   p_adapter_native_tls["adapter/native/tls"]
   p_application_client["application/client"]
   p_application_server["application/server"]
+  p_internal_http_fields["internal/http_fields"]
   p_adapter_native_client["adapter/native/client"]
   p_adapter_native_server["adapter/native/server"]
   p_internal_test_support["internal/test_support"]
@@ -74,12 +75,15 @@ flowchart TD
   p_application_client --> p_runtime_service
   p_adapter_native_transport --> p_core_types
   p_examples_cmd_smoke_server --> p_core_body
+  p_protocol_http2 --> p_internal_http_fields
+  p_protocol_http3 --> p_internal_http_fields
   p_protocol_quic -. "test" .-> p_internal_test_support
   p_adapter_native_tls --> p_runtime_transport
   p_application_client --> p_runtime_transport
   p_application_server --> p_runtime_transport
   p_examples_cmd_smoke_server --> p_core_types
   p_internal_test_support -. "test" .-> p_protocol_http1
+  p_runtime_service --> p_internal_http_fields
   p_adapter_native_server --> p_runtime_service
   p_adapter_native_client --> p_runtime_transport
   p_adapter_native_server --> p_runtime_transport

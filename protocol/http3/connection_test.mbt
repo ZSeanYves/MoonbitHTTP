@@ -301,3 +301,25 @@ test "http3 runtime: unknown frames are ignored and cancellation releases state"
   assert_true(connection.cancel_request_stream(0L) is Ok(_))
   assert_eq(connection.stream_phase(0L), None)
 }
+
+///|
+test "http3: TE trailers is permitted only in a request field section" {
+  let te = qpack_test_field("te", "TraiLers")
+  let request = h3_request_fields()
+  request.push(te)
+  assert_true(
+    @http3.validate_http3_field_section(0L, request, H3RequestFields) is Ok(_),
+  )
+  assert_true(
+    @http3.validate_http3_field_section(
+      0L,
+      [qpack_test_field(":status", "200"), te],
+      H3ResponseFields,
+    )
+    is Err(Http3StreamError(0L, H3MessageError, _)),
+  )
+  assert_true(
+    @http3.validate_http3_field_section(0L, [te], H3TrailerFields)
+    is Err(Http3StreamError(0L, H3MessageError, _)),
+  )
+}

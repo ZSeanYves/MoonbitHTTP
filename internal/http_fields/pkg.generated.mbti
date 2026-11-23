@@ -1,0 +1,18 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/internal/http_fields"
+
+// Values
+
+// Errors
+
+// Types and methods
+pub(all) enum Section {
+  Request
+  Response
+  Trailers
+}
+pub fn Section::allows(Self, String, BytesView) -> Bool
+
+// Type aliases
+
+// Traits

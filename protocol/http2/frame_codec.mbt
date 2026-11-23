@@ -167,58 +167,17 @@ pub fn encode_window_update(
 }
 
 ///|
-fn ascii_equal_fold(value : BytesView, expected : BytesView) -> Bool {
-  if value.length() != expected.length() {
-    return false
-  }
-  for index in 0..<value.length() {
-    let byte = value[index]
-    let folded = if byte >= b'A' && byte <= b'Z' {
-      (byte.to_int() + 32).to_byte()
-    } else {
-      byte
-    }
-    if folded != expected[index] {
-      return false
-    }
-  }
-  true
-}
-
-///|
-fn connection_specific_header(name : String) -> Bool {
-  name == "connection" ||
-  name == "proxy-connection" ||
-  name == "transfer-encoding" ||
-  name == "upgrade" ||
-  name == "keep-alive"
-}
-
-///|
 fn validate_regular_field(
   stream_id : Int,
   field : @types.HeaderField,
-  trailer : Bool,
+  section : @http_fields.Section,
 ) -> Result[Unit, H2ProtocolError] {
-  if @types.HeaderName::parse(field.name.value) != Ok(field.name) ||
-    @types.HeaderValue::from_bytes(field.value.bytes) != Ok(field.value) {
-    return Err(StreamError(stream_id, ProtocolError, "invalid HTTP/2 field"))
+  // HeaderMap contains validated HeaderName and HeaderValue instances.
+  if section.allows(field.name.value, field.value.bytes) {
+    Ok(())
+  } else {
+    Err(StreamError(stream_id, ProtocolError, "forbidden HTTP/2 field"))
   }
-  let name = field.name.value
-  if connection_specific_header(name) ||
-    (name == "te" && !ascii_equal_fold(field.value.bytes, b"trailers")) ||
-    (
-      trailer &&
-      (
-        name == "content-length" ||
-        name == "host" ||
-        name == "te" ||
-        name == "trailer"
-      )
-    ) {
-    return Err(StreamError(stream_id, ProtocolError, "forbidden HTTP/2 field"))
-  }
-  Ok(())
 }
 
 ///|
@@ -317,7 +276,7 @@ fn[A] request_hpack_fields(
     if field.name.value == "host" {
       continue
     }
-    match validate_regular_field(stream_id, field, false) {
+    match validate_regular_field(stream_id, field, Request) {
       Ok(_) =>
         fields.push({ name: field.name.value, value: field.value.bytes, })
       Err(error) => return Err(error)
@@ -390,7 +349,7 @@ pub fn[A] encode_response_headers(
     { name: ":status", value: @utf8.encode(response.status.to_string()), },
   ]
   for field in response.headers.fields() {
-    match validate_regular_field(stream_id, field, false) {
+    match validate_regular_field(stream_id, field, Response) {
       Ok(_) => ()
       Err(error) => return Err(error)
     }
@@ -430,7 +389,7 @@ pub fn encode_trailers(
   }
   let fields : Array[HpackHeader] = []
   for field in trailers.fields() {
-    match validate_regular_field(stream_id, field, true) {
+    match validate_regular_field(stream_id, field, Trailers) {
       Ok(_) => ()
       Err(error) => return Err(error)
     }
