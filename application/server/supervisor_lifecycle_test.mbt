@@ -5,6 +5,7 @@ struct LifecycleListener {
   keep_open : Bool
   fail_accept : Bool
   mut waiting : Bool
+  mut closed_while_waiting : Bool
   mut closed : Bool
   mut close_calls : Int32
   mut before_return : (() -> Unit)?
@@ -22,6 +23,7 @@ fn LifecycleListener::new(
     keep_open,
     fail_accept,
     waiting: false,
+    closed_while_waiting: false,
     closed: false,
     close_calls: 0,
     before_return: None,
@@ -32,9 +34,11 @@ fn LifecycleListener::new(
 pub impl @server.Listener for LifecycleListener with fn accept(self) {
   while self.pending.is_empty() && self.keep_open && !self.closed {
     self.waiting = true
+    defer {
+      self.waiting = false
+    }
     self.signal.wait()
   }
-  self.waiting = false
   if self.closed {
     Ok(None)
   } else if !self.pending.is_empty() {
@@ -53,6 +57,7 @@ pub impl @server.Listener for LifecycleListener with fn accept(self) {
 ///|
 pub impl @server.Listener for LifecycleListener with fn close(self) {
   self.close_calls += 1
+  self.closed_while_waiting = self.closed_while_waiting || self.waiting
   self.closed = true
   self.signal.broadcast()
 }
@@ -244,6 +249,7 @@ async test "server supervisor: beginning shutdown wakes an idle accept" {
       supervisor.begin_shutdown().unwrap()
       assert_eq(serving.wait(), Ok(()))
     })
+    assert_false(listener.closed_while_waiting)
     assert_eq(listener.close_calls, 1)
     assert_eq(supervisor.state(), Stopped)
   })

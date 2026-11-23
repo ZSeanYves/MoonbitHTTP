@@ -119,14 +119,12 @@ pub fn ServerSupervisor::record_accept_error(
 pub fn ServerSupervisor::begin_shutdown(
   self : ServerSupervisor,
 ) -> Result[Unit, ServerError] {
-  // Descriptor closure alone does not wake every native event-loop backend.
-  // Cancel the owned accept task as well, without cancelling active peers.
+  // A pending Windows AcceptEx needs the listening handle until its
+  // cancellation completion is delivered. The accept loop closes it after
+  // joining the task. Repeated shutdown calls follow the same ordering.
   if self.cancel_accept is Some(cancel) {
-    self.cancel_accept = None
     cancel()
-  }
-  // Take the callback before invoking it so every exit closes it once.
-  if self.close_listener is Some(close) {
+  } else if self.close_listener is Some(close) {
     self.close_listener = None
     close()
   }
@@ -182,6 +180,8 @@ pub async fn[L : Listener] ServerSupervisor::serve(
     for cleanup in remaining {
       cleanup()
     }
+    // The group has joined its children, including an interrupted accept.
+    self.cancel_accept = None
     self.begin_shutdown() |> ignore
     if self.state != Stopped && self.active == 0 {
       self.finish_shutdown() |> ignore
