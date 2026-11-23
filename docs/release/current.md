@@ -14,6 +14,56 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## QUIC recovery under packet-tracking pressure at `0cb54c9`
+
+With one ordinary tracking slot occupied by Initial CRYPTO, the previous
+driver emitted nothing at the 997 ms probe deadline. Under the same limit,
+the client now emits two 1,200-byte protected probes. After the receiver
+delivers the CRYPTO bytes, an ACK for the original packet releases the shared
+payload and leaves exactly 2,400 bytes in flight. A cumulative ACK releases
+the remaining bytes. A separate test caps probe intervals at 1 ms, fills all
+64 reserved records, checks the structured limit error, and uses delayed ACKs
+to resume ordinary data and probe delivery.
+
+The sender replaces a PADDING byte with PING when padded traffic would
+consume the final ordinary slot or leave less than 1,200 bytes in its
+congestion window. Tests check PADDING adjacent to an ACK, automatic packet
+padding, a server Initial at the amplification limit, and preservation of packet
+numbers and retry backoff when transmission is blocked.
+[RFC 9000 section 13.2.7](https://www.rfc-editor.org/rfc/rfc9000.html#section-13.2.7)
+and [RFC 9002 section 6.2](https://www.rfc-editor.org/rfc/rfc9002.html#section-6.2)
+
+| Check | macOS arm64 | Ubuntu 24.04 arm64 VM |
+| --- | --- | --- |
+| Strict check, build and full suite | Wasm 502/502, Wasm-GC 361/361, JS 502/502, Native 569/569 | Native 569/569 |
+| Native QUIC, TLS, client and listener packages, included above | 181/181 | 181/181 |
+| HTTP/1.1, HTTP/2 and h2c real-socket interoperability | 6/6 | 6/6 |
+| Impaired aioquic 1.3.0 connections, one new connection per request | 57 in 120.625 s | 58 in 120.177 s |
+
+In separate runs on each OS, aioquic completed 256 requests on one connection
+and eight concurrently on another. The reverse-role client checked a 4,096-byte
+echo, a 131,072-byte download and hostname rejection. Both peer traces confirmed
+the application close. The loopback listener test now claims its own UDP port.
+The shutdown deadline case passed 32 additional times across four macOS processes.
+
+At `e964926`, a test-only change replaced a detached HTTP/2 fixture producer
+with the existing blocking reader. The isolated native header-write failure
+case went from 60.00 s to under 0.01 s with the same cancellation and error
+assertions. The full matrix above passed again. Across the VM gateway, the
+ngtcp2/nghttp3 GnuTLS client received a byte-exact 4,096-byte echo, GOAWAY(4)
+and an application close with code 0x100 from the macOS server.
+
+The pinned compiler was `0.10.14+7d59c7ec9`. All 33 macOS Native TLS ASan
+tests passed with leak detection disabled, and the runtime and manifest
+hashes were restored. The frozen package at `e964926` contained 428 files
+and passed its extracted four-target check. Its SHA-256 was
+`9c9a5ecc3ee1c69aabc0677013cdc078f5ef4092ad08a6415f2ca7833f3c0979`.
+
+Current Windows coverage, a sustained run between separate physical hosts,
+and independent review of the release revision remain open. Native HTTP/3
+clients accept a numeric endpoint and serve one authenticated origin per
+scope. Local QUIC connection ID issuance and rotation remain unsupported.
+
 ## QUIC recovery timers at `5e0f172`
 
 Two regressions failed on the preceding revision. With Initial sends at 0 and
@@ -54,10 +104,9 @@ check and had SHA-256
 
 Both operating systems ran on one physical machine. Current Windows results,
 sustained traffic between separate hosts and independent release-revision
-security review remain open. The tracking limit still applies to PTO probes.
-When the queue is full and no ACK or loss frees a slot, the connection can
-reach its idle timeout before sending another probe. The native HTTP/3 client
-currently takes a numeric endpoint and scopes a connection to one origin.
+security review remained open. At this revision a full tracking queue could
+prevent PTO probes until idle timeout. The [later pressure tests](#quic-recovery-under-packet-tracking-pressure-at-0cb54c9)
+cover recovery from that condition.
 
 ## QUIC congestion and cumulative ACKs at `dd0c77b`
 
