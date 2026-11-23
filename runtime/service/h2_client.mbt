@@ -935,8 +935,8 @@ async fn[B : @body.Body] send_h2_request_body(
   shared : H2ClientShared,
   stream : H2ClientStream,
   body : B,
+  expected : Int?,
 ) -> Unit {
-  let mut sent_trailers = false
   errdefer body.cancel(@body.BodyError::Cancelled)
   errdefer (shared.reset_stream(
     stream.id,
@@ -945,75 +945,33 @@ async fn[B : @body.Body] send_h2_request_body(
   ) catch {
     _ => ()
   })
-  while body.next_frame() is Some(frame) {
-    match frame {
-      Data(data) => {
-        if sent_trailers {
-          raise @http2.H2ProtocolError::StreamError(
-            stream.id,
-            ProtocolError,
-            "request data follows trailers",
-          )
+  write_h2_body(
+    stream.id,
+    body,
+    expected,
+    false,
+    async fn(requested) {
+      for ;; {
+        if stream.request_finished || shared.failure is Some(_) {
+          raise shared.closed_error()
         }
-        let mut offset = 0
-        while offset < data.length() {
-          if stream.request_finished || shared.failure is Some(_) {
-            raise shared.closed_error()
-          }
-          shared.runtime_lock.acquire()
-          let capacity = match
-            shared.runtime.reserve_send_capacity(
-              stream.id,
-              data.length() - offset,
-            ) {
-            Ok(value) => value
-            Err(error) => {
-              shared.runtime_lock.release()
-              raise error
-            }
-          }
-          shared.runtime_lock.release()
-          if capacity == 0 {
-            // No suspension separates the window check from registering this
-            // waiter. WINDOW_UPDATE persists credit and wakes every waiter.
-            stream.window_signal.wait()
-            continue
-          }
-          let encoded = match
-            @http2.encode_data_frames(
-              stream.id,
-              data[offset:offset + capacity].to_owned(),
-              false,
-            ) {
-            Ok(value) => value
-            Err(error) => raise error
-          }
-          shared.write_bytes(encoded)
-          offset += capacity
+        shared.runtime_lock.acquire()
+        let result = shared.runtime.reserve_send_capacity(stream.id, requested)
+        shared.runtime_lock.release()
+        let capacity = result.unwrap_or_error()
+        if capacity > 0 {
+          return capacity
         }
+        stream.window_signal.wait()
       }
-      Trailers(trailers) => {
-        if sent_trailers {
-          raise @http2.H2ProtocolError::StreamError(
-            stream.id,
-            ProtocolError,
-            "duplicate request trailers",
-          )
-        }
-        sent_trailers = true
-        shared.write_headers(fn() {
-          @http2.encode_trailers(shared.encoder, stream.id, trailers)
-        })
-      }
-    }
-  }
-  if !sent_trailers {
-    let encoded = match @http2.encode_data_frames(stream.id, b"", true) {
-      Ok(value) => value
-      Err(error) => raise error
-    }
-    shared.write_bytes(encoded)
-  }
+    },
+    bytes => shared.write_bytes(bytes),
+    trailers => {
+      shared.write_headers(() => {
+        @http2.encode_trailers(shared.encoder, stream.id, trailers)
+      })
+    },
+  )
   shared.runtime_lock.acquire()
   let result = shared.runtime.finish_local_stream(stream.id)
   shared.runtime_lock.release()
@@ -1078,7 +1036,8 @@ pub async fn[B : @body.Body] H2Client::send(
   errdefer (if !upload_owned {
     request.body.cancel(@body.BodyError::Cancelled)
   })
-  let exact_zero = request.body.size_hint().exact_size() == Some(0)
+  let hint = request.body.size_hint().exact_size()
+  let exact_zero = hint == Some(0)
   let stream_id = self.shared.admit_stream(exact_zero)
   let credit = H2ReceiveCredit::new()
   let body = match
@@ -1140,11 +1099,12 @@ pub async fn[B : @body.Body] H2Client::send(
   self.shared.streams.set(stream_id, stream)
   // Before HEADERS is handed to the writer there is no peer stream to reset.
   // A partial wire write already closes the connection in write_locked.
-  {
+  let expected = {
     errdefer (if !stream.released {
       ignore(self.shared.runtime.reset_stream(stream_id))
       self.shared.fail_stream(stream, @body.BodyError::Cancelled)
     })
+    let expected = h2_outgoing_length(stream_id, request.headers, hint)
     self.shared.write_headers(fn() {
       @http2.encode_request_headers(
         self.shared.encoder,
@@ -1153,13 +1113,14 @@ pub async fn[B : @body.Body] H2Client::send(
         exact_zero,
       )
     })
+    expected
   }
   // If the caller leaves while waiting for headers, use the same cancellation
   // path as an abandoned response body, including its asynchronous wire reset.
   errdefer body.cancel(@body.BodyError::Cancelled)
   if !exact_zero {
     let producer = async fn() {
-      send_h2_request_body(self.shared, stream, request.body)
+      send_h2_request_body(self.shared, stream, request.body, expected)
     }
     upload_owned = true
     stream.upload = Some((self.shared.spawn)(producer))

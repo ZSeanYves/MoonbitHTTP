@@ -193,7 +193,8 @@ async test "service HTTP/2 validates response length and body-forbidden semantic
     http_method=Head,
   )
   security_expect_h2_failure(
-    security_h2_response_head(204, Some("0"), true),
+    // HEADERS with END_STREAM, indexed :status 204 and literal content-length 0.
+    b"\x00\x00\x05\x01\x05\x00\x00\x00\x01\x89\x0f\x0d\x01\x30",
     ProtocolError,
   )
   for (http_method, status) in [(@types.Method::Head, 200), (Get, 304)] {

@@ -21,6 +21,8 @@ Give each service explicit Reader, Writer, handler, and validated config. Handle
 
 ## Invariants and scope
 
+HTTP/1.1, HTTP/2 and HTTP/3 servers send `100 Continue` for pending uploads when requested. An unsupported expectation receives a final `417` before the handler runs. The HTTP/1.1 client waits up to one second for an explicit continue, subject to its response-header deadline. A final response received during that wait cancels the upload.
+
 For portable server shutdown, share an `H3ServerShutdown` across calls to `with_http3_connection` through the `server_shutdown` argument. Calling `begin()` stops admission in each typed handler loop and sends GOAWAY. The caller owns the grace deadline. A failing established scope attempts to send an HTTP/3 application close within `shutdown_timeout_ms`.
 
 Reader tasks, body queues, flow-control release, deadlines, cancellation, and close are scoped to the service call.

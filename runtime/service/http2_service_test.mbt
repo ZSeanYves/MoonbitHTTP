@@ -193,3 +193,69 @@ async test "service: stream errors reset only the offending stream" {
   assert_eq(saw_reset, true)
   assert_eq(saw_response, true)
 }
+
+///|
+async test "HTTP/2 grants a waiting upload and rejects an unsupported expectation on its own stream" {
+  let wire = H2LifecycleWriter::new()
+  defer wire.signal.close()
+  let incoming = @aio.MemoryReader(async fn(peer) {
+    peer.write(
+      b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" +
+      Bytes::from_array(@http2.encode_settings_frame([], false)),
+    )
+    let encoder = @http2.HpackContext::new()
+    let decoder = @http2.HpackContext::new()
+    let read_head = async fn(id : Int, status : Bytes, end_stream : Bool) {
+      let frame = wire.wait_frame(@http2.H2_FRAME_HEADERS, id)
+      assert_eq(
+        (frame.header.flags & @http2.H2_FLAGS_END_STREAM) != 0,
+        end_stream,
+      )
+      let fields = decoder.decode(Bytes::from_array(frame.payload)).unwrap()
+      assert_true(fields.any(f => f.name == ":status" && f.value == status))
+    }
+    for
+      (id, expectation, status) in [
+        (1, "custom", b"417"),
+        (3, "100-continue", b"100"),
+      ] {
+      let request = security_request(Post)
+      request.headers.append_string("expect", expectation).unwrap()
+      if expectation == "100-continue" {
+        assert_true(
+          @http2.encode_request_frames(
+            encoder,
+            id,
+            request.map_body(fn(_) { b"" }),
+          )
+          is Err(StreamError(_, ProtocolError, _)),
+        )
+      }
+      peer.write(
+        @http2.encode_request_headers(encoder, id, request, false).unwrap(),
+      )
+      let rejected = id == 1
+      read_head(id, status, rejected)
+      peer.write(
+        @http2.encode_data_frames(id, if rejected { b"" } else { b"ok" }, true).unwrap(),
+      )
+      if !rejected {
+        read_head(id, b"204", true)
+      }
+    }
+  })
+  defer incoming.close()
+  let received : Array[Bytes] = []
+  @async.with_timeout(2000, async fn() {
+    @service.serve_http2_connection(incoming, wire, async fn(request) {
+      received.push(@body.collect(request.body).0)
+      {
+        status: 204,
+        version: Http2,
+        headers: @types.HeaderMap::new(),
+        body: @body.EmptyBody::new(),
+      }
+    })
+  })
+  assert_eq(received, [b"ok"])
+}

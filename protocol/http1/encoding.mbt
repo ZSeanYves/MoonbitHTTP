@@ -72,7 +72,7 @@ pub fn encode_request_head(
     Err(error) => return Err(error)
   }
   if (framing is NoBody || framing is ContentLength(0)) &&
-    RequestExpectations::from_headers(request.headers).continue_requested {
+    @types.RequestExpectations::from_headers(request.headers).continue_requested {
     return Err(InvalidHeader("100-continue requires request content"))
   }
   let out : Array[Byte] = []

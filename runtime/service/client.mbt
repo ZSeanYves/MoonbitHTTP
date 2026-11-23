@@ -302,7 +302,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection:
     let encoded_head = @http1.encode_request_head(request_head, framing).unwrap_or_error()
     let expect_continue = request.version == Http11 &&
       framing != ContentLength(0) &&
-      @http1.RequestExpectations::from_headers(request.headers).continue_requested
+      @types.RequestExpectations::from_headers(request.headers).continue_requested
     client_write_with_timeout(
       self.writer,
       encoded_head,

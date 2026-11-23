@@ -219,11 +219,10 @@ pub fn encode_response_frames(
   response : @types.Response[Bytes],
   max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Result[Bytes, H2ProtocolError] {
-  if stream_id <= 0 ||
-    stream_id > 0x7fffffff ||
-    max_frame_size < 1 ||
-    max_frame_size > 0xffffff {
-    return Err(ConnectionError(FrameSizeError, "invalid HTTP/2 frame size"))
+  if !response.body.is_empty() && !@types.status_allows_body(response.status) {
+    return Err(
+      StreamError(stream_id, ProtocolError, "response status forbids content"),
+    )
   }
   let headers = match
     encode_response_headers(
@@ -233,24 +232,10 @@ pub fn encode_response_frames(
       response.body.is_empty(),
       max_frame_size~,
     ) {
-    Ok(value) => value
+    Ok(bytes) => bytes
     Err(error) => return Err(error)
   }
-  let out : Array[Byte] = []
-  for byte in headers {
-    out.push(byte)
-  }
-  if !response.body.is_empty() {
-    let data = match
-      encode_data_frames(stream_id, response.body, true, max_frame_size~) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    for byte in data {
-      out.push(byte)
-    }
-  }
-  Ok(Bytes::from_array(out))
+  Ok(append_buffered_body(headers, stream_id, response.body, max_frame_size))
 }
 
 ///|
@@ -272,10 +257,25 @@ pub fn[A] encode_response_headers(
   if response.version != Http2 || response.status < 100 || response.status > 999 {
     return Err(StreamError(stream_id, ProtocolError, "invalid HTTP/2 response"))
   }
+  if response.status == 101 || (response.status < 200 && end_stream) {
+    return Err(
+      StreamError(stream_id, ProtocolError, "invalid informational response"),
+    )
+  }
   let fields : Array[HpackHeader] = [
     { name: ":status", value: @utf8.encode(response.status.to_string()), },
   ]
   for field in response.headers.fields() {
+    if field.name.value == "content-length" &&
+      (response.status < 200 || response.status == 204) {
+      return Err(
+        StreamError(
+          stream_id,
+          ProtocolError,
+          "content-length is forbidden for this response",
+        ),
+      )
+    }
     match validate_regular_field(stream_id, field, Response) {
       Ok(_) => ()
       Err(error) => return Err(error)
@@ -363,44 +363,37 @@ pub fn encode_request_frames(
   scheme? : String = "http",
   max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Result[Bytes, H2ProtocolError] {
-  if stream_id <= 0 ||
-    stream_id > 0x7fffffff ||
-    max_frame_size < 1 ||
-    max_frame_size > 0xffffff {
-    return Err(
-      ConnectionError(FrameSizeError, "max frame size must be positive"),
-    )
-  }
-  let fields = match request_hpack_fields(stream_id, request, scheme) {
-    Ok(value) => value
+  let empty = request.body.is_empty()
+  let headers = match
+    encode_request_headers(
+      context,
+      stream_id,
+      request,
+      empty,
+      scheme~,
+      max_frame_size~,
+    ) {
+    Ok(bytes) => bytes
     Err(error) => return Err(error)
   }
-  let block = match context.encode_incremental(fields) {
-    Ok(value) => value
-    Err(error) => return Err(error)
+  Ok(append_buffered_body(headers, stream_id, request.body, max_frame_size))
+}
+
+///|
+/// The header encoder has already checked the stream ID and frame size.
+fn append_buffered_body(
+  headers : Bytes,
+  stream_id : Int,
+  body : Bytes,
+  max_frame_size : Int,
+) -> Bytes {
+  if body.is_empty() {
+    return headers
   }
-  let headers = build_headers_frames(
-    stream_id,
-    block.to_array(),
-    request.body.is_empty(),
-    max_frame_size~,
+  headers +
+  Bytes::from_array(
+    build_data_frames(stream_id, body.to_array(), true, max_frame_size~),
   )
-  let out : Array[Byte] = []
-  for byte in headers {
-    out.push(byte)
-  }
-  if !request.body.is_empty() {
-    for
-      byte in build_data_frames(
-        stream_id,
-        request.body.to_array(),
-        true,
-        max_frame_size~,
-      ) {
-      out.push(byte)
-    }
-  }
-  Ok(Bytes::from_array(out))
 }
 
 ///|
@@ -420,6 +413,16 @@ pub fn[A] encode_request_headers(
     max_frame_size > 0xffffff {
     return Err(
       ConnectionError(FrameSizeError, "max frame size must be positive"),
+    )
+  }
+  if end_stream &&
+    @types.RequestExpectations::from_headers(request.headers).continue_requested {
+    return Err(
+      StreamError(
+        stream_id,
+        ProtocolError,
+        "100-continue requires request content",
+      ),
     )
   }
   let fields = match request_hpack_fields(stream_id, request, scheme) {

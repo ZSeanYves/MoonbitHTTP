@@ -370,3 +370,69 @@ async test "a successful CONNECT leaves the sequential HTTP/1 connection" {
   assert_eq(@body.collect(response.body).0, b"")
   assert_true(client.is_closed())
 }
+
+///|
+async test "HTTP/1 and HTTP/2 finish metadata-only responses without polling the producer" {
+  for (meth, status) in [(@types.Method::Head, 200), (Get, 204), (Get, 304)] {
+    let request = security_request(meth)
+    let cancelled : Array[Error] = []
+    let body : Http1LifecycleBody = {
+      failure: Some(Http1LifecycleFailure("polled suppressed body")),
+      cancelled,
+    }
+    let h1 = request.map_body(fn(_) { () })
+    let input = @aio.MemoryReader(async fn(peer) {
+      peer.write(
+        @http1.encode_request_head({ ..h1, version: Http11, }, NoBody).unwrap(),
+      )
+    })
+    defer input.close()
+    let output : CaptureWriter = { bytes: [], }
+    @service.serve_http1_connection(input, output, _ => {
+      http1_lifecycle_response(body, status~)
+    })
+    let head = @utf8.decode_lossy(Bytes::from_array(output.bytes))
+    assert_true(head.has_prefix("HTTP/1.1 " + status.to_string()))
+    assert_true(head.has_suffix("\r\n\r\n"))
+    assert_eq(cancelled.map(http1_lifecycle_error_label), ["cancelled"])
+    let wire = H2LifecycleWriter::new()
+    defer wire.signal.close()
+    let incoming = @aio.MemoryReader(async fn(peer) {
+      peer.write(
+        b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" +
+        Bytes::from_array(@http2.encode_settings_frame([], false)),
+      )
+      peer.write(
+        @http2.encode_request_headers(
+          @http2.HpackContext::new(),
+          1,
+          request,
+          true,
+        ).unwrap(),
+      )
+      let frame = wire.wait_frame(@http2.H2_FRAME_HEADERS, 1)
+      assert_true((frame.header.flags & @http2.H2_FLAGS_END_STREAM) != 0)
+      let fields = @http2.HpackContext::new()
+        .decode(Bytes::from_array(frame.payload))
+        .unwrap()
+      assert_true(
+        fields.any(f => {
+          f.name == ":status" && f.value == @utf8.encode(status.to_string())
+        }),
+      )
+    })
+    defer incoming.close()
+    @async.with_timeout(2000, async fn() {
+      @service.serve_http2_connection(incoming, wire, _ => {
+        status,
+        version: Http2,
+        headers: @types.HeaderMap::new(),
+        body,
+      })
+    })
+    assert_eq(cancelled.map(http1_lifecycle_error_label), [
+      "cancelled", "cancelled",
+    ])
+    assert_false(wire.frames.any(f => f.header.typ == @http2.H2_FRAME_DATA))
+  }
+}

@@ -21,6 +21,8 @@ HTTP/3 使用可移植的 HTTP/3 与 QUIC 驱动、专用数据报套接字、�
 
 ## 不变量与范围
 
+HTTP/1.1、HTTP/2、HTTP/3 服务端收到 `Expect: 100-continue` 时，如果仍在等请求正文，会先发 `100 Continue`。遇到不支持的期望值，会在调用 handler 前返回 `417`。HTTP/1.1 客户端等待许可最多一秒，也受响应头超时限制，等待期间收到最终响应会取消上传。
+
 可移植服务端可将同一个 `H3ServerShutdown` 作为 `server_shutdown` 传入各个 `with_http3_connection`。调用 `begin()` 后，各连接的流式处理循环停止接纳请求并发送 GOAWAY。调用方管理宽限期限。已建立的连接因错误或取消退出时，会在 `shutdown_timeout_ms` 内尝试发送 HTTP/3 应用层关闭帧。
 
 reader task、body queue、流控释放、deadline、取消和 close 均受 service 作用域管理。

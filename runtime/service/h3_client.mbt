@@ -106,7 +106,7 @@ fn H3Client::close(
 }
 
 ///|
-fn[B] H3Client::request_fields(
+fn[B : @body.Body] H3Client::request_fields(
   self : H3Client,
   request : @types.Request[B],
 ) -> Array[@http3.QpackField] raise H3ClientError {
@@ -119,6 +119,10 @@ fn[B] H3Client::request_fields(
     target.authority.port.unwrap_or(443) != self.authority.port.unwrap_or(443) ||
     (target.resource is Some((scheme, _)) && scheme != "https") {
     raise InvalidOrigin
+  }
+  if request.body.size_hint().exact_size() == Some(0) &&
+    @types.RequestExpectations::from_headers(request.headers).continue_requested {
+    raise InvalidRequest("100-continue requires request content")
   }
   let fields : Array[@http3.QpackField] = target.pseudo_fields(
     request.http_method,

@@ -33,6 +33,45 @@ async test "service timeout helpers preserve bytes and default policy" {
 priv suberror LifecycleTestError derive(Debug)
 
 ///|
+async test "HTTP/2 writers enforce the declared length before DATA, trailers and completion" {
+  let headers = @types.HeaderMap::new()
+  headers.append_string("content-length", "2").unwrap()
+  try ignore(h2_outgoing_length(1, headers, Some(3))) catch {
+    StreamError(1, ProtocolError, _) => ()
+    error => raise error
+  } noraise {
+    _ => fail("accepted a known length mismatch")
+  }
+  let expected = h2_outgoing_length(1, headers, None)
+  let trailers = @types.HeaderMap::new()
+  for
+    (frames, payload_frames) in [
+      ([@body.Frame::Data(b"abc")], 0),
+      ([Data(b"a")], 1),
+      ([Data(b"a"), Trailers(trailers)], 1),
+    ] {
+    let mut writes = 0
+    try
+      write_h2_body(
+        1,
+        @body.QueueBody::new(frames),
+        expected,
+        false,
+        amount => amount,
+        _ => writes += 1,
+        _ => fail("sent premature trailers"),
+      )
+    catch {
+      @http2.H2ProtocolError::StreamError(1, ProtocolError, _) => ()
+      error => raise error
+    } noraise {
+      _ => fail("accepted a mismatched streaming body")
+    }
+    assert_eq(writes, payload_frames)
+  }
+}
+
+///|
 async test "service connection scope reports success and error once" {
   let events : Array[String] = []
   let value = run_connection_scope(

@@ -90,8 +90,10 @@ async fn[W : @aio.Writer] accept_http1_expectation(
   writer : W,
   timeout_ms : Int?,
 ) -> Bool {
-  let expectation = @http1.RequestExpectations::from_headers(request.headers)
-  if expectation.unsupported {
+  let status = expectation_response(request.headers, () => {
+    request.version == Http11 && expects_request_body(request)
+  })
+  if status == Some(417) {
     let headers = @types.HeaderMap::new()
     headers.append_string("connection", "close").unwrap()
     let response_head : @types.Response[Unit] = {
@@ -116,9 +118,7 @@ async fn[W : @aio.Writer] accept_http1_expectation(
     write_with_timeout(writer, encoded, timeout_ms)
     return false
   }
-  if request.version == Http11 &&
-    expectation.continue_requested &&
-    expects_request_body(request) {
+  if status == Some(100) {
     write_with_timeout(writer, b"HTTP/1.1 100 Continue\r\n\r\n", timeout_ms)
   }
   true
@@ -249,6 +249,11 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
                 }
                 let response = service(request)
                 with_outgoing_body_scope(response.body, async fn() {
+                  if response.status < 200 && response.status != 101 {
+                    raise @http1.Http1Error::InvalidStartLine(
+                      "handler must return a final response",
+                    )
+                  }
                   let request_method = request.http_method
                   let version = request.version
                   let mut framing = @http1.NoBody
@@ -272,6 +277,11 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
                     response.headers.contains_list_token("connection", "close")
                   finish_after_response = close ||
                     response.status == 101 ||
+                    (
+                      request_method == Connect &&
+                      response.status >= 200 &&
+                      response.status < 300
+                    ) ||
                     !response.headers.get_all_string("upgrade").is_empty()
                   if close {
                     response.headers.set(
@@ -304,6 +314,10 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
                     encoded_head,
                     config.write_timeout_ms,
                   )
+                  if framing == NoBody {
+                    response.body.cancel(@body.BodyError::Cancelled)
+                    return ()
+                  }
                   write_http1_body(framing, () => response.body.next_frame(), async fn(
                     bytes,
                   ) {

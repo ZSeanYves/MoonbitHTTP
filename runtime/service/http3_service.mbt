@@ -222,8 +222,26 @@ pub async fn[B : @body.Body] serve_http3_connection(
                     on_cancel=fn(_) { incoming.discard() },
                   )
                   let message = h3_request(id, fields, body)
-                  let response = handler(message)
-                  io.respond(id, message.http_method, response)
+                  let status = expectation_response(message.headers, () => {
+                    !incoming.finished &&
+                    incoming.buffered_bytes == 0 &&
+                    message.headers.content_length() != Ok(Some(0))
+                  })
+                  if status is Some(code) {
+                    let fields = [
+                      @http3.QpackField::from_strings(
+                        ":status",
+                        code.to_string(),
+                      ).unwrap_or_error(),
+                    ]
+                    io.write_when_ready(() => {
+                      io.session.send_headers(id, fields, fin=code == 417)
+                    })
+                  }
+                  if status != Some(417) {
+                    let response = handler(message)
+                    io.respond(id, message.http_method, response)
+                  }
                   if !incoming.finished {
                     io.write_when_ready(fn() { io.session.stop_reading(id) })
                   }

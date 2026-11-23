@@ -22,3 +22,20 @@ fn append_regular_header(
   headers.append(name, value)
   true
 }
+
+///|
+/// Decide from the received fields before opening the application's upload.
+/// Query framing only when a peer actually requests a continue response.
+fn expectation_response(
+  headers : @types.HeaderMap,
+  content_pending : () -> Bool,
+) -> Int? {
+  let expectation = @types.RequestExpectations::from_headers(headers)
+  if expectation.unsupported {
+    Some(417)
+  } else if expectation.continue_requested && content_pending() {
+    Some(100)
+  } else {
+    None
+  }
+}

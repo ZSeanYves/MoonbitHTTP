@@ -479,98 +479,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         true,
       )
     }
-    let send_response = async fn(
-      stream_id : Int,
-      response : @types.Response[B],
-    ) {
-      let exact_zero = response.body.size_hint().exact_size() == Some(0)
-      write_h2_header_block(
-        write_lock,
-        writer,
-        fn() {
-          @http2.encode_response_headers(
-            encoder, stream_id, response, exact_zero,
-          )
-        },
-        config.write_timeout_ms,
-      )
-      let mut sent_trailers = false
-      while response.body.next_frame() is Some(frame) {
-        match frame {
-          Data(data) => {
-            if sent_trailers {
-              raise @http2.H2ProtocolError::StreamError(
-                stream_id,
-                ProtocolError,
-                "response data follows trailers",
-              )
-            }
-            let mut offset = 0
-            while offset < data.length() {
-              let requested = (data.length() - offset).min(
-                @http2.H2_DEFAULT_MAX_FRAME_SIZE,
-              )
-              let mut capacity = match
-                connection.reserve_send_capacity(stream_id, requested) {
-                Ok(value) => value
-                Err(error) => raise error
-              }
-              while capacity == 0 {
-                if input_ended {
-                  raise @http2.H2ProtocolError::ConnectionError(
-                    ProtocolError,
-                    "HTTP/2 peer closed before granting send capacity",
-                  )
-                }
-                // The window check and waiter registration have no intervening
-                // suspension. Broadcast wakes all eligible stream writers.
-                window_signal.wait()
-                capacity = match
-                  connection.reserve_send_capacity(stream_id, requested) {
-                  Ok(value) => value
-                  Err(error) => raise error
-                }
-              }
-              let chunk = data[offset:offset + capacity].to_owned()
-              let encoded = match
-                @http2.encode_data_frames(stream_id, chunk, false) {
-                Ok(value) => value
-                Err(error) => raise error
-              }
-              write_h2_frame(
-                write_lock,
-                writer,
-                encoded,
-                config.write_timeout_ms,
-              )
-              offset += capacity
-            }
-          }
-          Trailers(trailers) => {
-            if sent_trailers {
-              raise @http2.H2ProtocolError::StreamError(
-                stream_id,
-                ProtocolError,
-                "duplicate response trailers",
-              )
-            }
-            sent_trailers = true
-            write_h2_header_block(
-              write_lock,
-              writer,
-              fn() { @http2.encode_trailers(encoder, stream_id, trailers) },
-              config.write_timeout_ms,
-            )
-          }
-        }
-      }
-      if !sent_trailers && !exact_zero {
-        let encoded = match @http2.encode_data_frames(stream_id, b"", true) {
-          Ok(value) => value
-          Err(error) => raise error
-        }
-        write_h2_frame(write_lock, writer, encoded, config.write_timeout_ms)
-      }
+    let finish_response = fn(stream_id : Int) raise {
       match connection.finish_local_stream(stream_id) {
         Ok(_) => ()
         Err(error) => raise error
@@ -592,6 +501,87 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
           blocked.remove(stream_id)
         }
       }
+    }
+    let send_response = async fn(
+      stream_id : Int,
+      meth : @types.Method,
+      response : @types.Response[B],
+    ) {
+      if response.status < 200 {
+        raise @http2.H2ProtocolError::StreamError(
+          stream_id,
+          ProtocolError,
+          "handler must return a final response",
+        )
+      }
+      let suppressed = meth == Head ||
+        !@types.status_allows_body(response.status)
+      if meth == Connect &&
+        response.status < 300 &&
+        response.headers.get_string("content-length") is Some(_) {
+        raise @http2.H2ProtocolError::StreamError(
+          stream_id,
+          ProtocolError,
+          "content-length is forbidden for a successful CONNECT",
+        )
+      }
+      let hint = if suppressed {
+        None
+      } else {
+        response.body.size_hint().exact_size()
+      }
+      let expected = h2_outgoing_length(stream_id, response.headers, hint)
+      let end_on_headers = suppressed || hint == Some(0)
+      write_h2_header_block(
+        write_lock,
+        writer,
+        fn() {
+          @http2.encode_response_headers(
+            encoder, stream_id, response, end_on_headers,
+          )
+        },
+        config.write_timeout_ms,
+      )
+      if suppressed {
+        finish_response(stream_id)
+        response.body.cancel(@body.BodyError::Cancelled)
+        return ()
+      }
+      write_h2_body(
+        stream_id,
+        response.body,
+        expected,
+        end_on_headers,
+        async fn(requested) {
+          for ;; {
+            let capacity = connection
+              .reserve_send_capacity(stream_id, requested)
+              .unwrap_or_error()
+            if capacity > 0 {
+              return capacity
+            }
+            if input_ended {
+              raise @http2.H2ProtocolError::ConnectionError(
+                ProtocolError,
+                "HTTP/2 peer closed before granting send capacity",
+              )
+            }
+            window_signal.wait()
+          }
+        },
+        bytes => {
+          write_h2_frame(write_lock, writer, bytes, config.write_timeout_ms)
+        },
+        trailers => {
+          write_h2_header_block(
+            write_lock,
+            writer,
+            () => @http2.encode_trailers(encoder, stream_id, trailers),
+            config.write_timeout_ms,
+          )
+        },
+      )
+      finish_response(stream_id)
     }
     let dispatch = fn(stream_id : Int) {
       guard pending.get(stream_id) is Some(value) else { return }
@@ -624,9 +614,37 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
           ) catch {
             _ => ()
           })
+          if expectation_response(request.headers, () => {
+              !value.request_ended &&
+              value.body_bytes == 0 &&
+              value.expected_body_bytes != Some(0)
+            })
+            is Some(status) {
+            let rejected = status == 417
+            let head : @types.Response[Unit] = {
+              version: Http2,
+              status,
+              headers: @types.HeaderMap::new(),
+              body: (),
+            }
+            write_h2_header_block(
+              write_lock,
+              writer,
+              () => {
+                @http2.encode_response_headers(
+                  encoder, stream_id, head, rejected,
+                )
+              },
+              config.write_timeout_ms,
+            )
+            if rejected {
+              finish_response(stream_id)
+              return
+            }
+          }
           let response = service(request)
           with_outgoing_body_scope(response.body, async fn() {
-            send_response(stream_id, response)
+            send_response(stream_id, request.http_method, response)
           })
         }),
       )

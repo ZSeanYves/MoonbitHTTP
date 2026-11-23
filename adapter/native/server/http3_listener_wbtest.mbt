@@ -331,14 +331,16 @@ async test "HTTP/3 typed handler: stalled upload and cancelled handler leave a s
           let bad = io.session
             .start_request(fields("/fail"), fin=true)
             .unwrap_or_error()
-          let stream = io.session
-            .start_request(fields("/echo"))
-            .unwrap_or_error()
-          io.session.send_data(stream, payload).unwrap_or_error()
+          let upload = fields("/echo")
+          upload.push(
+            @http3.QpackField::from_strings("expect", "100-continue").unwrap(),
+          )
+          let stream = io.session.start_request(upload).unwrap_or_error()
+          let mut continued = false
           let trailers = [
             @http3.QpackField::from_strings("x-check", "done").unwrap(),
           ]
-          io.session.send_headers(stream, trailers, fin=true).unwrap_or_error()
+
           let received = []
           let mut status = false
           let mut trailer = false
@@ -347,6 +349,18 @@ async test "HTTP/3 typed handler: stalled upload and cancelled handler leave a s
           while !ended || !failed {
             for event in io.next_events() {
               match event {
+                Message(H3HeadersReceived(id, head, false, true)) if id ==
+                  stream => {
+                  assert_false(continued)
+                  assert_true(
+                    head.any(f => f.name == ":status" && f.value == b"100"),
+                  )
+                  continued = true
+                  io.session.send_data(stream, payload).unwrap_or_error()
+                  io.session
+                  .send_headers(stream, trailers, fin=true)
+                  .unwrap_or_error()
+                }
                 Message(H3HeadersReceived(id, head, false, false)) if id ==
                   stream =>
                   status = head.any(f => {
@@ -363,12 +377,37 @@ async test "HTTP/3 typed handler: stalled upload and cancelled handler leave a s
               }
             }
           }
-          assert_true(status && trailer && verified)
+          assert_true(continued && status && trailer && verified)
           assert_eq(errors, [bad])
           assert_eq(Bytes::from_array(received), payload)
           io.session.cancel(idle).unwrap_or_error()
           io.flush()
           cancelled.get()
+          let rejected_head = fields("/fail")
+          rejected_head.push(
+            @http3.QpackField::from_strings("expect", "custom").unwrap(),
+          )
+          let rejected = io.session
+            .start_request(rejected_head)
+            .unwrap_or_error()
+          let mut rejected_status = false
+          let mut rejected_end = false
+          while !rejected_end {
+            for event in io.next_events() {
+              match event {
+                Message(H3HeadersReceived(id, head, false, false)) if id ==
+                  rejected =>
+                  rejected_status = head.any(f => {
+                    f.name == ":status" && f.value == b"417"
+                  })
+                Message(H3MessageFinished(id)) if id == rejected =>
+                  rejected_end = true
+                _ => ()
+              }
+            }
+          }
+          assert_true(rejected_status)
+          assert_eq(errors, [bad])
           let last = io.session
             .start_request(fields("/echo"), fin=true)
             .unwrap_or_error()
@@ -457,6 +496,24 @@ async test "HTTP/3 typed client: cancel a duplex response and reuse one stream s
           .append_string("proxy-authorization", "private proxy credential")
           .unwrap()
           let target = @types.Uri::parse("/duplex").unwrap()
+          let expect = @types.HeaderMap::new()
+          expect.append_string("expect", "100-continue").unwrap()
+          try
+            ignore(
+              client.send({
+                http_method: Post,
+                uri: target,
+                version: Http3,
+                headers: expect,
+                body: @body.EmptyBody::new(),
+              }),
+            )
+          catch {
+            @service.H3ClientError::InvalidRequest(_) => ()
+            error => raise error
+          } noraise {
+            _ => fail("accepted a known-empty upload with 100-continue")
+          }
           let first = client.send({
             http_method: Post,
             uri: target,

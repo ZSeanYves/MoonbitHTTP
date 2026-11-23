@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- HTTP/1, HTTP/2 and HTTP/3 servers grant `100 Continue` for pending uploads and return `417 Expectation Failed` before dispatch for unsupported expectations. HTTP/1 and HTTP/2 now release the response producer without reading it for `HEAD`, `204` and `304`. HTTP/2 clients and servers share outgoing body length and trailer checks. Buffered and streaming encoders share header construction.
+
 - Honor explicit `Expect: 100-continue` on HTTP/1.1 uploads with a bounded wait, body cancellation on early final responses and safe pool eviction. HTTP/1 and h2c servers share expectation handling and preserve buffered body bytes when selecting a protocol. HTTP/1-only connections accept read buffers below the HTTP/2 initial receive window.
 
 - Recognize QUIC stateless resets on active paths and release HTTP/3 requests and UDP routes. Pooled requests retain the transport error when the connection worker exits. Accept larger peer datagrams during the handshake while retaining the default 1,200-byte outgoing path budget.
