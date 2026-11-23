@@ -35,42 +35,30 @@ pub fn Buffer::feed(
   }
   // Consumption advances `start` instead of copying the unread tail. Compact
   // only after enough progress to keep repeated small takes amortized linear.
-  if self.start == self.bytes.length() {
-    self.bytes = []
+  if current_length == 0 {
+    self.bytes = input.to_array()
     self.start = 0
-  } else if self.start > 0 &&
-    (self.start >= 4096 || self.start * 2 >= self.bytes.length()) {
-    let compacted : Array[Byte] = []
-    for index in self.start..<self.bytes.length() {
-      compacted.push(self.bytes[index])
+  } else {
+    if self.start > 0 && (self.start >= 4096 || self.start >= current_length) {
+      self.bytes = self.bytes[self.start:].to_owned()
+      self.start = 0
     }
-    self.bytes = compacted
-    self.start = 0
-  }
-  for byte in input {
-    self.bytes.push(byte)
+    self.bytes.append(input.to_array())
   }
   Ok(())
 }
 
 ///|
 pub fn Buffer::peek(self : Buffer) -> Bytes {
-  let out : Array[Byte] = []
-  for index in self.start..<self.bytes.length() {
-    out.push(self.bytes[index])
-  }
-  Bytes::from_array(out)
+  Bytes::from_array(self.bytes[self.start:])
 }
 
 ///|
 pub fn Buffer::take(self : Buffer, count : Int) -> Bytes {
   let count = count.max(0).min(self.length())
-  let out : Array[Byte] = []
-  for index in self.start..<(self.start + count) {
-    out.push(self.bytes[index])
-  }
+  let start = self.start
   self.start += count
-  Bytes::from_array(out)
+  Bytes::from_array(self.bytes[start:self.start])
 }
 
 ///|
@@ -89,18 +77,27 @@ pub fn Buffer::read_line(
   max_length : Int,
 ) -> Result[Bytes, CodecError] {
   match self.find_crlf() {
-    None =>
-      if self.bytes.length() > max_length {
+    None => {
+      let pending = self.length()
+      // A final CR may be the first byte of a fragmented delimiter.
+      let length = if pending > 0 &&
+        self.bytes[self.bytes.length() - 1] == b'\r' {
+        pending - 1
+      } else {
+        pending
+      }
+      if length > max_length {
         Err(LimitExceeded(kind="line", limit=max_length))
       } else {
         Err(NeedMore)
       }
+    }
     Some(index) => {
       if index > max_length {
         return Err(LimitExceeded(kind="line", limit=max_length))
       }
       let line = self.take(index)
-      ignore(self.take(2))
+      self.start += 2
       Ok(line)
     }
   }

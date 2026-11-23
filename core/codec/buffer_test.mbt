@@ -15,6 +15,13 @@ test "codec: consumed prefix does not change relative line offsets" {
   assert_eq(buffer.take(9), b"discard\r\n")
   assert_eq(buffer.read_line(32).unwrap(), b"next")
   assert_eq(buffer.peek(), b"")
+  assert_eq(buffer.feed(b"preceding\r\nnext\r"), Ok(()))
+  assert_eq(buffer.read_line(9), Ok(b"preceding"))
+  assert_eq(buffer.read_line(4), Err(NeedMore))
+  assert_eq(buffer.feed(b"\n"), Ok(()))
+  assert_eq(buffer.read_line(4), Ok(b"next"))
+  assert_eq(buffer.feed(b"12345"), Ok(()))
+  assert_true(buffer.read_line(4) is Err(LimitExceeded(kind="line", limit=4)))
 }
 
 ///|
