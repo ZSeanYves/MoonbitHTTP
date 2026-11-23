@@ -76,6 +76,7 @@ pub async fn[
   let drained : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
   let mut draining = false
   let mut closing = false
+  let mut peer_close : @quic.QuicError? = None
   let mut connected = false
   let packets = tls.datagram_driver()
   // Invalidate escaped session handles on cancellation or application errors.
@@ -84,7 +85,7 @@ pub async fn[
     events.close()
   }
   async fn dispatch(actions : Array[@quic.QuicDriverAction]) -> Unit {
-    if closing {
+    if closing || peer_close is Some(_) {
       return
     }
     let batch = []
@@ -93,14 +94,23 @@ pub async fn[
         Transport(SendDatagram(_, _) as packet) =>
           h3_io_value(packets.send_action(socket, packet))
         Failed(error) => raise error
-        Transport(ConnectionClosed(code, reason)) =>
-          raise @quic.QuicError::ConnectionClosed(code, reason)
+        Transport(ConnectionClosed(code, reason)) => {
+          let error = @quic.QuicError::ConnectionClosed(code, reason)
+          if !connected ||
+            packets.state() != Draining ||
+            (code != 0L && code != 0x100L) {
+            raise error
+          }
+          // Preserve previously delivered batches, including a final response.
+          // A further read observes the close after buffered events are consumed.
+          peer_close = Some(error)
+        }
         Transport(StreamReset(_, _) | SendStopped(_, _)) => batch.push(event)
         Transport(_) => ()
         other => batch.push(other)
       }
     }
-    if session.ended() {
+    if session.ended() && peer_close is None {
       raise @quic.QuicError::ConnectionClosed(0L, "HTTP/3 connection ended")
     }
     if !connected && packets.state() == Established {
@@ -108,7 +118,7 @@ pub async fn[
       ignore(ready.try_put(()))
     }
     if draining {
-      if !session.writes_pending() {
+      if !session.writes_pending() || peer_close is Some(_) {
         ignore(drained.try_put(()))
       }
     } else if !batch.is_empty() {
@@ -116,13 +126,16 @@ pub async fn[
         err => if !draining { raise err }
       }
     }
+    if peer_close is Some(error) {
+      events.close(error~)
+    }
   }
   let io = { session, events, flush_writes: async fn() { dispatch([]) }, }
   @async.with_task_group(async fn(group) {
     group.spawn_bg(
       async fn() {
         dispatch(h3_io_value(tls.start(options, clock.monotonic_millis())))
-        while true {
+        while peer_close is None {
           let packet = h3_io_value(socket.receive(limits.max_datagram_bytes))
           dispatch(
             h3_io_value(
@@ -141,6 +154,9 @@ pub async fn[
       async fn() {
         while true {
           @async.sleep(25)
+          if peer_close is Some(_) || closing {
+            return
+          }
           dispatch(h3_io_value(tls.poll(clock.monotonic_millis())))
         }
       },
@@ -152,8 +168,11 @@ pub async fn[
     events.close(clear=true)
     @async.with_timeout(shutdown_timeout_ms, async fn() {
       dispatch([])
-      if session.writes_pending() {
+      if session.writes_pending() && peer_close is None {
         drained.get()
+      }
+      if session.writes_pending() && peer_close is Some(error) {
+        raise error
       }
       closing = true
       if h3_io_value(session.close(clock.monotonic_millis())) is Some(packet) {

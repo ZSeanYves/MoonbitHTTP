@@ -7,15 +7,6 @@ fn[T, E : Error] h3_native_value(value : Result[T, E]) -> T raise E {
 }
 
 ///|
-fn new_connection_id(
-  entropy : @tls_native.NativeEntropy,
-) -> @quic.ConnectionId raise {
-  let bytes = FixedArray::make(16, b'\x00')
-  h3_native_value(@transport.Entropy::fill(entropy, bytes))
-  h3_native_value(@quic.ConnectionId::new(bytes.unsafe_reinterpret_as_bytes()))
-}
-
-///|
 /// Connect one policy-authorized numeric UDP endpoint. Supply the origin's
 /// TLS identity in options (TlsOptions::for_quic enables peer verification).
 /// The callback owns application streams within this authenticated connection.
@@ -31,8 +22,8 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_connection(
 ) -> X {
   let entropy = @tls_native.NativeEntropy::new()
   let clock = @transport_native.NativeClock::new()
-  let original = new_connection_id(entropy)
-  let local_id = new_connection_id(entropy)
+  let original = h3_native_value(@quic.ConnectionId::random(entropy))
+  let local_id = h3_native_value(@quic.ConnectionId::random(entropy))
   let packets = h3_native_value(
     @quic.QuicDatagramDriver::new(
       Client,

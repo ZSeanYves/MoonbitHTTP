@@ -124,6 +124,7 @@ pub fn ConnectionId::bytes(Self) -> Bytes
 pub fn ConnectionId::equal(Self, Self) -> Bool
 pub fn ConnectionId::new(Bytes) -> Result[Self, QuicError]
 pub fn ConnectionId::not_equal(Self, Self) -> Bool
+pub fn[E : @transport.Entropy] ConnectionId::random(E, length? : Int) -> Result[Self, QuicError]
 pub fn ConnectionId::to_repr(Self) -> @debug.Repr
 
 pub(all) struct HandshakePacket {

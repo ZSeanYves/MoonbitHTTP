@@ -26,3 +26,5 @@ policy 拒绝必须先于 socket 创建或 handler；adapter 负责 socket close
 - [中文总览](../../../README_zh.md)
 - [包地图](../../../docs/concepts/packages.md)
 - [架构](../../../docs/concepts/architecture.md)
+
+`NativeHttp3Listener::bind` 接受数字 UDP 端点、网络策略、使用 h3 ALPN 的 TLS 1.3 配置和连接回调，绑定后调用 `serve(supervisor)`。Initial 重传按来源和初始目的 ID 归属，后续数据报使用随机生成的 16 字节服务端连接 ID。每个连接有独立的有界队列，队列满时由 QUIC 负责后续重传。调用 supervisor 的 `begin_shutdown` 会停止接纳新连接，监听器继续收发已接纳连接的数据和确认，直到现有处理完成。应用回调按流 ID 分发请求。

@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Add a shared-UDP HTTP/3 listener with connection-ID routing, per-peer queues and supervised admission and shutdown. Orderly QUIC close preserves application events already delivered to a slow response consumer.
+
 - Add a scoped HTTP/3 client over native UDP and OpenSSL, and a portable single-peer I/O loop that drives TLS, HTTP/3 events and QUIC recovery. The interoperability runner now exercises the MoonBit client against the upstream aioquic server with `--reverse`.
 
 - Stream incoming HTTP/3 DATA in bounded chunks, accept legal wider frame varints on fragmented input, and share frame header parsing across decoder entry points. The incremental decoder now keeps its backing storage private. Its `feed`, `next` and `finish` methods retain their signatures.

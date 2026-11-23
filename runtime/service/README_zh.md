@@ -17,7 +17,7 @@ HTTP/3 使用可移植的 HTTP/3 与 QUIC 驱动、专用数据报套接字、�
 ## 使用边界
 传入 Reader、Writer、handler 和已校验 config；handler 使用 Request[BodyStream] -> Response[B]，H2 body 在 callback 内消费。
 
-`with_http3_connection` 接管套接字，在认证握手完成后调用应用。通过 `io.session` 收发请求和响应，通过 `io.next_events()` 读取事件批次，`io.flush()` 可立即发送待写数据。接收任务和恢复计时器独立运行，交付队列最多保留一个待读批次。回调正常返回后，先等待排队的流数据和 QUIC 确认，再发送关闭包并释放套接字。`shutdown_timeout_ms` 限制等待和最后一次发送的时间，TLS provider 由调用方管理。
+`with_http3_connection` 接管套接字，在认证握手完成后调用应用。通过 `io.session` 收发请求和响应，通过 `io.next_events()` 读取事件批次，`io.flush()` 可立即发送待写数据。接收任务和恢复计时器独立运行，交付队列最多保留一个待读批次。回调正常返回后，先等待排队的流数据和 QUIC 确认，再发送关闭包并释放套接字。`shutdown_timeout_ms` 限制等待和最后一次发送的时间，对端正常关闭后，已交付的事件仍可读，消费完后再次读取才收到关闭通知。TLS provider 由调用方管理。
 
 ## 不变量与范围
 reader task、body queue、流控释放、deadline、取消和 close 均受 service 作用域管理。

@@ -77,12 +77,14 @@ flowchart TD
   p_adapter_native_tls -. "wbtest" .-> p_protocol_quic
   p_application_client --> p_runtime_service
   p_adapter_native_client --> p_protocol_quic
+  p_adapter_native_server --> p_protocol_quic
   p_adapter_native_transport --> p_core_types
   p_examples_cmd_smoke_server --> p_core_body
   p_protocol_http2 --> p_internal_http_fields
   p_protocol_http3 --> p_internal_http_fields
   p_protocol_quic -. "test" .-> p_internal_test_support
   p_adapter_native_client --> p_protocol_http3
+  p_adapter_native_server --> p_protocol_http3
   p_adapter_native_tls --> p_runtime_transport
   p_application_client --> p_runtime_transport
   p_application_server --> p_runtime_transport
@@ -98,12 +100,12 @@ flowchart TD
   p_internal_test_support --> p_runtime_transport
   p_adapter_native_client --> p_adapter_native_tls
   p_adapter_native_client --> p_application_client
+  p_adapter_native_server --> p_adapter_native_tls
   p_adapter_native_server --> p_application_server
   p_application_client -. "test" .-> p_internal_test_support
   p_application_client --> p_policy_content_coding
   p_examples_cmd_smoke_server --> p_protocol_http2
   p_examples_cmd_smoke_server --> p_runtime_service
-  p_adapter_native_server -. "wbtest" .-> p_adapter_native_tls
   p_adapter_native_server -. "wbtest" .-> p_application_server
   p_adapter_native_tls -. "wbtest" .-> p_internal_test_support
   p_adapter_native_transport --> p_runtime_transport
@@ -114,15 +116,17 @@ flowchart TD
   p_examples_cmd_h3_smoke_server --> p_protocol_http3
   p_examples_cmd_smoke_server --> p_runtime_transport
   p_adapter_native_transport -. "wbtest" .-> p_runtime_transport
+  p_examples_cmd_h3_smoke_server --> p_runtime_service
   p_examples_cmd_smoke_server --> p_adapter_native_tls
   p_examples_cmd_smoke_server --> p_application_server
+  p_adapter_native_server -. "wbtest" .-> p_adapter_native_client
   p_adapter_native_client --> p_adapter_native_transport
+  p_adapter_native_server --> p_adapter_native_transport
   p_examples_cmd_h3_smoke_client --> p_runtime_transport
   p_examples_cmd_h3_smoke_server --> p_runtime_transport
-  p_examples_cmd_h3_smoke_server --> p_adapter_native_tls
+  p_examples_cmd_h3_smoke_server --> p_application_server
   p_examples_cmd_smoke_server --> p_adapter_native_server
-  p_adapter_native_server -. "wbtest" .-> p_adapter_native_transport
   p_examples_cmd_h3_smoke_client --> p_adapter_native_client
-  p_examples_cmd_h3_smoke_server --> p_adapter_native_transport
+  p_examples_cmd_h3_smoke_server --> p_adapter_native_server
   p_adapter_native_tls -. "wbtest" .-> p_internal_test_support_native_tls_revocation
 ```

@@ -396,6 +396,7 @@ pub fn QpackLimits::new(max_encoded_field_section_bytes? : Int, max_decoded_fiel
 pub fn QpackLimits::not_equal(Self, Self) -> Bool
 pub fn QpackLimits::to_repr(Self) -> @debug.Repr
 pub fn QpackLimits::validate(Self) -> Result[Unit, Http3Error]
+pub fn QpackLimits::validate_for(Self, @types.Limits) -> Result[Unit, Http3Error]
 
 // Type aliases
 

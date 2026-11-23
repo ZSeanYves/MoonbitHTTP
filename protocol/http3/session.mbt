@@ -315,21 +315,23 @@ pub fn Http3Session::advance(
     if self.ended {
       return out
     }
-    if self.quic.state() == Closed || self.quic.state() == Draining {
-      self.ended = true
-      for action in actions {
-        if action is ConnectionClosed(_, _) {
-          out.push(Transport(action))
-        }
-      }
-      return out
-    }
     self.initialize()
+    let terminal = self.quic.state() == Closed || self.quic.state() == Draining
     for action in actions {
       if action is SendDatagram(_, _) {
         continue
       }
-      self.receive(action, out)
+      if action is ConnectionClosed(_, _) {
+        out.push(Transport(action))
+        break
+      }
+      if !terminal || self.initialized {
+        self.receive(action, out)
+      }
+    }
+    if terminal {
+      self.ended = true
+      return out
     }
     if self.initialized {
       self.flush(out, now_ms) catch {

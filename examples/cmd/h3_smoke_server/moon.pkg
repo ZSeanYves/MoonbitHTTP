@@ -4,8 +4,9 @@ import {
   "moonbitlang/async/stdio",
   "ZSeanYves/MoonbitHTTP/core/types",
   "ZSeanYves/MoonbitHTTP/runtime/transport",
-  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @transport_native,
-  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @tls_native,
+  "ZSeanYves/MoonbitHTTP/adapter/native/server" @server_native,
+  "ZSeanYves/MoonbitHTTP/application/server" @server_api,
+  "ZSeanYves/MoonbitHTTP/runtime/service",
   "ZSeanYves/MoonbitHTTP/protocol/quic",
   "ZSeanYves/MoonbitHTTP/protocol/http3",
 }

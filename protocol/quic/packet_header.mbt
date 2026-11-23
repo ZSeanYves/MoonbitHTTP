@@ -12,6 +12,24 @@ pub fn ConnectionId::new(bytes : Bytes) -> Result[ConnectionId, QuicError] {
 }
 
 ///|
+/// Generate a nonempty connection ID with the supplied cryptographic entropy.
+pub fn[E : @transport.Entropy] ConnectionId::random(
+  entropy : E,
+  length? : Int = 16,
+) -> Result[ConnectionId, QuicError] {
+  if length < 1 || length > 20 {
+    return Err(
+      InvalidPacket("random connection ID length must be 1 through 20"),
+    )
+  }
+  let buffer = FixedArray::make(length, b'\x00')
+  match entropy.fill(buffer) {
+    Ok(_) => Ok({ bytes: buffer.unsafe_reinterpret_as_bytes(), })
+    Err(error) => Err(Entropy(error))
+  }
+}
+
+///|
 pub fn ConnectionId::bytes(self : ConnectionId) -> Bytes {
   self.bytes
 }

@@ -86,3 +86,32 @@ pub fn QpackLimits::validate(self : QpackLimits) -> Result[Unit, Http3Error] {
   }
   Ok(())
 }
+
+///|
+/// Validate QPACK bounds against the enclosing connection's HTTP limits.
+pub fn QpackLimits::validate_for(
+  self : QpackLimits,
+  limits : @types.Limits,
+) -> Result[Unit, Http3Error] {
+  match limits.validate() {
+    Ok(_) => ()
+    Err(_) => return Err(Http3LimitExceeded("shared HTTP limits", 0))
+  }
+  match self.validate() {
+    Ok(_) => ()
+    Err(error) => return Err(error)
+  }
+  if self.max_table_capacity > limits.max_dynamic_table_bytes ||
+    self.max_field_count > limits.max_header_count ||
+    self.max_decoded_field_section_bytes > limits.max_header_bytes ||
+    self.max_encoded_field_section_bytes > limits.max_header_bytes ||
+    self.max_instruction_buffer_bytes > limits.max_buffer_bytes {
+    return Err(
+      Http3LimitExceeded(
+        "QPACK limits exceed shared HTTP limits",
+        limits.max_buffer_bytes,
+      ),
+    )
+  }
+  Ok(())
+}

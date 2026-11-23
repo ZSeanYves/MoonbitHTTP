@@ -47,25 +47,9 @@ pub fn Http3Connection::new(
   limits? : @types.Limits = @types.Limits::defaults(),
   qpack_limits? : QpackLimits = QpackLimits::defaults(),
 ) -> Result[Http3Connection, Http3Error] {
-  match limits.validate() {
-    Ok(_) => ()
-    Err(_) => return Err(Http3LimitExceeded("shared HTTP limits", 0))
-  }
-  match qpack_limits.validate() {
+  match qpack_limits.validate_for(limits) {
     Ok(_) => ()
     Err(error) => return Err(error)
-  }
-  if qpack_limits.max_table_capacity > limits.max_dynamic_table_bytes ||
-    qpack_limits.max_field_count > limits.max_header_count ||
-    qpack_limits.max_decoded_field_section_bytes > limits.max_header_bytes ||
-    qpack_limits.max_encoded_field_section_bytes > limits.max_header_bytes ||
-    qpack_limits.max_instruction_buffer_bytes > limits.max_buffer_bytes {
-    return Err(
-      Http3LimitExceeded(
-        "QPACK limits exceed shared HTTP limits",
-        limits.max_buffer_bytes,
-      ),
-    )
   }
   Ok({
     role,

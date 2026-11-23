@@ -12,7 +12,7 @@ Provides a bounded loopback UDP fixture for HTTP/3 and QUIC interoperability. It
 Run through repo-tools/tools/http3_interoperability.mbtx; it binds 127.0.0.1:18443 and serves bounded GET/POST cases.
 
 ## Dependencies and targets
-Uses adapter/native/transport, adapter/native/tls, quic, and http3; +native only. Four-target codec builds do not imply UDP support.
+Uses `NativeHttp3Listener`, the connection supervisor and HTTP/3 streaming events. Native UDP and the OpenSSL QUIC TLS provider supply network I/O.
 
 ## Usage
 Let the repository runner start and stop this executable. Never use its checked-in credentials for deployment.
