@@ -517,6 +517,10 @@ async fn request_case(
   }
   match expected_body {
     Some(body) => {
+      let traces = @fs.readdir(case_dir).filter(name => name.has_suffix(".qlog"))
+      guard traces.length() == 1 else {
+        fail("\{name}: expected one QUIC connection trace, found \{traces.length()}")
+      }
       let expected = if include_headers {
         ":status: 200\r\ncontent-type: text/plain\r\ncontent-length: " +
         body.length().to_string() +
@@ -678,11 +682,18 @@ async fn main {
       no_wait=true,
     )
     defer server.cancel()
-    // Native OpenSSL QUIC initialization can take longer on a cold CI runner.
-    // Wait for the process to finish starting before the first UDP client.
-    @async.sleep(1000)
-    if server.try_wait() is Some(_) {
-      fail("HTTP/3 smoke server exited before testing")
+    // Wait for the built fixture to confirm its socket is bound. An external
+    // fixture retains the original startup protocol and need not emit our banner.
+    if build_server {
+      let deadline = @env.now() + 15000UL
+      while !@fs.read_file(directory + "/server.stdout").text().contains("HTTP/3 smoke listening on https://localhost:18443") {
+        if server.try_wait() is Some(_) { fail("HTTP/3 smoke server exited during startup") }
+        if @env.now() >= deadline { fail("HTTP/3 smoke server did not confirm UDP readiness") }
+        @async.sleep(25)
+      }
+    } else {
+      @async.sleep(1000)
+      if server.try_wait() is Some(_) { fail("HTTP/3 smoke server exited before testing") }
     }
     let proxy_summaries : Array[Json] = []
     request_case(
@@ -716,6 +727,21 @@ async fn main {
       client,
       ["/"],
       ["--key-update"],
+      Some("MoonbitHTTP HTTP/3 smoke\n"),
+      impair,
+      proxy_summaries,
+      include_headers=true,
+    )
+    // One upstream invocation holds one QUIC connection. The peer admits eight
+    // request streams initially, so completion must span repeated credit updates.
+    let rolling_paths = [for i in 0..<256 => "/rolling-" + i.to_string()]
+    request_case(
+      directory,
+      "rolling",
+      python,
+      client,
+      rolling_paths,
+      [],
       Some("MoonbitHTTP HTTP/3 smoke\n"),
       impair,
       proxy_summaries,
@@ -800,9 +826,10 @@ async fn main {
       },
       "upstream_commit": upstream.trim().to_owned(),
       "client_source_sha256": source_hash,
-      "cases": ["http3-get", "http3-post", "http3-key-update", "http3-wrong-ca"],
+      "cases": ["http3-get", "http3-post", "http3-key-update", "http3-rolling-streams", "http3-wrong-ca"],
       "long_requests_requested": long_requests,
       "long_requests_completed": long_completed,
+      "single_connection_requests_completed": rolling_paths.length(),
       "concurrent_requests_requested": concurrent_requests,
       "concurrent_requests_completed": concurrent_completed,
       "duration_seconds_requested": duration_seconds,
@@ -810,7 +837,7 @@ async fn main {
       "duration_window_requests_completed": window_completed,
       "impairment_enabled": impair,
       "proxy_sessions": Json::array(proxy_summaries),
-      "long_request_scope": "repeated authenticated aioquic HTTP/3 requests; concurrent batch uses one aioquic connection and concurrent request streams",
+      "long_request_scope": "Each duration-window invocation opens a fresh authenticated connection. The rolling and concurrent batches each use one connection.",
       "certificate_hostname_negative": "covered by native provider tests; upstream CLI has no SNI override",
       "long_duration_loss_pressure": if impair {
         "repeated authenticated requests through a deterministic loopback UDP loss/reorder proxy"

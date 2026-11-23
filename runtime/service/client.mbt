@@ -199,14 +199,28 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection:
       self.request_headers_timeout_ms,
       RequestHeaders,
     )
-    write_http1_body(request.body, framing, async fn(bytes) {
-      client_write_with_timeout(
-        self.writer,
-        bytes,
-        self.request_body_timeout_ms,
-        RequestBody,
-      )
-    })
+    write_http1_body(
+      framing,
+      async fn() {
+        match self.request_body_timeout_ms {
+          Some(timeout) if timeout > 0 =>
+            @async.with_timeout(
+              timeout,
+              () => request.body.next_frame(),
+              error=ClientConnectionTimeout(RequestBody),
+            )
+          _ => request.body.next_frame()
+        }
+      },
+      async fn(bytes) {
+        client_write_with_timeout(
+          self.writer,
+          bytes,
+          self.request_body_timeout_ms,
+          RequestBody,
+        )
+      },
+    )
   })
   let decoder = @http1.ResponseDecoder::new(
     request.http_method,

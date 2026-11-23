@@ -109,14 +109,7 @@ fn RequestDecoder::next_impl(
         Err(_) => return Err(LimitExceeded("request header line"))
       }
       if line.is_empty() {
-        match http1_validate_host(headers) {
-          Ok(_) => ()
-          Err(error) => return Err(error)
-        }
-        if version == Http11 && headers.get_all_string("host").is_empty() {
-          return Err(InvalidHeader("HTTP/1.1 request requires Host"))
-        }
-        match http1_validate_connection_headers(headers) {
+        match http1_validate_request_headers(headers, version) {
           Ok(_) => ()
           Err(error) => return Err(error)
         }

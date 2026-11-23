@@ -49,11 +49,6 @@ fn FrameDecoder::next_impl(
       return Ok(None)
     }
     let header = self.buffer.take(9)
-    if (header[5].to_int() & 0x80) != 0 {
-      return Err(
-        ConnectionError(ProtocolError, "reserved stream identifier bit is set"),
-      )
-    }
     let length = ((header[0].to_int() & 0xff) << 16) |
       ((header[1].to_int() & 0xff) << 8) |
       (header[2].to_int() & 0xff)
@@ -102,34 +97,47 @@ pub fn header_fragment(frame : H2Frame) -> Result[Bytes, H2ProtocolError] {
   if frame.header.length != frame.payload.length() || frame.header.length < 0 {
     return Err(ConnectionError(FrameSizeError, "frame payload length mismatch"))
   }
+  match h2_header_fragment_bounds(frame) {
+    Ok((start, end)) => Ok(Bytes::from_array(frame.payload[start:end]))
+    Err(error) => Err(error)
+  }
+}
+
+///|
+fn h2_header_fragment_bounds(
+  frame : H2Frame,
+) -> Result[(Int, Int), H2ProtocolError] {
+  let end = frame.payload.length()
   if frame.header.typ == H2_FRAME_CONTINUATION {
-    return Ok(Bytes::from_array(frame.payload))
+    return Ok((0, end))
   }
   if frame.header.typ != H2_FRAME_HEADERS {
     return Err(
       ConnectionError(ProtocolError, "frame is not HEADERS or CONTINUATION"),
     )
   }
-  let mut offset = 0
+  let mut start = 0
   let mut padding = 0
   if (frame.header.flags & H2_FLAGS_PADDED) != 0 {
-    if frame.payload.is_empty() {
-      return Err(
-        ConnectionError(ProtocolError, "padded HEADERS has no pad length"),
-      )
+    if end == 0 {
+      return Err(ConnectionError(FrameSizeError, "missing HEADERS pad length"))
     }
-    padding = frame.payload[0].to_int() & 0xff
-    offset = 1
+    padding = frame.payload[0].to_int()
+    start = 1
   }
   if (frame.header.flags & H2_FLAGS_PRIORITY) != 0 {
-    offset += 5
+    if end < start + 5 {
+      return Err(ConnectionError(FrameSizeError, "truncated HEADERS priority"))
+    }
+    if u31(frame.payload, start) == frame.header.stream_id {
+      return Err(ConnectionError(ProtocolError, "HEADERS depends on itself"))
+    }
+    start += 5
   }
-  if offset + padding > frame.payload.length() {
+  if start + padding > end {
     return Err(ConnectionError(ProtocolError, "invalid HEADERS padding"))
   }
-  Ok(
-    Bytes::from_array(frame.payload)[offset:frame.payload.length() - padding].to_owned(),
-  )
+  Ok((start, end - padding))
 }
 
 ///|

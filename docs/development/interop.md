@@ -15,9 +15,8 @@ replace conformance review, long-duration pressure or performance thresholds.
 the Native smoke server, rejects a pre-existing listener on the test port,
 then checks:
 
-- HTTP/1.1 GET and POST with `curl`;
-- HTTP/2 prior knowledge with `nghttp`;
-- h2c upgrade with `curl`.
+- HTTP/1.1 GET and POST with both `curl` and `wget`.
+- HTTP/2 prior knowledge and h2c upgrade with `nghttp`.
 
 Each case verifies status, headers and body. The runner records the selected
 server binary, Git revision, tool versions, commands, process exits and logs
@@ -43,7 +42,7 @@ moon run repo-tools/tools/http3_interoperability.mbtx
 The HTTP/3 runner uses the Native smoke server, an aioquic client and OpenSSL
 3.5 or newer for the QUIC TLS callback provider. Positive cases cover verified
 GET and POST, authenticated requests, key update and concurrent request
-streams. Negative cases must use an explicitly untrusted or mismatched
+streams. One aioquic process also sends 256 requests over a single connection. The smoke server initially permits eight bidirectional streams. The runner checks each response and counts the connection traces. The duration window below uses fresh connections for successive requests. Negative cases must use an explicitly untrusted or mismatched
 credential and must assert a failed verification outcome.
 
 The server fixture details and its non-deployment limits are documented in

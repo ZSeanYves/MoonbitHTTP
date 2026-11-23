@@ -1,28 +1,71 @@
 ///|
-fn trim_ascii(value : String) -> String {
-  let bytes = @utf8.encode(value)
-  let mut start = 0
-  let mut end = bytes.length()
-  while start < end && (bytes[start] == b' ' || bytes[start] == b'\t') {
-    start += 1
-  }
-  while end > start && (bytes[end - 1] == b' ' || bytes[end - 1] == b'\t') {
-    end -= 1
-  }
-  @utf8.decode(bytes[start:end]) catch {
-    _ => ""
+priv enum ResponseFramingRule {
+  Payload
+  RepresentationMetadata
+  EmptyResponse
+  ConnectTunnel
+}
+
+///|
+fn response_framing_rule(
+  request_method : @types.Method,
+  status : Int,
+) -> ResponseFramingRule {
+  if request_method == Connect && status >= 200 && status < 300 {
+    ConnectTunnel
+  } else if status < 200 || status == 204 {
+    EmptyResponse
+  } else if request_method == Head || status == 304 {
+    RepresentationMetadata
+  } else {
+    Payload
   }
 }
 
 ///|
-fn comma_values(values : Array[@types.HeaderValue]) -> Array[String] {
-  let out : Array[String] = []
-  for value in values {
-    for part in value.to_string_lossy().split(",") {
-      out.push(trim_ascii(part.to_owned()))
-    }
+priv enum FramingFields {
+  Unspecified
+  Length(Int)
+  Transfer(Array[@types.HeaderValue])
+}
+
+///|
+fn framing_fields(
+  headers : @types.HeaderMap,
+  version : @types.Version,
+) -> Result[FramingFields, Http1Error] {
+  let length = match headers.content_length() {
+    Ok(value) => value
+    Err(_) =>
+      return Err(InvalidFraming("invalid or conflicting content-length"))
   }
-  out
+  match (headers.get_all_string("transfer-encoding"), length) {
+    ([], None) => Ok(Unspecified)
+    ([], Some(size)) => Ok(Length(size))
+    (_, Some(_)) =>
+      Err(InvalidFraming("transfer-encoding and content-length conflict"))
+    (_, None) if version == Http10 =>
+      Err(InvalidFraming("HTTP/1.0 does not support Transfer-Encoding"))
+    (values, None) => Ok(Transfer(values))
+  }
+}
+
+///|
+fn FramingFields::body_framing(
+  self : FramingFields,
+  implicit : BodyFraming,
+) -> Result[BodyFraming, Http1Error] {
+  match self {
+    Unspecified => Ok(implicit)
+    Length(size) => Ok(ContentLength(size))
+    Transfer([value]) if value
+      .to_string_lossy()
+      .trim(chars=" \t")
+      .to_owned()
+      .to_lower() ==
+      "chunked" => Ok(Chunked)
+    Transfer(_) => Err(InvalidFraming("unsupported transfer coding"))
+  }
 }
 
 ///|
@@ -30,30 +73,9 @@ fn determine_request_framing(
   headers : @types.HeaderMap,
   version : @types.Version,
 ) -> Result[BodyFraming, Http1Error] {
-  let transfer = comma_values(headers.get_all_string("transfer-encoding"))
-  let length = match headers.content_length() {
-    Ok(value) => value
-    Err(_) =>
-      return Err(InvalidFraming("invalid or conflicting content-length"))
-  }
-  if !transfer.is_empty() && length is Some(_) {
-    return Err(InvalidFraming("transfer-encoding and content-length conflict"))
-  }
-  if !transfer.is_empty() {
-    if version == Http10 {
-      return Err(InvalidFraming("HTTP/1.0 does not support Transfer-Encoding"))
-    }
-    if transfer[transfer.length() - 1].to_lower() != "chunked" {
-      return Err(InvalidFraming("final transfer coding is not chunked"))
-    }
-    if transfer.length() != 1 {
-      return Err(InvalidFraming("unsupported transfer coding"))
-    }
-    return Ok(Chunked)
-  }
-  match length {
-    None => Ok(NoBody)
-    Some(value) => Ok(ContentLength(value))
+  match framing_fields(headers, version) {
+    Ok(fields) => fields.body_framing(NoBody)
+    Err(error) => Err(error)
   }
 }
 
@@ -64,109 +86,60 @@ fn determine_response_framing(
   status : Int,
   version : @types.Version,
 ) -> Result[BodyFraming, Http1Error] {
-  let transfer = comma_values(headers.get_all_string("transfer-encoding"))
-  let length = match headers.content_length() {
-    Ok(value) => value
-    Err(_) =>
-      return Err(InvalidFraming("invalid or conflicting content-length"))
-  }
-  if !transfer.is_empty() && length is Some(_) {
-    return Err(InvalidFraming("transfer-encoding and content-length conflict"))
-  }
-  let content_length_forbidden = (status >= 100 && status < 200) ||
-    status == 204 ||
-    (http_method == Connect && status >= 200 && status < 300)
-  if content_length_forbidden {
-    if length is Some(_) || !transfer.is_empty() {
-      return Err(
-        InvalidFraming("body framing header is forbidden for this response"),
-      )
-    }
+  let rule = response_framing_rule(http_method, status)
+  // RFC 9112 §6.3: after successful CONNECT all following bytes belong to the tunnel.
+  if rule is ConnectTunnel {
     return Ok(NoBody)
   }
-  if !@types.response_allows_body(http_method, status) {
-    if !transfer.is_empty() {
-      return Err(
-        InvalidFraming("Transfer-Encoding is forbidden without a body"),
-      )
-    }
-    return Ok(NoBody)
+  let fields = match framing_fields(headers, version) {
+    Ok(fields) => fields
+    Err(error) => return Err(error)
   }
-  if !transfer.is_empty() {
-    if version == Http10 {
-      return Err(InvalidFraming("HTTP/1.0 does not support Transfer-Encoding"))
-    }
-    if transfer[transfer.length() - 1].to_lower() != "chunked" {
-      return Err(InvalidFraming("unsupported transfer coding"))
-    }
-    if transfer.length() != 1 {
-      return Err(InvalidFraming("unsupported transfer coding"))
-    }
-    return Ok(Chunked)
+  match rule {
+    EmptyResponse if !(fields is Unspecified) =>
+      Err(InvalidFraming("body framing header is forbidden for this response"))
+    Payload => fields.body_framing(CloseDelimited)
+    _ => Ok(NoBody)
   }
-  if length is None {
-    return Ok(CloseDelimited)
-  }
-  determine_request_framing(headers, version)
 }
 
 ///|
-/// Validates caller-supplied framing metadata before the encoder replaces the
-/// wire-managed Content-Length/Transfer-Encoding fields. Silently discarding
-/// contradictory metadata is a request-smuggling footgun.
+/// Validate the selected wire framing before the encoder generates its fields.
 fn validate_outgoing_framing(
   headers : @types.HeaderMap,
   framing : BodyFraming,
   version : @types.Version,
-  allow_nonzero_content_length_without_body? : Bool = false,
+  rule? : ResponseFramingRule = Payload,
 ) -> Result[Unit, Http1Error] {
-  let transfer = comma_values(headers.get_all_string("transfer-encoding"))
-  let length = match headers.content_length() {
+  let fields = match framing_fields(headers, version) {
     Ok(value) => value
-    Err(_) =>
-      return Err(InvalidFraming("invalid or conflicting content-length"))
+    Err(error) => return Err(error)
   }
-  if !transfer.is_empty() && length is Some(_) {
-    return Err(InvalidFraming("transfer-encoding and content-length conflict"))
-  }
-  if version == Http10 && !transfer.is_empty() {
-    return Err(InvalidFraming("HTTP/1.0 does not support Transfer-Encoding"))
+  if !(rule is Payload) {
+    if framing != NoBody {
+      return Err(
+        InvalidFraming("response status or request method forbids a body"),
+      )
+    }
+    if !(rule is RepresentationMetadata) && !(fields is Unspecified) {
+      return Err(
+        InvalidFraming("body framing header is forbidden for this response"),
+      )
+    }
+    return Ok(())
   }
   match framing {
-    NoBody =>
-      if !transfer.is_empty() {
-        return Err(InvalidFraming("Transfer-Encoding is not valid for no body"))
-      } else {
-        match length {
-          Some(value) if value != 0 &&
-            !allow_nonzero_content_length_without_body =>
-            return Err(
-              InvalidFraming("non-zero Content-Length requires a body"),
-            )
-          _ => ()
-        }
-      }
-    ContentLength(size) =>
-      match length {
-        Some(value) if value != size =>
-          return Err(
-            InvalidFraming("Content-Length does not match body framing"),
-          )
-        _ => ()
-      }
-    Chunked => {
-      if length is Some(_) {
-        return Err(InvalidFraming("chunked body cannot include Content-Length"))
-      }
-      if !transfer.is_empty() &&
-        (transfer.length() != 1 || transfer[0].to_lower() != "chunked") {
-        return Err(InvalidFraming("unsupported transfer coding"))
-      }
-    }
-    CloseDelimited =>
-      if !transfer.is_empty() || length is Some(_) {
-        return Err(InvalidFraming("close-delimited body has explicit framing"))
-      }
+    Chunked if version == Http10 =>
+      return Err(InvalidFraming("HTTP/1.0 does not support chunked framing"))
+    ContentLength(size) if size < 0 =>
+      return Err(InvalidFraming("negative content-length"))
+    _ => ()
   }
-  Ok(())
+  match fields.body_framing(framing) {
+    Ok(declared) if declared == framing ||
+      (framing is NoBody && declared is ContentLength(0)) => Ok(())
+    Ok(_) =>
+      Err(InvalidFraming("header fields disagree with selected body framing"))
+    Err(error) => Err(error)
+  }
 }

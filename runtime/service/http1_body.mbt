@@ -22,16 +22,16 @@ async fn[B : @body.Body, X] with_outgoing_body_scope(
 ///|
 /// Drive a Body through the protocol's sole outgoing framing state machine.
 /// The enclosing body scope owns cancellation across both headers and frames.
-async fn[B : @body.Body] write_http1_body(
-  body : B,
+async fn write_http1_body(
   framing : @http1.BodyFraming,
+  next_frame : async () -> @body.Frame?,
   write : async (Bytes) -> Unit,
 ) -> Unit {
   let encoder = match @http1.BodyEncoder::new(framing) {
     Ok(value) => value
     Err(error) => raise error
   }
-  while body.next_frame() is Some(frame) {
+  while next_frame() is Some(frame) {
     let encoded = match frame {
       Data(data) => encoder.data(data)
       Trailers(fields) => encoder.trailers(fields)

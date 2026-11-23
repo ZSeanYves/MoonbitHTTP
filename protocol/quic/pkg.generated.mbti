@@ -180,9 +180,11 @@ pub fn QuicConnection::new(QuicRole, limits? : QuicLimits, transport_params? : Q
 pub fn QuicConnection::open_bidirectional_stream(Self) -> Result[Int64, QuicError]
 pub fn QuicConnection::open_unidirectional_stream(Self) -> Result[Int64, QuicError]
 pub fn QuicConnection::receive_frame(Self, QuicFrame) -> Result[Array[QuicAction], QuicError]
+pub fn QuicConnection::reset_stream(Self, Int64, Int64) -> Result[QuicFrame, QuicError]
 pub fn QuicConnection::send_stream(Self, Int64, Bytes, Bool) -> Result[QuicFrame, QuicError]
 pub fn QuicConnection::set_peer_transport_params(Self, QuicTransportParams) -> Result[Unit, QuicError]
 pub fn QuicConnection::state(Self) -> QuicConnectionState
+pub fn QuicConnection::take_credit_updates(Self) -> Array[QuicFrame]
 
 pub(all) struct QuicConnectionId {
   sequence : Int64
@@ -248,9 +250,11 @@ pub fn QuicDatagramDriver::path_status(Self) -> QuicPathStatus
 pub fn QuicDatagramDriver::peer_connection_id(Self) -> ConnectionId
 pub fn QuicDatagramDriver::poll(Self, Int64) -> Result[Array[QuicDriverAction], QuicError]
 pub async fn[S : @transport.DatagramSocket] QuicDatagramDriver::receive_once(Self, S, Int, Int64) -> Result[Array[QuicDriverAction], QuicError]
+pub fn QuicDatagramDriver::reset_stream(Self, Int64, Int64, Int64) -> Result[QuicDriverAction, QuicError]
 pub async fn[S : @transport.DatagramSocket] QuicDatagramDriver::send_action(Self, S, QuicDriverAction) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::send_frames(Self, PacketNumberSpace, Array[QuicFrame], Int64) -> Result[QuicDriverAction, QuicError]
 pub fn[C : @transport.Clock, E : @transport.Entropy] QuicDatagramDriver::send_retry_validated(Self, @types.Endpoint, C, E) -> Result[QuicDriverAction, QuicError]
+pub fn QuicDatagramDriver::send_stream(Self, Int64, Bytes, Bool, Int64) -> Result[QuicDriverAction, QuicError]
 pub fn QuicDatagramDriver::set_peer_transport_parameters(Self, QuicTransportParameters) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::state(Self) -> QuicConnectionState
 

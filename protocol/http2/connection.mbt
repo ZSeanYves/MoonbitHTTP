@@ -50,36 +50,6 @@ pub fn H2Connection::new(
 }
 
 ///|
-fn h2_validate_frame_flags(
-  typ : Int,
-  flags : Int,
-) -> Result[Unit, H2ProtocolError] {
-  let allowed = match typ {
-    H2_FRAME_DATA => H2_FLAGS_END_STREAM | H2_FLAGS_PADDED
-    H2_FRAME_HEADERS =>
-      H2_FLAGS_END_STREAM |
-      H2_FLAGS_END_HEADERS |
-      H2_FLAGS_PADDED |
-      H2_FLAGS_PRIORITY
-    H2_FRAME_PRIORITY => 0
-    H2_FRAME_RST_STREAM => 0
-    H2_FRAME_SETTINGS => H2_FLAGS_ACK
-    H2_FRAME_PUSH_PROMISE => H2_FLAGS_END_HEADERS | H2_FLAGS_PADDED
-    H2_FRAME_PING => H2_FLAGS_ACK
-    H2_FRAME_GOAWAY => 0
-    H2_FRAME_WINDOW_UPDATE => 0
-    H2_FRAME_CONTINUATION => H2_FLAGS_END_HEADERS
-    _ => 0xff
-  }
-  if typ < 0 || typ > 0xff || (flags & allowed) != flags {
-    return Err(
-      ConnectionError(ProtocolError, "frame contains unsupported flags"),
-    )
-  }
-  Ok(())
-}
-
-///|
 fn u31(payload : Array[Byte], offset : Int) -> Int {
   ((payload[offset].to_int() & 0x7f) << 24) |
   ((payload[offset + 1].to_int() & 0xff) << 16) |
@@ -102,20 +72,20 @@ fn H2Connection::receive_control_frame(
 ) -> Result[Array[H2Action], H2ProtocolError] {
   let h = frame.header
   let actions : Array[H2Action] = []
+  if h.stream_id != 0 {
+    return Err(
+      ConnectionError(
+        ProtocolError,
+        "connection control frame must use stream zero",
+      ),
+    )
+  }
   match h.typ {
     H2_FRAME_SETTINGS => {
-      if h.stream_id != 0 ||
-        ((h.flags & H2_FLAGS_ACK) != 0 && !frame.payload.is_empty()) ||
+      if ((h.flags & H2_FLAGS_ACK) != 0 && !frame.payload.is_empty()) ||
         frame.payload.length() % 6 != 0 {
         return Err(
-          ConnectionError(
-            if frame.payload.length() % 6 != 0 {
-              FrameSizeError
-            } else {
-              ProtocolError
-            },
-            "invalid SETTINGS frame",
-          ),
+          ConnectionError(FrameSizeError, "invalid SETTINGS frame length"),
         )
       }
       if (h.flags & H2_FLAGS_ACK) == 0 {
@@ -135,7 +105,7 @@ fn H2Connection::receive_control_frame(
       }
     }
     H2_FRAME_PING => {
-      if h.stream_id != 0 || frame.payload.length() != 8 {
+      if frame.payload.length() != 8 {
         return Err(ConnectionError(FrameSizeError, "invalid PING frame"))
       }
       if (h.flags & H2_FLAGS_ACK) == 0 {
@@ -143,13 +113,8 @@ fn H2Connection::receive_control_frame(
       }
     }
     H2_FRAME_GOAWAY => {
-      if h.stream_id != 0 || frame.payload.length() < 8 {
+      if frame.payload.length() < 8 {
         return Err(ConnectionError(FrameSizeError, "invalid GOAWAY frame"))
-      }
-      if (frame.payload[0].to_int() & 0x80) != 0 {
-        return Err(
-          ConnectionError(ProtocolError, "GOAWAY stream id has reserved bit"),
-        )
       }
       let last_stream = u31(frame.payload, 0)
       match self.goaway_last_stream {
@@ -187,10 +152,7 @@ fn H2Connection::receive_impl(
     h.stream_id > H2_MAX_WINDOW {
     return Err(ConnectionError(ProtocolError, "invalid HTTP/2 frame header"))
   }
-  match h2_validate_frame_flags(h.typ, h.flags) {
-    Ok(_) => ()
-    Err(error) => return Err(error)
-  }
+
   if self.continuation_stream is Some(expected) &&
     (h.typ != H2_FRAME_CONTINUATION || h.stream_id != expected) {
     return Err(
@@ -201,38 +163,20 @@ fn H2Connection::receive_impl(
     )
   }
   if h.typ == H2_FRAME_DATA && (h.flags & H2_FLAGS_PADDED) != 0 {
-    if frame.payload.is_empty() ||
-      frame.payload[0].to_int() >= frame.payload.length() {
-      return Err(ConnectionError(FrameSizeError, "invalid DATA padding"))
+    if frame.payload.is_empty() {
+      return Err(ConnectionError(FrameSizeError, "missing DATA pad length"))
+    }
+    if frame.payload[0].to_int() >= frame.payload.length() {
+      return Err(ConnectionError(ProtocolError, "invalid DATA padding"))
     }
   }
-  let mut header_fragment_length = 0
-  if h.typ == H2_FRAME_HEADERS {
-    let mut offset = 0
-    let mut padding = 0
-    if (h.flags & H2_FLAGS_PADDED) != 0 {
-      if frame.payload.is_empty() {
-        return Err(ConnectionError(FrameSizeError, "invalid HEADERS padding"))
-      }
-      padding = frame.payload[0].to_int()
-      offset = 1
-      if padding + offset > frame.payload.length() {
-        return Err(ConnectionError(FrameSizeError, "invalid HEADERS padding"))
-      }
+  let header_fragment_length = if h.typ == H2_FRAME_HEADERS {
+    match h2_header_fragment_bounds(frame) {
+      Ok((start, end)) => end - start
+      Err(error) => return Err(error)
     }
-    if (h.flags & H2_FLAGS_PRIORITY) != 0 {
-      if offset + 5 > frame.payload.length() {
-        return Err(ConnectionError(FrameSizeError, "invalid HEADERS priority"))
-      }
-      let dependency = ((frame.payload[offset].to_int() & 0x7f) << 24) |
-        ((frame.payload[offset + 1].to_int() & 0xff) << 16) |
-        ((frame.payload[offset + 2].to_int() & 0xff) << 8) |
-        (frame.payload[offset + 3].to_int() & 0xff)
-      if dependency == h.stream_id {
-        return Err(ConnectionError(ProtocolError, "HEADERS depends on itself"))
-      }
-    }
-    header_fragment_length = frame.payload.length() - offset - padding
+  } else {
+    0
   }
   match h.typ {
     H2_FRAME_SETTINGS | H2_FRAME_PING | H2_FRAME_GOAWAY =>

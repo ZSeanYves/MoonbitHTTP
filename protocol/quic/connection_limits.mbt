@@ -23,45 +23,81 @@ pub fn QuicConnection::set_peer_transport_params(
     Err(error) => return Err(error)
   }
   self.peer_transport_params = Some(params)
-  self.peer_max_data = params.initial_max_data.min(
-    self.limits.max_connection_data,
-  )
+  self.peer_max_data = params.initial_max_data
   self.peer_max_streams_bidi = params.initial_max_streams_bidi
   self.peer_max_streams_uni = params.initial_max_streams_uni
   Ok(())
 }
 
 ///|
-pub fn QuicConnection::open_unidirectional_stream(
+fn QuicConnection::open_stream(
   self : QuicConnection,
+  uni : Bool,
 ) -> Result[Int64, QuicError] {
-  if self.state != Established {
-    return Err(
-      Unsupported("application streams require an established connection"),
-    )
+  match self.state {
+    Closed | Draining =>
+      return Err(ConnectionClosed(0L, "connection is not accepting streams"))
+    Handshaking =>
+      return Err(
+        Unsupported("application streams require an established connection"),
+      )
+    Established => ()
   }
-  if self.streams.length() >= self.limits.max_streams ||
-    self.next_uni_stream_id >> 2 >= self.peer_max_streams_uni {
-    return Err(FlowControl(0L, "maximum unidirectional stream count reached"))
+  let (id, count) = if uni {
+    (self.next_uni_stream_id, self.peer_max_streams_uni)
+  } else {
+    (self.next_stream_id, self.peer_max_streams_bidi)
   }
-  let id = self.next_uni_stream_id
-  if id > QUIC_MAX_VARINT - 4L {
-    return Err(VarIntOverflow)
+  if self.stream_slots_used() >= self.limits.max_streams || id >> 2 >= count {
+    return Err(FlowControl(0L, "maximum stream count reached"))
+  }
+  // IDs advance in steps of four. The opening frontier may exceed the final
+  // wire ID by four, which still fits in Int64.
+  let peer = self.peer_transport_params.unwrap()
+  let send_limit = if uni {
+    peer.initial_max_stream_data_uni
+  } else {
+    peer.initial_max_stream_data_bidi_remote
+  }
+  let receive_limit = if uni {
+    0L
+  } else {
+    self.transport_params.initial_max_stream_data_bidi_local
   }
   let stream = match
     quic_new_stream_state(
-      self.peer_transport_params.unwrap().initial_max_stream_data_uni.min(
-        self.limits.max_stream_data,
-      ),
-      0L,
-      0,
+      send_limit.min(self.limits.max_stream_data),
+      receive_limit.min(self.limits.max_stream_data),
+      if uni {
+        0
+      } else {
+        self.limits.max_stream_data.to_int()
+      },
     ) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  self.streams.set(id, stream)
-  self.next_uni_stream_id += 4L
+  self.streams[id] = stream
+  if uni {
+    self.next_uni_stream_id += 4L
+  } else {
+    self.next_stream_id += 4L
+  }
   Ok(id)
+}
+
+///|
+pub fn QuicConnection::open_bidirectional_stream(
+  self : QuicConnection,
+) -> Result[Int64, QuicError] {
+  self.open_stream(false)
+}
+
+///|
+pub fn QuicConnection::open_unidirectional_stream(
+  self : QuicConnection,
+) -> Result[Int64, QuicError] {
+  self.open_stream(true)
 }
 
 ///|

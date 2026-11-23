@@ -8,5 +8,12 @@
 receives transport capabilities and delegates framing to HTTP protocol
 packages. Native socket construction belongs in [`adapter/native/client`](../../adapter/native/client/).
 
+For a single exchange with streaming input and output, pass a `Request[B]`
+where `B : Body` to `Http1PooledRoundTripper::execute_body`. HTTP/1.1 uploads
+with an unknown size use chunked framing and can carry trailers. The executor
+pulls the next frame after the previous write completes. Read the response to
+completion or cancel its body to release the pool lease. Automatic redirect,
+retry and cache policy belong to the byte-oriented `Http1Client::send` API.
+
 The 0.7 line is an alpha API boundary; consult [migration](../../docs/guide/migration.md)
 before upgrading from 0.6.

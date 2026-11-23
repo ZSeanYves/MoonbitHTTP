@@ -25,12 +25,12 @@ fn append_headers(
   out : Array[Byte],
   headers : @types.HeaderMap,
   framing : BodyFraming,
-  preserve_content_length : Bool,
-) -> Result[Unit, Http1Error] {
+  preserve_framing_fields : Bool,
+) -> Unit {
   for field in headers.fields() {
     let name = field.name.value
-    if name == "transfer-encoding" ||
-      (name == "content-length" && !preserve_content_length) {
+    if !preserve_framing_fields &&
+      (name == "transfer-encoding" || name == "content-length") {
       continue
     }
     push_text(out, name)
@@ -44,7 +44,6 @@ fn append_headers(
     Chunked => push_text(out, "transfer-encoding: chunked\r\n")
     NoBody | CloseDelimited => ()
   }
-  Ok(())
 }
 
 ///|
@@ -64,15 +63,7 @@ pub fn encode_request_head(
   if request.uri.validate_request_target(request.http_method) is Err(_) {
     return Err(InvalidStartLine("invalid request target"))
   }
-  match http1_validate_host(request.headers) {
-    Ok(_) => ()
-    Err(error) => return Err(error)
-  }
-  if request.version == Http11 &&
-    request.headers.get_all_string("host").is_empty() {
-    return Err(InvalidHeader("HTTP/1.1 request requires Host"))
-  }
-  match http1_validate_connection_headers(request.headers) {
+  match http1_validate_request_headers(request.headers, request.version) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
@@ -90,10 +81,7 @@ pub fn encode_request_head(
     version_text(request.version) +
     "\r\n",
   )
-  match append_headers(out, request.headers, framing, false) {
-    Ok(_) => ()
-    Err(error) => return Err(error)
-  }
+  append_headers(out, request.headers, framing, false)
   push_text(out, "\r\n")
   Ok(Bytes::from_array(out))
 }
@@ -129,33 +117,13 @@ pub fn encode_response_head(
   if response.status < 100 || response.status > 999 {
     return Err(InvalidStartLine("status code is out of range"))
   }
-  if !@types.response_allows_body(request_method, response.status) &&
-    framing != NoBody {
-    return Err(
-      InvalidFraming("response status or request method forbids a body"),
-    )
-  }
-  if (response.status >= 100 && response.status < 200) ||
-    response.status == 204 ||
-    (
-      request_method == Connect &&
-      response.status >= 200 &&
-      response.status < 300
-    ) {
-    if response.headers.content_length() is Ok(Some(_)) ||
-      !response.headers.get_all_string("transfer-encoding").is_empty() {
-      return Err(
-        InvalidFraming("body framing header is forbidden for this response"),
-      )
-    }
-  }
-  let permit_head_length = request_method == Head || response.status == 304
+  let rule = response_framing_rule(request_method, response.status)
   match
     validate_outgoing_framing(
       response.headers,
       framing,
       response.version,
-      allow_nonzero_content_length_without_body=permit_head_length,
+      rule~,
     ) {
     Ok(_) => ()
     Err(error) => return Err(error)
@@ -170,12 +138,7 @@ pub fn encode_response_head(
     default_reason(response.status) +
     "\r\n",
   )
-  let preserve_content_length = request_method == Head || response.status == 304
-  match
-    append_headers(out, response.headers, framing, preserve_content_length) {
-    Ok(_) => ()
-    Err(error) => return Err(error)
-  }
+  append_headers(out, response.headers, framing, rule is RepresentationMetadata)
   push_text(out, "\r\n")
   Ok(Bytes::from_array(out))
 }

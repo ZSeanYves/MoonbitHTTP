@@ -127,5 +127,21 @@ pub fn QuicDatagramDriver::poll(
     Ok(actions) => output.append(actions)
     Err(error) => return Err(error)
   }
+  if self.state() == Established {
+    let frames = self.connection.credit_updates()
+    if !frames.is_empty() {
+      match self.send_frames(Application, frames, now_ms) {
+        Ok(action) => {
+          self.connection.commit_credit_updates()
+          output.push(action)
+        }
+        Err(AmplificationBlocked)
+        | Err(FlowControl(0L, _))
+        | Err(LimitExceeded("QUIC retransmission queue", _))
+        | Err(LimitExceeded("QUIC recovery packet queue", _)) => ()
+        Err(error) => return Err(error)
+      }
+    }
+  }
   Ok(output)
 }

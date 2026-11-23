@@ -170,7 +170,9 @@ test "http1 conformance: CONNECT encoding and response switch preserve bytes" {
 
   let decoder = @http1.ResponseDecoder::new(Connect)
   decoder
-  .feed(b"HTTP/1.1 200 Connection Established\r\n\r\ntunneled-bytes")
+  .feed(
+    b"HTTP/1.1 200 Connection Established\r\nContent-Length: 42\r\n\r\ntunneled-bytes",
+  )
   .unwrap()
   assert_true(decoder.next() is Ok(Some(ResponseHead(_))))
   assert_true(decoder.next() is Ok(Some(ResponseEnd)))
@@ -178,10 +180,9 @@ test "http1 conformance: CONNECT encoding and response switch preserve bytes" {
 }
 
 ///|
-test "http1 conformance: no-body encoder rejects non-zero Content-Length" {
+test "http1 conformance: outgoing framing fits the selected version and header fields" {
   let headers = @types.HeaderMap::new()
   headers.append_string("host", "example.test").unwrap()
-  headers.append_string("content-length", "4").unwrap()
   let request : @types.Request[Unit] = {
     http_method: Get,
     uri: @types.Uri::parse("/").unwrap(),
@@ -190,62 +191,52 @@ test "http1 conformance: no-body encoder rejects non-zero Content-Length" {
     body: (),
   }
   assert_true(
+    @http1.encode_request_head(request, ContentLength(-1))
+    is Err(InvalidFraming(_)),
+  )
+  assert_true(
+    @http1.encode_request_head({ ..request, version: Http10, }, Chunked)
+    is Err(InvalidFraming(_)),
+  )
+  headers.append_string("content-length", "4").unwrap()
+  assert_true(
     @http1.encode_request_head(request, NoBody) is Err(InvalidFraming(_)),
   )
 }
 
 ///|
-test "http1 conformance: HEAD and 304 preserve representation length" {
-  let head_headers = @types.HeaderMap::new()
-  head_headers.append_string("content-length", "42").unwrap()
-  let head_response : @types.Response[Unit] = {
-    status: 200,
-    version: Http11,
-    headers: head_headers,
-    body: (),
+test "http1 conformance: HEAD and 304 round-trip representation metadata without consuming a body" {
+  for (request_method, status) in [(@types.Method::Head, 200), (Get, 304)] {
+    for
+      (name, value) in [
+        ("content-length", "42"),
+        ("transfer-encoding", "gzip, chunked"),
+      ] {
+      let headers = @types.HeaderMap::new()
+      headers.append_string(name, value).unwrap()
+      let response : @types.Response[Unit] = {
+        status,
+        version: Http11,
+        headers,
+        body: (),
+      }
+      let wire = @http1.encode_response_head(response, request_method, NoBody).unwrap()
+      let decoder = @http1.ResponseDecoder::new(request_method)
+      decoder.feed(wire).unwrap()
+      decoder.feed(b"next").unwrap()
+      guard decoder.next() is Ok(Some(ResponseHead(head))) else {
+        fail("expected response head")
+      }
+      assert_true(
+        head.headers.get_all_string(name) is [field] &&
+        field.to_string_lossy() == value,
+      )
+      assert_true(decoder.next() is Ok(Some(ResponseEnd)))
+      assert_eq(decoder.take_buffered(), b"next")
+      assert_true(
+        @http1.encode_response_head(response, request_method, Chunked)
+        is Err(InvalidFraming(_)),
+      )
+    }
   }
-  let head = @http1.encode_response_head(head_response, Head, NoBody).unwrap()
-  let head_text = @utf8.decode(head) catch { _ => "" }
-  assert_true(head_text.contains("content-length: 42\r\n"))
-  assert_true(@http1.encode_body_data(b"x", NoBody) is Err(InvalidFraming(_)))
-
-  let not_modified_headers = @types.HeaderMap::new()
-  not_modified_headers.append_string("content-length", "42").unwrap()
-  let not_modified : @types.Response[Unit] = {
-    status: 304,
-    version: Http11,
-    headers: not_modified_headers,
-    body: (),
-  }
-  let encoded = @http1.encode_response_head(not_modified, Get, NoBody).unwrap()
-  let encoded_text = @utf8.decode(encoded) catch { _ => "" }
-  assert_true(encoded_text.contains("content-length: 42\r\n"))
-}
-
-///|
-test "http1 conformance: HEAD and 304 reject transfer encoding" {
-  let head_headers = @types.HeaderMap::new()
-  head_headers.append_string("transfer-encoding", "chunked").unwrap()
-  let head_response : @types.Response[Unit] = {
-    status: 200,
-    version: Http11,
-    headers: head_headers,
-    body: (),
-  }
-  assert_true(
-    @http1.encode_response_head(head_response, Head, NoBody)
-    is Err(InvalidFraming(_)),
-  )
-  let not_modified_headers = @types.HeaderMap::new()
-  not_modified_headers.append_string("transfer-encoding", "chunked").unwrap()
-  let not_modified : @types.Response[Unit] = {
-    status: 304,
-    version: Http11,
-    headers: not_modified_headers,
-    body: (),
-  }
-  assert_true(
-    @http1.encode_response_head(not_modified, Get, NoBody)
-    is Err(InvalidFraming(_)),
-  )
 }

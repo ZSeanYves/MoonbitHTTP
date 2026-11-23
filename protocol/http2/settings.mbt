@@ -86,12 +86,9 @@ fn H2Connection::apply_setting(
     // The ordered PeerHeaderTableSize action updates the driver's encoder.
     1 => ()
     2 => {
-      if self.role == Client {
+      if self.role == Client && value == 1 {
         return Err(
-          ConnectionError(
-            ProtocolError,
-            "server must not send SETTINGS_ENABLE_PUSH",
-          ),
+          ConnectionError(ProtocolError, "server must not enable push"),
         )
       }
       if value != 0 && value != 1 {

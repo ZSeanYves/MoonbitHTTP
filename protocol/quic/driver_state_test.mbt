@@ -351,3 +351,32 @@ test "quic keys: confirmation and ACK gates, peer response and bounded old-key r
   assert_true(server.on_datagram(endpoint, expired, 100000L) is Err(_))
   client.initiate_key_update().unwrap()
 }
+
+///|
+test "quic stream packet rejection preserves offsets and reset final size" {
+  let endpoint = @types.Endpoint::new("udp", "peer.test", 443).unwrap()
+  let (client, server) = established_driver_pair(endpoint, endpoint)
+  let id = client.connection().open_bidirectional_stream().unwrap()
+  let oversized = Bytes::from_array(FixedArray::make(2048, b'x'))
+  assert_true(client.send_stream(id, oversized, true, 0L) is Err(_))
+  guard client.send_stream(id, b"abc", false, 1L) is Ok(SendDatagram(_, packet)) else {
+    fail("expected stream packet after retry")
+  }
+  assert_true(
+    server
+    .on_datagram(endpoint, packet, 2L)
+    .unwrap()
+    .contains(StreamData(id, b"abc", false)),
+  )
+  guard client.reset_stream(id, 42L, 3L) is Ok(SendDatagram(_, reset)) else {
+    fail("expected reset packet")
+  }
+  assert_true(
+    server
+    .on_datagram(endpoint, reset, 4L)
+    .unwrap()
+    .contains(StreamReset(id, 42L)),
+  )
+  assert_true(client.send_stream(id, b"x", false, 5L) is Err(StreamClosed(_)))
+  assert_true(server.send_stream(id, b"ok", true, 6L) is Ok(_))
+}

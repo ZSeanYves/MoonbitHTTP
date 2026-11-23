@@ -317,9 +317,17 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
                       encoded_head,
                       config.write_timeout_ms,
                     )
-                    write_http1_body(response.body, framing, async fn(bytes) {
-                      write_with_timeout(writer, bytes, config.write_timeout_ms)
-                    })
+                    write_http1_body(
+                      framing,
+                      () => response.body.next_frame(),
+                      async fn(bytes) {
+                        write_with_timeout(
+                          writer,
+                          bytes,
+                          config.write_timeout_ms,
+                        )
+                      },
+                    )
                   })
                 }),
               )
@@ -471,7 +479,9 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_with_
               Err(codec_error) => raise codec_error
             }
             write_with_timeout(writer, encoded, config.write_timeout_ms)
-            write_http1_body(response.body, framing, async fn(bytes) {
+            write_http1_body(framing, () => response.body.next_frame(), async fn(
+              bytes,
+            ) {
               write_with_timeout(writer, bytes, config.write_timeout_ms)
             })
           })

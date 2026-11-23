@@ -1,8 +1,12 @@
 ///|
-test "h2 conformance: frame decoder rejects reserved stream bit" {
+test "h2 conformance: receiver ignores reserved stream bit and unused flags" {
   let decoder = @http2.FrameDecoder::new()
-  decoder.feed(b"\x00\x00\x00\x04\x00\x80\x00\x00\x01").unwrap()
-  assert_eq(decoder.next() is Err(ConnectionError(ProtocolError, _)), true)
+  decoder.feed(b"\x00\x00\x00\x04\x80\x80\x00\x00\x00").unwrap()
+  guard decoder.next() is Ok(Some(frame)) else { fail("missing SETTINGS") }
+  assert_eq(frame.header.stream_id, 0)
+  assert_true(
+    @http2.H2Connection::new(Server).receive(frame) is Ok([SendSettingsAck]),
+  )
 }
 
 ///|
@@ -37,7 +41,7 @@ test "h2 conformance: padded DATA exposes only application bytes" {
 
 ///|
 test "h2 conformance: malformed padding and self dependencies fail" {
-  assert_eq(
+  assert_true(
     @http2.H2Connection::new(Server).receive({
       header: {
         length: 1,
@@ -47,10 +51,9 @@ test "h2 conformance: malformed padding and self dependencies fail" {
       },
       payload: [1],
     })
-    is Err(ConnectionError(FrameSizeError, _)),
-    true,
+    is Err(ConnectionError(ProtocolError, _)),
   )
-  assert_eq(
+  assert_true(
     @http2.H2Connection::new(Server).receive({
       header: {
         length: 5,
@@ -61,26 +64,28 @@ test "h2 conformance: malformed padding and self dependencies fail" {
       payload: [0, 0, 0, 1, 15],
     })
     is Err(ConnectionError(ProtocolError, _)),
-    true,
   )
 }
 
 ///|
-test "h2 conformance: server SETTINGS_ENABLE_PUSH is rejected by client" {
-  let connection = @http2.H2Connection::new(Client)
-  let frame : @http2.H2Frame = {
-    header: {
-      length: 6,
-      typ: @http2.H2_FRAME_SETTINGS,
-      flags: 0,
-      stream_id: 0,
-    },
-    payload: [0, 2, 0, 0, 0, 1],
+test "h2 conformance: server may explicitly disable push" {
+  for value in [0, 1, 2] {
+    let connection = @http2.H2Connection::new(Client)
+    let frame : @http2.H2Frame = {
+      header: {
+        length: 6,
+        typ: @http2.H2_FRAME_SETTINGS,
+        flags: 0,
+        stream_id: 0,
+      },
+      payload: [0, 2, 0, 0, 0, value.to_byte()],
+    }
+    match connection.receive(frame) {
+      Ok(_) => assert_eq(value, 0)
+      Err(ConnectionError(ProtocolError, _)) => assert_true(value != 0)
+      Err(_) => fail("unexpected SETTINGS error")
+    }
   }
-  assert_eq(
-    connection.receive(frame) is Err(ConnectionError(ProtocolError, _)),
-    true,
-  )
 }
 
 ///|
@@ -230,7 +235,7 @@ test "h2 conformance: PUSH_PROMISE validates padding and promised parity" {
       },
       payload: [5, 0, 0, 0, 2],
     })
-    is Err(ConnectionError(FrameSizeError, _)),
+    is Err(ConnectionError(ProtocolError, _)),
   )
   assert_true(
     @http2.H2Connection::new(Client).receive({

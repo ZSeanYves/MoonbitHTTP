@@ -33,21 +33,20 @@ fn SmokeConnection::send_stream(
   let mut cursor = 0
   while cursor < bytes.length() {
     let end = (cursor + 1000).min(bytes.length())
-    let frame = checked(
-      packets
-      .connection()
-      .send_stream(
-        stream,
-        bytes[cursor:end].to_owned(),
-        fin && end == bytes.length(),
+    output.push(
+      checked(
+        packets.send_stream(
+          stream,
+          bytes[cursor:end].to_owned(),
+          fin && end == bytes.length(),
+          now_ms,
+        ),
       ),
     )
-    output.push(checked(packets.send_frames(Application, [frame], now_ms)))
     cursor = end
   }
   if bytes.is_empty() && fin {
-    let frame = checked(packets.connection().send_stream(stream, b"", true))
-    output.push(checked(packets.send_frames(Application, [frame], now_ms)))
+    output.push(checked(packets.send_stream(stream, b"", true, now_ms)))
   }
   output
 }
@@ -86,11 +85,7 @@ fn SmokeConnection::h3_actions(
           checked(
             self.tls
             .datagram_driver()
-            .send_frames(
-              Application,
-              [ResetStream(id, code.wire_value(), 0L)],
-              now_ms,
-            ),
+            .reset_stream(id, code.wire_value(), now_ms),
           ),
         )
       CloseConnection(code) =>
@@ -200,7 +195,7 @@ async fn main {
   defer (for _, connection in connections {
     connection.provider.close()
   })
-  println("HTTP/3 smoke listening on https://localhost:18443")
+  @stdio.stdout.write("HTTP/3 smoke listening on https://localhost:18443\n")
   @async.with_task_group(async fn(group) {
     // Keep the receive operation alive while the timer drives recovery. The
     // UDP adapter maps cancellation to an error, so cancelling a receive on
@@ -277,6 +272,12 @@ async fn main {
               id,
               peer_id,
               now_ms~,
+              // Keep the peer's initial request allowance small so the rolling
+              // interoperability case must receive fresh MAX_STREAMS credit.
+              transport_params={
+                ..@quic.QuicTransportParams::defaults(),
+                initial_max_streams_bidi: 8L,
+              },
               authorize=fn(endpoint, operation) {
                 policy.authorize(endpoint, operation)
               },

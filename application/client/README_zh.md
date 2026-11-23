@@ -17,6 +17,8 @@ Last reviewed: 2026-10-01
 ## 使用边界
 显式传入 connector、resolver、TLS、policy、clock；需要保留 response body 所有权时使用流式 round trip。
 
+将 `Request[B]`（`B : Body`）传给 `Http1PooledRoundTripper::execute_body`，可执行一次流式上传并流式读取响应。HTTP/1.1 请求大小未知时使用 chunked 编码，可发送 trailers。每帧写完才拉取下一帧，读完或取消响应体会释放连接池租约。自动重试、重定向和缓存由字节接口 `Http1Client::send` 提供。
+
 ## 不变量与范围
 解析结果在连接前再次授权；重试和重定向保持可重放性与限制。目前高层入口覆盖 HTTP/1，HTTP/2/3 驱动仍分开。
 

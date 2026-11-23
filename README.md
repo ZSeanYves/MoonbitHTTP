@@ -11,8 +11,7 @@ JavaScript without pretending that every target has the same network runtime.
 
 ## Installation
 
-After the `0.7.0` package is published to Mooncakes, add it from a MoonBit
-project root with:
+Install the published `0.7.0` alpha from the MoonBit project root.
 
 ```bash
 moon add ZSeanYves/MoonbitHTTP@0.7.0

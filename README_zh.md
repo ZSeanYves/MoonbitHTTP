@@ -10,7 +10,7 @@ API 可能变化。
 
 ## 安装
 
-`0.7.0` 发布到 Mooncakes 后，可在 MoonBit 项目根目录运行：
+在 MoonBit 项目根目录运行以下命令，安装已发布的 `0.7.0` alpha 版本。
 
 ```bash
 moon add ZSeanYves/MoonbitHTTP@0.7.0

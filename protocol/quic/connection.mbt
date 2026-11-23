@@ -64,7 +64,14 @@ pub struct QuicConnection {
   priv mut connection_send_offset : Int64
   priv mut connection_recv_offset : Int64
   priv mut peer_max_data : Int64
-  priv local_max_data : Int64
+  priv mut local_max_data : Int64
+  priv mut released_receive_bytes : Int64
+  priv mut retained_send_bytes : Int64
+  priv incoming_bidi : IncomingStreams
+  priv incoming_uni : IncomingStreams
+  priv recent_final_sizes : Map[Int64, Int64]
+  priv final_size_ids : Array[Int64]
+  priv mut final_size_cursor : Int
   priv mut peer_max_streams_bidi : Int64
   priv mut peer_max_streams_uni : Int64
   priv mut next_stream_id : Int64
@@ -95,6 +102,19 @@ pub fn QuicConnection::new(
     peer_transport_params: None,
     streams: Map([]),
     connection_send_offset: 0L,
+    released_receive_bytes: 0L,
+    retained_send_bytes: 0L,
+    incoming_bidi: IncomingStreams::new(
+      first_stream ^ 1L,
+      transport_params.initial_max_streams_bidi,
+    ),
+    incoming_uni: IncomingStreams::new(
+      (first_stream ^ 1L) + 2L,
+      transport_params.initial_max_streams_uni,
+    ),
+    recent_final_sizes: Map([]),
+    final_size_ids: [],
+    final_size_cursor: 0,
     connection_recv_offset: 0L,
     peer_max_data: 0L,
     local_max_data: transport_params.initial_max_data.min(
@@ -130,93 +150,6 @@ pub fn QuicConnection::establish(
 }
 
 ///|
-pub fn QuicConnection::open_bidirectional_stream(
-  self : QuicConnection,
-) -> Result[Int64, QuicError] {
-  if self.state == Closed || self.state == Draining {
-    return Err(ConnectionClosed(0L, "connection is not accepting streams"))
-  }
-  if self.state != Established {
-    return Err(
-      Unsupported("application streams require an established connection"),
-    )
-  }
-  if self.streams.length() >= self.limits.max_streams ||
-    self.next_stream_id >> 2 >= self.peer_max_streams_bidi {
-    return Err(FlowControl(0L, "maximum bidirectional stream count reached"))
-  }
-  let id = self.next_stream_id
-  if id > QUIC_MAX_VARINT - 4L {
-    return Err(VarIntOverflow)
-  }
-  self.next_stream_id += 4L
-  let stream = match
-    quic_new_stream_state(
-      self.peer_transport_params.unwrap().initial_max_stream_data_bidi_remote.min(
-        self.limits.max_stream_data,
-      ),
-      self.transport_params.initial_max_stream_data_bidi_local.min(
-        self.limits.max_stream_data,
-      ),
-      self.limits.max_stream_data.to_int(),
-    ) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  self.streams.set(id, stream)
-  Ok(id)
-}
-
-///|
-pub fn QuicConnection::send_stream(
-  self : QuicConnection,
-  stream_id : Int64,
-  data : Bytes,
-  fin : Bool,
-) -> Result[QuicFrame, QuicError] {
-  if data.length() > self.limits.max_frame_payload {
-    return Err(LimitExceeded("stream frame", self.limits.max_frame_payload))
-  }
-  if self.state == Closed || self.state == Draining {
-    return Err(ConnectionClosed(0L, "connection is closed"))
-  }
-  if self.state != Established {
-    return Err(
-      Unsupported("application streams require an established connection"),
-    )
-  }
-  guard self.streams.get(stream_id) is Some(stream) else {
-    return Err(StreamClosed(stream_id))
-  }
-  if (stream_id & 2L) != 0L && !self.locally_initiated(stream_id) {
-    return Err(Protocol(0x5L, "cannot send on peer unidirectional stream"))
-  }
-  if stream.reset || stream.fin_sent {
-    return Err(StreamClosed(stream_id))
-  }
-  let length = data.length().to_int64()
-  if length > stream.send_max - stream.send_offset {
-    return Err(FlowControl(stream_id, "stream send window exhausted"))
-  }
-  if length > self.peer_max_data - self.connection_send_offset {
-    return Err(FlowControl(0L, "connection send window exhausted"))
-  }
-  if stream.send_offset > QUIC_MAX_VARINT - length ||
-    self.connection_send_offset > QUIC_MAX_VARINT - length {
-    return Err(VarIntOverflow)
-  }
-  let offset = stream.send_offset
-  stream.send_offset += length
-  self.connection_send_offset += length
-  stream.fin_sent = fin
-  let frame = match StreamFrame::new(stream_id, offset, data, fin) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  Ok(Stream(frame))
-}
-
-///|
 pub fn QuicConnection::receive_frame(
   self : QuicConnection,
   frame : QuicFrame,
@@ -239,15 +172,18 @@ pub fn QuicConnection::receive_frame(
     Ack(ack) => actions.push(PeerAck(ack))
     Stream(stream_frame) => {
       let id = stream_frame.stream_id
-      let stream = match self.receive_stream(id) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
       let length = stream_frame.data.length().to_int64()
       if stream_frame.offset > QUIC_MAX_VARINT - length {
         return Err(VarIntOverflow)
       }
       let end = stream_frame.offset + length
+      if self.is_retired(id) {
+        return self.check_retired_range(id, end, stream_frame.fin)
+      }
+      let stream = match self.receive_stream(id) {
+        Ok(value) => value
+        Err(error) => return Err(error)
+      }
       match stream.recv_final_size {
         Some(final_size) if stream_frame.fin && end != final_size =>
           return Err(Protocol(0x6L, "final stream size changed"))
@@ -299,20 +235,28 @@ pub fn QuicConnection::receive_frame(
           actions.push(StreamData(id, b"", true))
         }
       }
+      self.retire_if_finished(id, stream)
     }
-    MaxData(value) =>
-      // RFC 9000 requires non-increasing MAX_DATA frames to be ignored. The
-      // configured resource ceiling remains authoritative even if the peer
-      // advertises a larger window.
-      if value > self.peer_max_data {
-        self.peer_max_data = value.min(self.limits.max_connection_data)
+    MaxData(value) => {
+      if value < 0L || value > QUIC_MAX_VARINT {
+        return Err(InvalidFrame("invalid MAX_DATA limit"))
       }
+      self.peer_max_data = self.peer_max_data.max(value)
+    }
     MaxStreamData(id, value) => {
       if (id & 2L) != 0L && !self.locally_initiated(id) {
         return Err(Protocol(0x5L, "MAX_STREAM_DATA for a receive-only stream"))
       }
-      guard self.streams.get(id) is Some(stream) else {
-        return Err(StreamClosed(id))
+      if self.is_retired(id) {
+        return Ok(actions)
+      }
+      let stream = match self.streams.get(id) {
+        Some(stream) => stream
+        None =>
+          match self.receive_stream(id) {
+            Ok(stream) => stream
+            Err(error) => return Err(error)
+          }
       }
       if value > stream.send_max {
         stream.send_max = value.min(self.limits.max_stream_data)
@@ -329,6 +273,9 @@ pub fn QuicConnection::receive_frame(
       }
     }
     ResetStream(id, code, final_size) => {
+      if self.is_retired(id) {
+        return self.check_retired_range(id, final_size, true)
+      }
       let stream = match self.receive_stream(id) {
         Ok(value) => value
         Err(error) => return Err(error)
@@ -360,6 +307,7 @@ pub fn QuicConnection::receive_frame(
       self.connection_recv_offset += new_bytes
       stream.reset = true
       actions.push(StreamReset(id, code))
+      self.retire_if_finished(id, stream)
     }
     ConnectionClose(_, code, _, reason) => {
       self.state = Draining

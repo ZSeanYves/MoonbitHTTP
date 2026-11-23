@@ -8,9 +8,17 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
-The post-`0.7.0` cleanup is committed at `b05541e`; the current release record
-is committed at `201e7ae`. It remains unreleased and
-has no tag or Mooncakes publication record.
+- Add one-shot streaming uploads to the pooled HTTP/1 executor, with the response lease retained until EOF or cancellation.
+- Preserve representation framing fields on HEAD and 304 responses and leave tunnel bytes available after successful CONNECT.
+- Accept a server's HTTP/2 ENABLE_PUSH setting of zero. Ignore undefined frame flags and reserved stream-ID bits. Share header-fragment validation across frame and connection decoding.
+- Reclaim QUIC stream state after both directions finish. Return connection and stream-count credit through the datagram driver or `QuicConnection::take_credit_updates()`.
+- Advance stream send offsets only after datagram admission. Local stream resets now use the recorded final size.
+- Exercise 256 independent HTTP/3 requests on a single connection with an initial eight-stream allowance.
+
+## 0.7.0 — 2026-10-07
+
+Mooncakes published the alpha package from the contents verified at `0967034`.
+The archive SHA-256 is `f7e3d2891f5e1ed943039f6438f396f77877c8d0045ef1fe5b06b068767477fa`.
 
 ### Breaking changes
 
@@ -66,8 +74,7 @@ has no tag or Mooncakes publication record.
 
 - Existing MoonBit old/current and Native socket comparisons remain the scoped
   local baselines. Go `net/http` is an external reference, not a threshold.
-- Go comparison status is `not_run` in this environment because the `go`
-  executable is unavailable; no silent skip is allowed.
+- The release CI measured the Go baseline. A paired comparison against MoonbitHTTP remains open.
 
 ### Validation
 
@@ -85,7 +92,7 @@ has no tag or Mooncakes publication record.
   browser networking and generic HTTP/3 application service remain outside the
   0.7 alpha claim.
 
-#### Phase completion record
+#### Phase completion record before publication
 
 - Status: committed and CI-verified; not a release
 - Recorded at: `2026-10-06T12:54:08+08:00`

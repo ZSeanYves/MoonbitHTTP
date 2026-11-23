@@ -20,6 +20,8 @@ Last reviewed: 2026-10-01
 ## 不变量与范围
 packet space、frame legality、amplification、路径验证、Retry、丢包、并发 stream 和 key phase 是状态不变量；不解析 hostname、不打开 UDP。
 
+流的两个方向都结束后，连接会回收状态，并补回对端的流数量和连接字节额度。直接使用 `QuicConnection` 的传输层须可靠发送 `take_credit_updates()` 返回的帧。`QuicDatagramDriver::poll()` 已负责调度这些帧。当前在流回收时归还连接接收额度，单条活动流仍受配置的字节上限约束。
+
 ## 规范文档
 - [中文总览](../../README_zh.md)
 - [包地图](../../docs/concepts/packages.md)

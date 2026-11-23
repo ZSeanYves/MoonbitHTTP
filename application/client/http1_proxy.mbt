@@ -97,7 +97,7 @@ async fn http1_pool_connect_tunnel(
   }
   let encoded = match @http1.encode_request_head(request, NoBody) {
     Ok(value) => value
-    Err(error) => return Err(h1_client_codec_error(error))
+    Err(error) => return Err(ClientHttp1(error))
   }
   match connection.write(encoded) {
     Ok(_) => ()
@@ -108,7 +108,7 @@ async fn http1_pool_connect_tunnel(
   let mut eof = false
   for ;; {
     match decoder.next() {
-      Err(error) => return Err(h1_client_codec_error(error))
+      Err(error) => return Err(ClientHttp1(error))
       Ok(Some(ResponseHead(response))) =>
         if response.status >= 200 {
           if response.status >= 300 {
@@ -147,7 +147,7 @@ async fn http1_pool_connect_tunnel(
             }
             match decoder.feed(bytes) {
               Ok(_) => ()
-              Err(error) => return Err(h1_client_codec_error(error))
+              Err(error) => return Err(ClientHttp1(error))
             }
           }
         }

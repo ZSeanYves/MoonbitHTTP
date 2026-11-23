@@ -87,33 +87,9 @@ test "http1: decoder rejects forbidden framing headers on no-body responses" {
     decoder.feed(@utf8.encode(wire)).unwrap()
     assert_true(decoder.next() is Err(InvalidFraming(_)))
   }
-  let connect = @http1.ResponseDecoder::new(Connect)
-  connect
-  .feed(
-    @utf8.encode(
-      "HTTP/1.1 200 Connection Established\r\nContent-Length: 0\r\n\r\n",
-    ),
-  )
-  .unwrap()
-  assert_true(connect.next() is Err(InvalidFraming(_)))
 }
 
-///|
-test "http1: decoder preserves Content-Length on HEAD and 304" {
-  let head = @http1.ResponseDecoder::new(Head)
-  head
-  .feed(@utf8.encode("HTTP/1.1 200 OK\r\nContent-Length: 42\r\n\r\n"))
-  .unwrap()
-  assert_true(head.next() is Ok(Some(ResponseHead(_))))
-  assert_true(head.next() is Ok(Some(ResponseEnd)))
-
-  let not_modified = @http1.ResponseDecoder::new(Get)
-  not_modified
-  .feed(@utf8.encode("HTTP/1.1 304 Not Modified\r\nContent-Length: 42\r\n\r\n"))
-  .unwrap()
-  assert_true(not_modified.next() is Ok(Some(ResponseHead(_))))
-  assert_true(not_modified.next() is Ok(Some(ResponseEnd)))
-}
+//|
 
 ///|
 test "http1: chunked encoder preserves repeated headers and trailers" {

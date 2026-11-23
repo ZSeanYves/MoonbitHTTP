@@ -229,6 +229,7 @@ pub struct Http1PooledRoundTripper {
 pub fn Http1PooledRoundTripper::close(Self) -> Unit
 pub fn Http1PooledRoundTripper::connection_count(Self) -> Int
 pub async fn Http1PooledRoundTripper::execute(Self, @types.Request[Bytes]) -> Result[@types.Response[Bytes], ClientError]
+pub async fn[B : @body.Body] Http1PooledRoundTripper::execute_body(Self, @types.Request[B]) -> Result[@types.Response[@body.BodyStream], ClientError]
 pub async fn Http1PooledRoundTripper::execute_stream(Self, @types.Request[Bytes]) -> Result[@types.Response[@body.BodyStream], ClientError]
 pub fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @transport.TlsProvider, P : @transport.NetworkPolicy, K : @transport.Clock] Http1PooledRoundTripper::from_capabilities(C, R, T, P, K, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @transport.TlsOptions, proxy_tls? : @transport.TlsOptions, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, resolve_options? : @transport.ResolveOptions, pool_limits? : PoolLimits) -> Result[Self, ClientError]
 pub fn Http1PooledRoundTripper::idle_connection_count(Self) -> Int

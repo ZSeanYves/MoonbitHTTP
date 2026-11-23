@@ -3,9 +3,18 @@
 > Status: local validation and explicitly labelled historical evidence; not production approval
 > Scope: MoonbitHTTP 0.7.0 security remediation and historical release evidence
 > Source: current working tree; exact revisions belong to local/CI evidence
-> Last reviewed: 2026-10-07
+> Last reviewed: 2026-11-23
 
-The latest local security remediation and final validation are recorded in the
+Mooncakes published `0.7.0` on 2026-10-07. Its archive matches the frozen
+distribution at `0967034` (SHA-256
+`f7e3d2891f5e1ed943039f6438f396f77877c8d0045ef1fe5b06b068767477fa`).
+[Hosted CI at that revision](https://github.com/ZSeanYves/MoonbitHTTP/actions/runs/37583031544)
+passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
+92 async integration tests and 131 Native TLS tests per OS on Linux, macOS and
+Windows. These results describe the published alpha. The changes listed under
+Unreleased in the changelog require their own validation.
+
+The earlier local security remediation and final validation are recorded in the
 [2026-10-06 remediation index](../development/security-remediation-2026-10-06.md).
 Clean revision `201e7ae` passed hosted CI run `37516695805`: Wasm 455/455,
 Wasm-GC 324/324, JavaScript 455/455 and Native 514/514; async integration
@@ -78,11 +87,8 @@ was 10.08% for HTTP/1 throughput, and every median/geomean cost stayed within
 the 15%/20% limits. This closes only the declared local Native socket workload;
 it is not a production-wide or cross-platform performance claim.
 
-The separate Go `net/http` H1/H2 reference runner is implemented, but its
-baseline and MoonBitHTTP comparison are `not_run` in this environment because
-the `go` executable is unavailable. A future run must measure both H1 and H2
-with the same workload and record a compact summary; Go is an external
-reference, not a release threshold.
+The Go `net/http` H1/H2 runner measured the Go baseline in the hosted release
+run. A paired MoonbitHTTP comparison under the same workload remains open.
 
 The historical 2026-10-03 Standard security review is sealed under scan
 `5e0f9eab-60e1-458a-b97a-e89b3a69aa48` with zero reportable findings and
@@ -134,9 +140,8 @@ Native OpenSSL CRL and stapled OCSP checks passed fresh, stale, future,
 revoked, unknown, malformed and missing-staple cases with fail-closed behavior.
 The implementation intentionally does not fetch OCSP responses online, and
 Wasm requires a host-provided TLS/revocation capability. Historical security
-reviews have the scoped limitations above. The incomplete final security
-coverage, unmeasured Go H1/H2 comparison, and absence of a release tag or
-publication record still prevent production approval or publication.
+reviews have the scoped limitations above. The open production gates include release-revision security coverage and
+cross-host interoperability. The external Go comparison also remains open.
 
 See [release gates](gates.md) for the remaining acceptance criteria and the
 [GitHub Actions run](https://github.com/ZSeanYves/MoonbitHTTP/actions/runs/36837820455)

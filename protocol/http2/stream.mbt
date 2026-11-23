@@ -382,9 +382,14 @@ fn H2Connection::receive_stream_frame(
           padding = frame.payload[0].to_int()
           offset = 1
         }
+        if offset + 4 > frame.payload.length() {
+          return Err(
+            ConnectionError(FrameSizeError, "truncated promised stream ID"),
+          )
+        }
         if offset + 4 + padding > frame.payload.length() {
           return Err(
-            ConnectionError(FrameSizeError, "invalid PUSH_PROMISE padding"),
+            ConnectionError(ProtocolError, "invalid PUSH_PROMISE padding"),
           )
         }
         let promised = ((frame.payload[offset].to_int() & 0x7f) << 24) |

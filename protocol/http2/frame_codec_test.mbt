@@ -35,15 +35,13 @@ test "h2 incremental: response encoder emits HEADERS and DATA" {
 }
 
 ///|
-test "h2 incremental: reserved stream-id bit is a connection error" {
+test "h2 incremental: oversized frame preserves first terminal error" {
   let decoder = @http2.FrameDecoder::new()
-  decoder.feed(b"\x00\x00\x00\x04\x00\x80\x00\x00\x00").unwrap()
-  guard decoder.next() is Err(first) else { fail("reserved bit was accepted") }
-  assert_true(first is ConnectionError(ProtocolError, _))
+  decoder.feed(b"\x00\x40\x01\x00\x00\x00\x00\x00\x01").unwrap()
+  guard decoder.next() is Err(first) else { fail("oversized frame accepted") }
+  assert_true(first is ConnectionError(FrameSizeError, _))
   assert_eq(decoder.feed(b""), Err(first))
-  guard decoder.next() is Err(second) else {
-    fail("frame decoder resumed after a terminal error")
-  }
+  guard decoder.next() is Err(second) else { fail("frame decoder resumed") }
   assert_eq(second, first)
 }
 

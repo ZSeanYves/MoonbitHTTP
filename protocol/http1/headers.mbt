@@ -64,29 +64,23 @@ fn http1_validate_trailer_fields(
 }
 
 ///|
-fn http1_validate_host(headers : @types.HeaderMap) -> Result[Unit, Http1Error] {
-  let hosts = headers.get_all_string("host")
-  if hosts.length() > 1 {
-    return Err(InvalidHeader("request contains multiple Host fields"))
-  }
-  match hosts {
-    [] => Ok(())
-    [value] =>
-      match
-        @types.Authority::parse_endpoint(
-          value.to_string_lossy().trim().to_owned(),
-        ) {
-        Ok(_) => Ok(())
-        Err(_) => Err(InvalidHeader("invalid Host field"))
-      }
-    _ => Err(InvalidHeader("request contains multiple Host fields"))
-  }
-}
-
-///|
-fn http1_validate_connection_headers(
+fn http1_validate_request_headers(
   headers : @types.HeaderMap,
+  version : @types.Version,
 ) -> Result[Unit, Http1Error] {
+  match headers.get_all_string("host") {
+    [] if version == Http11 =>
+      return Err(InvalidHeader("HTTP/1.1 request requires Host"))
+    [] => ()
+    [value] =>
+      if @types.Authority::parse_endpoint(
+          value.to_string_lossy().trim().to_owned(),
+        )
+        is Err(_) {
+        return Err(InvalidHeader("invalid Host field"))
+      }
+    _ => return Err(InvalidHeader("request contains multiple Host fields"))
+  }
   for value in headers.get_all_string("te") {
     for token in value.to_string_lossy().split(",") {
       let normalized = token.trim().to_owned().to_lower()

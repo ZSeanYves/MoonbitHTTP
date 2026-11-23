@@ -226,34 +226,46 @@ async test "service: HTTP/1 request-header timeout closes the connection" {
 }
 
 ///|
-async test "service: HTTP/1 request-body timeout closes the connection" {
-  let reader = PhaseBlockingReader::new(b"")
-  let writer : PhaseBlockingWriter = {
-    bytes: [],
-    calls: 0,
-    block_on_call: 2,
-    gate: Queue(kind=Unbounded),
+async test "service: HTTP/1 request-body timeout cancels a stalled producer or write" {
+  for stall_producer in [false, true] {
+    let gate : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+    let reader = PhaseBlockingReader::new(b"")
+    let writer : PhaseBlockingWriter = {
+      bytes: [],
+      calls: 0,
+      block_on_call: 2,
+      gate,
+    }
+    let client = @service.ClientConnection::new(
+      reader,
+      writer,
+      request_headers_timeout_ms=None,
+      request_body_timeout_ms=Some(10),
+      response_headers_timeout_ms=None,
+      response_body_timeout_ms=None,
+    ).unwrap()
+    let mut cancelled = 0
+    let body = @body.BodyStream::from_pull(
+      async fn() {
+        if stall_producer {
+          ignore(gate.get())
+        }
+        Some(Data(b"payload"))
+      },
+      size_hint=@body.SizeHint::exact(7),
+      on_cancel=fn(_) { cancelled += 1 },
+    )
+    try client.send(phase_timeout_request(body)) catch {
+      @service.ClientConnectionTimeout::@service.ClientConnectionTimeout(
+        RequestBody
+      ) => ()
+      _ => fail("request-body timeout changed its phase")
+    } noraise {
+      _ => fail("blocked request body did not time out")
+    }
+    assert_eq(cancelled, 1)
+    assert_true(client.is_closed())
   }
-  let client = @service.ClientConnection::new(
-    reader,
-    writer,
-    request_headers_timeout_ms=None,
-    request_body_timeout_ms=Some(10),
-    response_headers_timeout_ms=None,
-    response_body_timeout_ms=None,
-  ).unwrap()
-  try
-    client.send(phase_timeout_request(@body.FullBody::new(b"payload")))
-  catch {
-    @service.ClientConnectionTimeout::@service.ClientConnectionTimeout(
-      RequestBody
-    ) => ()
-    _ => fail("request-body timeout changed its phase")
-  } noraise {
-    _ => fail("blocked request body did not time out")
-  }
-  assert_true(client.is_closed())
-  assert_true(!client.is_reusable())
 }
 
 ///|

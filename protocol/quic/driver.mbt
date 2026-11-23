@@ -330,14 +330,6 @@ pub fn QuicDatagramDriver::new(
     Ok(_) => ()
     Err(error) => return Err(Policy(error))
   }
-  match limits.validate() {
-    Ok(_) => ()
-    Err(error) => return Err(error)
-  }
-  match transport_params.validate() {
-    Ok(_) => ()
-    Err(error) => return Err(error)
-  }
   let connection = match QuicConnection::new(role, limits~, transport_params~) {
     Ok(value) => value
     Err(error) => return Err(error)
