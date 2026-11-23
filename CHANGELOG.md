@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Queue HTTP/2 client requests when the peer lowers its concurrent stream allowance. Resume them on capacity changes and release queued or active uploads on cancellation or shutdown.
+
 - Handle QUIC stream cancellation in both directions. HTTP/3 releases blocked request input and treats critical-stream cancellation as a connection error. Custom QUIC transports now report acknowledged FIN and reset frames using `acknowledge_stream_frame` to replenish stream-count credit.
 
 - Add one-shot streaming uploads to the pooled HTTP/1 executor, with the response lease retained until EOF or cancellation.

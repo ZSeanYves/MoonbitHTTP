@@ -27,9 +27,12 @@ pub fn H2Connection::new(
   {
     role,
     limits,
-    local_settings: H2Settings::from_limits(limits),
+    local_settings: H2Settings::new(
+      limits.max_streams.min(limits.max_concurrent_requests),
+    ),
     pending_local_initial_windows: [],
-    peer_settings: H2Settings::defaults(),
+    // Before the peer advertises a limit, only our own stream budget applies.
+    peer_settings: H2Settings::new(limits.max_streams),
     streams: Map([]),
     closed_streams: [],
     connection_send_window: 65535,

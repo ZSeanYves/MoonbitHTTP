@@ -252,3 +252,17 @@ test "hpack dynamic: rejects table update beyond peer setting" {
     true,
   )
 }
+
+///|
+test "H2 initial peer stream capacity follows the local budget until SETTINGS" {
+  let connection = @http2.H2Connection::new(Client, limits={
+    ..@types.Limits::defaults(),
+    max_streams: 128,
+  })
+  for index in 0..<128 {
+    assert_eq(connection.try_open_local_stream(), Ok(Some(2 * index + 1)))
+  }
+  assert_eq(connection.try_open_local_stream(), Ok(None))
+  connection.reset_stream(1).unwrap()
+  assert_eq(connection.try_open_local_stream(), Ok(Some(257)))
+}

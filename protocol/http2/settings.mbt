@@ -7,22 +7,10 @@ priv struct H2Settings {
 }
 
 ///|
-fn H2Settings::defaults() -> H2Settings {
+fn H2Settings::new(max_concurrent_streams : Int) -> H2Settings {
   {
     enable_push: true,
-    max_concurrent_streams: 100,
-    initial_window_size: 65535,
-    max_frame_size: H2_DEFAULT_MAX_FRAME_SIZE,
-  }
-}
-
-///|
-fn H2Settings::from_limits(limits : @types.Limits) -> H2Settings {
-  {
-    enable_push: true,
-    max_concurrent_streams: limits.max_streams.min(
-      limits.max_concurrent_requests,
-    ),
+    max_concurrent_streams,
     initial_window_size: 65535,
     max_frame_size: H2_DEFAULT_MAX_FRAME_SIZE,
   }

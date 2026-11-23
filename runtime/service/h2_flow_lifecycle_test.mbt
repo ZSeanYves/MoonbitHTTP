@@ -669,3 +669,87 @@ async test "H2 request trailers do not block WINDOW_UPDATE for an early response
   })
   assert_eq(writer.connection_credit(), 2)
 }
+
+///|
+async test "H2 admission resumes on SETTINGS, resets an abandoned request and wakes on GOAWAY" {
+  let wire = H2LifecycleWriter::new()
+  defer wire.signal.close()
+  let input : @aqueue.Queue[Bytes] = Queue(kind=Unbounded)
+  defer input.close()
+  let reader = @aio.MemoryReader(async fn(peer) {
+    for ;; {
+      peer.write(input.get())
+    }
+  })
+  defer reader.close()
+  let pause_admission = async fn() {
+    input.put(
+      Bytes::from_array(
+        @http2.encode_settings_frame([{ id: 3, value: 0, }], false),
+      ) +
+      h2_lifecycle_ping(),
+    )
+    ignore(wire.wait_frame(@http2.H2_FRAME_PING, 0))
+  }
+  @async.with_timeout(2000, async fn() {
+    @service.with_h2_client_connection(reader, wire, async fn(client) {
+      pause_admission()
+      @async.with_task_group(async fn(group) {
+        let first = group.spawn(
+          async fn() { client.send(security_request(Get)) },
+          allow_failure=true,
+        )
+        @async.pause()
+        assert_true(first.try_wait() is None)
+        input.put(
+          Bytes::from_array(
+            @http2.encode_settings_frame([{ id: 3, value: 1, }], false),
+          ),
+        )
+        ignore(wire.wait_frame(@http2.H2_FRAME_HEADERS, 1))
+        let next = group.spawn(
+          async fn() { client.send(security_request(Get)) },
+          allow_failure=true,
+        )
+        @async.pause()
+        assert_true(next.try_wait() is None)
+        first.cancel()
+        ignore(wire.wait_frame(@http2.H2_FRAME_RST_STREAM, 1))
+        ignore(wire.wait_frame(@http2.H2_FRAME_HEADERS, 3))
+        let response : @types.Response[Bytes] = {
+          status: 200,
+          version: Http2,
+          headers: @types.HeaderMap::new(),
+          body: b"",
+        }
+        input.put(
+          @http2.encode_response_frames(@http2.HpackContext::new(), 3, response).unwrap(),
+        )
+        assert_eq(next.wait().status, 200)
+        pause_admission()
+        let outgoing = LifecycleFrames::new([Data(b"pending")])
+        let waiting = group.spawn(
+          async fn() {
+            client.send(security_request(Post).map_body(fn(_) { outgoing }))
+          },
+          allow_failure=true,
+        )
+        @async.pause()
+        assert_true(waiting.try_wait() is None)
+        // GOAWAY with last-stream-id 3 and NO_ERROR.
+        input.put(
+          Bytes::from_array([0, 0, 8, 7, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0]),
+        )
+        try waiting.wait() catch {
+          @http2.H2ProtocolError::ConnectionError(RefusedStream, _) => ()
+          error => fail("unexpected admission error: \{error}")
+        } noraise {
+          _ => fail("request admitted after GOAWAY")
+        }
+        assert_eq(outgoing.cursor, 0)
+        assert_eq(outgoing.cancelled.length(), 1)
+        assert_false(wire.frames.any(frame => frame.header.stream_id == 5))
+      })
+    })
+  })
+}

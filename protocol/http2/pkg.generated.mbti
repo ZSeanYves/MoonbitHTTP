@@ -115,6 +115,7 @@ pub fn H2Connection::reserve_send_capacity(Self, Int, Int) -> Result[Int, H2Prot
 pub fn H2Connection::reset_stream(Self, Int) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::set_local_initial_window(Self, Int) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::stream_state(Self, Int) -> H2StreamState?
+pub fn H2Connection::try_open_local_stream(Self, end_stream? : Bool) -> Result[Int?, H2ProtocolError]
 
 pub(all) enum H2ErrorCode {
   NoError

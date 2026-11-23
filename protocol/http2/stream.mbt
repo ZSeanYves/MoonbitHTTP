@@ -84,10 +84,52 @@ fn H2Connection::remove_closed_stream(self : H2Connection, id : Int) -> Unit {
 }
 
 ///|
+fn H2Connection::has_stream_capacity(
+  self : H2Connection,
+  remote : Bool,
+) -> Bool {
+  let settings = if remote { self.local_settings } else { self.peer_settings }
+  let limit = settings.max_concurrent_streams
+  if self.streams.length() < limit {
+    return true
+  }
+  if limit <= 0 {
+    return false
+  }
+  let mut active = 0
+  for stream in self.streams.values() {
+    if self.is_remote_stream_id(stream.id) == remote && stream.state != Closed {
+      active += 1
+      if active == limit {
+        return false
+      }
+    }
+  }
+  true
+}
+
+///|
 pub fn H2Connection::open_local_stream(
   self : H2Connection,
   end_stream? : Bool = false,
 ) -> Result[Int, H2ProtocolError] {
+  match self.try_open_local_stream(end_stream~) {
+    Ok(Some(id)) => Ok(id)
+    Ok(None) =>
+      Err(
+        ConnectionError(RefusedStream, "peer concurrent stream limit reached"),
+      )
+    Err(error) => Err(error)
+  }
+}
+
+///|
+/// None means concurrent stream capacity is temporarily exhausted. It does
+/// not consume an identifier. GOAWAY and ID exhaustion remain terminal errors.
+pub fn H2Connection::try_open_local_stream(
+  self : H2Connection,
+  end_stream? : Bool = false,
+) -> Result[Int?, H2ProtocolError] {
   if self.failure is Some(error) {
     return Err(error)
   }
@@ -96,22 +138,13 @@ pub fn H2Connection::open_local_stream(
       ConnectionError(ProtocolError, "cannot open a stream after GOAWAY"),
     )
   }
-  let mut active = 0
-  for stream in self.streams.values() {
-    if !self.is_remote_stream_id(stream.id) && stream.state != Closed {
-      active += 1
-    }
-  }
-  if active >= self.peer_settings.max_concurrent_streams ||
-    active >= self.limits.max_streams {
-    return Err(
-      ConnectionError(RefusedStream, "peer concurrent stream limit reached"),
-    )
-  }
   if self.next_local_stream <= 0 || self.next_local_stream > 0x7fffffff {
     return Err(
       ConnectionError(RefusedStream, "local stream identifiers are exhausted"),
     )
+  }
+  if !self.has_stream_capacity(false) {
+    return Ok(None)
   }
   let id = self.next_local_stream
   self.next_local_stream = if id > 0x7fffffff - 2 { -1 } else { id + 2 }
@@ -126,7 +159,7 @@ pub fn H2Connection::open_local_stream(
     recv_window: self.local_settings.initial_window_size,
   }
   self.streams.set(id, stream)
-  Ok(id)
+  Ok(Some(id))
 }
 
 ///|
@@ -189,14 +222,7 @@ fn H2Connection::receive_stream_frame(
       let stream = match self.streams.get(h.stream_id) {
         Some(value) => value
         None => {
-          let mut active = 0
-          for stream in self.streams.values() {
-            if self.is_remote_stream_id(stream.id) && stream.state != Closed {
-              active += 1
-            }
-          }
-          if active >= self.local_settings.max_concurrent_streams ||
-            active >= self.limits.max_streams {
+          if !self.has_stream_capacity(true) {
             return Err(
               StreamError(
                 h.stream_id,

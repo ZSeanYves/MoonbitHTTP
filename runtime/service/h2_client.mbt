@@ -61,14 +61,14 @@ priv struct H2ClientShared {
   // DATA in this backlog has already consumed HTTP/2 receive credit. Credit
   // is restored only after BodyStream consumption, keeping it byte-bounded.
   blocked : Map[Int, @deque.Deque[H2ClientBlockedFrame]]
-  slots : @aqueue.Queue[Unit]
+  admission : @cond_var.Cond
   blocked_signal : @aqueue.Queue[Unit]
   runtime_lock : @async.Mutex
   write_lock : @async.Mutex
   read : async (Int) -> Bytes?
   write : async (Bytes) -> Unit
   spawn : (async () -> Unit) -> @async.Task[Unit]
-  mut closed : Bool
+  mut failure : Error?
   mut goaway : Bool
   mut close_notified : Bool
   mut discarded_capacity : Int
@@ -96,7 +96,7 @@ fn H2ClientShared::release_stream(
     stream.released = true
     self.streams.remove(stream.id)
     self.blocked.remove(stream.id)
-    ignore(self.slots.try_put(()) catch { _ => false })
+    self.admission.signal()
   }
 }
 
@@ -124,7 +124,7 @@ fn H2ClientShared::discard_capacity(
   self : H2ClientShared,
   amount : Int,
 ) -> Unit {
-  if amount > 0 && !self.closed {
+  if amount > 0 && self.failure is None {
     self.discarded_capacity += amount
     ignore(self.blocked_signal.try_put(()) catch { _ => false })
   }
@@ -139,7 +139,7 @@ async fn H2ClientShared::write_window_updates(
   defer self.write_lock.release()
   // Completed bodies remain readable after the peer closes. Their queued
   // credit no longer needs a wire update once the connection is closed.
-  if self.closed {
+  if self.failure is Some(_) {
     return
   }
   for update in updates {
@@ -157,7 +157,7 @@ async fn H2ClientShared::write_window_updates(
 async fn H2ClientShared::release_discarded_capacity(
   self : H2ClientShared,
 ) -> Unit {
-  if self.closed {
+  if self.failure is Some(_) {
     return
   }
   let updates = {
@@ -183,9 +183,9 @@ async fn H2ClientShared::release_discarded_capacity(
 
 ///|
 fn H2ClientShared::close_with(self : H2ClientShared, error : Error?) -> Unit {
-  if !self.closed {
-    self.closed = true
+  if self.failure is None {
     let failure = error.unwrap_or_else(fn() { self.closed_error() })
+    self.failure = Some(failure)
     let active : Array[H2ClientStream] = []
     for stream in self.streams.values() {
       active.push(stream)
@@ -194,7 +194,7 @@ fn H2ClientShared::close_with(self : H2ClientShared, error : Error?) -> Unit {
       self.fail_stream(stream, failure)
     }
     self.blocked_signal.close(error=failure)
-    self.slots.close(error=failure)
+    self.admission.broadcast()
   }
   if !self.close_notified {
     self.close_notified = true
@@ -221,7 +221,7 @@ async fn H2ClientShared::write_locked(
   self : H2ClientShared,
   bytes : Bytes,
 ) -> Unit {
-  if self.closed {
+  if self.failure is Some(_) {
     raise self.closed_error()
   }
   errdefer self.close_with(
@@ -257,7 +257,7 @@ async fn H2ClientShared::release_capacity(
   stream_id : Int,
   amount : Int,
 ) -> Unit {
-  if self.closed {
+  if self.failure is Some(_) {
     return
   }
   self.runtime_lock.acquire()
@@ -270,7 +270,7 @@ async fn H2ClientShared::release_capacity(
   }
   self.runtime_lock.release()
   self.write_window_updates(updates)
-  if !self.closed {
+  if self.failure is None {
     self.blocked_signal.put(())
   }
 }
@@ -285,12 +285,12 @@ async fn H2ClientShared::release_consumed_capacity(
   credit : H2ReceiveCredit,
   amount : Int,
 ) -> Unit {
-  if self.closed || amount <= 0 {
+  if self.failure is Some(_) || amount <= 0 {
     return
   }
   self.write_lock.acquire()
   defer self.write_lock.release()
-  if self.closed {
+  if self.failure is Some(_) {
     return
   }
   self.runtime_lock.acquire()
@@ -312,7 +312,7 @@ async fn H2ClientShared::release_consumed_capacity(
       self.write_locked(encoded)
     }
   }
-  if !self.closed {
+  if self.failure is None {
     self.blocked_signal.put(())
   }
 }
@@ -407,7 +407,7 @@ async fn H2ClientShared::reset_stream_with_error(
   code : @http2.H2ErrorCode,
   error : Error,
 ) -> Unit {
-  if self.closed {
+  if self.failure is Some(_) {
     return
   }
   if self.streams.get(stream_id) is Some(stream) {
@@ -416,6 +416,7 @@ async fn H2ClientShared::reset_stream_with_error(
   self.runtime_lock.acquire()
   ignore(self.runtime.reset_stream(stream_id))
   self.runtime_lock.release()
+  self.admission.signal()
   let encoded = match @http2.encode_rst_stream(stream_id, code) {
     Ok(value) => value
     Err(error) => raise error
@@ -780,10 +781,12 @@ async fn h2_client_reader_pump(shared : H2ClientShared) -> Unit {
             shared.encoder.set_encoder_table_size(size)
             shared.write_lock.release()
           }
-          SendSettingsAck =>
+          SendSettingsAck => {
+            shared.admission.broadcast()
             shared.write_bytes(
               Bytes::from_array(@http2.encode_settings_frame([], true)),
             )
+          }
           SendPingAck(payload) => {
             let encoded = match @http2.encode_ping_ack(payload) {
               Ok(value) => value
@@ -797,6 +800,7 @@ async fn h2_client_reader_pump(shared : H2ClientShared) -> Unit {
             }
           GoawayReceived(last_stream_id, code) => {
             shared.goaway = true
+            shared.admission.broadcast()
             let refused : Array[H2ClientStream] = []
             for id, stream in shared.streams {
               if id > last_stream_id {
@@ -815,6 +819,10 @@ async fn h2_client_reader_pump(shared : H2ClientShared) -> Unit {
             }
           }
           HeadersStarted(id, end_stream) => {
+            // Wire capacity can return before the application drains a body.
+            if end_stream {
+              shared.admission.signal()
+            }
             discarded_header_code = None
             header_stream = id
             header_end_stream = end_stream
@@ -886,8 +894,12 @@ async fn h2_client_reader_pump(shared : H2ClientShared) -> Unit {
               header_stream = 0
             }
           }
-          DataReceived(id, data, end_stream, flow_size) =>
+          DataReceived(id, data, end_stream, flow_size) => {
+            if end_stream {
+              shared.admission.signal()
+            }
             shared.deliver_data(id, data, end_stream, flow_size)
+          }
           StreamResetReceived(id, code) =>
             if shared.streams.get(id) is Some(stream) {
               shared.fail_stream(
@@ -935,7 +947,7 @@ async fn[B : @body.Body] send_h2_request_body(
         }
         let mut offset = 0
         while offset < data.length() {
-          if stream.request_finished || shared.closed {
+          if stream.request_finished || shared.failure is Some(_) {
             raise shared.closed_error()
           }
           shared.runtime_lock.acquire()
@@ -1000,7 +1012,43 @@ async fn[B : @body.Body] send_h2_request_body(
     Err(error) => raise error
   }
   stream.request_finished = true
+  shared.admission.signal()
   shared.release_stream(stream)
+}
+
+///|
+async fn H2ClientShared::admit_stream(
+  self : H2ClientShared,
+  end_stream : Bool,
+) -> Int {
+  for ;; {
+    self.runtime_lock.acquire()
+    let opened = {
+      defer self.runtime_lock.release()
+      if self.failure is Some(error) {
+        raise error
+      }
+      if self.goaway {
+        raise @http2.H2ProtocolError::ConnectionError(
+          RefusedStream,
+          "cannot create stream after GOAWAY",
+        )
+      }
+      if self.streams.length() >= self.config.max_concurrent_streams {
+        None
+      } else {
+        match self.runtime.try_open_local_stream(end_stream~) {
+          Ok(id) => id
+          Err(error) => raise error
+        }
+      }
+    }
+    if opened is Some(id) {
+      return id
+    }
+    // No suspension separates the capacity check from waiter registration.
+    self.admission.wait()
+  }
 }
 
 ///|
@@ -1015,27 +1063,8 @@ pub async fn[B : @body.Body] H2Client::send(
   errdefer (if !upload_owned {
     request.body.cancel(@body.BodyError::Cancelled)
   })
-  if self.shared.closed {
-    raise self.shared.closed_error()
-  }
-  if self.shared.goaway {
-    raise @http2.H2ProtocolError::ConnectionError(
-      RefusedStream,
-      "cannot create stream after GOAWAY",
-    )
-  }
-  self.shared.slots.get()
   let exact_zero = request.body.size_hint().exact_size() == Some(0)
-  self.shared.runtime_lock.acquire()
-  let stream_id = match
-    self.shared.runtime.open_local_stream(end_stream=exact_zero) {
-    Ok(value) => value
-    Err(error) => {
-      self.shared.runtime_lock.release()
-      ignore(self.shared.slots.try_put(()) catch { _ => false })
-      raise error
-    }
-  }
+  let stream_id = self.shared.admit_stream(exact_zero)
   let credit = H2ReceiveCredit::new()
   let body = match
     @body.BodyStream::new(
@@ -1071,8 +1100,8 @@ pub async fn[B : @body.Body] H2Client::send(
     ) {
     Ok(value) => value
     Err(error) => {
-      self.shared.runtime_lock.release()
-      ignore(self.shared.slots.try_put(()) catch { _ => false })
+      ignore(self.shared.runtime.reset_stream(stream_id))
+      self.shared.admission.signal()
       raise error
     }
   }
@@ -1094,16 +1123,13 @@ pub async fn[B : @body.Body] H2Client::send(
     upload: None,
   }
   self.shared.streams.set(stream_id, stream)
-  self.shared.runtime_lock.release()
-  errdefer self.shared.fail_stream(
-    stream,
-    @http2.H2ProtocolError::StreamError(
-      stream_id,
-      Cancel,
-      "request ended before response headers",
-    ),
-  )
-  let written : Result[Unit, Error] = Ok(
+  // Before HEADERS is handed to the writer there is no peer stream to reset.
+  // A partial wire write already closes the connection in write_locked.
+  {
+    errdefer (if !stream.released {
+      ignore(self.shared.runtime.reset_stream(stream_id))
+      self.shared.fail_stream(stream, @body.BodyError::Cancelled)
+    })
     self.shared.write_headers(fn() {
       @http2.encode_request_headers(
         self.shared.encoder,
@@ -1111,17 +1137,11 @@ pub async fn[B : @body.Body] H2Client::send(
         request,
         exact_zero,
       )
-    }),
-  ) catch {
-    error => Err(error)
+    })
   }
-  match written {
-    Ok(_) => ()
-    Err(error) => {
-      self.shared.fail_stream(stream, error)
-      raise error
-    }
-  }
+  // If the caller leaves while waiting for headers, use the same cancellation
+  // path as an abandoned response body, including its asynchronous wire reset.
+  errdefer body.cancel(@body.BodyError::Cancelled)
   if !exact_zero {
     let producer = async fn() {
       send_h2_request_body(self.shared, stream, request.body)
@@ -1150,10 +1170,6 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, X] with_h2_client_connection(
     Err(error) => raise error
   }
   @async.with_task_group(async fn(group) {
-    let slots : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
-    for _ in 0..<config.max_concurrent_streams {
-      slots.put(())
-    }
     let shared : H2ClientShared = {
       config,
       runtime: @http2.H2Connection::new(Client, limits=config.limits),
@@ -1170,7 +1186,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, X] with_h2_client_connection(
       ),
       streams: Map([]),
       blocked: Map([]),
-      slots,
+      admission: Cond(),
       blocked_signal: Queue(kind=Unbounded),
       runtime_lock: Mutex(),
       write_lock: Mutex(),
@@ -1181,7 +1197,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, X] with_h2_client_connection(
         write_with_timeout(writer, bytes, config.write_timeout_ms)
       },
       spawn: fn(task) { group.spawn(task, allow_failure=true) },
-      closed: false,
+      failure: None,
       goaway: false,
       close_notified: false,
       discarded_capacity: 0,

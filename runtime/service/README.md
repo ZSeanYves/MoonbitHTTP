@@ -35,3 +35,5 @@ new field, or use `..ServerConfig::defaults()`.
 - [Package map](../../docs/concepts/packages.md)
 - [Architecture](../../docs/concepts/architecture.md)
 - [Root guide](../../README.md)
+
+`H2Client::send` waits for both local capacity and the peer's concurrent-stream allowance. A SETTINGS increase can resume a waiting request. GOAWAY or connection shutdown wakes waiters with an error, and cancelling a request while waiting for response headers resets its open stream.
