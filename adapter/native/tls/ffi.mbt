@@ -4,6 +4,7 @@ priv type OpenSsl
 ///|
 #borrow(host, roots, crls, ocsp_response, certificate, private_key, alpn)
 extern "C" fn openssl_new(
+  symbols : @packet_crypto.OpenSslSymbols,
   server : Bool,
   verify : Bool,
   system_roots : Bool,

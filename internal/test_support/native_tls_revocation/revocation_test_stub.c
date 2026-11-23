@@ -22,7 +22,7 @@ typedef struct ocsp_response_st OCSP_RESPONSE;
 typedef struct ocsp_cert_id_st OCSP_CERTID;
 typedef struct ocsp_single_response_st OCSP_SINGLERESP;
 typedef int (*TlsPemPasswordCallback)(char *, int, int, void *);
-extern void *moon_http_tls_symbol(const char *);
+#include "../../packet_crypto/openssl_symbols.h"
 
 #define FIXTURE_SYMBOLS(F) \
   F(BIO *, BIO_new_mem_buf, (const void *, int)) \
@@ -71,9 +71,9 @@ typedef struct {
 #undef DECLARE_FIXTURE_SYMBOL
 } FixtureApi;
 
-static int fixture_api(FixtureApi *api) {
+static int fixture_api(FixtureApi *api, const HttpOpenSslSymbols *symbols) {
 #define LOAD_FIXTURE_SYMBOL(ret, name, args) \
-  api->name = (ret (*) args)moon_http_tls_symbol(#name); \
+  api->name = (ret (*) args)symbols->lookup(#name); \
   if (!api->name) return 0;
   FIXTURE_SYMBOLS(LOAD_FIXTURE_SYMBOL)
 #undef LOAD_FIXTURE_SYMBOL
@@ -102,11 +102,11 @@ static EVP_PKEY *fixture_key(FixtureApi *api, moonbit_bytes_t pem) {
 }
 
 MOONBIT_FFI_EXPORT moonbit_bytes_t moon_http_test_ocsp(
-    moonbit_bytes_t subject_pem, moonbit_bytes_t issuer_pem,
+    const HttpOpenSslSymbols *symbols,     moonbit_bytes_t subject_pem, moonbit_bytes_t issuer_pem,
     moonbit_bytes_t key_pem, int status, int this_offset, int next_offset,
     int omit_next, int corrupt_signature) {
   FixtureApi api;
-  if (!fixture_api(&api)) return moonbit_make_bytes(0, 0);
+  if (!fixture_api(&api, symbols)) return moonbit_make_bytes(0, 0);
   X509 *subject = fixture_cert(&api, subject_pem);
   X509 *issuer = fixture_cert(&api, issuer_pem);
   EVP_PKEY *key = fixture_key(&api, key_pem);
@@ -153,10 +153,10 @@ done:
 }
 
 MOONBIT_FFI_EXPORT moonbit_bytes_t moon_http_test_crl(
-    moonbit_bytes_t issuer_pem, moonbit_bytes_t key_pem,
+    const HttpOpenSslSymbols *symbols,     moonbit_bytes_t issuer_pem, moonbit_bytes_t key_pem,
     moonbit_bytes_t revoked_pem, int this_offset, int next_offset) {
   FixtureApi api;
-  if (!fixture_api(&api)) return moonbit_make_bytes(0, 0);
+  if (!fixture_api(&api, symbols)) return moonbit_make_bytes(0, 0);
   X509 *issuer = fixture_cert(&api, issuer_pem);
   X509 *revoked_cert = Moonbit_array_length(revoked_pem) ? fixture_cert(&api, revoked_pem) : NULL;
   EVP_PKEY *key = fixture_key(&api, key_pem);

@@ -4,6 +4,7 @@ priv type OpenSslQuic
 ///|
 #borrow(ssl, params)
 extern "C" fn openssl_quic_new(
+  symbols : @packet_crypto.OpenSslSymbols,
   ssl : OpenSsl,
   params : Bytes,
   limit : Int32,
@@ -242,6 +243,7 @@ pub impl @transport.QuicTlsProvider for NativeQuicTlsProvider with fn start(
     return Err(self.failed(InvalidOptions(MissingServerName)))
   }
   let ssl = openssl_new(
+    @packet_crypto.openssl_symbols(),
     self.server,
     options.verify_peer,
     self.allow_system_roots,
@@ -265,7 +267,12 @@ pub impl @transport.QuicTlsProvider for NativeQuicTlsProvider with fn start(
   if !ssl.ready() {
     return Err(self.failed(ssl.failure(Configure)))
   }
-  let quic = openssl_quic_new(ssl, transport_params, self.max_handshake_bytes)
+  let quic = openssl_quic_new(
+    @packet_crypto.openssl_symbols(),
+    ssl,
+    transport_params,
+    self.max_handshake_bytes,
+  )
   self.quic = Some(quic)
   if !quic.available() {
     return Err(self.failed(Unsupported))

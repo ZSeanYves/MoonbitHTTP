@@ -317,6 +317,7 @@ async fn NativeTlsProvider::handshake(
     return Err(InvalidOptions(InvalidAlpn))
   }
   let ssl = openssl_new(
+    @packet_crypto.openssl_symbols(),
     server,
     options.verify_peer,
     self.allow_system_roots,

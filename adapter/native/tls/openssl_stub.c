@@ -137,31 +137,32 @@ typedef struct {
 #define DECLARE_SYMBOL(ret, name, args) static ret (*p_##name) args;
 TLS_SYMBOLS(DECLARE_SYMBOL)
 #undef DECLARE_SYMBOL
-extern void *moon_http_tls_symbol(const char *);
+#include "../../../internal/packet_crypto/openssl_symbols.h"
 #ifdef _WIN32
-static INIT_ONCE tls_once = INIT_ONCE_STATIC_INIT;
+static SRWLOCK tls_lock = SRWLOCK_INIT;
+#define TLS_LOCK() AcquireSRWLockExclusive(&tls_lock)
+#define TLS_UNLOCK() ReleaseSRWLockExclusive(&tls_lock)
 #else
-static pthread_once_t tls_once = PTHREAD_ONCE_INIT;
+static pthread_mutex_t tls_lock = PTHREAD_MUTEX_INITIALIZER;
+#define TLS_LOCK() pthread_mutex_lock(&tls_lock)
+#define TLS_UNLOCK() pthread_mutex_unlock(&tls_lock)
 #endif
-static int tls_available = 0;
 
-static void load_tls(void) {
-#define LOAD_SYMBOL(ret, name, args) p_##name = (ret (*) args)moon_http_tls_symbol(#name); if (!p_##name) return;
+static int bind_tls(const HttpOpenSslSymbols *symbols) {
+#define LOAD_SYMBOL(ret, name, args) p_##name = (ret (*) args)symbols->lookup(#name); if (!p_##name) return 0;
   TLS_SYMBOLS(LOAD_SYMBOL)
 #undef LOAD_SYMBOL
-  tls_available = 1;
+  return 1;
 }
 
-#ifdef _WIN32
-static BOOL CALLBACK load_tls_once(PINIT_ONCE once, PVOID parameter, PVOID *context) {
-  (void)once; (void)parameter; (void)context;
-  load_tls();
-  return TRUE;
+static int ensure_tls_loaded(const HttpOpenSslSymbols *symbols) {
+  static int available = -1;
+  TLS_LOCK();
+  if (available < 0) available = bind_tls(symbols);
+  int result = available;
+  TLS_UNLOCK();
+  return result;
 }
-static void ensure_tls_loaded(void) { InitOnceExecuteOnce(&tls_once, load_tls_once, NULL, NULL); }
-#else
-static void ensure_tls_loaded(void) { pthread_once(&tls_once, load_tls); }
-#endif
 
 static void capture_error(HttpTls *self, const char *fallback) {
   self->error_code = p_ERR_get_error();
@@ -391,11 +392,10 @@ static int select_alpn(SSL *ssl, const unsigned char **out, unsigned char *out_l
   return 2; /* Fatal no_application_protocol, never silently fall back. */
 }
 
-MOONBIT_FFI_EXPORT HttpTls *moon_http_tls_new(int server, int verify, int system_roots, int min_version, int max_version, moonbit_bytes_t host, int numeric_host, moonbit_bytes_t roots, moonbit_bytes_t crls, int require_crl, int require_ocsp, moonbit_bytes_t ocsp_response, moonbit_bytes_t cert, moonbit_bytes_t key, moonbit_bytes_t alpn) {
+MOONBIT_FFI_EXPORT HttpTls *moon_http_tls_new(const HttpOpenSslSymbols *symbols, int server, int verify, int system_roots, int min_version, int max_version, moonbit_bytes_t host, int numeric_host, moonbit_bytes_t roots, moonbit_bytes_t crls, int require_crl, int require_ocsp, moonbit_bytes_t ocsp_response, moonbit_bytes_t cert, moonbit_bytes_t key, moonbit_bytes_t alpn) {
   HttpTls *self = moonbit_make_external_object(release_tls, sizeof(HttpTls));
   memset(self, 0, sizeof(*self));
-  ensure_tls_loaded();
-  if (!tls_available) { self->initialized = -1; snprintf(self->error, sizeof(self->error), "OpenSSL 3 shared library is unavailable"); return self; }
+  if (!ensure_tls_loaded(symbols)) { self->initialized = -1; snprintf(self->error, sizeof(self->error), "OpenSSL 3 shared library is unavailable"); return self; }
   p_ERR_clear_error();
   self->ctx = p_SSL_CTX_new(p_TLS_method());
   if (!self->ctx) goto failed;

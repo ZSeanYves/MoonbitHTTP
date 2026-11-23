@@ -1,6 +1,8 @@
 ///|
 /// Owns stream admission slots, queued request data and connection receive credit.
 priv struct H2ServerStreams {
+  mut input_ended : Bool
+  mut discarded_capacity : Int32
   pending : Map[Int32, H2PendingRequest]
   blocked : Map[Int32, @deque.Deque[H2ServerBlockedFrame]]
   handlers : Map[Int32, H2HandlerTask]
@@ -77,18 +79,8 @@ fn H2ServerStreams::reset_stream_with_error(
   code : @http2.H2ErrorCode,
   failure : Error,
 ) -> Unit raise {
-  let unread = match self.pending.get(stream_id) {
-    Some(value) => {
-      let amount = value.credit.retire()
-      value.body.fail(failure)
-      amount
-    }
-    None => 0
-  }
-  self.pending.remove(stream_id)
-  self.blocked.remove(stream_id)
   ignore(self.connection.reset_stream(stream_id))
-  self.release_discarded_data(unread)
+  self.remove_failed_stream(stream_id, failure)
   self.window_signal.broadcast()
   let encoded = match @http2.encode_rst_stream(stream_id, code) {
     Ok(value) => value
@@ -134,6 +126,107 @@ fn H2ServerStreams::finish_response(
     }
     if value.request_ended {
       self.pending.remove(stream_id)
+      self.blocked.remove(stream_id)
+    }
+  }
+}
+
+///|
+fn H2ServerStreams::remove_failed_stream(
+  self : H2ServerStreams,
+  stream_id : Int32,
+  failure : Error,
+) -> Unit raise {
+  let unread = match self.pending.get(stream_id) {
+    Some(value) => {
+      let amount = value.credit.retire()
+      value.body.fail(failure)
+      amount
+    }
+    None => 0
+  }
+  self.pending.remove(stream_id)
+  self.blocked.remove(stream_id)
+  self.release_discarded_data(unread)
+}
+
+///|
+fn H2ServerStreams::make_body(
+  self : H2ServerStreams,
+  capacity : Int32,
+  stream_id : Int32,
+) -> (@body.BodyStream, H2ReceiveCredit) raise {
+  let credit = H2ReceiveCredit::new()
+  let body = match
+    @body.BodyStream::new(
+      capacity~,
+      on_data_consumed=async fn(amount) {
+        errdefer (if self.pending.contains(stream_id) {
+          self.reset_stream_with_error(
+            stream_id,
+            Cancel,
+            @http2.H2ProtocolError::StreamError(
+              stream_id,
+              Cancel,
+              "request body credit release failed",
+            ),
+          ) catch {
+            _ => ()
+          }
+        })
+        self.release_consumed_data(stream_id, credit, amount)
+      },
+      on_cancel=fn(_) {
+        if credit.retired {
+          return
+        }
+        self.discarded_capacity += credit.retire()
+        self.blocked.remove(stream_id)
+        // Cancelling request input must not cancel an early response.
+        ignore(self.blocked_signal.try_put(()) catch { _ => false })
+      },
+    ) {
+    Ok(value) => value
+    Err(error) => raise error
+  }
+  (body, credit)
+}
+
+///|
+fn H2ServerStreams::drain_blocked(
+  self : H2ServerStreams,
+  dispatch : (Int32) -> Unit,
+) -> Unit {
+  for stream_id, queue in self.blocked {
+    if self.pending.get(stream_id) is Some(request) {
+      while queue.front() is Some(value) {
+        let frame : @body.Frame = match value {
+          BlockedData(data, _) => Data(data)
+          BlockedTrailers(trailers) => Trailers(trailers)
+        }
+        let accepted = request.body.try_push(frame) catch {
+          error => {
+            request.body.fail(error)
+            false
+          }
+        }
+        if accepted {
+          ignore(queue.pop_front())
+          match value {
+            BlockedData(_, true) | BlockedTrailers(_) => {
+              request.body.finish()
+              dispatch(stream_id)
+            }
+            BlockedData(_, false) => ()
+          }
+        } else {
+          break
+        }
+      }
+      if queue.is_empty() {
+        self.blocked.remove(stream_id)
+      }
+    } else {
       self.blocked.remove(stream_id)
     }
   }

@@ -8,8 +8,7 @@
 typedef struct ssl_st SSL;
 typedef struct { int function_id; void (*function)(void); } QDispatch;
 extern void *moon_http_tls_ssl_handle(void *);
-extern void *moon_http_tls_library_handle(void);
-extern void *moon_http_tls_symbol(const char *);
+#include "../../../internal/packet_crypto/openssl_symbols.h"
 extern void moon_http_tls_close(void *);
 typedef struct QNode { struct QNode *next; size_t length; int kind, level, direction; unsigned char data[]; } QNode;
 typedef struct {
@@ -85,16 +84,14 @@ static const QDispatch callbacks[]={
   {2005,(void(*)(void))qparams},{2006,(void(*)(void))qalert},{0,NULL}
 };
 
-MOONBIT_FFI_EXPORT HttpQuicTls *moon_http_quic_tls_new(void *owner,moonbit_bytes_t params,int limit) {
+MOONBIT_FFI_EXPORT HttpQuicTls *moon_http_quic_tls_new(const HttpOpenSslSymbols *symbols, void *owner,moonbit_bytes_t params,int limit) {
   HttpQuicTls *q=moonbit_make_external_object(qclose,sizeof(*q));memset(q,0,sizeof(*q));
   q->limit=limit>0?(size_t)limit:0;
-  void *lib=moon_http_tls_library_handle();
-  if(!lib || limit<4 || Moonbit_array_length(params)>65535)return q;
-  (void)lib;
-  int (*set_cbs)(SSL *,const QDispatch *,void *)=(int(*)(SSL*,const QDispatch*,void*))moon_http_tls_symbol("SSL_set_quic_tls_cbs");
-  int (*set_params)(SSL *,const unsigned char *,size_t)=(int(*)(SSL*,const unsigned char*,size_t))moon_http_tls_symbol("SSL_set_quic_tls_transport_params");
-  int (*set_early)(SSL *,int)=(int(*)(SSL*,int))moon_http_tls_symbol("SSL_set_quic_tls_early_data_enabled");
-  int (*set_ciphers)(SSL *,const char *)=(int(*)(SSL*,const char*))moon_http_tls_symbol("SSL_set_ciphersuites");
+  if(limit<4 || Moonbit_array_length(params)>65535)return q;
+  int (*set_cbs)(SSL *,const QDispatch *,void *)=(int(*)(SSL*,const QDispatch*,void*))symbols->lookup("SSL_set_quic_tls_cbs");
+  int (*set_params)(SSL *,const unsigned char *,size_t)=(int(*)(SSL*,const unsigned char*,size_t))symbols->lookup("SSL_set_quic_tls_transport_params");
+  int (*set_early)(SSL *,int)=(int(*)(SSL*,int))symbols->lookup("SSL_set_quic_tls_early_data_enabled");
+  int (*set_ciphers)(SSL *,const char *)=(int(*)(SSL*,const char*))symbols->lookup("SSL_set_ciphersuites");
   if(!set_cbs||!set_params||!set_early||!set_ciphers)return q;
   q->available=1; q->ssl=moon_http_tls_ssl_handle(owner); if(!q->ssl)return q;
   q->owner=owner;moonbit_incref(owner);

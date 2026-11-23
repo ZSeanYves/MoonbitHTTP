@@ -78,3 +78,10 @@ pub fn aes_block(key : Bytes, input : Bytes) -> Bytes raise {
   guard crypt(2, key, b"", b"", input, out) else { raise PacketCryptoFailure }
   out.unsafe_reinterpret_as_bytes()
 }
+
+///|
+#external
+pub type OpenSslSymbols
+
+///|
+pub extern "C" fn openssl_symbols() -> OpenSslSymbols = "moon_http_openssl_symbols"

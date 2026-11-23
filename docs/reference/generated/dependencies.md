@@ -151,4 +151,5 @@ flowchart TD
   p_examples_cmd_h3_smoke_client --> p_adapter_native_transport
   p_examples_cmd_streaming_client --> p_adapter_native_transport
   p_adapter_native_tls -. "wbtest" .-> p_internal_test_support_native_tls_revocation
+  p_internal_test_support_native_tls_revocation --> p_internal_packet_crypto
 ```

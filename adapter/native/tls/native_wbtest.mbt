@@ -714,8 +714,22 @@ async test "native TLS: abrupt EOF closes the connection and prevents reuse" {
 ///|
 test "native TLS: close is idempotent and native handles cannot be reused" {
   let ssl = openssl_new(
-    false, false, false, 0x0304, 0, b"localhost", false, b"", b"", false, false,
-    b"", b"", b"", b"\x02h2",
+    @packet_crypto.openssl_symbols(),
+    false,
+    false,
+    false,
+    0x0304,
+    0,
+    b"localhost",
+    false,
+    b"",
+    b"",
+    false,
+    false,
+    b"",
+    b"",
+    b"",
+    b"\x02h2",
   )
   assert_true(ssl.ready())
   ssl.close()

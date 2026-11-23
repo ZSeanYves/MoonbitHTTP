@@ -5,6 +5,7 @@ import {
   "moonbitlang/async@0.22.10/process",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/env",
+  "moonbitlang/core/string",
   "moonbitlang/core/json",
   "moonbitlang/core/math",
   "moonbitlang/x@0.5.5/crypto",
@@ -21,7 +22,7 @@ let pair_count = 6
 let sample_count = 8
 
 ///|
-let sample_iterations = 250000
+let calibration_start = 250000
 
 ///|
 let max_median_regression = 0.15
@@ -201,15 +202,27 @@ fn workload_source() -> String {
     #|  }
     #|  // A fixed warmup precedes every arm, independently of measured outcomes.
     #|  for _ in 0..<10000 { keeper.keep(decode_request(input)) }
+    #|  if args is [_, "--calibrate"] {
+    #|    let mut iterations = 250000
+    #|    for ;; {
+    #|      let started = @bench.monotonic_clock_start()
+    #|      for _ in 0..<iterations { keeper.keep(decode_request(input)) }
+    #|      if @bench.monotonic_clock_end(started) >= 1000000.0 { println(iterations); return }
+    #|      if iterations >= 16000000 { abort("unable to calibrate decoder workload") }
+    #|      iterations *= 2
+    #|    }
+    #|  }
+    #|  guard args is [_, count] else { abort("expected a shared iteration count") }
+    #|  let iterations = @string.parse_int(count) catch { _ => abort("invalid iteration count") }
     #|  let elapsed_us : Array[Double] = []
     #|  for _ in 0..<8 {
     #|    let started = @bench.monotonic_clock_start()
-    #|    for _ in 0..<250000 { keeper.keep(decode_request(input)) }
+    #|    for _ in 0..<iterations { keeper.keep(decode_request(input)) }
     #|    elapsed_us.push(@bench.monotonic_clock_end(started))
     #|  }
     #|  let result : Json = {
     #|    "operation": "http1-decode-post-1024", "warmup_iterations": 10000,
-    #|    "sample_iterations": 250000, "sample_elapsed_us": elapsed_us,
+    #|    "sample_iterations": iterations, "sample_elapsed_us": elapsed_us,
     #|    "oracle": 1026,
     #|  }
     #|  println(result.stringify())
@@ -224,6 +237,7 @@ fn workload_package() -> String {
     #|  "ZSeanYves/MoonbitHTTP/protocol/http1",
     #|  "moonbitlang/core/bench",
     #|  "moonbitlang/core/env",
+    #|  "moonbitlang/core/string",
     #|}
     #|pkgtype(kind: "executable")
   )
@@ -245,7 +259,7 @@ async fn install_workload(
 }
 
 ///|
-fn measurement(output : String, arm : String, pair : Int) -> Measurement raise {
+fn measurement(output : String, arm : String, pair : Int, sample_iterations : Int) -> Measurement raise {
   let json = @json.parse(output)
   guard json
     is {
@@ -369,11 +383,12 @@ async fn compare(directory : String, root : String, verify_only : Bool, baseline
   install_workload(baseline_source, source, baseline_pkg_source)
   install_workload(current_source, source, current_pkg_source)
   let plan : Json = {
-    "method_version": 3,
+    "method_version": 4,
     "pairs": pair_count,
     "order": "AB BA AB BA AB BA",
     "raw_samples_per_arm": sample_count,
-    "sample_iterations": sample_iterations,
+    "calibration_start_iterations": calibration_start,
+    "calibration": "double the baseline iteration count until one warm sample reaches 1s, then freeze that count for both arms",
     "warmup_iterations": 10000,
     "minimum_sample_duration_ms": 500,
     "max_sample_relative_sigma": max_sample_noise,
@@ -474,6 +489,9 @@ async fn compare(directory : String, root : String, verify_only : Bool, baseline
     )
     return
   }
+  let calibration = run_recorded(directory, "calibration", binaries["baseline"], ["--calibrate"], baseline_source)
+  let sample_iterations = @string.parse_int(calibration.trim())
+  guard sample_iterations >= calibration_start && sample_iterations <= 16000000 else { fail("invalid calibrated iteration count") }
   let measurements : Array[Measurement] = []
   for pair in 0..<pair_count {
     let order = if pair % 2 == 0 {
@@ -496,10 +514,10 @@ async fn compare(directory : String, root : String, verify_only : Bool, baseline
         directory,
         "pair-\{pair}-\{arm}",
         executable,
-        [],
+        [sample_iterations.to_string()],
         snapshot,
       )
-      measurements.push(measurement(output, arm, pair))
+      measurements.push(measurement(output, arm, pair, sample_iterations))
     }
   }
   let baseline_median = median(
@@ -536,7 +554,7 @@ async fn compare(directory : String, root : String, verify_only : Bool, baseline
   }
   let result : Json = {
     "status": status,
-    "method_version": 3,
+    "method_version": 4,
     "operation": "HTTP/1 POST request decode, 1024-byte body",
     "target": "native release",
     "plan": "plan.json",
@@ -544,6 +562,7 @@ async fn compare(directory : String, root : String, verify_only : Bool, baseline
     "baseline_workload_package": baseline_pkg_source,
     "current_workload_package": current_pkg_source,
     "pairs": pair_count,
+    "sample_iterations": sample_iterations,
     "baseline_median_ns": baseline_median,
     "current_median_ns": current_median,
     "median_regression": current_median / baseline_median - 1.0,

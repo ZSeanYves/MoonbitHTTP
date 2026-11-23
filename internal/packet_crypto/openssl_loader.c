@@ -1,5 +1,6 @@
 /* Select and retain one OpenSSL 3 library pair for packet protection and TLS. */
 #include <moonbit.h>
+#include "openssl_symbols.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -156,7 +157,7 @@ MOONBIT_FFI_EXPORT int moon_http_random_fill(uint8_t *buffer) {
   return generate != NULL && generate(buffer, length) == 1;
 }
 
-MOONBIT_FFI_EXPORT void *moon_http_tls_library_handle(void) {
-  ensure_tls_loaded();
-  return tls_library;
+MOONBIT_FFI_EXPORT const HttpOpenSslSymbols *moon_http_openssl_symbols(void) {
+  static const HttpOpenSslSymbols symbols = { moon_http_tls_symbol };
+  return &symbols;
 }

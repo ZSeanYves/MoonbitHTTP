@@ -93,3 +93,18 @@ Before packaging, run the clean-tree checks described in
 revision, generated interfaces, dependency graph, package file list, toolchain,
 resolved dependency snapshot and SHA-256. Packaging and publication are
 separate decisions; a green test matrix alone does not approve a release.
+
+## Continuous performance comparison
+
+CI sets `MOONBITHTTP_PERF_BASE` to the full Git revision used for the paired
+Native HTTP/1 decoder comparison. The runner builds both revisions, checks
+identical response oracles, calibrates the iteration count on the baseline,
+then freezes it for six alternating AB/BA pairs. It retains every sample.
+Samples below 500 ms, excessive noise and threshold regressions all prevent a
+pass. The paired Go reference separately measures HTTP/1 and HTTP/2 sockets
+with the same independent probe.
+
+```sh
+MOONBITHTTP_PERF_BASE=b098720de9294a05f102ab51643e0f0931d0e99e moon run repo-tools/tools/performance_comparison.mbtx
+moon run repo-tools/tools/go_net_http_reference.mbtx -- --compare
+```

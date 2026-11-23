@@ -1,3 +1,7 @@
+import {
+  "ZSeanYves/MoonbitHTTP/internal/packet_crypto",
+}
+
 supported_targets = "+native"
 
 options(
