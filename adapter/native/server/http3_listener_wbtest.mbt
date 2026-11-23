@@ -277,6 +277,7 @@ async test "HTTP/3 typed client: cancel a duplex response and reuse one stream s
     let mut upload_cancelled = 0
     let mut calls = 0
     let mut clean = false
+
     let listener = NativeHttp3Listener::bind_http(
       endpoint,
       policy,
@@ -305,7 +306,18 @@ async test "HTTP/3 typed client: cancel a duplex response and reuse one stream s
       },
     ).unwrap()
     defer listener.close()
-    let supervisor = @server_api.ServerSupervisor::new().unwrap()
+    let failures : Array[String] = []
+    let supervisor = @server_api.ServerSupervisor::new(
+      config=@server_api.ServerConfig::defaults().with_error_responder(err => {
+        match err {
+          @http3.Http3Error::Http3ConnectionError(code, detail) =>
+            failures.push("\{code.wire_value()}: \{detail}")
+          @quic.QuicError::ConnectionClosed(code, detail) =>
+            failures.push("peer close \{code} \{detail}")
+          _ => failures.push(err.to_string())
+        }
+      }),
+    ).unwrap()
     @async.with_task_group(async fn(group) {
       let serving = group.spawn(async fn() { listener.serve(supervisor) })
       @client_native.with_http3_client(
@@ -375,10 +387,17 @@ async test "HTTP/3 typed client: cancel a duplex response and reuse one stream s
           assert_true(clean)
           assert_eq(calls, 3)
         },
-      )
+      ) catch {
+        @quic.QuicError::ConnectionClosed(code, detail) =>
+          fail(
+            "unexpected client close \{code} (\{detail}), listener errors \{Repr(failures)}",
+          )
+        err => raise err
+      }
       supervisor.begin_shutdown().unwrap()
       assert_eq(serving.wait(), Ok(()))
-      assert_eq(supervisor.metrics().handler_errors(), 0L)
+      assert_eq(failures, [])
+      assert_eq(supervisor.metrics().completed(), 1L)
     })
   })
 }

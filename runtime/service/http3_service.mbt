@@ -165,13 +165,21 @@ pub async fn[B : @body.Body] serve_http3_connection(
           // request is possible and the next boundary cannot be encoded.
           if first_unprocessed <= @quic.QUIC_MAX_VARINT {
             io.write_when_ready(fn() {
-              io.session.send_goaway(first_unprocessed)
+              // Peer close can win the race with shutdown or a queue retry.
+              if io.session.ended() {
+                Ok(())
+              } else {
+                io.session.send_goaway(first_unprocessed)
+              }
             })
           }
           while !active.is_empty() {
             finished.wait()
           }
-          group.return_immediately(())
+          // A terminal session delivers the peer's actual close via next_events.
+          if !io.session.ended() {
+            group.return_immediately(())
+          }
         },
         no_wait=true,
       )

@@ -117,6 +117,9 @@ pub async fn[
     }
     let batch = []
     let advanced = session.advance(actions, clock.monotonic_millis())
+    // Sending a datagram yields. Only a batch that observed a terminal
+    // session can report its end or close the application event queue.
+    let terminal = session.ended()
     if !advanced.is_empty() || !actions.is_empty() {
       write_changed.broadcast()
     }
@@ -139,7 +142,9 @@ pub async fn[
         other => batch.push(other)
       }
     }
-    if session.ended() && peer_close is None {
+    if terminal &&
+      peer_close is None &&
+      packets.connection().peer_close() is None {
       raise @quic.QuicError::ConnectionClosed(0L, "HTTP/3 connection ended")
     }
     if !connected && packets.state() == Established {
@@ -155,7 +160,7 @@ pub async fn[
         err => if !draining { raise err }
       }
     }
-    if peer_close is Some(error) {
+    if terminal && peer_close is Some(error) {
       events.close(error~)
     }
   }

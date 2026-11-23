@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Preserve a peer's orderly close when it arrives just before the HTTP/3 server starts draining. The supervisor records the connection as completed.
+
 - Send a QUIC close-only packet even when the recovery queue is full. The closing frame no longer occupies a retransmission slot or waits for an acknowledgment.
 
 - Bound QUIC frame encoding across an entire batch. Out-of-range integers and invalid ACK ranges return errors through the public codec. Single and batch encoders share a writer. The codec enforces stream count, token and connection ID bounds in both directions. Packet validation enforces the sender role for NEW_TOKEN and HANDSHAKE_DONE.
