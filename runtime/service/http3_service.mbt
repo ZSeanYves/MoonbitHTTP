@@ -51,7 +51,8 @@ fn h3_request(
   let mut authority = ""
   for field in fields {
     match field.name {
-      ":method" => meth = h3_io_value(@types.Method::parse_bytes(field.value))
+      ":method" =>
+        meth = @types.Method::parse_bytes(field.value).unwrap_or_error()
       ":authority" => authority = @utf8.decode(field.value)
       ":path" => path = @utf8.decode(field.value)
       ":scheme" | "host" => ()
@@ -71,17 +72,15 @@ fn h3_request(
         }
     }
   }
-  h3_io_value(headers.append_string("host", authority))
-  let uri = h3_io_value(
-    @types.Uri::parse_request_target(
-      if meth == Connect {
-        authority
-      } else {
-        path
-      },
-      meth,
-    ),
-  )
+  headers.append_string("host", authority).unwrap_or_error()
+  let uri = @types.Uri::parse_request_target(
+    if meth == Connect {
+      authority
+    } else {
+      path
+    },
+    meth,
+  ).unwrap_or_error()
   { http_method: meth, uri, headers, version: Http3, body, }
 }
 
@@ -126,9 +125,7 @@ async fn[B : @body.Body] H3ConnectionIo::respond(
       )
     }
     let fields = [
-      h3_io_value(
-        @http3.QpackField::from_strings(":status", response.status.to_string()),
-      ),
+      @http3.QpackField::from_strings(":status", response.status.to_string()).unwrap_or_error(),
     ]
     fields.append(h3_fields(response.headers))
     let suppressed = !@types.response_allows_body(meth, response.status)
@@ -256,7 +253,7 @@ pub async fn[B : @body.Body] serve_http3_connection(
                 cancel(id)
               }
             } else {
-              h3_io_value(io.session.consume_body(id, bytes.length()))
+              io.session.consume_body(id, bytes.length()).unwrap_or_error()
             }
           Message(H3HeadersReceived(id, fields, true, _)) =>
             if active.get(id) is Some({ incoming, .. }) &&

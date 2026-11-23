@@ -19,28 +19,28 @@ fn Http3Session::prepare(
   match part {
     Headers(fields) =>
       ignore(
-        h3_value(
-          next.receive_headers(
-            fields,
-            conn.peer_settings.enable_connect_protocol,
-          ),
-        ),
+        next
+        .receive_headers(fields, conn.peer_settings.enable_connect_protocol)
+        .unwrap_or_error(),
       )
-    Data(data) => h3_value(next.receive_data(data, conn.limits.max_body_bytes))
+    Data(data) =>
+      next.receive_data(data, conn.limits.max_body_bytes).unwrap_or_error()
     End => ()
   }
   if fin {
-    h3_value(next.finish())
+    next.finish().unwrap_or_error()
   }
   let bytes = match part {
     Headers(fields) => {
-      let bytes = h3_value(conn.encode_validated_headers(next.id, fields))
+      let bytes = conn
+        .encode_validated_headers(next.id, fields)
+        .unwrap_or_error()
       self.writes.admit(bytes.length())
       bytes
     }
     Data(data) => {
       self.writes.admit(h3_driver_blocked_frame_bytes(H3Data(data)))
-      h3_value(encode_http3_frame(H3Data(data)))
+      encode_http3_frame(H3Data(data)).unwrap_or_error()
     }
     End => {
       self.writes.admit(0)
@@ -85,7 +85,10 @@ pub fn Http3Session::start_request(
   }
   let conn = self.driver.connection
   try {
-    let id = h3_value(conn.next_request_id().map_err(e => Http3Protocol(e)))
+    let id = conn
+      .next_request_id()
+      .map_err(e => Http3Protocol(e))
+      .unwrap_or_error()
     if self.messages.length() >= conn.limits.max_concurrent_requests {
       raise Http3Protocol(
         Http3LimitExceeded(
@@ -99,12 +102,11 @@ pub fn Http3Session::start_request(
       e => raise Http3Protocol(e)
     }
     let request_method = h3_response_method(fields)
-    let actual = h3_value(
-      self.quic
+    let actual = self.quic
       .connection()
       .open_bidirectional_stream()
-      .map_err(e => Http3Transport(e)),
-    )
+      .map_err(e => Http3Transport(e))
+      .unwrap_or_error()
     if actual != id {
       self.ended = true
       raise Http3Protocol(
@@ -209,7 +211,7 @@ pub fn Http3Session::send_goaway(
     return Ok(())
   }
   try {
-    let frame = h3_value(encode_http3_frame(H3Goaway(first_rejected)))
+    let frame = encode_http3_frame(H3Goaway(first_rejected)).unwrap_or_error()
     self.control.admit(frame.length())
     self.control.push(self.driver.local_control_stream, frame, false)
     self.sent_goaway = Some(first_rejected)

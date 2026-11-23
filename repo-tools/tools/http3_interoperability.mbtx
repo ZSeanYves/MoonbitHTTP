@@ -472,12 +472,16 @@ async fn with_impairment(
 }
 
 ///|
-fn check_upload_credit(trace : String, size : Int) -> Unit raise {
+fn check_rotating_upload(trace : String, size : Int) -> Unit raise {
   guard @json.parse(trace) is { "traces": [{ "events": Array(events), .. }], .. } else {
     fail("POST: expected one aioquic event trace")
   }
   let mut connection = 0.0
   let mut stream = 0.0
+  let mut replacement : String? = None
+  let mut retired_initial = false
+  let mut uploaded_on_replacement = false
+  let mut replenished = false
   for event in events {
     if event is { "name": "transport:packet_received", "data": { "frames": Array(frames), .. }, .. } {
       for frame in frames {
@@ -486,10 +490,25 @@ fn check_upload_credit(trace : String, size : Int) -> Unit raise {
             connection = connection.max(value)
           { "frame_type": "max_stream_data", "stream_id": 0, "maximum": Number(value, ..), .. } =>
             stream = stream.max(value)
+          { "frame_type": "new_connection_id", "sequence_number": 1, "retire_prior_to": 1, "connection_id": String(id), .. } =>
+            replacement = Some(id)
+          { "frame_type": "new_connection_id", "sequence_number": 2, "retire_prior_to": 1, .. } => replenished = true
           _ => ()
         }
       }
     }
+    if event is { "name": "transport:packet_sent", "data": { "header": { "dcid": String(id), .. }, "frames": Array(frames), .. }, .. } && replacement == Some(id) {
+      for frame in frames {
+        match frame {
+          { "frame_type": "retire_connection_id", "sequence_number": 0, .. } => retired_initial = true
+          { "frame_type": "stream", "stream_id": 0, "length": Number(size, ..), .. } if size > 0.0 => uploaded_on_replacement = true
+          _ => ()
+        }
+      }
+    }
+  }
+  if !retired_initial || !uploaded_on_replacement || !replenished {
+    fail("POST: qlog did not confirm CID rotation, continued upload and replacement issuance")
   }
   if connection < size.to_double() || stream < size.to_double() {
     fail("POST: peer did not grant sufficient connection and request-stream credit for the upload")
@@ -508,7 +527,7 @@ async fn request_case(
   impair : Bool,
   summaries : Array[Json],
   include_headers? : Bool = false,
-  check_upload_window? : Bool = false,
+  check_rotating_post? : Bool = false,
 ) -> Unit {
   let case_dir = directory + "/" + name
   @fs.mkdir(case_dir)
@@ -548,8 +567,8 @@ async fn request_case(
       guard traces.length() == 1 else {
         fail("\{name}: expected one QUIC connection trace, found \{traces.length()}")
       }
-      if check_upload_window {
-        check_upload_credit(@fs.read_file(case_dir + "/" + traces[0]).text(), body.length())
+      if check_rotating_post {
+        check_rotating_upload(@fs.read_file(case_dir + "/" + traces[0]).text(), body.length())
       }
       let expected = if include_headers {
         ":status: 200\r\ncontent-type: text/plain\r\ncontent-length: " +
@@ -834,7 +853,7 @@ async fn main {
       impair,
       proxy_summaries,
       include_headers=true,
-      check_upload_window=build_server,
+      check_rotating_post=build_server,
     )
     request_case(
       directory,
@@ -948,6 +967,7 @@ async fn main {
       "long_requests_completed": long_completed,
       "echoed_upload_bytes": upload.length(),
       "upload_credit_verified_from_qlog": build_server,
+      "local_cid_rotation_verified_from_qlog": build_server,
       "single_connection_requests_completed": rolling_paths.length(),
       "concurrent_requests_requested": concurrent_requests,
       "concurrent_requests_completed": concurrent_completed,

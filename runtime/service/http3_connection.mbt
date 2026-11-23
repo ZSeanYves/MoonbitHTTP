@@ -10,6 +10,7 @@ pub struct H3ConnectionIo {
   priv write_changed : @cond_var.Cond
   priv events : @aqueue.Queue[Array[@http3.Http3SessionAction]]
   priv cancel_request : (Int64, @http3.H3ErrorCode) -> Unit
+  priv rotate_cid : async () -> Unit
   priv flush_writes : async () -> Unit
 }
 
@@ -21,20 +22,21 @@ pub async fn H3ConnectionIo::flush(self : H3ConnectionIo) -> Unit {
 }
 
 ///|
+/// Request a change of this endpoint's QUIC connection ID. The peer can
+/// finish in-flight traffic while retirement and recovery run in the background.
+pub async fn H3ConnectionIo::rotate_local_connection_id(
+  self : H3ConnectionIo,
+) -> Unit {
+  (self.rotate_cid)()
+}
+
+///|
 /// Flush application writes and wait for the next batch of peer events.
 pub async fn H3ConnectionIo::next_events(
   self : H3ConnectionIo,
 ) -> Array[@http3.Http3SessionAction] {
   self.flush()
   self.events.get()
-}
-
-///|
-fn[T, E : Error] h3_io_value(result : Result[T, E]) -> T raise E {
-  match result {
-    Ok(value) => value
-    Err(error) => raise error
-  }
 }
 
 ///|
@@ -72,9 +74,7 @@ pub async fn[
       "HTTP/3 shutdown", shutdown_timeout_ms,
     )
   }
-  let session = h3_io_value(
-    @http3.Http3Session::new(tls, limits~, qpack_limits~),
-  )
+  let session = @http3.Http3Session::new(tls, limits~, qpack_limits~).unwrap_or_error()
   let events : @aqueue.Queue[Array[@http3.Http3SessionAction]] = Queue(
     kind=Blocking(1),
   )
@@ -126,7 +126,7 @@ pub async fn[
     for event in advanced {
       match event {
         Transport(SendDatagram(_, _) as packet) =>
-          h3_io_value(packets.send_action(socket, packet))
+          packets.send_action(socket, packet).unwrap_or_error()
         Failed(error) => raise error
         Transport(ConnectionClosed(code, reason)) => {
           let error = @quic.QuicError::ConnectionClosed(code, reason)
@@ -182,24 +182,33 @@ pub async fn[
     limits,
     write_changed,
     events,
+    rotate_cid: async fn() {
+      dispatch(
+        packets
+        .rotate_local_connection_id(clock.monotonic_millis())
+        .unwrap_or_error(),
+      )
+    },
     flush_writes: async fn() { dispatch([]) },
   }
   @async.with_task_group(async fn(group) {
     group.spawn_bg(
       async fn() {
-        dispatch(h3_io_value(tls.start(options, clock.monotonic_millis())))
+        dispatch(tls.start(options, clock.monotonic_millis()).unwrap_or_error())
         while peer_close is None {
-          let packet = h3_io_value(socket.receive(limits.max_datagram_bytes))
+          let packet = socket
+            .receive(limits.max_datagram_bytes)
+            .unwrap_or_error()
           // MAX_STREAMS can admit a writer without producing an application event.
           write_changed.broadcast()
           dispatch(
-            h3_io_value(
-              tls.on_datagram(
-                packet.endpoint(),
-                packet.payload(),
-                clock.monotonic_millis(),
-              ),
-            ),
+            tls
+            .on_datagram(
+              packet.endpoint(),
+              packet.payload(),
+              clock.monotonic_millis(),
+            )
+            .unwrap_or_error(),
           )
         }
       },
@@ -212,7 +221,7 @@ pub async fn[
           if peer_close is Some(_) || closing {
             return
           }
-          dispatch(h3_io_value(tls.poll(clock.monotonic_millis())))
+          dispatch(tls.poll(clock.monotonic_millis()).unwrap_or_error())
         }
       },
       no_wait=true,
@@ -230,8 +239,9 @@ pub async fn[
         raise error
       }
       closing = true
-      if h3_io_value(session.close(clock.monotonic_millis())) is Some(packet) {
-        h3_io_value(packets.send_action(socket, packet))
+      if session.close(clock.monotonic_millis()).unwrap_or_error()
+        is Some(packet) {
+        packets.send_action(socket, packet).unwrap_or_error()
       }
     })
     result

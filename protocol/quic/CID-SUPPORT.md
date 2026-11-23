@@ -8,12 +8,29 @@ retires the selected CID. The driver emits and retransmits the corresponding
 `RETIRE_CONNECTION_ID` frames; reordered announcements below the retirement
 floor are retired again without restoring their state.
 
-The driver currently issues only its initial local CID, sequence zero. It does
-not mint replacement local CIDs or route packets to additional local CIDs.
-Sending `NEW_CONNECTION_ID` through the driver returns `Unsupported`. Incoming
-retirement of an unissued local sequence, or of the CID used as the packet's
-destination, is rejected before any CID state is changed. The standalone packet
-codec remains available for integrations that implement their own CID routing.
+Native HTTP/3 clients and listeners advertise one spare local CID after the
+handshake. The initial CID is sequence zero. Replacements keep its length
+and use fresh entropy for the CID and 16-byte stateless reset token. The
+listener reserves each new UDP route before sending its advertisement.
+An old route stays live until its peer sends `RETIRE_CONNECTION_ID` for it.
+Closing a peer removes its original Initial mapping and every remaining route.
+[RFC 9000 sections 5.1.1 and 5.1.2](https://www.rfc-editor.org/rfc/rfc9000.html#section-5.1.1)
+
+Portable integrations opt in with `enable_connection_id_issuance`. A shared
+socket supplies synchronous route reservation and release callbacks. A failed
+send releases the reservation. For backpressure the driver keeps one unsent
+candidate and retries on transport progress. `rotate_local_connection_id(now_ms)`
+returns datagrams to transmit. The HTTP/3 connection scope exposes the same
+operation as `H3ConnectionIo::rotate_local_connection_id()` and handles I/O.
+The operation can run during a request. Loss recovery retransmits the
+advertisement, and the peer's retirement triggers replenishment.
+
+The default lifetime budget is 256 IDs including sequence zero. It bounds
+the history used to prevent reuse of IDs and reset tokens. After the last
+spare retires, the remaining route continues to serve the connection.
+A further explicit rotation returns a limit error. Zero-length initial IDs
+keep their original routing. Raw frame encoding remains available to
+integrations with a separate issuer.
 
 The standalone peer CID manager preserves a bounded set of individually retired
 entries to detect reuse. Its history budget equals `max_active`; a new

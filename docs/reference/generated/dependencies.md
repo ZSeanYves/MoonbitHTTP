@@ -118,6 +118,7 @@ flowchart TD
   p_examples_cmd_smoke_server --> p_runtime_transport
   p_adapter_native_transport -. "wbtest" .-> p_runtime_transport
   p_examples_cmd_h3_smoke_client --> p_runtime_service
+  p_examples_cmd_h3_smoke_server --> p_runtime_service
   p_examples_cmd_smoke_server --> p_adapter_native_tls
   p_examples_cmd_smoke_server --> p_application_server
   p_adapter_native_server -. "wbtest" .-> p_adapter_native_client

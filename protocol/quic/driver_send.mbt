@@ -93,6 +93,9 @@ pub fn QuicDatagramDriver::send_frames(
   frames : Array[QuicFrame],
   now_ms : Int64,
 ) -> Result[QuicDriverAction, QuicError] {
+  if frames.any(fn(frame) { frame is NewConnectionId(_, _, _, _) }) {
+    return Err(Unsupported("use managed local connection ID issuance"))
+  }
   self.send_frames_internal_to(
     space,
     frames,
@@ -188,11 +191,6 @@ fn QuicDatagramDriver::send_frames_internal_to(
   if space == Application && self.state() != Established {
     return Err(
       Unsupported("application packets require an established connection"),
-    )
-  }
-  if frames.any(fn(frame) { frame is NewConnectionId(_, _, _, _) }) {
-    return Err(
-      Unsupported("local connection ID issuance and rotation are not supported"),
     )
   }
   match

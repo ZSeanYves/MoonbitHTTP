@@ -67,7 +67,7 @@ async fn H3IncomingBody::read(self : H3IncomingBody) -> @body.Frame? {
   }
   if self.chunks.pop_front() is Some(data) {
     self.buffered_bytes -= data.length()
-    h3_io_value(self.io.session.consume_body(self.id, data.length()))
+    self.io.session.consume_body(self.id, data.length()).unwrap_or_error()
     return Some(Data(data))
   }
   // Deliver trailers only after FIN has validated the final body length.

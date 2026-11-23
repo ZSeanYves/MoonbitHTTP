@@ -98,14 +98,16 @@ fn Http3Session::initialize(
   if self.initialized || self.quic.state() != Established {
     return
   }
-  let actions = h3_value(
-    self.driver.initial_stream_actions().map_err(e => Http3Protocol(e)),
-  )
+  let actions = self.driver
+    .initial_stream_actions()
+    .map_err(e => Http3Protocol(e))
+    .unwrap_or_error()
   for action in actions {
     if action is SendOnStream(expected, bytes, fin) {
-      let id = h3_value(
-        self.quic.open_unidirectional_stream().map_err(e => Http3Transport(e)),
-      )
+      let id = self.quic
+        .open_unidirectional_stream()
+        .map_err(e => Http3Transport(e))
+        .unwrap_or_error()
       if expected != id {
         raise Http3Protocol(
           Http3ConnectionError(
@@ -175,7 +177,7 @@ fn Http3Session::discard_input(
     if self.decoder_cancellations.length() >= limit {
       raise Http3LimitExceeded("HTTP/3 pending stream cancellations", limit)
     }
-    self.decoder_cancellations[id] = h3_value(qpack_stream_cancellation(id))
+    self.decoder_cancellations[id] = qpack_stream_cancellation(id).unwrap_or_error()
   }
   if self.withheld is Some(credit) {
     credit.remove(id)
@@ -323,12 +325,11 @@ fn Http3Session::receive(
             (bytes.length() - immediate)
         }
       }
-      h3_value(
-        self.quic
-        .connection()
-        .consume_stream_data(id, immediate)
-        .map_err(e => Http3Transport(e)),
-      )
+      self.quic
+      .connection()
+      .consume_stream_data(id, immediate)
+      .map_err(e => Http3Transport(e))
+      .unwrap_or_error()
       result
     }
     StreamReset(id, _) => {
@@ -352,7 +353,7 @@ fn Http3Session::receive(
       return
     }
   }
-  self.dispatch(h3_value(result), out) catch {
+  self.dispatch(result.unwrap_or_error(), out) catch {
     Http3StreamError(id, code, _) => {
       self.abort_stream(id, code) catch {
         error => raise Http3Protocol(error)

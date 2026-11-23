@@ -244,6 +244,9 @@ fn[P] QuicTlsDriver::run_tls_events(
           }
           self.driver.discard_packet_space(Handshake)
         }
+        self.driver.advertise_local_cid(now_ms, actions) catch {
+          error => return Err(error)
+        }
       }
     }
   }

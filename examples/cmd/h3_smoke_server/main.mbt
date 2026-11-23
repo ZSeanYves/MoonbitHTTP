@@ -1,17 +1,9 @@
 ///|
-fn[T, E : Error] checked(result : Result[T, E]) -> T raise E {
-  match result {
-    Ok(value) => value
-    Err(error) => raise error
-  }
-}
-
-///|
 fn echo(
   request : @types.Request[@body.BodyStream],
 ) -> @types.Response[@body.BodyStream] raise {
   let headers = @types.HeaderMap::new()
-  checked(headers.append_string("content-type", "text/plain"))
+  headers.append_string("content-type", "text/plain").unwrap_or_error()
   let body = if request.http_method == Post {
     if request.headers.get_string("content-length") is Some(length) {
       headers.append(
@@ -22,7 +14,9 @@ fn echo(
     request.body
   } else {
     let bytes = b"MoonbitHTTP HTTP/3 smoke\n"
-    checked(headers.append_string("content-length", bytes.length().to_string()))
+    headers
+    .append_string("content-length", bytes.length().to_string())
+    .unwrap_or_error()
     let full = @body.FullBody::new(bytes)
     @body.BodyStream::from_pull(() => @body.Body::next_frame(full))
   }
@@ -56,28 +50,31 @@ async fn main {
       max_connections: 16,
     })
     .with_error_responder(error => println("HTTP/3 peer: \{error}"))
-  let supervisor = checked(@server_api.ServerSupervisor::new(config~))
-  let listener = checked(
-    @server_native.NativeHttp3Listener::bind_http(
-      endpoint,
-      @transport.AllowAllPolicy::new(),
-      options,
-      request => {
+  let supervisor = @server_api.ServerSupervisor::new(config~).unwrap_or_error()
+  let listener = @server_native.NativeHttp3Listener::bind(
+    endpoint,
+    @transport.AllowAllPolicy::new(),
+    options,
+    (_, io) => {
+      @service.serve_http3_connection(io, async fn(request) {
+        if request.http_method == Post {
+          io.rotate_local_connection_id()
+        }
         if once {
-          checked(supervisor.begin_shutdown())
+          supervisor.begin_shutdown().unwrap_or_error()
         }
         echo(request)
-      },
-      limits={ ..@types.Limits::defaults(), max_body_bytes: 65536, },
-      transport_params={
-        ..@quic.QuicTransportParams::defaults(),
-        initial_max_streams_bidi: 8L,
-        initial_max_data: 1024L,
-        initial_max_stream_data_bidi_remote: 256L,
-      },
-    ),
-  )
+      })
+    },
+    limits={ ..@types.Limits::defaults(), max_body_bytes: 65536, },
+    transport_params={
+      ..@quic.QuicTransportParams::defaults(),
+      initial_max_streams_bidi: 8L,
+      initial_max_data: 1024L,
+      initial_max_stream_data_bidi_remote: 256L,
+    },
+  ).unwrap_or_error()
   defer listener.close()
   @stdio.stdout.write("HTTP/3 smoke listening on https://localhost:18443\n")
-  checked(listener.serve(supervisor))
+  listener.serve(supervisor).unwrap_or_error()
 }

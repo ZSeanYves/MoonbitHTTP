@@ -248,6 +248,7 @@ pub struct QuicDatagramDriver {
 }
 pub fn QuicDatagramDriver::begin_path_validation(Self, @types.Endpoint, Bytes, Int64) -> Result[QuicDriverAction, QuicError]
 pub fn QuicDatagramDriver::connection(Self) -> QuicConnection
+pub fn[E : @transport.Entropy] QuicDatagramDriver::enable_connection_id_issuance(Self, E, reserve? : (ConnectionId) -> Bool, release? : (ConnectionId) -> Unit, max_issued? : Int) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::endpoint(Self) -> @types.Endpoint
 pub fn QuicDatagramDriver::establish(Self) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::handshake_confirmed(Self) -> Bool
@@ -265,6 +266,7 @@ pub fn QuicDatagramDriver::poll(Self, Int64) -> Result[Array[QuicDriverAction], 
 pub async fn[S : @transport.DatagramSocket] QuicDatagramDriver::receive_once(Self, S, Int, Int64) -> Result[Array[QuicDriverAction], QuicError]
 pub fn QuicDatagramDriver::reset_stream(Self, Int64, Int64, Int64) -> Result[QuicDriverAction, QuicError]
 pub fn QuicDatagramDriver::role(Self) -> QuicRole
+pub fn QuicDatagramDriver::rotate_local_connection_id(Self, Int64) -> Result[Array[QuicDriverAction], QuicError]
 pub async fn[S : @transport.DatagramSocket] QuicDatagramDriver::send_action(Self, S, QuicDriverAction) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::send_frames(Self, PacketNumberSpace, Array[QuicFrame], Int64) -> Result[QuicDriverAction, QuicError]
 pub fn[C : @transport.Clock, E : @transport.Entropy] QuicDatagramDriver::send_retry_validated(Self, @types.Endpoint, C, E) -> Result[QuicDriverAction, QuicError]

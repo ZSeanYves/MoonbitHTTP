@@ -271,7 +271,7 @@ async fn H3Client::read(self : H3Client) -> Unit {
                 )
               }
             None =>
-              h3_io_value(self.io.session.consume_body(id, bytes.length()))
+              self.io.session.consume_body(id, bytes.length()).unwrap_or_error()
           }
         Message(H3MessageFinished(id)) =>
           if self.streams.get(id) is Some(stream) {
@@ -330,11 +330,10 @@ pub async fn[X] with_h3_client(
   }
   let origin = match origin_port {
     None => peer
-    Some(port) => h3_io_value(@types.Endpoint::new("https", peer.host, port))
+    Some(port) =>
+      @types.Endpoint::new("https", peer.host, port).unwrap_or_error()
   }
-  let authority = h3_io_value(
-    @types.Authority::parse_endpoint(origin.authority()),
-  )
+  let authority = @types.Authority::parse_endpoint(origin.authority()).unwrap_or_error()
   io.session.defer_body_credit()
   @async.with_task_group(async fn(group) {
     let client : H3Client = {

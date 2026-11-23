@@ -21,11 +21,12 @@ async fn bind_test_listener(
 }
 
 ///|
-async test "HTTP/3 listener: draining continues to route concurrent peers and final response bytes" {
+async test "HTTP/3 listener: rotate two peers independently while draining their final response bytes" {
   @async.with_timeout(10000, async fn() {
     let (client_tls, server_tls) = listener_tls_options()
     let policy = @transport.AllowAllPolicy::new()
     let entered : @aqueue.Queue[Unit] = Queue(kind=Blocking(2))
+    let rotate : @aqueue.Queue[Unit] = Queue(kind=Blocking(2))
     let release : @aqueue.Queue[Unit] = Queue(kind=Blocking(2))
     let payload = Bytes::from_array(FixedArray::make(8192, b'x'))
     let (endpoint, listener) = bind_test_listener(endpoint => {
@@ -38,13 +39,15 @@ async test "HTTP/3 listener: draining continues to route concurrent peers and fi
             for event in io.next_events() {
               if event is Message(H3MessageFinished(id)) {
                 entered.put(())
+                rotate.get()
+                io.rotate_local_connection_id()
                 release.get()
-                h3_listener_value(
-                  io.session.send_headers(id, [
-                    @http3.QpackField::from_strings(":status", "200").unwrap(),
-                  ]),
-                )
-                h3_listener_value(io.session.send_data(id, payload, fin=true))
+                io.session
+                .send_headers(id, [
+                  @http3.QpackField::from_strings(":status", "200").unwrap(),
+                ])
+                .unwrap_or_error()
+                io.session.send_data(id, payload, fin=true).unwrap_or_error()
                 return
               }
             }
@@ -60,13 +63,14 @@ async test "HTTP/3 listener: draining continues to route concurrent peers and fi
         policy,
         { ..client_tls, alpn: ["h3"], },
         async fn(io) {
+          io.rotate_local_connection_id()
           let fields = [
             (":method", "GET"),
             (":scheme", "https"),
             (":authority", endpoint.authority()),
             (":path", "/"),
           ].map(pair => @http3.QpackField::from_strings(pair.0, pair.1).unwrap())
-          let id = h3_listener_value(io.session.start_request(fields, fin=true))
+          let id = io.session.start_request(fields, fin=true).unwrap_or_error()
           let body = []
           while true {
             for event in io.next_events() {
@@ -93,6 +97,16 @@ async test "HTTP/3 listener: draining continues to route concurrent peers and fi
       entered.get()
       assert_eq(supervisor.active_connections(), 2)
       supervisor.begin_shutdown().unwrap()
+      while listener.routes.length() != 4 {
+        @async.sleep(1)
+      }
+      let original = listener.routes.keys().to_array()
+      rotate.put(())
+      rotate.put(())
+      while original.filter(id => listener.routes.contains(id)).length() != 2 ||
+            listener.routes.length() != 4 {
+        @async.sleep(1)
+      }
       release.put(())
       release.put(())
       first.wait()
@@ -221,23 +235,23 @@ async test "HTTP/3 typed handler: stalled upload and cancelled handler leave a s
           let payload = Bytes::from_array(
             FixedArray::makei(4096, i => (i % 251).to_byte()),
           )
-          let idle = h3_listener_value(
-            io.session.start_request(fields("/stall")),
-          )
-          h3_listener_value(io.session.send_data(idle, payload))
+          let idle = io.session
+            .start_request(fields("/stall"))
+            .unwrap_or_error()
+          io.session.send_data(idle, payload).unwrap_or_error()
           io.flush()
           entered.get()
-          let bad = h3_listener_value(
-            io.session.start_request(fields("/fail"), fin=true),
-          )
-          let stream = h3_listener_value(
-            io.session.start_request(fields("/echo")),
-          )
-          h3_listener_value(io.session.send_data(stream, payload))
+          let bad = io.session
+            .start_request(fields("/fail"), fin=true)
+            .unwrap_or_error()
+          let stream = io.session
+            .start_request(fields("/echo"))
+            .unwrap_or_error()
+          io.session.send_data(stream, payload).unwrap_or_error()
           let trailers = [
             @http3.QpackField::from_strings("x-check", "done").unwrap(),
           ]
-          h3_listener_value(io.session.send_headers(stream, trailers, fin=true))
+          io.session.send_headers(stream, trailers, fin=true).unwrap_or_error()
           let received = []
           let mut status = false
           let mut trailer = false
@@ -265,12 +279,12 @@ async test "HTTP/3 typed handler: stalled upload and cancelled handler leave a s
           assert_true(status && trailer && verified)
           assert_eq(errors, [bad])
           assert_eq(Bytes::from_array(received), payload)
-          h3_listener_value(io.session.cancel(idle))
+          io.session.cancel(idle).unwrap_or_error()
           io.flush()
           cancelled.get()
-          let last = h3_listener_value(
-            io.session.start_request(fields("/echo"), fin=true),
-          )
+          let last = io.session
+            .start_request(fields("/echo"), fin=true)
+            .unwrap_or_error()
           while true {
             if io.next_events().any(e => e == Message(H3MessageFinished(last))) {
               break
@@ -458,12 +472,12 @@ async test "HTTP/3 typed client: a complete response survives peer close during 
         while true {
           for action in io.next_events() {
             if action is Message(H3HeadersReceived(id, _, false, false)) {
-              h3_listener_value(
-                io.session.send_headers(id, [
-                  @http3.QpackField::from_strings(":status", "413").unwrap(),
-                ]),
-              )
-              h3_listener_value(io.session.send_data(id, data, fin=true))
+              io.session
+              .send_headers(id, [
+                @http3.QpackField::from_strings(":status", "413").unwrap(),
+              ])
+              .unwrap_or_error()
+              io.session.send_data(id, data, fin=true).unwrap_or_error()
               return
             }
           }
@@ -702,8 +716,7 @@ async test "HTTP/3 shutdown deadline joins a suspended handler and releases its 
             (":authority", "localhost"),
             (":path", "/"),
           ].map(p => @http3.QpackField::from_strings(p.0, p.1).unwrap())
-          h3_listener_value(io.session.start_request(fields, fin=true))
-          |> ignore
+          io.session.start_request(fields, fin=true).unwrap_or_error() |> ignore
           io.flush()
           entered.get()
           supervisor.begin_shutdown().unwrap()

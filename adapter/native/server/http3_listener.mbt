@@ -2,8 +2,39 @@
 priv struct H3PeerSocket {
   socket : @transport_native.UdpServerSocket
   inbox : @aqueue.Queue[@transport.Datagram]
-  remove_route : () -> Unit
+  routes : Map[Bytes, H3PeerSocket]
+  owned : Set[Bytes]
+  initials : Map[(@types.Endpoint, Bytes), H3PeerSocket]
+  initial_key : (@types.Endpoint, Bytes)
   mut closed : Bool
+}
+
+///|
+fn H3PeerSocket::reserve_route(
+  self : H3PeerSocket,
+  id : @quic.ConnectionId,
+) -> Bool {
+  let bytes = id.bytes()
+  if self.closed ||
+    self.routes.contains(bytes) ||
+    self.initials.contains((self.initial_key.0, bytes)) {
+    return false
+  }
+  self.owned.add(bytes)
+  self.routes[bytes] = self
+  true
+}
+
+///|
+fn H3PeerSocket::release_route(
+  self : H3PeerSocket,
+  id : @quic.ConnectionId,
+) -> Unit {
+  let bytes = id.bytes()
+  if self.owned.contains(bytes) {
+    self.owned.remove(bytes)
+    self.routes.remove(bytes)
+  }
 }
 
 ///|
@@ -36,7 +67,11 @@ impl @transport.DatagramSocket for H3PeerSocket with fn receive(self, max_bytes)
 impl @transport.DatagramSocket for H3PeerSocket with fn close(self) {
   if !self.closed {
     self.closed = true
-    (self.remove_route)()
+    for id in self.owned {
+      self.routes.remove(id)
+    }
+    self.owned.clear()
+    self.initials.remove(self.initial_key)
     self.inbox.close(clear=true)
   }
 }
@@ -91,14 +126,6 @@ pub struct NativeHttp3Listener {
 }
 
 ///|
-fn[T, E : Error] h3_listener_value(result : Result[T, E]) -> T raise E {
-  match result {
-    Ok(value) => value
-    Err(error) => raise error
-  }
-}
-
-///|
 pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
   endpoint : @types.Endpoint,
   policy : P,
@@ -142,24 +169,35 @@ pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
   }
   let clock = @transport_native.NativeClock::new()
   let shutdown = @service.H3ServerShutdown::new()
-  let run_peer = async fn(peer, source, original, local_id, remote_id) {
-    let packets = h3_listener_value(
-      @quic.QuicDatagramDriver::new(
-        Server,
-        source,
-        original,
-        local_id,
-        remote_id,
-        now_ms=clock.monotonic_millis(),
-        transport_params~,
-        authorize=fn(endpoint, operation) {
-          policy.authorize(endpoint, operation)
-        },
-      ),
+  let run_peer = async fn(
+    peer : H3PeerSocket,
+    source,
+    original,
+    local_id,
+    remote_id,
+  ) {
+    let packets = @quic.QuicDatagramDriver::new(
+      Server,
+      source,
+      original,
+      local_id,
+      remote_id,
+      now_ms=clock.monotonic_millis(),
+      transport_params~,
+      authorize=fn(endpoint, operation) {
+        policy.authorize(endpoint, operation)
+      },
+    ).unwrap_or_error()
+    packets
+    .enable_connection_id_issuance(
+      @tls_native.NativeEntropy::new(),
+      reserve=id => peer.reserve_route(id),
+      release=id => peer.release_route(id),
     )
+    .unwrap_or_error()
     let provider = @tls_native.NativeQuicTlsProvider::new(server=true)
     defer provider.close()
-    let tls = h3_listener_value(@quic.QuicTlsDriver::new(packets, provider))
+    let tls = @quic.QuicTlsDriver::new(packets, provider).unwrap_or_error()
     let mut authenticated = false
     @service.with_http3_connection(
       tls,
@@ -217,62 +255,52 @@ fn NativeHttp3Listener::route(
       return
     }
     let id = destination.bytes()
-    if self.routes.get(id) is Some(peer) {
+    let key = (source, id)
+    if kind == 0 && self.initials.get(key) is Some(peer) {
+      peer
+    } else if self.routes.get(id) is Some(peer) {
       peer
     } else {
       if kind != 0 || id.length() < 8 || bytes.length() < 1200 {
         return
       }
-      let key = (source, id)
-      match self.initials.get(key) {
-        Some(peer) => peer
-        None => {
-          if self.admissions.shutdown.started() {
-            return
-          }
-          let mut issued : Bytes? = None
-          let peer = {
-            socket: self.socket,
-            inbox: Queue(kind=Blocking(self.inbox_capacity)),
-            closed: false,
-            remove_route: fn() {
-              if issued is Some(cid) {
-                self.routes.remove(cid)
-              }
-              self.initials.remove(key)
-            },
-          }
-          let accepted = @server_api.AcceptedConnection::new(
-            async fn() {
-              try {
-                // Allocate the CID and TLS state only after the supervisor grants a slot.
-                let cid = h3_listener_value(
-                  @quic.ConnectionId::random(@tls_native.NativeEntropy::new()),
-                )
-                let local_id = cid.bytes()
-                if self.routes.contains(local_id) ||
-                  self.initials.contains((source, local_id)) {
-                  raise @quic.QuicError::InvalidPacket(
-                    "server connection ID collision",
-                  )
-                }
-                issued = Some(local_id)
-                self.routes[local_id] = peer
-                (self.run_peer)(peer, source, destination, cid, remote)
-                Ok(())
-              } catch {
-                err => Err(err)
-              }
-            },
-            fn() { @transport.DatagramSocket::close(peer) },
-          )
-          if !self.admissions.pending.try_put(accepted) {
-            return
-          }
-          self.initials[key] = peer
-          peer
-        }
+      if self.admissions.shutdown.started() {
+        return
       }
+      let peer = {
+        socket: self.socket,
+        inbox: Queue(kind=Blocking(self.inbox_capacity)),
+        closed: false,
+        routes: self.routes,
+        owned: Set([]),
+        initials: self.initials,
+        initial_key: key,
+      }
+      let accepted = @server_api.AcceptedConnection::new(
+        async fn() {
+          try {
+            // Allocate the CID and TLS state only after the supervisor grants a slot.
+            let cid = @quic.ConnectionId::random(
+              @tls_native.NativeEntropy::new(),
+            ).unwrap_or_error()
+            if !peer.reserve_route(cid) {
+              raise @quic.QuicError::InvalidPacket(
+                "server connection ID collision",
+              )
+            }
+            (self.run_peer)(peer, source, destination, cid, remote)
+            Ok(())
+          } catch {
+            err => Err(err)
+          }
+        },
+        fn() { @transport.DatagramSocket::close(peer) },
+      )
+      if !self.admissions.pending.try_put(accepted) {
+        return
+      }
+      self.initials[key] = peer
+      peer
     }
   }
   // One stalled consumer may lose datagrams. The shared receiver remains

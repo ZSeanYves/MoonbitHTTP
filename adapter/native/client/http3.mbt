@@ -27,6 +27,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_connection(
     transport_params~,
     authorize=fn(peer, operation) { policy.authorize(peer, operation) },
   ).unwrap_or_error()
+  packets.enable_connection_id_issuance(entropy).unwrap_or_error()
   let provider = @tls_native.NativeQuicTlsProvider::new()
   defer provider.close()
   let tls = @quic.QuicTlsDriver::new(packets, provider).unwrap_or_error()

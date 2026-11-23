@@ -149,6 +149,9 @@ pub fn QuicDatagramDriver::poll(
     Err(error) => return Err(error)
   }
   if self.state() == Established {
+    self.advertise_local_cid(now_ms, output) catch {
+      error => return Err(error)
+    }
     // The stream stays live until its reset is acknowledged, bounding this
     // queue by max_streams. Leave a blocked frame in place for the next poll.
     while self.pending_resets.front() is Some(reset) {

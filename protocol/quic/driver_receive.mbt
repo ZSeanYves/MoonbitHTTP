@@ -291,7 +291,7 @@ fn QuicDatagramDriver::on_packet(
   now_ms : Int64,
 ) -> Result[Array[QuicDriverAction], QuicError] {
   let candidate_path = source != self.path.active()
-  let (space, opened, source_connection_id, advance_keys) = if header
+  let (space, opened, source_connection_id, advance_keys, destination_seq) = if header
     is Some(header) {
     if candidate_path {
       return Err(
@@ -312,13 +312,12 @@ fn QuicDatagramDriver::on_packet(
     let initial_destination = self.role == Server &&
       packet_type == 0 &&
       destination == self.initial_destination
-    if version != QUIC_VERSION_1 ||
-      (destination != self.local_connection_id && !initial_destination) {
-      return Err(
-        InvalidPacket(
-          "long-header version or destination does not match this QUIC connection",
-        ),
-      )
+    let seq = self.local_cid_sequence(destination.bytes())
+    if version != QUIC_VERSION_1 {
+      return Err(InvalidPacket("unexpected QUIC version"))
+    }
+    if seq is None && !initial_destination {
+      return self.unknown_destination()
     }
     // Post-Retry servers are constructed only from a validated context. Every
     // later Initial must preserve the exact token and its endpoint/CID binding;
@@ -362,19 +361,16 @@ fn QuicDatagramDriver::on_packet(
       Ok(value) => value
       Err(error) => return Err(self.record_authentication_failure(error))
     }
-    (space, opened, Some(source_id), false)
+    (space, opened, Some(source_id), false, seq)
   } else {
     let space = Application
     let offset = 1 + self.local_connection_id.bytes().length()
     if packet.length() <= offset {
       return Err(NeedMoreInput)
     }
-    if packet[1:offset].to_owned() != self.local_connection_id.bytes() {
-      return Err(
-        InvalidPacket(
-          "short-header destination does not match this QUIC connection",
-        ),
-      )
+    let seq = self.local_cid_sequence(packet[1:offset])
+    if seq is None {
+      return self.unknown_destination()
     }
     // RFC 9001 §5.7: 1-RTT packets can overtake the TLS Finished. The
     // transport can recover these packets after handshake completion.
@@ -386,7 +382,7 @@ fn QuicDatagramDriver::on_packet(
       Ok(value) => value
       Err(error) => return Err(self.record_authentication_failure(error))
     }
-    (space, opened, None, advance)
+    (space, opened, None, advance, seq)
   }
   let received = self.received(space)
   if received.seen(opened.packet_number()) {
@@ -401,23 +397,27 @@ fn QuicDatagramDriver::on_packet(
     Ok(_) => ()
     Err(error) => return Err(error)
   }
-  // This driver issues only its initial local CID (sequence zero) and accepts
-  // packets only for that CID. A peer cannot retire its own NEW_CONNECTION_ID
-  // entries, and retiring the CID used by this packet is a protocol violation.
-  // Check the complete packet before an earlier NEW_CONNECTION_ID can mutate
-  // the peer namespace.
+  // Validate retirements before any frame in this packet can mutate CID state.
   for frame in frames {
     if frame is RetireConnectionId(sequence) {
-      return Err(
-        Protocol(
-          0x0aL,
-          if sequence == 0L {
-            "cannot retire the destination connection ID of this packet"
-          } else {
-            "peer retired a connection ID that was never issued locally"
-          },
-        ),
-      )
+      if destination_seq == Some(sequence) {
+        return Err(
+          Protocol(
+            0x0aL, "cannot retire the destination connection ID of this packet",
+          ),
+        )
+      }
+      let issued = match self.local_ids {
+        Some(ids) => ids.issued.length()
+        None => 1
+      }
+      if sequence >= issued.to_int64() {
+        return Err(
+          Protocol(
+            0x0aL, "peer retired a connection ID that was never issued locally",
+          ),
+        )
+      }
     }
   }
   if candidate_path {
@@ -540,6 +540,7 @@ fn QuicDatagramDriver::on_packet(
           }
           Err(error) => return Err(error)
         }
+      RetireConnectionId(sequence) => self.retire_local_cid(sequence)
       NewConnectionId(sequence, retire_prior_to, id, token) =>
         match
           self.receive_peer_connection_id(sequence, retire_prior_to, id, token) {
@@ -612,6 +613,11 @@ fn QuicDatagramDriver::on_packet(
       Err(error) => return Err(error)
     }
     actions.append(retransmissions)
+  }
+  if space == Application {
+    self.advertise_local_cid(now_ms, actions) catch {
+      error => return Err(error)
+    }
   }
   Ok(actions)
 }

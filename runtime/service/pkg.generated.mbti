@@ -132,6 +132,7 @@ pub struct H3ConnectionIo {
 }
 pub async fn H3ConnectionIo::flush(Self) -> Unit
 pub async fn H3ConnectionIo::next_events(Self) -> Array[@http3.Http3SessionAction]
+pub async fn H3ConnectionIo::rotate_local_connection_id(Self) -> Unit
 
 pub struct H3ServerShutdown {
   // private fields

@@ -42,3 +42,5 @@ reader task、body queue、流控释放、deadline、取消和 close 均受 serv
 - [架构](../../docs/concepts/architecture.md)
 
 `H2Client::send` 等待本地容量和对端的并发流额度。SETTINGS 提高额度后可恢复等待的请求。GOAWAY 或连接关闭会唤醒等待者并返回错误。请求头已写出时，取消等待响应头的任务会复位对应的流。
+
+`H3ConnectionIo::rotate_local_connection_id()` 可在请求进行期间通知对端切换目的连接 ID。原生客户端和监听器会自动签发一个备用 ID，对端退役后释放旧路由。可移植后端可在启动 QUIC 驱动时注入熵源和路由回调。[连接 ID 生命周期](../../protocol/quic/CID-SUPPORT.md)

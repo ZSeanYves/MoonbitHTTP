@@ -49,18 +49,16 @@ fn quic_frame_is_retransmittable(frame : QuicFrame) -> Bool {
 }
 
 ///|
-/// RESET_STREAM supersedes all outstanding STREAM frames for this ID. Leave
+/// Drop superseded stream data or CID announcements from retransmission. Leave
 /// packet numbers in recovery for congestion accounting and preserve any other
 /// retransmittable frames that shared those packets.
-fn QuicDatagramDriver::discard_stream_retransmissions(
+fn QuicDatagramDriver::discard_application_retransmissions(
   self : QuicDatagramDriver,
-  id : Int64,
+  discard : (QuicFrame) -> Bool,
 ) -> Unit {
   self.retransmissions.retain(entry => {
     if entry.space == Application {
-      entry.frames.retain(frame => {
-        !(frame is Stream(data) && data.stream_id == id)
-      })
+      entry.frames.retain(frame => !discard(frame))
     }
     !entry.frames.is_empty()
   })
@@ -240,5 +238,15 @@ fn QuicDatagramDriver::queue_retransmission(
       None
     },
     frames: frames.filter(quic_frame_is_retransmittable),
+  })
+}
+
+///|
+fn QuicDatagramDriver::discard_stream_retransmissions(
+  self : QuicDatagramDriver,
+  id : Int64,
+) -> Unit {
+  self.discard_application_retransmissions(frame => {
+    frame is Stream(data) && data.stream_id == id
   })
 }

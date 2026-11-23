@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Issue and rotate local QUIC connection IDs on native HTTP/3 clients and listeners. Keep one spare, retain the old route until peer retirement, and continue active streams on the replacement. The portable driver accepts explicit entropy and route callbacks. Its lifetime issuance budget defaults to 256 IDs.
+
 - Add a scoped HTTP/3 pool for absolute HTTPS requests. HTTP/2 and HTTP/3 share origin reservation, cancellation and connection limits. Requests retain their response bodies while the pool drains GOAWAY. Concurrent waiters for one new origin evict a single idle connection from a full pool. The native factory resolves and verifies each origin independently.
 
 - Accept UDP hostnames in the native typed HTTP/3 client through an explicit resolver. HTTP/1, HTTP/2 and HTTP/3 share DNS deadlines, ordered numeric candidates and result bounds. The HTTP/3 client can try another permitted address before authentication, while certificate failure and application errors propagate to the caller.

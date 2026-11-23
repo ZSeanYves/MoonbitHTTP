@@ -47,14 +47,13 @@ fn QuicDatagramDriver::count_received_datagram(
   let attributable = if (packet[0].to_int() & 0x80) != 0 {
     match quic_long_header_connection_ids(packet) {
       Ok((_, destination, _)) =>
-        destination == self.local_connection_id ||
+        self.local_cid_sequence(destination.bytes()) is Some(_) ||
         (self.role == Server && destination == self.initial_destination)
       Err(_) => false
     }
   } else {
     let end = 1 + self.local_connection_id.bytes().length()
-    packet.length() >= end &&
-    packet[1:end].to_owned() == self.local_connection_id.bytes()
+    packet.length() >= end && self.local_cid_sequence(packet[1:end]) is Some(_)
   }
   if attributable {
     budget.received = (budget.received + packet.length().to_int64()).min(

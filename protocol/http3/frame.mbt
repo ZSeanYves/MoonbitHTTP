@@ -129,14 +129,6 @@ fn h3_append_bytes(output : Array[Byte], bytes : BytesView) -> Unit {
 }
 
 ///|
-fn[T, E : Error] h3_value(value : Result[T, E]) -> T raise E {
-  match value {
-    Ok(value) => value
-    Err(error) => raise error
-  }
-}
-
-///|
 fn h3_varint(value : Int64) -> Result[Bytes, Http3Error] {
   match @quic.QuicVarInt::new(value) {
     Ok(encoded) => Ok(encoded.encode())
@@ -516,9 +508,7 @@ fn Http3FrameDecoder::read_frame(
         return None
       }
       // A QUIC type/length pair occupies at most sixteen octets.
-      let (typ, length, used) = h3_value(
-        h3_frame_header(self.buffer.peek_prefix(16)),
-      )
+      let (typ, length, used) = h3_frame_header(self.buffer.peek_prefix(16)).unwrap_or_error()
       let limit = if typ == H3_FRAME_DATA {
         self.data_chunk_limit.unwrap_or(self.max_payload_bytes)
       } else {
@@ -544,7 +534,7 @@ fn Http3FrameDecoder::read_frame(
     }
     remaining
   }
-  let frame = h3_value(h3_decode_payload(typ, self.buffer.take(count)))
+  let frame = h3_decode_payload(typ, self.buffer.take(count)).unwrap_or_error()
   self.pending = if count == remaining {
     None
   } else {

@@ -20,6 +20,7 @@ pub struct QuicDatagramDriver {
   priv limits : QuicLimits
   priv connection : QuicConnection
   priv local_connection_id : ConnectionId
+  priv mut local_ids : LocalConnectionIds?
   /// Current Initial DCID. A client replaces this with the Retry SCID after a
   /// validated Retry packet; `original_destination` remains immutable for the
   /// authenticated transport parameter.
@@ -337,7 +338,9 @@ pub fn QuicDatagramDriver::new(
   let peer_connection_ids = match
     QuicConnectionIdManager::new(
       peer_connection_id,
-      max_active=transport_params.active_connection_id_limit.to_int(),
+      max_active=transport_params.active_connection_id_limit
+        .min(@int.MAX_VALUE.to_int64())
+        .to_int(),
     ) {
     Ok(value) => value
     Err(error) => return Err(error)
@@ -362,6 +365,7 @@ pub fn QuicDatagramDriver::new(
     limits,
     connection,
     local_connection_id,
+    local_ids: None,
     initial_destination,
     original_destination: retry_context
     .map(fn(value) { value.original_destination })
