@@ -9,6 +9,7 @@ import {
   "ZSeanYves/MoonbitHTTP/policy/content_coding",
   "ZSeanYves/MoonbitHTTP/policy/cookie",
   "ZSeanYves/MoonbitHTTP/protocol/http1",
+  "ZSeanYves/MoonbitHTTP/protocol/http2",
   "ZSeanYves/MoonbitHTTP/runtime/service",
   "ZSeanYves/MoonbitHTTP/runtime/transport",
   "moonbitlang/core/debug",
@@ -18,6 +19,8 @@ import {
 pub fn decide_retry(RetryPolicy, Int, @types.Method, BodyReplayability, RetryCause, retry_after? : String?, now_seconds? : Int64, jitter_ms? : Int64) -> Result[RetryDecision, RetryError]
 
 pub fn response_from_cache(@cache.CacheHit, @types.Method) -> @types.Response[Bytes]
+
+pub async fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @transport.TlsProvider, P : @transport.NetworkPolicy, K : @transport.Clock, X] with_http2_client(C, R, T, P, K, async (Http2Client) -> X, options? : Http2PoolOptions) -> X
 
 // Errors
 pub(all) suberror ClientError {
@@ -37,6 +40,7 @@ pub(all) suberror ClientError {
   ClientCancelled(String)
   ClientConnection(@service.ClientConnectionError)
   ClientHttp1(@http1.Http1Error)
+  ClientHttp2(@http2.H2ProtocolError)
   ClientProtocol(String)
 } derive(Eq, @debug.Debug)
 pub fn ClientError::equal(Self, Self) -> Bool
@@ -236,6 +240,27 @@ pub fn Http1PooledRoundTripper::idle_connection_count(Self) -> Int
 pub fn Http1PooledRoundTripper::new(async (@types.Endpoint, @transport.ConnectOptions) -> Result[@transport.StreamConnection, @transport.TransportError], async (@transport.StreamConnection, @transport.TlsOptions) -> Result[@transport.SecureConnection, @transport.TlsError], authorize~ : (@types.Endpoint, @transport.PolicyOperation) -> Result[Unit, @transport.PolicyError], now_millis~ : () -> Int64, resolve? : (async (String, @transport.ResolveOptions) -> Result[Array[@types.IpAddress], @transport.TransportError])?, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @transport.TlsOptions, proxy_tls? : @transport.TlsOptions, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, resolve_options? : @transport.ResolveOptions, pool_limits? : PoolLimits) -> Result[Self, ClientError]
 pub impl ByteRoundTripper for Http1PooledRoundTripper
 pub impl StreamingRoundTripper for Http1PooledRoundTripper
+
+pub struct Http2Client {
+  // private fields
+}
+pub fn Http2Client::close(Self) -> Unit
+pub fn Http2Client::connection_count(Self) -> Int
+pub async fn Http2Client::execute(Self, @types.Request[Bytes]) -> Result[@types.Response[Bytes], ClientError]
+pub async fn[B : @body.Body] Http2Client::execute_body(Self, @types.Request[B]) -> Result[@types.Response[@body.BodyStream], ClientError]
+pub async fn Http2Client::execute_stream(Self, @types.Request[Bytes]) -> Result[@types.Response[@body.BodyStream], ClientError]
+pub impl ByteRoundTripper for Http2Client
+pub impl StreamingRoundTripper for Http2Client
+
+pub(all) struct Http2PoolOptions {
+  max_connections : Int
+  session : @service.H2ClientConfig
+  tls : @transport.TlsOptions
+  connect_options : @transport.ConnectOptions
+  resolve_options : @transport.ResolveOptions
+  tls_timeout_ms : Int?
+}
+pub fn Http2PoolOptions::defaults() -> Self
 
 pub(all) enum PoolAcquire {
   Reused(Int)

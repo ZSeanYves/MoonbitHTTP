@@ -1,5 +1,6 @@
 import {
   "moonbitlang/async",
+  "moonbitlang/async/cond_var",
   "moonbitlang/async/io" @aio,
   "moonbitlang/core/debug",
   "moonbitlang/core/int64",
@@ -9,6 +10,7 @@ import {
   "ZSeanYves/MoonbitHTTP/policy/cache",
   "ZSeanYves/MoonbitHTTP/policy/cookie",
   "ZSeanYves/MoonbitHTTP/protocol/http1",
+  "ZSeanYves/MoonbitHTTP/protocol/http2",
   "ZSeanYves/MoonbitHTTP/core/body",
   "ZSeanYves/MoonbitHTTP/policy/auth",
   "ZSeanYves/MoonbitHTTP/policy/content_coding",

@@ -863,13 +863,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         }
         drain_blocked()
         if !initial_settings_received {
-          if frame.header.typ != @http2.H2_FRAME_SETTINGS ||
-            (frame.header.flags & @http2.H2_FLAGS_ACK) != 0 {
-            raise @http2.H2ProtocolError::ConnectionError(
-              ProtocolError,
-              "client preface is not followed by SETTINGS",
-            )
-          }
+          require_initial_h2_settings(frame)
           initial_settings_received = true
         }
         let actions = match connection.receive(frame) {

@@ -31,6 +31,7 @@ fn pooled_client_error_message(error : @client.ClientError) -> String {
     ClientCancelled(message) => "cancelled: " + message
     ClientConnection(_) => "connection state"
     ClientHttp1(_) => "HTTP/1"
+    ClientHttp2(_) => "HTTP/2"
     ClientProtocol(message) => "protocol: " + message
   }
 }

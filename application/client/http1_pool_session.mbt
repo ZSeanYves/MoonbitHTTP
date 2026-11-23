@@ -44,59 +44,54 @@ async fn Http1PooledRoundTripper::open_session(
       ),
     )
   }
-  let mut proxy_target : @types.Endpoint? = None
-  let channel = match self.proxy.mode() {
-    Direct => {
-      match self.authorize_endpoint(endpoint.transport, Resolve) {
-        Ok(_) => ()
-        Err(error) => return Err(error)
-      }
-      match self.connect_stream(endpoint.transport) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
+  if self.proxy.mode() == Direct {
+    let stream = match
+      self.dialer.open_direct(endpoint, self.origin_tls, alpn="http/1.1") {
+      Ok(value) => value
+      Err(error) => return Err(error)
     }
-    HttpForward | HttpsConnect => {
-      let proxy_endpoint = match self.proxy.endpoint() {
-        Some(value) => value
-        None => return Err(ClientInvalidOptions("proxy endpoint is missing"))
-      }
-      match self.authorize_endpoint(proxy_endpoint, Resolve) {
-        Ok(_) => ()
-        Err(error) => return Err(error)
-      }
-      match self.authorize_endpoint(proxy_endpoint, ProxyConnect) {
-        Ok(_) => ()
-        Err(error) => return Err(error)
-      }
-      let target = match self.authorize_proxy_origin(endpoint.transport) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      proxy_target = Some(target)
-      let raw = match self.connect_stream(proxy_endpoint) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      if proxy_endpoint.scheme() == "https" {
-        match self.secure_stream(raw, proxy_endpoint, self.proxy_tls) {
-          Ok(value) => value
-          Err(error) => return Err(error)
-        }
-      } else {
-        raw
-      }
+    return Http1PooledSession::new(stream, self.options)
+  }
+  let proxy_endpoint = match self.proxy.endpoint() {
+    Some(value) => value
+    None => return Err(ClientInvalidOptions("proxy endpoint is missing"))
+  }
+  match self.dialer.authorize_endpoint(proxy_endpoint, Resolve) {
+    Ok(_) => ()
+    Err(error) => return Err(error)
+  }
+  match self.dialer.authorize_endpoint(proxy_endpoint, ProxyConnect) {
+    Ok(_) => ()
+    Err(error) => return Err(error)
+  }
+  let target = match self.authorize_proxy_origin(endpoint.transport) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  let raw = match self.dialer.connect_stream(proxy_endpoint) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  let channel = if proxy_endpoint.scheme() == "https" {
+    match
+      self.dialer.secure_stream(
+        raw,
+        proxy_endpoint,
+        self.proxy_tls,
+        alpn="http/1.1",
+      ) {
+      Ok(value) => value
+      Err(error) => return Err(error)
     }
+  } else {
+    raw
   }
   let routed = match self.proxy.mode() {
     HttpsConnect =>
       match
         http1_pool_connect_tunnel(
           channel,
-          match proxy_target {
-            Some(value) => value
-            None => endpoint.transport
-          },
+          target,
           proxy_authorization,
           self.options.limits,
         ) {
@@ -106,14 +101,20 @@ async fn Http1PooledRoundTripper::open_session(
     Direct | HttpForward => channel
   }
   let stream = if endpoint.secure {
-    match self.secure_stream(routed, endpoint.transport, self.origin_tls) {
+    match
+      self.dialer.secure_stream(
+        routed,
+        endpoint.transport,
+        self.origin_tls,
+        alpn="http/1.1",
+      ) {
       Ok(value) => value
       Err(error) => return Err(error)
     }
   } else {
     routed
   }
-  Http1PooledSession::new(stream, self.options, proxy_target~)
+  Http1PooledSession::new(stream, self.options, proxy_target=Some(target))
 }
 
 ///|

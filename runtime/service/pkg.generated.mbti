@@ -22,7 +22,7 @@ pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http1_with_er
 
 pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http2_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig, upgraded_request? : @types.Request[@body.BodyStream]?, upgrade_settings? : Bytes?) -> Unit
 
-pub async fn[R : @io.Reader, W : @io.Writer, X] with_h2_client_connection(R, W, async (H2Client) -> X, config? : H2ClientConfig) -> X
+pub async fn[R : @io.Reader, W : @io.Writer, X] with_h2_client_connection(R, W, async (H2Client) -> X, config? : H2ClientConfig, on_state_change? : () -> Unit) -> X
 
 // Errors
 pub(all) suberror ClientConnectionError {
@@ -75,8 +75,11 @@ pub fn ClientConnectionPhase::to_repr(Self) -> @debug.Repr
 pub struct H2Client {
   // private fields
 }
+pub fn H2Client::accepts_requests(Self) -> Bool
 pub fn H2Client::close(Self) -> Unit
+pub fn H2Client::is_idle(Self) -> Bool
 pub async fn[B : @body.Body] H2Client::send(Self, @types.Request[B]) -> @types.Response[@body.BodyStream]
+pub async fn H2Client::wait_for_settings(Self) -> Unit
 
 pub(all) struct H2ClientConfig {
   limits : @types.Limits

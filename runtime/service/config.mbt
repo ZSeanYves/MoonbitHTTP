@@ -75,3 +75,16 @@ pub fn H2ClientConfig::validate(
   }
   validate_timeout("write", self.write_timeout_ms)
 }
+
+///|
+fn require_initial_h2_settings(
+  frame : @http2.H2Frame,
+) -> Unit raise @http2.H2ProtocolError {
+  if frame.header.typ != @http2.H2_FRAME_SETTINGS ||
+    (frame.header.flags & @http2.H2_FLAGS_ACK) != 0 {
+    raise ConnectionError(
+      ProtocolError,
+      "HTTP/2 connection preface requires initial SETTINGS",
+    )
+  }
+}

@@ -84,7 +84,9 @@ async test "service: HTTP/2 client applies peer table limit before sending reque
   while frames.next() is Ok(Some(frame)) {
     if frame.header.typ == @http2.H2_FRAME_SETTINGS && frame.header.flags == 0 {
       assert_true(
-        Bytes::from_array(frame.payload).has_prefix(b"\x00\x01\x00\x00\x04\x00"),
+        Bytes::from_array(frame.payload).has_prefix(
+          b"\x00\x01\x00\x00\x04\x00\x00\x02\x00\x00\x00\x00",
+        ),
       )
       advertised = true
     }

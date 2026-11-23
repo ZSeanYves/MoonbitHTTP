@@ -66,6 +66,7 @@ flowchart TD
   p_policy_content_coding --> p_core_types
   p_adapter_native_tls -. "wbtest" .-> p_protocol_tls
   p_application_client --> p_protocol_http1
+  p_application_client --> p_protocol_http2
   p_runtime_service --> p_runtime_detection
   p_adapter_native_tls -. "wbtest" .-> p_protocol_quic
   p_application_client --> p_runtime_service

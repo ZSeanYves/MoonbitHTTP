@@ -47,5 +47,6 @@ pub(all) suberror ClientError {
   ClientCancelled(String)
   ClientConnection(@service.ClientConnectionError)
   ClientHttp1(@http1.Http1Error)
+  ClientHttp2(@http2.H2ProtocolError)
   ClientProtocol(String)
 } derive(Eq, Debug)

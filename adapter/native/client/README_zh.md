@@ -3,13 +3,13 @@
 Status: canonical
 Scope: public Native client factory
 Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+Last reviewed: 2026-11-23
 
 ## 用途
-将 Native TCP、resolver、clock、TLS 和 network policy 组装为高层 HTTP/1 client。
+将 Native TCP、resolver、clock、TLS 和 network policy 组装为 HTTP/1 客户端或 HTTP/2 连接池。
 
 ## 入口
-入口是 new_http1_client，显式传入 resolver、policy、clock 和 TLS provider。
+使用 `new_http1_client` 创建 HTTP/1 客户端，使用 `with_http2_client` 执行作用域内的 HTTP/2 请求。两者均显式接收 resolver、policy、clock 和 TLS provider。
 
 ## 依赖与目标
 依赖 client、transport、adapter/native/transport、content_coding；仅支持 native。

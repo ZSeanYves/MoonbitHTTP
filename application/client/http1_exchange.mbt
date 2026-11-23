@@ -19,7 +19,7 @@ fn Http1PooledRoundTripper::phase_timeout(
     ResponseHeaders => self.options.timeouts.response_headers_ms
     ResponseBody => self.options.timeouts.response_body_ms
   }).unwrap_or(0)
-  self.timeout_error(http1_pool_phase(phase), timeout)
+  self.dialer.timeout_error(http1_pool_phase(phase), timeout)
 }
 
 ///|
@@ -28,7 +28,7 @@ async fn[T] Http1PooledRoundTripper::exchange_result(
   run : async () -> T,
 ) -> Result[T, ClientError] {
   Ok(run()) catch {
-    Http1PooledIoError(error) => Err(ClientTransport(error))
+    ClientStreamError(error) => Err(ClientTransport(error))
     @service.ClientConnectionError::ConnectionClosed =>
       Err(ClientConnection(ConnectionClosed))
     @service.ClientConnectionError::RequestInProgress =>
@@ -133,24 +133,7 @@ pub impl ByteRoundTripper for Http1PooledRoundTripper with fn execute(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let (body, trailers) = match
-    self.exchange_result(async fn() {
-      @body.collect(response.body, max_bytes=self.options.limits.max_body_bytes)
-    }) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  match trailers {
-    Some(values) =>
-      for field in values.fields() {
-        response.headers.append(field.name, field.value)
-      }
-    None => ()
-  }
-  Ok({
-    status: response.status,
-    version: response.version,
-    headers: response.headers,
-    body,
+  self.exchange_result(async fn() {
+    collect_client_response(response, self.options.limits.max_body_bytes)
   })
 }

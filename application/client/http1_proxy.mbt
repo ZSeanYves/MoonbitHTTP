@@ -30,17 +30,17 @@ async fn Http1PooledRoundTripper::authorize_proxy_origin(
   self : Http1PooledRoundTripper,
   endpoint : @types.Endpoint,
 ) -> Result[@types.Endpoint, ClientError] {
-  match self.authorize_endpoint(endpoint, Resolve) {
+  match self.dialer.authorize_endpoint(endpoint, Resolve) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
-  let candidates = match self.resolve_candidates(endpoint) {
+  let candidates = match self.dialer.resolve_candidates(endpoint) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
   let mut selected : @types.Endpoint? = None
   for candidate in candidates {
-    match self.authorize_endpoint(candidate, Connect) {
+    match self.dialer.authorize_endpoint(candidate, Connect) {
       Ok(_) => ()
       Err(error) => return Err(error)
     }
@@ -52,7 +52,7 @@ async fn Http1PooledRoundTripper::authorize_proxy_origin(
     Some(value) => value
     None => return Err(ClientProtocol("proxy origin has no authorized address"))
   }
-  match self.authorize_endpoint(selected, ProxyConnect) {
+  match self.dialer.authorize_endpoint(selected, ProxyConnect) {
     Ok(_) => Ok(selected)
     Err(error) => Err(error)
   }

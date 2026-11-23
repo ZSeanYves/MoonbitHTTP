@@ -8,17 +8,7 @@ fn h1_client_wire_headers(
   endpoint : ClientEndpoint,
   include_proxy_authorization : Bool,
 ) -> Result[@types.HeaderMap, ClientError] {
-  let output = @types.HeaderMap::new()
-  for field in source.fields() {
-    if field.name.value == "host" ||
-      (
-        !include_proxy_authorization &&
-        field.name.value == "proxy-authorization"
-      ) {
-      continue
-    }
-    output.append(field.name, field.value)
-  }
+  let output = client_wire_headers(source, include_proxy_authorization~)
   match output.append_string("host", endpoint.transport.authority()) {
     Ok(_) => Ok(output)
     Err(_) => Err(ClientInvalidOptions("invalid endpoint host"))

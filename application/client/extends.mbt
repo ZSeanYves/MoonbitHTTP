@@ -144,3 +144,9 @@ pub extend Http1PooledRoundTripper with StreamingRoundTripper::{execute_stream}
 
 ///|
 pub extend Http1PooledRoundTripper with ByteRoundTripper::{execute}
+
+///|
+pub extend Http2Client with StreamingRoundTripper::{execute_stream}
+
+///|
+pub extend Http2Client with ByteRoundTripper::{execute}

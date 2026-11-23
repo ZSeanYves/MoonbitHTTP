@@ -118,6 +118,23 @@ async test "client: total deadline covers a blocked executor" {
     client.send(executor, request, 0L)
     is Err(ClientTimeout(ClientTotal, 10L, 10L)),
   )
+  let inner_error : Error = @async.with_timeout(1, async fn() {
+    @async.sleep(60000)
+    fail("inner deadline did not expire")
+  }) catch {
+    error => error
+  }
+  let already_timed_out = @client.ClosureRoundTripper::new(_ => {
+    raise inner_error
+  })
+  let inner_timeout = try {
+    ignore(client.send(already_timed_out, request, 0L))
+    false
+  } catch {
+    @async.TimeoutError => true
+    error => raise error
+  }
+  assert_true(inner_timeout)
 }
 
 ///|

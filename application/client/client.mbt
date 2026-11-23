@@ -560,16 +560,6 @@ async fn[B : ByteRoundTripper] Client::send_inner(
 }
 
 ///|
-fn client_total_deadline(start : Int64, timeout_ms : Int) -> Int64 {
-  let timeout = timeout_ms.to_int64()
-  if start > @int64.MAX_VALUE - timeout {
-    @int64.MAX_VALUE
-  } else {
-    start + timeout
-  }
-}
-
-///|
 pub async fn[B : ByteRoundTripper] Client::send(
   self : Client,
   executor : B,
@@ -580,10 +570,12 @@ pub async fn[B : ByteRoundTripper] Client::send(
     None => self.send_inner(executor, request, now_seconds)
     Some(timeout) => {
       let started = (self.config.now_millis)().max(0L)
-      @async.with_timeout(timeout, async fn() {
-        self.send_inner(executor, request, now_seconds)
-      }) catch {
-        @async.TimeoutError => {
+      match
+        @async.with_timeout_opt(timeout, async fn() {
+          self.send_inner(executor, request, now_seconds)
+        }) {
+        Some(result) => result
+        None => {
           let elapsed = ((self.config.now_millis)().max(started) - started).max(
             timeout.to_int64(),
           )
@@ -591,11 +583,10 @@ pub async fn[B : ByteRoundTripper] Client::send(
             ClientTimeout(
               ClientTotal,
               elapsed,
-              client_total_deadline(started, timeout),
+              client_deadline(started, timeout),
             ),
           )
         }
-        error => raise error
       }
     }
   }

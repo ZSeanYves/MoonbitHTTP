@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Add a bounded, origin-managed HTTP/2 client for streaming and byte requests, including a native TCP entry point. It shares DNS, policy and TLS dialing with HTTP/1, requires `h2` for HTTPS, and drains accepted streams after GOAWAY.
+
 - Queue HTTP/2 client requests when the peer lowers its concurrent stream allowance. Resume them on capacity changes and release queued or active uploads on cancellation or shutdown.
 
 - Handle QUIC stream cancellation in both directions. HTTP/3 releases blocked request input and treats critical-stream cancellation as a connection error. Custom QUIC transports now report acknowledged FIN and reset frames using `acknowledge_stream_frame` to replenish stream-count credit.

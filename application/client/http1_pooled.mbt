@@ -3,31 +3,13 @@
 /// The executor is safe for concurrent async tasks: all pool mutations are
 /// synchronous, while the capacity semaphore is the only waiting point.
 pub struct Http1PooledRoundTripper {
-  priv connect : async (@types.Endpoint, @transport.ConnectOptions) -> Result[
-    @transport.StreamConnection,
-    @transport.TransportError,
-  ]
-  priv tls_handshake : async (
-    @transport.StreamConnection,
-    @transport.TlsOptions,
-  ) -> Result[@transport.SecureConnection, @transport.TlsError]
-  priv resolve : (async (String, @transport.ResolveOptions) -> Result[
-    Array[@types.IpAddress],
-    @transport.TransportError,
-  ])?
-  priv authorize : (@types.Endpoint, @transport.PolicyOperation) -> Result[
-    Unit,
-    @transport.PolicyError,
-  ]
-  priv now_millis : () -> Int64
+  priv dialer : ClientDialer
   priv options : RequestOptions
   priv proxy : ProxyConfig
   priv origin_tls : @transport.TlsOptions
   priv proxy_tls : @transport.TlsOptions
   priv origin_tls_identity : String
   priv proxy_tls_identity : String
-  priv connect_options : @transport.ConnectOptions
-  priv resolve_options : @transport.ResolveOptions
   priv pool : ConnectionPool
   priv slots : @async.Semaphore
   priv sessions : Map[Int, Http1PooledSession]
@@ -66,6 +48,33 @@ pub fn Http1PooledRoundTripper::new(
   resolve_options? : @transport.ResolveOptions = @transport.ResolveOptions::defaults(),
   pool_limits? : PoolLimits = PoolLimits::defaults(),
 ) -> Result[Http1PooledRoundTripper, ClientError] {
+  Http1PooledRoundTripper::from_network(
+    { connect, tls_handshake, resolve, authorize, now_millis, },
+    options~,
+    proxy~,
+    origin_tls~,
+    proxy_tls~,
+    origin_tls_identity~,
+    proxy_tls_identity~,
+    connect_options~,
+    resolve_options~,
+    pool_limits~,
+  )
+}
+
+///|
+fn Http1PooledRoundTripper::from_network(
+  network : ClientNetwork,
+  options~ : RequestOptions,
+  proxy~ : ProxyConfig,
+  origin_tls~ : @transport.TlsOptions,
+  proxy_tls~ : @transport.TlsOptions,
+  origin_tls_identity~ : String,
+  proxy_tls_identity~ : String,
+  connect_options~ : @transport.ConnectOptions,
+  resolve_options~ : @transport.ResolveOptions,
+  pool_limits~ : PoolLimits,
+) -> Result[Http1PooledRoundTripper, ClientError] {
   match options.validate() {
     Ok(_) => ()
     Err(error) => return Err(error)
@@ -90,36 +99,32 @@ pub fn Http1PooledRoundTripper::new(
     timeout_ms: options.timeouts.connect_ms,
     idle_timeout_ms: options.timeouts.idle_ms,
   }
-  match connect_options.validate() {
-    Ok(_) => ()
-    Err(_) => return Err(ClientInvalidOptions("invalid connect options"))
-  }
   let resolve_options = {
     ..resolve_options,
     timeout_ms: options.timeouts.resolve_ms,
   }
-  match resolve_options.validate() {
-    Ok(_) => ()
-    Err(_) => return Err(ClientInvalidOptions("invalid resolve options"))
+  let dialer = match
+    ClientDialer::new(
+      network,
+      connect_options,
+      resolve_options,
+      options.timeouts.tls_ms,
+    ) {
+    Ok(value) => value
+    Err(error) => return Err(error)
   }
   let pool = match ConnectionPool::new(limits=pool_limits) {
     Ok(value) => value
     Err(_) => return Err(ClientInvalidOptions("invalid connection pool limits"))
   }
   Ok({
-    connect,
-    tls_handshake,
-    resolve,
-    authorize,
-    now_millis,
+    dialer,
     options,
     proxy,
     origin_tls,
     proxy_tls,
     origin_tls_identity,
     proxy_tls_identity,
-    connect_options,
-    resolve_options,
     pool,
     slots: Semaphore(pool_limits.max_total),
     sessions: Map([]),
@@ -152,22 +157,10 @@ pub fn[
   resolve_options? : @transport.ResolveOptions = @transport.ResolveOptions::defaults(),
   pool_limits? : PoolLimits = PoolLimits::defaults(),
 ) -> Result[Http1PooledRoundTripper, ClientError] {
-  Http1PooledRoundTripper::new(
-    async fn(endpoint, connect_options) {
-      @transport.StreamConnector::connect(connector, endpoint, connect_options)
-    },
-    async fn(connection, tls_options) {
-      @transport.TlsProvider::client_handshake(
-        tls_provider, connection, tls_options,
-      )
-    },
-    resolve=Some(async fn(host, options) {
-      @transport.NameResolver::resolve(resolver, host, options)
-    }),
-    authorize=fn(endpoint, operation) {
-      @transport.NetworkPolicy::authorize(policy, endpoint, operation)
-    },
-    now_millis=fn() { @transport.Clock::monotonic_millis(clock) },
+  Http1PooledRoundTripper::from_network(
+    ClientNetwork::from_capabilities(
+      connector, resolver, tls_provider, policy, clock,
+    ),
     options~,
     proxy~,
     origin_tls~,
