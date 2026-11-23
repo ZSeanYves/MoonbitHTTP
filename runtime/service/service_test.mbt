@@ -36,7 +36,7 @@ impl @aio.Writer for SignalingCaptureWriter with fn write_once(
 struct PhaseBlockingReader {
   reader_buffer : @aio.ReaderBuffer
   prefix : Bytes
-  mut prefix_offset : Int
+  mut prefix_offset : Int32
   gate : @aqueue.Queue[Unit]
 }
 
@@ -79,8 +79,8 @@ impl @aio.Reader for PhaseBlockingReader with fn _direct_read(
 ///|
 struct PhaseBlockingWriter {
   bytes : Array[Byte]
-  mut calls : Int
-  block_on_call : Int
+  mut calls : Int32
+  block_on_call : Int32
   gate : @aqueue.Queue[Unit]
 }
 
@@ -223,7 +223,7 @@ async test "service: HTTP/1 request-header timeout closes the connection" {
   ).unwrap()
   try client.send(phase_timeout_request(@body.EmptyBody::new())) catch {
     @service.ClientConnectionTimeout::@service.ClientConnectionTimeout(
-      RequestHeaders
+      RequestHeaders,
     ) => ()
     _ => fail("request-header timeout changed its phase")
   } noraise {
@@ -265,7 +265,7 @@ async test "service: HTTP/1 request-body timeout cancels a stalled producer or w
     )
     try client.send(phase_timeout_request(body)) catch {
       @service.ClientConnectionTimeout::@service.ClientConnectionTimeout(
-        RequestBody
+        RequestBody,
       ) => ()
       _ => fail("request-body timeout changed its phase")
     } noraise {
@@ -290,7 +290,7 @@ async test "service: HTTP/1 response-header timeout closes the connection" {
   ).unwrap()
   try client.send(phase_timeout_request(@body.EmptyBody::new())) catch {
     @service.ClientConnectionTimeout::@service.ClientConnectionTimeout(
-      ResponseHeaders
+      ResponseHeaders,
     ) => ()
     _ => fail("response-header timeout changed its phase")
   } noraise {
@@ -318,7 +318,7 @@ async test "service: HTTP/1 response-body timeout closes the connection" {
   assert_true(!client.is_reusable())
   try response.body.next_frame() catch {
     @service.ClientConnectionTimeout::@service.ClientConnectionTimeout(
-      ResponseBody
+      ResponseBody,
     ) => ()
     _ => fail("response-body timeout changed its phase")
   } noraise {

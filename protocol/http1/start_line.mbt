@@ -71,7 +71,7 @@ fn parse_request_line(
 ///|
 fn parse_response_line(
   line : Bytes,
-) -> Result[(@types.Version, Int), Http1Error] {
+) -> Result[(@types.Version, Int32), Http1Error] {
   let mut first = -1
   let mut second = line.length()
   for i in 0..<line.length() {

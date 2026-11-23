@@ -44,6 +44,7 @@ pub const H3_SETTINGS_QPACK_BLOCKED_STREAMS : Int64 = 7L
 pub const H3_SETTINGS_ENABLE_CONNECT_PROTOCOL : Int64 = 8L
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum H3ErrorCode {
   H3NoError
   H3GeneralProtocolError
@@ -65,7 +66,7 @@ pub(all) enum H3ErrorCode {
   QpackDecompressionFailed
   QpackEncoderStreamError
   QpackDecoderStreamError
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn H3ErrorCode::wire_value(self : H3ErrorCode) -> Int64 {
@@ -94,22 +95,25 @@ pub fn H3ErrorCode::wire_value(self : H3ErrorCode) -> Int64 {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror Http3Error {
   Http3NeedMoreInput
   Http3WriteBlocked
   Http3UnexpectedEof(String)
   Http3ConnectionError(H3ErrorCode, String)
   Http3StreamError(Int64, H3ErrorCode, String)
-  Http3LimitExceeded(String, Int)
-} derive(Eq, Debug)
+  Http3LimitExceeded(String, Int32)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct H3Setting {
   id : Int64
   value : Int64
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum Http3Frame {
   H3Data(Bytes)
   H3Headers(Bytes)
@@ -119,7 +123,7 @@ pub(all) enum Http3Frame {
   H3Goaway(Int64)
   H3MaxPushId(Int64)
   H3Unknown(Int64, Bytes)
-} derive(Eq, Debug)
+}
 
 ///|
 fn h3_append_bytes(output : Array[Byte], bytes : BytesView) -> Unit {
@@ -138,7 +142,7 @@ fn h3_varint(value : Int64) -> Result[Bytes, Http3Error] {
 }
 
 ///|
-fn h3_decode_varint(input : BytesView) -> Result[(Int64, Int), Http3Error] {
+fn h3_decode_varint(input : BytesView) -> Result[(Int64, Int32), Http3Error] {
   match @quic.quic_decode_varint(input) {
     Ok((value, used)) => Ok((value.value(), used))
     Err(NeedMoreInput) => Err(Http3NeedMoreInput)
@@ -160,7 +164,7 @@ fn h3_decode_varint(input : BytesView) -> Result[(Int64, Int), Http3Error] {
 }
 
 ///|
-fn h3_int_length(value : Int64) -> Result[Int, Http3Error] {
+fn h3_int_length(value : Int64) -> Result[Int32, Http3Error] {
   if value < 0L || value > @int.MAX_VALUE.to_int64() {
     return Err(
       Http3ConnectionError(
@@ -300,8 +304,8 @@ fn h3_decode_payload(
 ///|
 pub fn decode_http3_frame(
   input : BytesView,
-  max_payload_bytes? : Int = 16 * 1024 * 1024,
-) -> Result[(Http3Frame, Int), Http3Error] {
+  max_payload_bytes~ : Int32 = 16 * 1024 * 1024,
+) -> Result[(Http3Frame, Int32), Http3Error] {
   if max_payload_bytes < 0 {
     return Err(Http3LimitExceeded("frame payload", max_payload_bytes))
   }
@@ -324,7 +328,9 @@ pub fn decode_http3_frame(
 }
 
 ///|
-fn h3_frame_header(input : BytesView) -> Result[(Int64, Int, Int), Http3Error] {
+fn h3_frame_header(
+  input : BytesView,
+) -> Result[(Int64, Int32, Int32), Http3Error] {
   let (typ, type_used) = match h3_decode_varint(input) {
     Ok(result) => result
     Err(error) => return Err(error)
@@ -440,17 +446,17 @@ pub fn encode_http3_frame(frame : Http3Frame) -> Result[Bytes, Http3Error] {
 ///|
 pub struct Http3FrameDecoder {
   priv buffer : @codec.Buffer
-  max_buffer_bytes : Int
-  max_payload_bytes : Int
-  priv data_chunk_limit : Int?
-  priv mut pending : (Int64, Int)?
+  max_buffer_bytes : Int32
+  max_payload_bytes : Int32
+  priv data_chunk_limit : Int32?
+  priv mut pending : (Int64, Int32)?
   mut failure : Http3Error?
 }
 
 ///|
 pub fn Http3FrameDecoder::new(
-  max_buffer_bytes? : Int = 256 * 1024,
-  max_payload_bytes? : Int = 256 * 1024 - 16,
+  max_buffer_bytes~ : Int32 = 256 * 1024,
+  max_payload_bytes~ : Int32 = 256 * 1024 - 16,
 ) -> Result[Http3FrameDecoder, Http3Error] {
   if max_buffer_bytes <= 0 ||
     max_payload_bytes < 0 ||
@@ -462,9 +468,9 @@ pub fn Http3FrameDecoder::new(
 
 ///|
 fn Http3FrameDecoder::create(
-  max_buffer_bytes : Int,
-  max_payload_bytes : Int,
-  data_chunk_limit : Int?,
+  max_buffer_bytes : Int32,
+  max_payload_bytes : Int32,
+  data_chunk_limit : Int32?,
 ) -> Http3FrameDecoder {
   {
     buffer: @codec.Buffer::new(max_bytes=max_buffer_bytes),

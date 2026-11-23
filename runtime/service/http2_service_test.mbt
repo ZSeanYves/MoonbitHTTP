@@ -205,7 +205,7 @@ async test "HTTP/2 grants a waiting upload and rejects an unsupported expectatio
     )
     let encoder = @http2.HpackContext::new()
     let decoder = @http2.HpackContext::new()
-    let read_head = async fn(id : Int, status : Bytes, end_stream : Bool) {
+    let read_head = async fn(id : Int32, status : Bytes, end_stream : Bool) {
       let frame = wire.wait_frame(@http2.H2_FRAME_HEADERS, id)
       assert_eq(
         (frame.header.flags & @http2.H2_FLAGS_END_STREAM) != 0,

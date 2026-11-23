@@ -58,7 +58,7 @@ fn digest_decode_parameter(input : BytesView) -> String? {
 ///|
 fn digest_parse_parameters(
   input : BytesView,
-  start : Int,
+  start : Int32,
   limits : AuthLimits,
 ) -> Result[Map[String, String], AuthError] {
   let parameters : Map[String, String] = Map([])
@@ -196,7 +196,7 @@ fn digest_qops(value : String) -> Result[Array[DigestQop], AuthError] {
 ///|
 pub fn DigestChallenge::parse(
   header : @types.HeaderValue,
-  limits? : AuthLimits = AuthLimits::defaults(),
+  limits~ : AuthLimits = AuthLimits::defaults(),
 ) -> Result[DigestChallenge, AuthError] {
   match limits.validate() {
     Ok(_) => ()
@@ -273,7 +273,7 @@ pub fn DigestChallenge::parse(
 ///|
 pub fn DigestChallenge::parse_string(
   header : String,
-  limits? : AuthLimits = AuthLimits::defaults(),
+  limits~ : AuthLimits = AuthLimits::defaults(),
 ) -> Result[DigestChallenge, AuthError] {
   let value = match @types.HeaderValue::from_string(header) {
     Ok(value) => value

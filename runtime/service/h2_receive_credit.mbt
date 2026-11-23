@@ -3,7 +3,7 @@
 /// Claim bytes before any asynchronous window write so reset cannot refund
 /// them again while that write is suspended.
 priv struct H2ReceiveCredit {
-  mut outstanding : Int
+  mut outstanding : Int32
   mut retired : Bool
 }
 
@@ -13,7 +13,7 @@ fn H2ReceiveCredit::new() -> H2ReceiveCredit {
 }
 
 ///|
-fn H2ReceiveCredit::consume(self : H2ReceiveCredit, amount : Int) -> Int {
+fn H2ReceiveCredit::consume(self : H2ReceiveCredit, amount : Int32) -> Int32 {
   if self.retired {
     return 0
   }
@@ -22,7 +22,7 @@ fn H2ReceiveCredit::consume(self : H2ReceiveCredit, amount : Int) -> Int {
 }
 
 ///|
-fn H2ReceiveCredit::retire(self : H2ReceiveCredit) -> Int {
+fn H2ReceiveCredit::retire(self : H2ReceiveCredit) -> Int32 {
   let amount = self.outstanding
   self.outstanding = 0
   self.retired = true

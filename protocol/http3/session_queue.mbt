@@ -2,28 +2,28 @@
 priv struct H3PendingWrite {
   bytes : Bytes
   fin : Bool
-  mut offset : Int
+  mut offset : Int32
 }
 
 ///|
 priv struct H3WriteQueue {
   streams : Map[Int64, @deque.Deque[H3PendingWrite]]
   mut order : Array[Int64]
-  max_bytes : Int
-  max_writes : Int
-  mut bytes : Int
-  mut count : Int
+  max_bytes : Int32
+  max_writes : Int32
+  mut bytes : Int32
+  mut count : Int32
 }
 
 ///|
-fn H3WriteQueue::new(max_bytes : Int, max_writes : Int) -> H3WriteQueue {
+fn H3WriteQueue::new(max_bytes : Int32, max_writes : Int32) -> H3WriteQueue {
   { streams: Map([]), order: [], max_bytes, max_writes, bytes: 0, count: 0, }
 }
 
 ///|
 fn H3WriteQueue::admit(
   self : H3WriteQueue,
-  size : Int,
+  size : Int32,
 ) -> Unit raise Http3Error {
   if size > self.max_bytes {
     raise Http3LimitExceeded(

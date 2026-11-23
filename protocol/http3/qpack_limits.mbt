@@ -1,21 +1,22 @@
 ///|
+#derive(Eq, Debug)
 pub(all) struct QpackLimits {
-  max_encoded_field_section_bytes : Int
-  max_decoded_field_section_bytes : Int
-  max_field_count : Int
-  max_table_capacity : Int
-  max_blocked_streams : Int
-  max_instruction_buffer_bytes : Int
-} derive(Eq, Debug)
+  max_encoded_field_section_bytes : Int32
+  max_decoded_field_section_bytes : Int32
+  max_field_count : Int32
+  max_table_capacity : Int32
+  max_blocked_streams : Int32
+  max_instruction_buffer_bytes : Int32
+}
 
 ///|
 pub fn QpackLimits::new(
-  max_encoded_field_section_bytes? : Int = 64 * 1024,
-  max_decoded_field_section_bytes? : Int = 64 * 1024,
-  max_field_count? : Int = 100,
-  max_table_capacity? : Int = 0,
-  max_blocked_streams? : Int = 0,
-  max_instruction_buffer_bytes? : Int = 64 * 1024,
+  max_encoded_field_section_bytes~ : Int32 = 64 * 1024,
+  max_decoded_field_section_bytes~ : Int32 = 64 * 1024,
+  max_field_count~ : Int32 = 100,
+  max_table_capacity~ : Int32 = 0,
+  max_blocked_streams~ : Int32 = 0,
+  max_instruction_buffer_bytes~ : Int32 = 64 * 1024,
 ) -> Result[QpackLimits, Http3Error] {
   let limits = {
     max_encoded_field_section_bytes,
@@ -46,8 +47,8 @@ pub fn QpackLimits::defaults() -> QpackLimits {
 ///|
 pub fn QpackLimits::from_http_limits(
   limits : @types.Limits,
-  max_table_capacity? : Int = 0,
-  max_blocked_streams? : Int = 0,
+  max_table_capacity~ : Int32 = 0,
+  max_blocked_streams~ : Int32 = 0,
 ) -> Result[QpackLimits, Http3Error] {
   match limits.validate() {
     Ok(_) => ()
@@ -65,7 +66,7 @@ pub fn QpackLimits::from_http_limits(
 
 ///|
 pub fn QpackLimits::validate(self : QpackLimits) -> Result[Unit, Http3Error] {
-  let configured : Array[(String, Int, Bool)] = [
+  let configured : Array[(String, Int32, Bool)] = [
     ("encoded field section", self.max_encoded_field_section_bytes, true),
     ("decoded field section", self.max_decoded_field_section_bytes, true),
     ("field count", self.max_field_count, true),

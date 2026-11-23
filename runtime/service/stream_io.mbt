@@ -1,7 +1,8 @@
 ///|
+#derive(Debug)
 pub(all) suberror StreamIoError {
   StreamIoError(@transport.TransportError)
-} derive(Debug)
+}
 
 ///|
 #warnings("-alert_internal")

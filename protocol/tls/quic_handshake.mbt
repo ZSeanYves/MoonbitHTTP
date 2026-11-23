@@ -5,11 +5,11 @@
 /// lifetime. It never validates certificates or declares a handshake complete.
 pub struct QuicHandshakeDecoder {
   priv level : QuicEncryptionLevel
-  priv max_bytes : Int
-  priv max_messages : Int
+  priv max_bytes : Int32
+  priv max_messages : Int32
   priv buffer : Array[Byte]
-  priv mut received : Int
-  priv mut messages : Int
+  priv mut received : Int32
+  priv mut messages : Int32
   priv mut finished : Bool
   priv mut failure : TlsError?
 }
@@ -17,8 +17,8 @@ pub struct QuicHandshakeDecoder {
 ///|
 pub fn QuicHandshakeDecoder::new(
   level : QuicEncryptionLevel,
-  max_bytes? : Int = 1024 * 1024,
-  max_messages? : Int = 256,
+  max_bytes~ : Int32 = 1024 * 1024,
+  max_messages~ : Int32 = 256,
 ) -> Result[QuicHandshakeDecoder, TlsError] {
   if max_bytes < 4 || max_messages < 1 {
     return Err(HandshakeFailed("invalid QUIC handshake limits"))
@@ -36,7 +36,10 @@ pub fn QuicHandshakeDecoder::new(
 }
 
 ///|
-fn quic_handshake_type_allowed(level : QuicEncryptionLevel, typ : Int) -> Bool {
+fn quic_handshake_type_allowed(
+  level : QuicEncryptionLevel,
+  typ : Int32,
+) -> Bool {
   // RFC 9001 §§4, 6: KeyUpdate and EndOfEarlyData are never sent in QUIC.
   // Post-handshake authentication is unsupported; only session tickets remain.
   match level {

@@ -86,7 +86,7 @@ async test "HTTP/3 tries the next UDP address after a silent handshake" {
   catch {
     @transport.TransportError::Failed(
       Connect,
-      "connected UDP requires a unicast endpoint"
+      "connected UDP requires a unicast endpoint",
     ) => ()
     error => raise error
   } noraise {

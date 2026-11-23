@@ -1,13 +1,13 @@
 ///|
 pub struct BrotliSink {
   chunks : Array[Bytes]
-  mut chunk_index : Int
-  mut chunk_offset : Int
+  mut chunk_index : Int32
+  mut chunk_offset : Int32
   mut final_seen : Bool
 }
 
 ///|
-fn BrotliSink::take(self : BrotliSink, maximum : Int) -> Bytes? {
+fn BrotliSink::take(self : BrotliSink, maximum : Int32) -> Bytes? {
   while self.chunk_index < self.chunks.length() {
     let chunk = self.chunks[self.chunk_index]
     if self.chunk_offset == chunk.length() {
@@ -51,8 +51,8 @@ pub struct ContentDecoder {
   coding : ContentCoding
   backend : DecoderBackend
   limits : ContentCodingLimits
-  mut encoded_bytes : Int
-  mut decoded_bytes : Int
+  mut encoded_bytes : Int32
+  mut decoded_bytes : Int32
   mut finished : Bool
   mut input_ended : Bool
   mut failure : ContentCodingError?
@@ -61,7 +61,7 @@ pub struct ContentDecoder {
 ///|
 pub fn ContentDecoder::new(
   coding : ContentCoding,
-  limits? : ContentCodingLimits = ContentCodingLimits::defaults(),
+  limits~ : ContentCodingLimits = ContentCodingLimits::defaults(),
 ) -> Result[ContentDecoder, ContentCodingError] {
   match limits.validate() {
     Ok(_) => ()
@@ -107,12 +107,12 @@ pub fn ContentDecoder::new(
 }
 
 ///|
-pub fn ContentDecoder::encoded_bytes(self : ContentDecoder) -> Int {
+pub fn ContentDecoder::encoded_bytes(self : ContentDecoder) -> Int32 {
   self.encoded_bytes
 }
 
 ///|
-pub fn ContentDecoder::decoded_bytes(self : ContentDecoder) -> Int {
+pub fn ContentDecoder::decoded_bytes(self : ContentDecoder) -> Int32 {
   self.decoded_bytes
 }
 
@@ -135,7 +135,7 @@ fn ContentDecoder::fail(
 ///|
 fn ContentDecoder::record_output(
   self : ContentDecoder,
-  consumed : Int,
+  consumed : Int32,
   output : Bytes,
   status : DecodeStatus,
 ) -> Result[DecodeStep, ContentCodingError] {
@@ -156,8 +156,8 @@ fn ContentDecoder::record_output(
 ///|
 fn ContentDecoder::offered_length(
   self : ContentDecoder,
-  input_length : Int,
-) -> Result[Int, ContentCodingError] {
+  input_length : Int32,
+) -> Result[Int32, ContentCodingError] {
   let remaining = self.limits.max_encoded_bytes - self.encoded_bytes
   if input_length > 0 && remaining == 0 {
     Err(EncodedBodyLimitExceeded(self.limits.max_encoded_bytes))
@@ -176,7 +176,7 @@ fn flate_decode_status(status : @flate.Status) -> DecodeStatus {
 }
 
 ///|
-fn decode_output_capacity(remaining : Int, preferred : Int) -> Int {
+fn decode_output_capacity(remaining : Int32, preferred : Int32) -> Int32 {
   if remaining < preferred {
     remaining + 1
   } else {
@@ -346,7 +346,7 @@ fn ContentDecoder::step_brotli(
 pub fn ContentDecoder::step(
   self : ContentDecoder,
   input : BytesView,
-  end? : Bool = false,
+  end~ : Bool = false,
 ) -> Result[DecodeStep, ContentCodingError] {
   match self.failure {
     Some(error) => return Err(error)

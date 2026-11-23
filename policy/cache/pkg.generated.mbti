@@ -17,11 +17,12 @@ pub fn evaluate_request_condition(@types.Request[Unit], CacheHit, Int64) -> Resu
 
 pub fn parse_age(@types.HeaderMap) -> Result[Int64, CacheError]
 
-pub fn parse_cache_control(@types.HeaderMap, max_directives? : Int) -> Result[CacheControl, CacheError]
+pub fn parse_cache_control(@types.HeaderMap, max_directives? : Int32) -> Result[CacheControl, CacheError]
 
-pub fn parse_vary(@types.HeaderMap, max_fields? : Int) -> Result[(Bool, Array[String]), CacheError]
+pub fn parse_vary(@types.HeaderMap, max_fields? : Int32) -> Result[(Bool, Array[String]), CacheError]
 
 // Errors
+#derive(Eq, @debug.Debug)
 pub(all) suberror CacheError {
   InvalidLimits
   InvalidCacheControl
@@ -29,23 +30,24 @@ pub(all) suberror CacheError {
   InvalidVary
   InvalidRequest
   InvalidResponse
-  EntryTooLarge(Int)
+  EntryTooLarge(Int32)
   CacheFull
   NotCacheable(String)
   InvalidDate
   InvalidValidator
-} derive(Eq, @debug.Debug)
+}
 pub fn CacheError::equal(Self, Self) -> Bool
 pub fn CacheError::not_equal(Self, Self) -> Bool
 pub fn CacheError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) enum CacheCondition {
   ConditionMatches
   ConditionDoesNotMatch
   ConditionAbsent
   ConditionMalformed
-} derive(Eq, @debug.Debug)
+}
 pub fn CacheCondition::equal(Self, Self) -> Bool
 pub fn CacheCondition::not_equal(Self, Self) -> Bool
 pub fn CacheCondition::to_repr(Self) -> @debug.Repr
@@ -59,6 +61,7 @@ pub(all) struct CacheConfig {
 pub fn CacheConfig::defaults() -> Self
 pub fn CacheConfig::validate(Self) -> Result[Unit, CacheError]
 
+#derive(Eq, @debug.Debug)
 pub(all) struct CacheControl {
   mut no_cache : Bool
   mut no_store : Bool
@@ -76,7 +79,7 @@ pub(all) struct CacheControl {
   mut immutable : Bool
   mut no_transform : Bool
   mut only_if_cached : Bool
-} derive(Eq, @debug.Debug)
+}
 pub fn CacheControl::empty() -> Self
 pub fn CacheControl::equal(Self, Self) -> Bool
 pub fn CacheControl::not_equal(Self, Self) -> Bool
@@ -105,15 +108,16 @@ pub fn CacheHit::response(Self) -> @types.Response[Unit]
 pub fn CacheHit::stale_if_error(Self) -> Int64
 pub fn CacheHit::stale_seconds(Self) -> Int64
 
+#derive(Eq, @debug.Debug)
 pub(all) struct CacheLimits {
-  max_entries : Int
-  max_total_bytes : Int
-  max_entry_bytes : Int
-  max_metadata_bytes : Int
-  max_vary_fields : Int
-  max_directives : Int
+  max_entries : Int32
+  max_total_bytes : Int32
+  max_entry_bytes : Int32
+  max_metadata_bytes : Int32
+  max_vary_fields : Int32
+  max_directives : Int32
   heuristic_max_age_seconds : Int64
-} derive(Eq, @debug.Debug)
+}
 pub fn CacheLimits::defaults() -> Self
 pub fn CacheLimits::equal(Self, Self) -> Bool
 pub fn CacheLimits::not_equal(Self, Self) -> Bool
@@ -128,11 +132,12 @@ pub(all) enum CacheLookup {
   CacheRevalidate(CacheHit)
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) enum CacheStoreOutcome {
   CacheStored
   CacheReplaced
   CacheNotStored(CacheError)
-} derive(Eq, @debug.Debug)
+}
 pub fn CacheStoreOutcome::equal(Self, Self) -> Bool
 pub fn CacheStoreOutcome::not_equal(Self, Self) -> Bool
 pub fn CacheStoreOutcome::to_repr(Self) -> @debug.Repr
@@ -140,18 +145,18 @@ pub fn CacheStoreOutcome::to_repr(Self) -> @debug.Repr
 pub struct HttpCache {
   entries : Array[CacheEntry]
   config : CacheConfig
-  mut total_bytes : Int
+  mut total_bytes : Int32
   mut next_order : Int64
 }
 pub fn HttpCache::clear(Self) -> Unit
 pub fn HttpCache::invalidate(Self, @types.Request[Unit]) -> Result[Unit, CacheError]
 pub fn HttpCache::invalidate_response(Self, @types.Request[Unit], @types.Response[Unit]) -> Result[Unit, CacheError]
-pub fn HttpCache::len(Self) -> Int
+pub fn HttpCache::len(Self) -> Int32
 pub fn HttpCache::lookup(Self, @types.Request[Unit], Int64) -> Result[CacheLookup, CacheError]
 pub fn HttpCache::new(config? : CacheConfig) -> Result[Self, CacheError]
 pub fn HttpCache::revalidate(Self, @types.Request[Unit], @types.Response[Unit], Int64) -> Result[CacheHit, CacheError]
 pub fn HttpCache::store(Self, @types.Request[Unit], @types.Response[Unit], Bytes, Int64) -> Result[CacheStoreOutcome, CacheError]
-pub fn HttpCache::total_bytes(Self) -> Int
+pub fn HttpCache::total_bytes(Self) -> Int32
 
 // Type aliases
 

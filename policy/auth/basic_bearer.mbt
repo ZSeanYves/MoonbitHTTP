@@ -9,7 +9,7 @@ pub struct BasicCredentials {
 pub fn BasicCredentials::new(
   username : String,
   password : String,
-  limits? : AuthLimits = AuthLimits::defaults(),
+  limits~ : AuthLimits = AuthLimits::defaults(),
 ) -> Result[BasicCredentials, AuthError] {
   match limits.validate() {
     Ok(_) => ()
@@ -30,7 +30,7 @@ pub fn BasicCredentials::new(
 ///|
 pub fn BasicCredentials::authorization(
   self : BasicCredentials,
-  utf8_charset? : Bool = false,
+  utf8_charset~ : Bool = false,
 ) -> Result[@types.HeaderValue, AuthError] {
   let username = if utf8_charset {
     @normalization.nfc(self.username)
@@ -57,7 +57,7 @@ pub struct BearerToken {
 ///|
 pub fn BearerToken::new(
   value : String,
-  limits? : AuthLimits = AuthLimits::defaults(),
+  limits~ : AuthLimits = AuthLimits::defaults(),
 ) -> Result[BearerToken, AuthError] {
   match limits.validate() {
     Ok(_) => ()

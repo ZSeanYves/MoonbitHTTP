@@ -35,8 +35,8 @@ impl @aio.Writer for H2LifecycleWriter with fn write_once(
 ///|
 async fn H2LifecycleWriter::wait_frame(
   self : H2LifecycleWriter,
-  typ : Int,
-  stream_id : Int,
+  typ : Int32,
+  stream_id : Int32,
 ) -> @http2.H2Frame {
   for ;; {
     let frame = self.signal.get()
@@ -47,7 +47,7 @@ async fn H2LifecycleWriter::wait_frame(
 }
 
 ///|
-fn H2LifecycleWriter::connection_credit(self : H2LifecycleWriter) -> Int {
+fn H2LifecycleWriter::connection_credit(self : H2LifecycleWriter) -> Int32 {
   let mut total = 0
   for frame in self.frames {
     if frame.header.typ == @http2.H2_FRAME_WINDOW_UPDATE &&
@@ -72,8 +72,8 @@ struct H2GatedWriter {
   control : H2LifecycleWriter
   started : @aqueue.Queue[Unit]
   release : @aqueue.Queue[Unit]
-  typ : Int
-  stream_id : Int
+  typ : Int32
+  stream_id : Int32
   mut held : Bool
 }
 
@@ -104,12 +104,16 @@ async test "H2 client consumption credit survives cancellation while another wri
   defer writer.control.signal.close()
   let done : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
   defer done.close()
+  let reset : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+  defer reset.close()
   let reader = @aio.MemoryReader(async fn(peer) {
     ignore(writer.control.wait_frame(@http2.H2_FRAME_HEADERS, 1))
     peer.write(Bytes::from_array(@http2.encode_settings_frame([], false)))
     peer.write(security_h2_response_head(200, None, false))
     peer.write(@http2.encode_data_frames(1, b"abc", false).unwrap())
     peer.write(h2_lifecycle_ping())
+    ignore(writer.control.wait_frame(@http2.H2_FRAME_RST_STREAM, 1))
+    reset.put(())
     ignore(writer.control.wait_frame(@http2.H2_FRAME_HEADERS, 3))
     peer.write(
       @http2.encode_response_headers(
@@ -149,8 +153,17 @@ async test "H2 client consumption credit survives cancellation while another wri
           _ => ()
         }
       })
+      reset.get()
       assert_eq(client.send(security_request(Get)).status, 204)
       assert_eq(writer.control.connection_credit(), 3)
+      assert_eq(
+        writer.control.frames
+        .filter(f => {
+          f.header.typ == @http2.H2_FRAME_RST_STREAM && f.header.stream_id == 1
+        })
+        .length(),
+        1,
+      )
       done.put(())
     })
   })
@@ -215,7 +228,7 @@ struct H2InterruptedWriter {
   control : H2LifecycleWriter
   started : @aqueue.Queue[Unit]
   captured : Array[Byte]
-  mut state : Int
+  mut state : Int32
 }
 
 ///|

@@ -5,7 +5,7 @@
 pub struct UdpSocket {
   socket : @socket.UdpClient
   endpoint : @types.Endpoint
-  max_datagram_size : Int
+  max_datagram_size : Int32
   mut closed : Bool
 }
 
@@ -33,7 +33,7 @@ fn udp_connected_is_multicast(address : @socket.Addr) -> Bool {
 pub async fn[P : @transport_api.NetworkPolicy] UdpSocket::connect(
   endpoint : @types.Endpoint,
   policy : P,
-  max_datagram_size? : Int = 65527,
+  max_datagram_size~ : Int32 = 65527,
 ) -> Result[UdpSocket, @transport_api.TransportError] {
   if max_datagram_size <= 0 || max_datagram_size > 65527 {
     return Err(InvalidDatagramSize)

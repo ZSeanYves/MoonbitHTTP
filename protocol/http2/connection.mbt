@@ -3,26 +3,26 @@ pub struct H2Connection {
   priv role : H2Role
   priv limits : @types.Limits
   priv local_settings : H2Settings
-  priv pending_local_initial_windows : Array[Int]
+  priv pending_local_initial_windows : Array[Int32]
   priv peer_settings : H2Settings
-  priv streams : Map[Int, H2Stream]
-  priv closed_streams : Array[Int]
-  priv mut connection_send_window : Int
-  priv mut connection_recv_window : Int
-  priv mut discarded_recv_bytes : Int
-  priv mut highest_remote_stream : Int
-  priv mut next_local_stream : Int
-  priv mut continuation_stream : Int?
-  priv mut continuation_bytes : Int
+  priv streams : Map[Int32, H2Stream]
+  priv closed_streams : Array[Int32]
+  priv mut connection_send_window : Int32
+  priv mut connection_recv_window : Int32
+  priv mut discarded_recv_bytes : Int32
+  priv mut highest_remote_stream : Int32
+  priv mut next_local_stream : Int32
+  priv mut continuation_stream : Int32?
+  priv mut continuation_bytes : Int32
   priv mut goaway_received : Bool
-  priv mut goaway_last_stream : Int?
+  priv mut goaway_last_stream : Int32?
   priv mut failure : H2ProtocolError?
 }
 
 ///|
 pub fn H2Connection::new(
   role : H2Role,
-  limits? : @types.Limits = @types.Limits::defaults(),
+  limits~ : @types.Limits = @types.Limits::defaults(),
 ) -> H2Connection {
   {
     role,
@@ -53,7 +53,7 @@ pub fn H2Connection::new(
 }
 
 ///|
-fn u31(payload : Array[Byte], offset : Int) -> Int {
+fn u31(payload : Array[Byte], offset : Int32) -> Int32 {
   ((payload[offset].to_int() & 0x7f) << 24) |
   ((payload[offset + 1].to_int() & 0xff) << 16) |
   ((payload[offset + 2].to_int() & 0xff) << 8) |
@@ -61,7 +61,7 @@ fn u31(payload : Array[Byte], offset : Int) -> Int {
 }
 
 ///|
-fn u32(payload : Array[Byte], offset : Int) -> Int {
+fn u32(payload : Array[Byte], offset : Int32) -> Int32 {
   ((payload[offset].to_int() & 0xff) << 24) |
   ((payload[offset + 1].to_int() & 0xff) << 16) |
   ((payload[offset + 2].to_int() & 0xff) << 8) |

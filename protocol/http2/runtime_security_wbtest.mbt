@@ -1,7 +1,7 @@
 ///|
 fn security_test_frame(
-  typ : Int,
-  stream_id : Int,
+  typ : Int32,
+  stream_id : Int32,
   payload : Array[Byte],
 ) -> H2Frame {
   { header: { length: payload.length(), typ, flags: 0, stream_id, }, payload, }

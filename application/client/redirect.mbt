@@ -11,7 +11,7 @@ pub(all) struct RedirectDecision {
 pub struct RedirectTracker {
   policy : RedirectPolicy
   visited : Map[String, Bool]
-  mut followed : Int
+  mut followed : Int32
 }
 
 ///|
@@ -77,7 +77,7 @@ fn redirect_headers(
 
 ///|
 fn redirect_method(
-  status : Int,
+  status : Int32,
   http_method : @types.Method,
 ) -> Result[(@types.Method, Bool), RedirectError] {
   match status {
@@ -95,7 +95,7 @@ pub fn RedirectTracker::follow(
   self : RedirectTracker,
   current : @types.Uri,
   location : String,
-  status : Int,
+  status : Int32,
   http_method : @types.Method,
   headers : @types.HeaderMap,
   body_replayability : BodyReplayability,

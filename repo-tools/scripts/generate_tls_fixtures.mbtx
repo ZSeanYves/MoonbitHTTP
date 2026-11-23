@@ -1,9 +1,10 @@
-///|
+----
 import {
   "moonbitlang/async",
   "moonbitlang/async/fs",
   "moonbitlang/async/process",
 }
+----
 
 ///|
 async fn run_checked(program : String, arguments : Array[String]) -> Unit {

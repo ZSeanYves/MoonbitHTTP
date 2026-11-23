@@ -1,5 +1,6 @@
 ///|
-priv suberror BodyStreamEnded derive(Debug)
+#derive(Debug)
+priv suberror BodyStreamEnded
 
 ///|
 /// A bounded asynchronous body stream.
@@ -11,7 +12,7 @@ pub struct BodyStream {
   priv queue : @aqueue.Queue[Frame]
   priv space_available : @aqueue.Queue[Unit]
   priv hint : SizeHint
-  priv on_data_consumed : async (Int) -> Unit
+  priv on_data_consumed : async (Int32) -> Unit
   priv on_terminate : (Error?) -> Unit
   priv on_cancel : (Error) -> Unit
   priv pull : (async () -> Frame?)?
@@ -34,9 +35,9 @@ fn BodyStream::is_finished(self : BodyStream) -> Bool {
 
 ///|
 fn body_stream_new_unchecked(
-  capacity : Int,
+  capacity : Int32,
   size_hint : SizeHint,
-  on_data_consumed : async (Int) -> Unit,
+  on_data_consumed : async (Int32) -> Unit,
   on_terminate : (Error?) -> Unit,
   on_cancel : (Error) -> Unit,
 ) -> BodyStream {
@@ -59,11 +60,11 @@ fn body_stream_new_unchecked(
 
 ///|
 pub fn BodyStream::new(
-  capacity? : Int = 8,
-  size_hint? : SizeHint = SizeHint::unknown(),
-  on_data_consumed? : async (Int) -> Unit = fn(_) { () },
-  on_terminate? : (Error?) -> Unit = fn(_) { () },
-  on_cancel? : (Error) -> Unit = fn(_) { () },
+  capacity~ : Int32 = 8,
+  size_hint~ : SizeHint = SizeHint::unknown(),
+  on_data_consumed~ : async (Int32) -> Unit = fn(_) { () },
+  on_terminate~ : (Error?) -> Unit = fn(_) { () },
+  on_cancel~ : (Error) -> Unit = fn(_) { () },
 ) -> Result[BodyStream, BodyError] {
   if capacity < 1 {
     return Err(InvalidLimit(capacity))
@@ -84,10 +85,10 @@ pub fn BodyStream::new(
 /// protocol reader until one frame or end-of-stream is available.
 pub fn BodyStream::from_pull(
   pull : async () -> Frame?,
-  size_hint? : SizeHint = SizeHint::unknown(),
-  on_data_consumed? : async (Int) -> Unit = fn(_) { () },
-  on_terminate? : (Error?) -> Unit = fn(_) { () },
-  on_cancel? : (Error) -> Unit = fn(_) { () },
+  size_hint~ : SizeHint = SizeHint::unknown(),
+  on_data_consumed~ : async (Int32) -> Unit = fn(_) { () },
+  on_terminate~ : (Error?) -> Unit = fn(_) { () },
+  on_cancel~ : (Error) -> Unit = fn(_) { () },
 ) -> BodyStream {
   {
     queue: Queue(kind=Blocking(1)),
@@ -224,7 +225,7 @@ pub impl Body for BodyStream with fn cancel(self, error) {
 ///|
 async fn BodyStream::notify_data_consumed(
   self : BodyStream,
-  amount : Int,
+  amount : Int32,
 ) -> Unit {
   errdefer self.cancel(BodyError::Cancelled)
   let outcome : Result[Unit, Error] = try {

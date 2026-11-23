@@ -334,8 +334,8 @@ pub fn Client::set_digest_auth(
   origin : @types.Uri,
   credentials : @auth.DigestCredentials,
   cnonce : () -> Result[String, @auth.AuthError],
-  policy? : @auth.DigestPolicy = @auth.DigestPolicy::defaults(),
-  limits? : @auth.AuthLimits = @auth.AuthLimits::defaults(),
+  policy~ : @auth.DigestPolicy = @auth.DigestPolicy::defaults(),
+  limits~ : @auth.AuthLimits = @auth.AuthLimits::defaults(),
 ) -> Result[Unit, ClientError] {
   match policy.validate() {
     Ok(_) => ()

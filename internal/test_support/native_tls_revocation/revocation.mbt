@@ -5,9 +5,9 @@ pub extern "C" fn test_ocsp(
   subject : Bytes,
   issuer : Bytes,
   private_key : Bytes,
-  status : Int,
-  this_offset : Int,
-  next_offset : Int,
+  status : Int32,
+  this_offset : Int32,
+  next_offset : Int32,
   omit_next : Bool,
   corrupt_signature : Bool,
 ) -> Bytes = "moon_http_test_ocsp"
@@ -19,6 +19,6 @@ pub extern "C" fn test_crl(
   issuer : Bytes,
   private_key : Bytes,
   revoked : Bytes,
-  this_offset : Int,
-  next_offset : Int,
+  this_offset : Int32,
+  next_offset : Int32,
 ) -> Bytes = "moon_http_test_crl"

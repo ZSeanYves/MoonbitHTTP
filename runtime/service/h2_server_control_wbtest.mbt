@@ -18,7 +18,7 @@ test "HTTP/2 coalesces connection and live stream credit independently of queued
   }
   let decoder = @http2.FrameDecoder::new()
   decoder.feed(control.take(control.queue.try_get().unwrap())).unwrap()
-  let increments : Map[Int, Int] = Map([])
+  let increments : Map[Int32, Int32] = Map([])
   while decoder.next().unwrap() is Some(frame) {
     assert_eq(frame.header.typ, @http2.H2_FRAME_WINDOW_UPDATE)
     let amount = frame.payload.fold(init=0, (n, b) => (n << 8) | b.to_int())

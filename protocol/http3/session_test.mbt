@@ -12,9 +12,9 @@ fn session_peer(
   local_id : @quic.ConnectionId,
   remote_id : @quic.ConnectionId,
   destination : @quic.ConnectionId,
-  queue_limit : Int,
-  stream_window? : Int64 = 1048576L,
-  request_slots? : Int64 = 1L,
+  queue_limit : Int32,
+  stream_window~ : Int64 = 1048576L,
+  request_slots~ : Int64 = 1L,
 ) -> SessionPeer {
   let params = {
     ..@quic.QuicTransportParams::defaults(),
@@ -56,7 +56,7 @@ fn pump_sessions(
   client : SessionPeer,
   server : SessionPeer,
   now : Int64,
-  poll_server? : Bool = true,
+  poll_server~ : Bool = true,
 ) -> Unit raise {
   let queue : Array[(Bool, @quic.QuicDriverAction)] = []
   fn collect(
@@ -170,7 +170,7 @@ test "http3 session: body consumption returns only the requested amount of recei
   client.session
   .send_data(id, Bytes::from_array(FixedArray::make(512, b'a')), fin=true)
   .unwrap()
-  fn delivered() -> Int {
+  fn delivered() -> Int32 {
     server.events.fold(init=0, (sum, event) => {
       match event {
         Message(H3DataReceived(stream, bytes)) if stream == id =>

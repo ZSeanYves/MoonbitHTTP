@@ -1,4 +1,4 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -9,6 +9,7 @@ import {
   "moonbitlang/core/math",
   "moonbitlang/x@0.5.5/crypto",
 }
+----
 
 ///|
 let baseline_revision = "77024d99398981806b9ca57fc374fd96832eec59"
@@ -455,7 +456,7 @@ async fn compare(directory : String, root : String, verify_only : Bool) -> Unit 
   }
   @fs.write_file(
     directory + "/compiled-binaries.json",
-    binary_hashes.to_json(),
+    @json.to_json(binary_hashes),
     create_mode=CreateNew,
   )
   if verify_only {

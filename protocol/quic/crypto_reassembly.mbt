@@ -3,21 +3,22 @@
 /// CRYPTO frames and may arrive fragmented, duplicated, or out of order.  The
 /// reassembler only releases contiguous bytes, so a TLS facade never has to
 /// guess whether a gap is a record boundary.
+#derive(Eq, Debug)
 pub struct QuicCryptoReassembler {
   priv mut next_offset : Int64
   priv mut segments : Array[(Int64, Bytes)]
   priv delivered : @deque.Deque[Byte]
-  priv max_bytes : Int
-  priv max_segments : Int
+  priv max_bytes : Int32
+  priv max_segments : Int32
   priv max_work : Int64
   priv mut work : Int64
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn QuicCryptoReassembler::new(
-  max_bytes? : Int = 1024 * 1024,
-  max_segments? : Int = 256,
-  max_work? : Int64 = 64 * 1024 * 1024L,
+  max_bytes~ : Int32 = 1024 * 1024,
+  max_segments~ : Int32 = 256,
+  max_work~ : Int64 = 64 * 1024 * 1024L,
 ) -> Result[QuicCryptoReassembler, QuicError] {
   if max_bytes < 0 {
     return Err(LimitExceeded("CRYPTO reassembly", max_bytes))
@@ -212,7 +213,7 @@ fn QuicCryptoReassembler::history_start(self : QuicCryptoReassembler) -> Int64 {
 /// CRYPTO keeps its full history and its original lifetime work budget.
 fn QuicCryptoReassembler::consume(
   self : QuicCryptoReassembler,
-  count : Int,
+  count : Int32,
 ) -> Unit {
   if count == self.delivered.length() {
     self.delivered.clear()

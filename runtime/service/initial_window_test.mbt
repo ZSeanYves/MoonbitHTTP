@@ -21,7 +21,7 @@ fn early_data_frames(output : Array[Byte]) -> Unit {
 }
 
 ///|
-fn server_sent_frame(bytes : Array[Byte], typ : Int, flags : Int) -> Bool {
+fn server_sent_frame(bytes : Array[Byte], typ : Int32, flags : Int32) -> Bool {
   let frames = @http2.FrameDecoder::new()
   if frames.feed(Bytes::from_array(bytes)) is Err(_) {
     return false

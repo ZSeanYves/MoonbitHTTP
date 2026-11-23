@@ -1,9 +1,10 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum ContentDecodePoll {
   ContentDecodeNeedInput
   ContentDecoded(Bytes)
   ContentDecodeDone
-} derive(Eq, Debug)
+}
 
 ///|
 priv enum StagePoll {
@@ -18,7 +19,7 @@ priv enum StagePoll {
 pub struct ContentDecoderChain {
   decoders : Array[ContentDecoder]
   pending : Array[Bytes?]
-  offsets : Array[Int]
+  offsets : Array[Int32]
   upstream_done : Array[Bool]
   statuses : Array[DecodeStatus]
   mut awaiting_input : Bool
@@ -29,7 +30,7 @@ pub struct ContentDecoderChain {
 ///|
 pub fn ContentDecoderChain::new(
   codings : Array[ContentCoding],
-  limits? : ContentCodingLimits = ContentCodingLimits::defaults(),
+  limits~ : ContentCodingLimits = ContentCodingLimits::defaults(),
 ) -> Result[ContentDecoderChain, ContentCodingError] {
   match limits.validate() {
     Ok(_) => ()
@@ -90,7 +91,7 @@ fn ContentDecoderChain::fail(
 pub fn ContentDecoderChain::feed(
   self : ContentDecoderChain,
   input : BytesView,
-  end? : Bool = false,
+  end~ : Bool = false,
 ) -> Result[Unit, ContentCodingError] {
   match self.failure {
     Some(error) => return Err(error)
@@ -115,7 +116,7 @@ pub fn ContentDecoderChain::feed(
 ///|
 fn ContentDecoderChain::step_stage_input(
   self : ContentDecoderChain,
-  index : Int,
+  index : Int32,
   input : BytesView,
 ) -> Result[StagePoll, ContentCodingError] {
   let result = match
@@ -154,7 +155,7 @@ fn ContentDecoderChain::step_stage_input(
 ///|
 fn ContentDecoderChain::poll_stage(
   self : ContentDecoderChain,
-  index : Int,
+  index : Int32,
 ) -> Result[StagePoll, ContentCodingError] {
   if self.statuses[index] == DecodeDone {
     if self.pending[index] is Some(_) {

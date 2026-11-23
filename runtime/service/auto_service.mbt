@@ -3,7 +3,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_auto_connection
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
-  config? : ServerConfig = ServerConfig::defaults(),
+  config~ : ServerConfig = ServerConfig::defaults(),
 ) -> Unit {
   let detector = @auto.Detector::new()
   let prefix : Array[Byte] = []
@@ -65,7 +65,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_auto_connec
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
-  config? : ServerConfig = ServerConfig::defaults(),
+  config~ : ServerConfig = ServerConfig::defaults(),
 ) -> Unit {
   run_connection_scope(
     () => {

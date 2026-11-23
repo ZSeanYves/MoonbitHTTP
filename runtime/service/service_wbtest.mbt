@@ -30,7 +30,8 @@ async test "service timeout helpers preserve bytes and default policy" {
 }
 
 ///|
-priv suberror LifecycleTestError derive(Debug)
+#derive(Debug)
+priv suberror LifecycleTestError
 
 ///|
 async test "HTTP/2 writers enforce the declared length before DATA, trailers and completion" {

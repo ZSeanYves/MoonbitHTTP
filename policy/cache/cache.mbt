@@ -2,7 +2,7 @@
 pub struct HttpCache {
   entries : Array[CacheEntry]
   config : CacheConfig
-  mut total_bytes : Int
+  mut total_bytes : Int32
   mut next_order : Int64
 }
 
@@ -22,14 +22,14 @@ struct CacheEntry {
   must_revalidate : Bool
   etag : String?
   last_modified : String?
-  size : Int
+  size : Int32
   mut last_used : Int64
   order : Int64
 }
 
 ///|
 pub fn HttpCache::new(
-  config? : CacheConfig = CacheConfig::defaults(),
+  config~ : CacheConfig = CacheConfig::defaults(),
 ) -> Result[HttpCache, CacheError] {
   match config.validate() {
     Ok(_) => Ok({ entries: [], config, total_bytes: 0, next_order: 0L, })
@@ -38,12 +38,12 @@ pub fn HttpCache::new(
 }
 
 ///|
-pub fn HttpCache::len(self : HttpCache) -> Int {
+pub fn HttpCache::len(self : HttpCache) -> Int32 {
   self.entries.length()
 }
 
 ///|
-pub fn HttpCache::total_bytes(self : HttpCache) -> Int {
+pub fn HttpCache::total_bytes(self : HttpCache) -> Int32 {
   self.total_bytes
 }
 
@@ -218,7 +218,7 @@ fn cache_validator(
 }
 
 ///|
-fn cache_status_default_cacheable(status : Int) -> Bool {
+fn cache_status_default_cacheable(status : Int32) -> Bool {
   status == 200 ||
   status == 203 ||
   status == 204 ||
@@ -233,7 +233,7 @@ fn cache_status_default_cacheable(status : Int) -> Bool {
 }
 
 ///|
-fn cache_metadata_size(response : @types.Response[Unit]) -> Int {
+fn cache_metadata_size(response : @types.Response[Unit]) -> Int32 {
   let mut total = 0
   for field in response.headers.fields() {
     total += field.name.value.length() + field.value.bytes.length() + 4
@@ -332,7 +332,7 @@ fn cache_entry_hit(
 ///|
 fn cache_request_control(
   request : @types.Request[Unit],
-  max_directives : Int,
+  max_directives : Int32,
 ) -> Result[CacheControl, CacheError] {
   parse_cache_control(request.headers, max_directives~)
 }
@@ -353,7 +353,7 @@ fn cache_entry_matches(
 }
 
 ///|
-fn HttpCache::cache_remove_at(self : HttpCache, index : Int) -> Unit {
+fn HttpCache::cache_remove_at(self : HttpCache, index : Int32) -> Unit {
   self.total_bytes -= self.entries[index].size
   self.entries.remove(index) |> ignore
 }
@@ -830,7 +830,7 @@ fn cache_strip_weak(value : String) -> String {
 pub fn etag_matches(
   request_value : String,
   stored_value : String,
-  weak? : Bool = true,
+  weak~ : Bool = true,
 ) -> CacheCondition {
   if !cache_etag_valid(stored_value) {
     return ConditionMalformed

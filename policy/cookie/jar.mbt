@@ -8,8 +8,8 @@ pub struct CookieJar {
 
 ///|
 pub fn CookieJar::new(
-  enabled? : Bool = false,
-  limits? : CookieLimits = CookieLimits::defaults(),
+  enabled~ : Bool = false,
+  limits~ : CookieLimits = CookieLimits::defaults(),
 ) -> Result[CookieJar, CookieError] {
   match limits.validate() {
     Ok(_) => Ok({ cookies: [], limits, enabled, next_order: 0L, })
@@ -158,7 +158,7 @@ fn CookieJar::identity_index(
   domain : String,
   host_only : Bool,
   path : Bytes,
-) -> Int {
+) -> Int32 {
   for index, cookie in self.cookies {
     if cookie.name == name &&
       cookie.domain == domain &&
@@ -175,7 +175,7 @@ fn CookieJar::oldest_in_domain(
   self : CookieJar,
   domain : String,
   insecure_only : Bool,
-) -> Int {
+) -> Int32 {
   let mut selected = -1
   for index, cookie in self.cookies {
     if cookie.domain != domain || (insecure_only && cookie.secure) {
@@ -190,7 +190,7 @@ fn CookieJar::oldest_in_domain(
 }
 
 ///|
-fn CookieJar::oldest(self : CookieJar) -> Int {
+fn CookieJar::oldest(self : CookieJar) -> Int32 {
   let mut selected = -1
   for index, cookie in self.cookies {
     if selected < 0 ||
@@ -282,7 +282,7 @@ pub fn CookieJar::store(
   header : @types.HeaderValue,
   request_uri : @types.Uri,
   now_seconds : Int64,
-  context? : CookieContext = CookieContext::http(Get),
+  context~ : CookieContext = CookieContext::http(Get),
 ) -> Result[CookieStoreOutcome, CookieError] {
   if !self.enabled {
     return Ok(CookieIgnored(CookieJarDisabled))
@@ -411,7 +411,7 @@ pub fn CookieJar::store_string(
   header : String,
   request_uri : @types.Uri,
   now_seconds : Int64,
-  context? : CookieContext = CookieContext::http(Get),
+  context~ : CookieContext = CookieContext::http(Get),
 ) -> Result[CookieStoreOutcome, CookieError] {
   let value = match @types.HeaderValue::from_string(header) {
     Ok(value) => value
@@ -454,7 +454,7 @@ pub fn CookieJar::cookie_header(
   self : CookieJar,
   request_uri : @types.Uri,
   now_seconds : Int64,
-  context? : CookieContext = CookieContext::http(Get),
+  context~ : CookieContext = CookieContext::http(Get),
 ) -> Result[@types.HeaderValue?, CookieError] {
   if !self.enabled {
     return Ok(None)
@@ -524,7 +524,7 @@ pub fn CookieJar::cookie_header(
 }
 
 ///|
-pub fn CookieJar::size(self : CookieJar, now_seconds? : Int64 = 0L) -> Int {
+pub fn CookieJar::size(self : CookieJar, now_seconds~ : Int64 = 0L) -> Int32 {
   self.remove_expired(now_seconds)
   self.cookies.length()
 }

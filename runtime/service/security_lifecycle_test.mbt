@@ -1,7 +1,7 @@
 ///|
 struct LifecycleFrames {
   frames : Array[@body.Frame]
-  mut cursor : Int
+  mut cursor : Int32
   cancelled : Array[Error]
   polled : @aqueue.Queue[Unit]
 }
@@ -133,7 +133,7 @@ async test "security lifecycle: H2 reset cancels a response already waiting for 
 
 ///|
 struct LifecycleFailingWriter {
-  typ : Int
+  typ : Int32
 }
 
 ///|
@@ -216,7 +216,7 @@ async test "security lifecycle: H2 request header failure cancels body before up
 struct LifecycleRequestReader {
   reader_buffer : @aio.ReaderBuffer
   chunks : Array[Bytes]
-  mut cursor : Int
+  mut cursor : Int32
   pushed : @aqueue.Queue[Unit]
 }
 

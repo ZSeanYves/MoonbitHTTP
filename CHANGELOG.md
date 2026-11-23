@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Update the CI compiler to MoonBit `0.10.22+124d61d05` for the new derive syntax and script import format. HTTP/2 stream cancellation now retires local state synchronously and lets the connection send the wire reset.
+
 - HTTP/1, HTTP/2 and HTTP/3 servers grant `100 Continue` for pending uploads and return `417 Expectation Failed` before dispatch for unsupported expectations. HTTP/1 and HTTP/2 now release the response producer without reading it for `HEAD`, `204` and `304`. HTTP/2 clients and servers share outgoing body length and trailer checks. Buffered and streaming encoders share header construction.
 
 - Honor explicit `Expect: 100-continue` on HTTP/1.1 uploads with a bounded wait, body cancellation on early final responses and safe pool eviction. HTTP/1 and h2c servers share expectation handling and preserve buffered body bytes when selecting a protocol. HTTP/1-only connections accept read buffers below the HTTP/2 initial receive window.

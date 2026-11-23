@@ -6,7 +6,7 @@ priv type OpenSslQuic
 extern "C" fn openssl_quic_new(
   ssl : OpenSsl,
   params : Bytes,
-  limit : Int,
+  limit : Int32,
 ) -> OpenSslQuic = "moon_http_quic_tls_new"
 
 ///|
@@ -19,7 +19,7 @@ extern "C" fn OpenSslQuic::available(self : OpenSslQuic) -> Bool = "moon_http_qu
 
 ///|
 #borrow(self)
-extern "C" fn OpenSslQuic::alert(self : OpenSslQuic) -> Int = "moon_http_quic_tls_alert"
+extern "C" fn OpenSslQuic::alert(self : OpenSslQuic) -> Int32 = "moon_http_quic_tls_alert"
 
 ///|
 #borrow(self)
@@ -29,7 +29,7 @@ extern "C" fn OpenSslQuic::close(self : OpenSslQuic) -> Unit = "moon_http_quic_t
 #borrow(self, bytes)
 extern "C" fn OpenSslQuic::feed(
   self : OpenSslQuic,
-  level : Int,
+  level : Int32,
   bytes : Bytes,
 ) -> Bool = "moon_http_quic_tls_feed"
 
@@ -52,7 +52,7 @@ extern "C" fn OpenSslQuic::peer_params(self : OpenSslQuic) -> Bytes = "moon_http
 pub struct NativeQuicTlsProvider {
   priv server : Bool
   priv allow_system_roots : Bool
-  priv max_handshake_bytes : Int
+  priv max_handshake_bytes : Int32
   priv mut ssl : OpenSsl?
   priv mut quic : OpenSslQuic?
   priv mut options : @transport.TlsOptions?
@@ -62,9 +62,9 @@ pub struct NativeQuicTlsProvider {
 
 ///|
 pub fn NativeQuicTlsProvider::new(
-  server? : Bool = false,
-  allow_system_roots? : Bool = true,
-  max_handshake_bytes? : Int = 1024 * 1024,
+  server~ : Bool = false,
+  allow_system_roots~ : Bool = true,
+  max_handshake_bytes~ : Int32 = 1024 * 1024,
 ) -> NativeQuicTlsProvider {
   {
     server,
@@ -104,7 +104,7 @@ fn NativeQuicTlsProvider::failed(
 }
 
 ///|
-fn quic_native_level(value : Int) -> @transport.QuicEncryptionLevel? {
+fn quic_native_level(value : Int32) -> @transport.QuicEncryptionLevel? {
   match value {
     0 => Some(QuicInitial)
     2 => Some(QuicHandshake)
@@ -123,7 +123,7 @@ fn NativeQuicTlsProvider::advance(
   }
   let status = if self.complete {
     let buffer = FixedArray::make(1, b'\x00')
-    let count : Ref[Int] = { val: 0, }
+    let count : Ref[Int32] = { val: 0, }
     ssl.read(buffer, count)
   } else {
     ssl.handshake()

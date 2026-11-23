@@ -15,7 +15,7 @@ pub struct DecodedBody[B] {
 pub fn[B : @body.Body] DecodedBody::new(
   source : B,
   codings : Array[ContentCoding],
-  limits? : ContentCodingLimits = ContentCodingLimits::defaults(),
+  limits~ : ContentCodingLimits = ContentCodingLimits::defaults(),
 ) -> Result[DecodedBody[B], ContentCodingError] {
   let changes_length = codings.any(fn(coding) { coding != Identity })
   let hint = if changes_length {
@@ -171,7 +171,7 @@ fn content_decoded_headers(
 /// `Content-Encoding` and `Content-Length` metadata from the decoded response.
 pub fn[B : @body.Body] decode_response(
   response : @types.Response[B],
-  limits? : ContentCodingLimits = ContentCodingLimits::defaults(),
+  limits~ : ContentCodingLimits = ContentCodingLimits::defaults(),
 ) -> Result[@types.Response[DecodedBody[B]], ContentCodingError] {
   let codings = match
     parse_content_codings(response.headers, max_codings=limits.max_codings) {
@@ -196,7 +196,7 @@ pub fn[B : @body.Body] decode_response(
 /// `decode_response` function remains available when backpressure is needed.
 pub fn decode_bytes_response(
   response : @types.Response[Bytes],
-  limits? : ContentCodingLimits = ContentCodingLimits::defaults(),
+  limits~ : ContentCodingLimits = ContentCodingLimits::defaults(),
 ) -> Result[@types.Response[Bytes], ContentCodingError] {
   let codings = match
     parse_content_codings(response.headers, max_codings=limits.max_codings) {

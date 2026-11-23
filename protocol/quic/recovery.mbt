@@ -3,13 +3,14 @@
 /// deliberately independent of a socket: a driver supplies packet numbers,
 /// acknowledgements and a monotonic clock, then turns the returned events into
 /// datagrams or retransmissions.
+#derive(Eq, Debug)
 pub(all) struct QuicRecoveryConfig {
   max_ack_delay_ms : Int64
   max_pto_ms : Int64
   idle_timeout_ms : Int64
   initial_rtt_ms : Int64
-  max_tracked_packets : Int
-} derive(Eq, Debug)
+  max_tracked_packets : Int32
+}
 
 ///|
 pub fn QuicRecoveryConfig::defaults() -> QuicRecoveryConfig {
@@ -39,17 +40,18 @@ pub fn QuicRecoveryConfig::validate(
 ///|
 /// Normal sends observe max_tracked_packets. Additional slots only admit
 /// timer-driven probes, including when the congestion window is exhausted.
-const QUIC_PROBE_RESERVE : Int = 64
+const QUIC_PROBE_RESERVE : Int32 = 64
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct QuicSentPacket {
   number : Int64
   space : PacketNumberSpace
-  bytes : Int
+  bytes : Int32
   sent_at_ms : Int64
   ack_eliciting : Bool
   retransmittable : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn QuicSentPacket::number(self : QuicSentPacket) -> Int64 {
@@ -62,7 +64,7 @@ pub fn QuicSentPacket::space(self : QuicSentPacket) -> PacketNumberSpace {
 }
 
 ///|
-pub fn QuicSentPacket::bytes(self : QuicSentPacket) -> Int {
+pub fn QuicSentPacket::bytes(self : QuicSentPacket) -> Int32 {
   self.bytes
 }
 
@@ -72,14 +74,16 @@ pub fn QuicSentPacket::retransmittable(self : QuicSentPacket) -> Bool {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum QuicRecoveryEvent {
-  PacketAcknowledged(Int64, PacketNumberSpace, Int)
-  PacketLost(Int64, PacketNumberSpace, Int)
+  PacketAcknowledged(Int64, PacketNumberSpace, Int32)
+  PacketLost(Int64, PacketNumberSpace, Int32)
   ProbeTimeout(PacketNumberSpace)
   IdleTimeout
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Debug)
 pub(all) struct QuicRecovery {
   config : QuicRecoveryConfig
   mut peer_max_ack_delay_ms : Int64
@@ -103,7 +107,7 @@ pub(all) struct QuicRecovery {
   mut latest_rtt_ms : Int64?
   mut smoothed_rtt_ms : Int64?
   mut rttvar_ms : Int64?
-  mut pto_count : Int
+  mut pto_count : Int32
   mut last_activity_ms : Int64
   mut last_probe_ms : Int64?
   mut congestion_window : Int64
@@ -113,12 +117,12 @@ pub(all) struct QuicRecovery {
   // Snapshot all three largest-sent numbers to distinguish later sends even
   // when several packets share a clock tick or the ACK uses another space.
   mut recovery_end : (Int64, Int64, Int64)?
-} derive(Debug)
+}
 
 ///|
 pub fn QuicRecovery::new(
-  config? : QuicRecoveryConfig = QuicRecoveryConfig::defaults(),
-  now_ms? : Int64 = 0L,
+  config~ : QuicRecoveryConfig = QuicRecoveryConfig::defaults(),
+  now_ms~ : Int64 = 0L,
 ) -> Result[QuicRecovery, QuicError] {
   match config.validate() {
     Ok(_) => ()
@@ -177,7 +181,7 @@ pub fn QuicRecovery::smoothed_rtt_ms(self : QuicRecovery) -> Int64? {
 }
 
 ///|
-pub fn QuicRecovery::pto_count(self : QuicRecovery) -> Int {
+pub fn QuicRecovery::pto_count(self : QuicRecovery) -> Int32 {
   self.pto_count
 }
 
@@ -252,9 +256,9 @@ fn QuicRecovery::sent_after_recovery_start(
 ///|
 pub fn QuicRecovery::can_send(
   self : QuicRecovery,
-  bytes : Int,
+  bytes : Int32,
   in_flight : Bool,
-  congestion_exempt? : Bool = false,
+  congestion_exempt~ : Bool = false,
 ) -> Result[Unit, QuicError] {
   if bytes <= 0 {
     return Err(InvalidPacket("packet size must be positive"))
@@ -303,8 +307,8 @@ pub fn QuicRecovery::oldest_probe_packet(
 pub fn QuicRecovery::on_packet_sent(
   self : QuicRecovery,
   packet : QuicSentPacket,
-  contains_padding? : Bool = false,
-  congestion_exempt? : Bool = false,
+  contains_padding~ : Bool = false,
+  congestion_exempt~ : Bool = false,
 ) -> Result[Unit, QuicError] {
   let in_flight = packet.ack_eliciting || contains_padding
   self
@@ -315,7 +319,7 @@ pub fn QuicRecovery::on_packet_sent(
 ///|
 fn QuicRecovery::needs_padding_feedback(
   self : QuicRecovery,
-  bytes : Int,
+  bytes : Int32,
 ) -> Bool {
   self.tracking_full(additional=1) ||
   self.congestion_window - self.bytes_in_flight - bytes.to_int64() < 1200L
@@ -324,7 +328,7 @@ fn QuicRecovery::needs_padding_feedback(
 ///|
 fn QuicRecovery::tracking_full(
   self : QuicRecovery,
-  additional? : Int = 0,
+  additional~ : Int32 = 0,
 ) -> Bool {
   self.sent.length() - self.probe_numbers.length() >=
   self.config.max_tracked_packets - additional
@@ -335,8 +339,8 @@ fn QuicRecovery::check_sent(
   self : QuicRecovery,
   packet : QuicSentPacket,
   in_flight : Bool,
-  congestion_exempt? : Bool = false,
-  probe? : Bool = false,
+  congestion_exempt~ : Bool = false,
+  probe~ : Bool = false,
 ) -> Result[Unit, QuicError] {
   if packet.number < 0L ||
     packet.number > QUIC_MAX_VARINT ||
@@ -370,7 +374,7 @@ fn QuicRecovery::record_sent(
   self : QuicRecovery,
   packet : QuicSentPacket,
   in_flight : Bool,
-  probe? : Bool = false,
+  probe~ : Bool = false,
 ) -> Unit {
   if probe {
     self.probe_numbers.add((packet.space, packet.number))
@@ -413,7 +417,7 @@ fn QuicRecovery::timestamp_slot(
 ///|
 /// Release a tracked packet once, whether it was ACKed, lost or discarded.
 /// Returns whether it supplied congestion feedback.
-fn QuicRecovery::remove_sent(self : QuicRecovery, index : Int) -> Bool {
+fn QuicRecovery::remove_sent(self : QuicRecovery, index : Int32) -> Bool {
   let packet = self.sent.remove(index)
   if !self.probe_numbers.is_empty() {
     self.probe_numbers.remove((packet.space, packet.number))
@@ -448,9 +452,9 @@ pub fn QuicRecovery::on_ack(
   space : PacketNumberSpace,
   ack : AckFrame,
   now_ms : Int64,
-  ack_delay_exponent? : Int = 3,
-  reset_pto? : Bool = true,
-  handshake_confirmed? : Bool = true,
+  ack_delay_exponent~ : Int32 = 3,
+  reset_pto~ : Bool = true,
+  handshake_confirmed~ : Bool = true,
 ) -> Result[Array[QuicRecoveryEvent], QuicError] {
   ack.validate() catch {
     error => return Err(error)
@@ -477,10 +481,10 @@ fn QuicRecovery::apply_ack(
   space : PacketNumberSpace,
   ack : AckFrame,
   now_ms : Int64,
-  ack_delay_exponent~ : Int,
+  ack_delay_exponent~ : Int32,
   reset_pto~ : Bool,
   handshake_confirmed~ : Bool,
-  acknowledged? : Array[QuicRecoveryEvent]? = None,
+  acknowledged~ : Array[QuicRecoveryEvent]? = None,
 ) -> Result[Unit, QuicError] {
   if now_ms < 0L || ack_delay_exponent < 0 || ack_delay_exponent > 20 {
     return Err(InvalidFrame("invalid recovery ACK"))

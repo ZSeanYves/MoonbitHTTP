@@ -2,8 +2,8 @@
 priv struct QpackEncoderEntry {
   absolute_index : Int64
   field : QpackField
-  size : Int
-  mut references : Int
+  size : Int32
+  mut references : Int32
 }
 
 ///|
@@ -15,7 +15,7 @@ priv struct QpackPendingSection {
 ///|
 /// Pending-section metadata is small but attacker-controlled in count. Keep a
 /// fixed accounting unit for the section and one word per dynamic reference.
-fn qpack_pending_section_cost(section : QpackPendingSection) -> Int {
+fn qpack_pending_section_cost(section : QpackPendingSection) -> Int32 {
   let references = section.references.length()
   if references > (@int.MAX_VALUE - 16) / 8 {
     @int.MAX_VALUE
@@ -28,19 +28,19 @@ fn qpack_pending_section_cost(section : QpackPendingSection) -> Int {
 pub struct QpackEncoder {
   limits : QpackLimits
   priv mut entries : Array[QpackEncoderEntry]
-  mut table_size : Int
-  mut capacity : Int
+  mut table_size : Int32
+  mut capacity : Int32
   mut total_inserts : Int64
   mut known_received_count : Int64
   priv pending : Map[Int64, Array[QpackPendingSection]]
-  mut pending_bytes : Int
+  mut pending_bytes : Int32
   mut decoder_buffer : Array[Byte]
   mut failure : Http3Error?
 }
 
 ///|
 pub fn QpackEncoder::new(
-  limits? : QpackLimits = QpackLimits::defaults(),
+  limits~ : QpackLimits = QpackLimits::defaults(),
 ) -> Result[QpackEncoder, Http3Error] {
   limits.validate().map(_ => QpackEncoder::with_valid_limits(limits))
 }
@@ -74,12 +74,12 @@ pub fn QpackEncoder::known_received_count(self : QpackEncoder) -> Int64 {
 ///|
 /// Returns the bounded memory budget currently held by unacknowledged dynamic
 /// field sections.
-pub fn QpackEncoder::pending_bytes(self : QpackEncoder) -> Int {
+pub fn QpackEncoder::pending_bytes(self : QpackEncoder) -> Int32 {
   self.pending_bytes
 }
 
 ///|
-pub fn QpackEncoder::table_size(self : QpackEncoder) -> Int {
+pub fn QpackEncoder::table_size(self : QpackEncoder) -> Int32 {
   self.table_size
 }
 
@@ -123,7 +123,7 @@ fn QpackEncoder::find_name(
 }
 
 ///|
-fn QpackEncoder::can_evict_to(self : QpackEncoder, target_size : Int) -> Bool {
+fn QpackEncoder::can_evict_to(self : QpackEncoder, target_size : Int32) -> Bool {
   let mut size = self.table_size
   let mut index = self.entries.length()
   while size > target_size && index > 0 {
@@ -138,7 +138,7 @@ fn QpackEncoder::can_evict_to(self : QpackEncoder, target_size : Int) -> Bool {
 }
 
 ///|
-fn QpackEncoder::evict_to(self : QpackEncoder, target_size : Int) -> Unit {
+fn QpackEncoder::evict_to(self : QpackEncoder, target_size : Int32) -> Unit {
   while self.table_size > target_size && !self.entries.is_empty() {
     let last = self.entries[self.entries.length() - 1]
     self.table_size -= last.size
@@ -149,7 +149,7 @@ fn QpackEncoder::evict_to(self : QpackEncoder, target_size : Int) -> Unit {
 ///|
 pub fn QpackEncoder::set_capacity(
   self : QpackEncoder,
-  capacity : Int,
+  capacity : Int32,
 ) -> Result[Bytes, Http3Error] {
   if capacity < 0 || capacity > self.limits.max_table_capacity {
     return Err(
@@ -218,7 +218,7 @@ fn QpackEncoder::insert_local(
 pub fn QpackEncoder::insert(
   self : QpackEncoder,
   field : QpackField,
-  use_huffman? : Bool = true,
+  use_huffman~ : Bool = true,
 ) -> Result[(Bytes, Int64), Http3Error] {
   match qpack_validate_field(field) {
     Ok(_) => ()
@@ -293,7 +293,7 @@ pub fn QpackEncoder::encode_field_section(
   self : QpackEncoder,
   stream_id : Int64,
   fields : Array[QpackField],
-  use_huffman? : Bool = true,
+  use_huffman~ : Bool = true,
 ) -> Result[Bytes, Http3Error] {
   if stream_id < 0L {
     return Err(

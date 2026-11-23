@@ -9,7 +9,7 @@ priv enum ResponseFramingRule {
 ///|
 fn response_framing_rule(
   request_method : @types.Method,
-  status : Int,
+  status : Int32,
 ) -> ResponseFramingRule {
   if request_method == Connect && status >= 200 && status < 300 {
     ConnectTunnel
@@ -25,7 +25,7 @@ fn response_framing_rule(
 ///|
 priv enum FramingFields {
   Unspecified
-  Length(Int)
+  Length(Int32)
   Transfer(Array[@types.HeaderValue])
 }
 
@@ -83,7 +83,7 @@ fn determine_request_framing(
 fn determine_response_framing(
   headers : @types.HeaderMap,
   http_method : @types.Method,
-  status : Int,
+  status : Int32,
   version : @types.Version,
 ) -> Result[BodyFraming, Http1Error] {
   let rule = response_framing_rule(http_method, status)
@@ -109,7 +109,7 @@ fn validate_outgoing_framing(
   headers : @types.HeaderMap,
   framing : BodyFraming,
   version : @types.Version,
-  rule? : ResponseFramingRule = Payload,
+  rule~ : ResponseFramingRule = Payload,
 ) -> Result[Unit, Http1Error] {
   let fields = match framing_fields(headers, version) {
     Ok(value) => value

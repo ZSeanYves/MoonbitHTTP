@@ -121,14 +121,16 @@ fn uri_valid_ipv6(input : BytesView) -> Bool {
 
 ///|
 /// A numeric IP literal. Construction validates the value; DNS names and brackets are not accepted.
+#derive(Debug, Eq, Compare)
 pub struct IpAddress {
   value : String
-} derive(Debug, Eq, Compare)
+}
 
 ///|
+#derive(Debug, Eq)
 pub(all) suberror IpAddressError {
   InvalidLiteral
-} derive(Debug, Eq)
+}
 
 ///|
 pub fn IpAddress::parse(value : String) -> Result[IpAddress, IpAddressError] {

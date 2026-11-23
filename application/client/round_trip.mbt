@@ -63,7 +63,7 @@ pub fn response_from_cache(
 ///|
 async fn collect_client_response(
   response : @types.Response[@body.BodyStream],
-  limit : Int,
+  limit : Int32,
 ) -> @types.Response[Bytes] {
   let (body, trailers) = @body.collect(response.body, max_bytes=limit)
   match trailers {

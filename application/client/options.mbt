@@ -1,10 +1,11 @@
 ///|
+#derive(Eq, Debug)
 pub(all) struct ClientEndpoint {
   uri : @types.Uri
   transport : @types.Endpoint
   secure : Bool
   origin : String
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn ClientEndpoint::from_uri(
@@ -54,17 +55,18 @@ pub fn ClientEndpoint::same_origin(
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct ClientTimeouts {
-  resolve_ms : Int?
-  connect_ms : Int?
-  tls_ms : Int?
-  request_headers_ms : Int?
-  request_body_ms : Int?
-  response_headers_ms : Int?
-  response_body_ms : Int?
-  idle_ms : Int?
-  total_ms : Int?
-} derive(Eq, Debug)
+  resolve_ms : Int32?
+  connect_ms : Int32?
+  tls_ms : Int32?
+  request_headers_ms : Int32?
+  request_body_ms : Int32?
+  response_headers_ms : Int32?
+  response_body_ms : Int32?
+  idle_ms : Int32?
+  total_ms : Int32?
+}
 
 ///|
 pub fn ClientTimeouts::defaults() -> ClientTimeouts {
@@ -85,7 +87,7 @@ pub fn ClientTimeouts::defaults() -> ClientTimeouts {
 pub fn ClientTimeouts::validate(
   self : ClientTimeouts,
 ) -> Result[Unit, ClientError] {
-  let values : Array[(String, Int?)] = [
+  let values : Array[(String, Int32?)] = [
     ("resolve", self.resolve_ms),
     ("connect", self.connect_ms),
     ("TLS", self.tls_ms),
@@ -106,11 +108,12 @@ pub fn ClientTimeouts::validate(
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct RedirectPolicy {
   enabled : Bool
-  max_redirects : Int
+  max_redirects : Int32
   allow_https_downgrade : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn RedirectPolicy::disabled() -> RedirectPolicy {
@@ -119,8 +122,8 @@ pub fn RedirectPolicy::disabled() -> RedirectPolicy {
 
 ///|
 pub fn RedirectPolicy::limited(
-  max_redirects? : Int = 10,
-  allow_https_downgrade? : Bool = false,
+  max_redirects~ : Int32 = 10,
+  allow_https_downgrade~ : Bool = false,
 ) -> Result[RedirectPolicy, RedirectError] {
   if max_redirects < 1 {
     Err(RedirectLimitExceeded(max_redirects))
@@ -130,20 +133,22 @@ pub fn RedirectPolicy::limited(
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum RetryMode {
   RetryDisabled
   RetryIdempotent
   RetryExplicit(Array[@types.Method])
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct RetryPolicy {
   mode : RetryMode
-  max_attempts : Int
+  max_attempts : Int32
   base_delay_ms : Int64
   max_delay_ms : Int64
   respect_retry_after : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn RetryPolicy::disabled() -> RetryPolicy {
@@ -158,10 +163,10 @@ pub fn RetryPolicy::disabled() -> RetryPolicy {
 
 ///|
 pub fn RetryPolicy::idempotent(
-  max_attempts? : Int = 3,
-  base_delay_ms? : Int64 = 100L,
-  max_delay_ms? : Int64 = 30000L,
-  respect_retry_after? : Bool = true,
+  max_attempts~ : Int32 = 3,
+  base_delay_ms~ : Int64 = 100L,
+  max_delay_ms~ : Int64 = 30000L,
+  respect_retry_after~ : Bool = true,
 ) -> Result[RetryPolicy, RetryError] {
   let policy = {
     mode: RetryIdempotent,
@@ -179,10 +184,10 @@ pub fn RetryPolicy::idempotent(
 ///|
 pub fn RetryPolicy::explicit(
   methods : Array[@types.Method],
-  max_attempts? : Int = 3,
-  base_delay_ms? : Int64 = 100L,
-  max_delay_ms? : Int64 = 30000L,
-  respect_retry_after? : Bool = true,
+  max_attempts~ : Int32 = 3,
+  base_delay_ms~ : Int64 = 100L,
+  max_delay_ms~ : Int64 = 30000L,
+  respect_retry_after~ : Bool = true,
 ) -> Result[RetryPolicy, RetryError] {
   if methods.is_empty() {
     return Err(InvalidRetryPolicy)
@@ -216,13 +221,15 @@ pub fn RetryPolicy::validate(self : RetryPolicy) -> Result[Unit, RetryError] {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum BodyReplayability {
   ReplayNotRequired
   ReplayableBody
   NonReplayableBody
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct RequestOptions {
   limits : @types.Limits
   timeouts : ClientTimeouts
@@ -231,7 +238,7 @@ pub(all) struct RequestOptions {
   body_replayability : BodyReplayability
   explicitly_idempotent : Bool
   allow_early_data : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn RequestOptions::defaults() -> RequestOptions {
@@ -282,18 +289,20 @@ pub fn RequestOptions::validate(
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum ProxyMode {
   Direct
   HttpForward
   HttpsConnect
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct ProxyConfig {
   mode : ProxyMode
   endpoint : @types.Endpoint?
   identity_key : String?
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn ProxyConfig::direct() -> ProxyConfig {
@@ -303,7 +312,7 @@ pub fn ProxyConfig::direct() -> ProxyConfig {
 ///|
 pub fn ProxyConfig::http_forward(
   endpoint : @types.Endpoint,
-  identity_key? : String? = None,
+  identity_key~ : String? = None,
 ) -> ProxyConfig {
   { mode: HttpForward, endpoint: Some(endpoint), identity_key, }
 }
@@ -311,7 +320,7 @@ pub fn ProxyConfig::http_forward(
 ///|
 pub fn ProxyConfig::https_connect(
   endpoint : @types.Endpoint,
-  identity_key? : String? = None,
+  identity_key~ : String? = None,
 ) -> ProxyConfig {
   { mode: HttpsConnect, endpoint: Some(endpoint), identity_key, }
 }

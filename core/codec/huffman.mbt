@@ -1,28 +1,29 @@
 ///|
+#derive(Debug, Eq)
 pub(all) enum HuffmanError {
   InvalidCode
   UnexpectedEos
   InvalidPadding
-} derive(Debug, Eq)
+}
 
 ///|
 priv struct HuffmanSymbol {
-  code : Int
-  bits : Int
+  code : Int32
+  bits : Int32
 }
 
 ///|
 priv struct HuffmanNode {
-  left : Int
-  right : Int
-  sym : Int
+  left : Int32
+  right : Int32
+  sym : Int32
 }
 
 ///|
 fn huffman_table_init() -> Array[HuffmanSymbol] {
   let symbols : Array[HuffmanSymbol] = []
   // RFC 7541 Appendix B, indexed by octet value plus EOS at index 256.
-  let codes : Array[Int] = [
+  let codes : Array[Int32] = [
     0x1ff8, 0x7fffd8, 0xfffffe2, 0xfffffe3, 0xfffffe4, 0xfffffe5, 0xfffffe6, 0xfffffe7,
     0xfffffe8, 0xffffea, 0x3ffffffc, 0xfffffe9, 0xfffffea, 0x3ffffffd, 0xfffffeb,
     0xfffffec, 0xfffffed, 0xfffffee, 0xfffffef, 0xffffff0, 0xffffff1, 0xffffff2,
@@ -53,7 +54,7 @@ fn huffman_table_init() -> Array[HuffmanSymbol] {
     0x7ffffea, 0x7ffffeb, 0xffffffe, 0x7ffffec, 0x7ffffed, 0x7ffffee, 0x7ffffef,
     0x7fffff0, 0x3ffffee, 0x3fffffff,
   ]
-  let lengths : Array[Int] = [
+  let lengths : Array[Int32] = [
     13, 23, 28, 28, 28, 28, 28, 28, 28, 24, 30, 28, 28, 30, 28, 28, 28, 28, 28, 28,
     28, 28, 30, 28, 28, 28, 28, 28, 28, 28, 28, 28, 6, 10, 10, 12, 13, 6, 8, 11,
     10, 10, 8, 11, 8, 6, 6, 6, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 8, 15, 6, 12, 10,
@@ -184,7 +185,7 @@ pub fn huffman_decode(data : BytesView) -> Result[Bytes, HuffmanError] {
 pub fn huffman_encode(raw : BytesView) -> Bytes {
   // Up to seven residual bits plus a thirty-bit code must fit together.
   let mut bitbuf : UInt64 = 0UL
-  let mut bitlen : Int = 0
+  let mut bitlen : Int32 = 0
   let out : Array[Byte] = []
   for ch in raw {
     let hs = huffman_symbols[ch.to_int()]

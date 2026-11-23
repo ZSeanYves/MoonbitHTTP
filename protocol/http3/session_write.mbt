@@ -71,7 +71,7 @@ fn Http3Session::commit(
 pub fn Http3Session::start_request(
   self : Http3Session,
   fields : Array[QpackField],
-  fin? : Bool = false,
+  fin~ : Bool = false,
 ) -> Result[Int64, Http3SessionError] {
   if self.ended || !self.initialized {
     return Err(
@@ -158,7 +158,7 @@ pub fn Http3Session::send_headers(
   self : Http3Session,
   id : Int64,
   fields : Array[QpackField],
-  fin? : Bool = false,
+  fin~ : Bool = false,
 ) -> Result[Unit, Http3Error] {
   self.write(id, Headers(fields), fin)
 }
@@ -169,7 +169,7 @@ pub fn Http3Session::send_data(
   self : Http3Session,
   id : Int64,
   data : Bytes,
-  fin? : Bool = false,
+  fin~ : Bool = false,
 ) -> Result[Unit, Http3Error] {
   self.write(id, Data(data), fin)
 }

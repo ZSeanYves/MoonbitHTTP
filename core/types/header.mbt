@@ -1,27 +1,31 @@
 ///|
+#derive(Debug, Eq)
 pub(all) suberror HeaderError {
   InvalidName(String)
   InvalidValue(String)
   InvalidContentLength
   ConflictingContentLength
   ContentLengthOverflow
-} derive(Debug, Eq)
+}
 
 ///|
+#derive(Debug, Eq, Compare, Hash)
 pub struct HeaderName {
   value : String
-} derive(Debug, Eq, Compare, Hash)
+}
 
 ///|
+#derive(Debug, Eq)
 pub struct HeaderValue {
   bytes : Bytes
-} derive(Debug, Eq)
+}
 
 ///|
+#derive(Debug, Eq)
 pub(all) struct HeaderField {
   name : HeaderName
   value : HeaderValue
-} derive(Debug, Eq)
+}
 
 ///|
 pub struct HeaderMap {
@@ -111,7 +115,7 @@ pub fn HeaderMap::copy(self : HeaderMap) -> HeaderMap {
 }
 
 ///|
-pub fn HeaderMap::length(self : HeaderMap) -> Int {
+pub fn HeaderMap::length(self : HeaderMap) -> Int32 {
   self.entries.length()
 }
 
@@ -247,7 +251,7 @@ pub fn HeaderMap::fields(self : HeaderMap) -> Array[HeaderField] {
 }
 
 ///|
-fn parse_decimal_bytes(value : BytesView) -> Result[Int, HeaderError] {
+fn parse_decimal_bytes(value : BytesView) -> Result[Int32, HeaderError] {
   if value.is_empty() {
     return Err(InvalidContentLength)
   }
@@ -268,8 +272,10 @@ fn parse_decimal_bytes(value : BytesView) -> Result[Int, HeaderError] {
 ///|
 /// Parses all Content-Length field lines and comma-separated members. Repeated
 /// values are accepted only when their decimal values are identical.
-pub fn HeaderMap::content_length(self : HeaderMap) -> Result[Int?, HeaderError] {
-  let mut expected : Int? = None
+pub fn HeaderMap::content_length(
+  self : HeaderMap,
+) -> Result[Int32?, HeaderError] {
+  let mut expected : Int32? = None
   for value in self.get_all_string("content-length") {
     let bytes = value.bytes
     let mut start = 0

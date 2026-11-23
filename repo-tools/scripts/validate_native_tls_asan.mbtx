@@ -1,9 +1,11 @@
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
   "moonbitlang/async@0.22.4/process",
   "moonbitlang/core/env",
 }
+----
 
 async fn main {
   let evidence = "_build/native-tls-asan"
@@ -29,10 +31,10 @@ async fn main {
     "  link: { \"native\": { \"cc-flags\": \"-g -fsanitize=address -fno-omit-frame-pointer\", \"stub-cc-flags\": \"-g -fsanitize=address -fno-omit-frame-pointer\", \"cc-link-flags\": \"-fsanitize=address\" } },\n" + suffix.to_owned()
   let mut status = -1
   {
-    defer {
+    defer @async.protect_from_cancel(async fn() {
       @fs.write_file(package_path, original_package)
       @fs.write_file(runtime_path, original_runtime)
-    }
+    })
     @fs.write_file(package_path, asan_package)
     let (compile_status, _, compile_errors) = @process.collect_output(
       "/usr/bin/clang", ["-c", dummy, "-o", runtime_path],

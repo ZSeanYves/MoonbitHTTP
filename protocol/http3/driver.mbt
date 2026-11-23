@@ -1,6 +1,7 @@
 ///|
 /// Actions emitted by the HTTP/3 stream driver. The driver never writes a
 /// socket; a QUIC adapter sends `SendOnStream` and applies reset/close actions.
+#derive(Eq, Debug)
 pub(all) enum H3DriverAction {
   Event(H3Action)
   SendOnStream(Int64, Bytes, Bool)
@@ -8,7 +9,7 @@ pub(all) enum H3DriverAction {
   StopSending(Int64, H3ErrorCode)
   CloseConnection(H3ErrorCode)
   QpackStreamReady(Int64)
-} derive(Eq, Debug)
+}
 
 ///|
 pub struct Http3Driver {
@@ -17,7 +18,7 @@ pub struct Http3Driver {
   kinds : Map[Int64, H3UnidirectionalStream]
   prefixes : Map[Int64, Bytes]
   blocked_frames : Map[Int64, Array[Http3Frame]]
-  mut blocked_bytes : Int
+  mut blocked_bytes : Int32
   pending_fin : Set[Int64]
   mut failure : Http3Error?
   local_control_stream : Int64
@@ -37,8 +38,8 @@ fn h3_driver_local_uni_ids(role : H3Role) -> (Int64, Int64, Int64) {
 ///|
 pub fn Http3Driver::new(
   role : H3Role,
-  limits? : @types.Limits = @types.Limits::defaults(),
-  qpack_limits? : QpackLimits = QpackLimits::defaults(),
+  limits~ : @types.Limits = @types.Limits::defaults(),
+  qpack_limits~ : QpackLimits = QpackLimits::defaults(),
 ) -> Result[Http3Driver, Http3Error] {
   let connection = match Http3Connection::new(role, limits~, qpack_limits~) {
     Ok(value) => value
@@ -88,7 +89,7 @@ pub fn Http3Driver::local_qpack_decoder_stream(self : Http3Driver) -> Int64 {
 ///|
 pub fn Http3Driver::initial_control_bytes(
   self : Http3Driver,
-  enable_connect_protocol? : Bool = false,
+  enable_connect_protocol~ : Bool = false,
 ) -> Result[Bytes, Http3Error] {
   encode_http3_frame(
     self.connection.local_settings_frame(enable_connect_protocol~),
@@ -173,7 +174,7 @@ fn Http3Driver::h3_driver_replay_blocked(
 }
 
 ///|
-fn h3_driver_varint_bytes(value : Int64) -> Int {
+fn h3_driver_varint_bytes(value : Int64) -> Int32 {
   match h3_varint(value) {
     Ok(encoded) => encoded.length()
     // A frame that cannot be represented on the wire must never be admitted
@@ -184,7 +185,7 @@ fn h3_driver_varint_bytes(value : Int64) -> Int {
 }
 
 ///|
-fn h3_driver_saturating_add(left : Int, right : Int) -> Int {
+fn h3_driver_saturating_add(left : Int32, right : Int32) -> Int32 {
   if left >= @int.MAX_VALUE ||
     right >= @int.MAX_VALUE ||
     left > @int.MAX_VALUE - right {
@@ -199,7 +200,7 @@ fn h3_driver_saturating_add(left : Int, right : Int) -> Int {
 /// extension frames. Charge the exact encoded frame size, including the
 /// variable-length type and length fields. The previous fixed two-byte
 /// overhead undercounted payloads of 64 bytes or more and high frame types.
-fn h3_driver_blocked_frame_bytes(frame : Http3Frame) -> Int {
+fn h3_driver_blocked_frame_bytes(frame : Http3Frame) -> Int32 {
   let typ = match frame {
     H3Data(_) => H3_FRAME_DATA
     H3Headers(_) => H3_FRAME_HEADERS
@@ -495,7 +496,7 @@ fn Http3Driver::receive_fragment(
 ///|
 pub fn Http3Driver::open_request_stream(
   self : Http3Driver,
-  request_method? : String? = None,
+  request_method~ : String? = None,
 ) -> Result[Int64, Http3Error] {
   self.connection.open_request_stream(request_method~)
 }
@@ -506,7 +507,7 @@ pub fn Http3Driver::open_request_stream(
 /// streams with these IDs before sending the returned fragments.
 pub fn Http3Driver::initial_stream_actions(
   self : Http3Driver,
-  enable_connect_protocol? : Bool = false,
+  enable_connect_protocol~ : Bool = false,
 ) -> Result[Array[H3DriverAction], Http3Error] {
   let control = match self.initial_control_bytes(enable_connect_protocol~) {
     Ok(value) => value
@@ -646,7 +647,7 @@ pub fn Http3Driver::encode_headers(
   self : Http3Driver,
   stream_id : Int64,
   fields : Array[QpackField],
-  fin? : Bool = false,
+  fin~ : Bool = false,
 ) -> Result[(Bytes, Bool), Http3Error] {
   let bytes = match self.connection.encode_headers_frame(stream_id, fields) {
     Ok(value) => value
@@ -659,7 +660,7 @@ pub fn Http3Driver::encode_headers(
 pub fn Http3Driver::encode_data(
   self : Http3Driver,
   data : Bytes,
-  fin? : Bool = false,
+  fin~ : Bool = false,
 ) -> Result[(Bytes, Bool), Http3Error] {
   let bytes = match self.connection.encode_data_frame(data) {
     Ok(value) => value

@@ -6,7 +6,7 @@ pub struct UdpServerSocket {
   socket : @socket.UdpServer
   scheme : String
   authorize_peer : (@types.Endpoint) -> Result[Unit, @transport_api.PolicyError]
-  max_datagram_size : Int
+  max_datagram_size : Int32
   mut closed : Bool
 }
 
@@ -14,8 +14,8 @@ pub struct UdpServerSocket {
 pub async fn[P : @transport_api.NetworkPolicy] UdpServerSocket::bind(
   endpoint : @types.Endpoint,
   policy : P,
-  max_datagram_size? : Int = 65527,
-  dual_stack? : Bool = true,
+  max_datagram_size~ : Int32 = 65527,
+  dual_stack~ : Bool = true,
 ) -> Result[UdpServerSocket, @transport_api.TransportError] {
   if max_datagram_size <= 0 || max_datagram_size > 65527 {
     return Err(InvalidDatagramSize)

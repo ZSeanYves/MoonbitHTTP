@@ -7,7 +7,7 @@ pub struct QuicTlsDriver[P] {
   priv input : QuicHandshakeInput
   priv offsets : Array[Int64]
   priv pending : Array[QuicPendingCrypto]
-  priv mut pending_bytes : Int
+  priv mut pending_bytes : Int32
   priv mut started : Bool
   priv mut failure : QuicError?
 }
@@ -262,7 +262,7 @@ fn[P] QuicTlsDriver::send_crypto(
   bytes : Bytes,
   now_ms : Int64,
 ) -> Result[Array[QuicDriverAction], QuicError] {
-  let (space, index) : (PacketNumberSpace, Int) = match level {
+  let (space, index) : (PacketNumberSpace, Int32) = match level {
     QuicInitial => (Initial, 0)
     QuicHandshake => (Handshake, 1)
     QuicApplication => (Application, 2)
@@ -383,7 +383,7 @@ pub fn QuicDatagramDriver::set_peer_transport_parameters(
 }
 
 ///|
-fn QuicDatagramDriver::send_datagram_limit(self : QuicDatagramDriver) -> Int {
+fn QuicDatagramDriver::send_datagram_limit(self : QuicDatagramDriver) -> Int32 {
   let peer_limit = match self.peer_parameters {
     Some(params) => params.limits.max_udp_payload_size
     None => 1200

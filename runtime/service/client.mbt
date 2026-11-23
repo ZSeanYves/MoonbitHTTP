@@ -5,11 +5,11 @@ pub struct ClientConnection[R, W] {
   priv reader : R
   priv writer : W
   priv limits : @types.Limits
-  priv read_size : Int
-  priv request_headers_timeout_ms : Int?
-  priv request_body_timeout_ms : Int?
-  priv response_headers_timeout_ms : Int?
-  priv response_body_timeout_ms : Int?
+  priv read_size : Int32
+  priv request_headers_timeout_ms : Int32?
+  priv request_body_timeout_ms : Int32?
+  priv response_headers_timeout_ms : Int32?
+  priv response_body_timeout_ms : Int32?
   priv mut state : Http1ClientState
 }
 
@@ -22,10 +22,11 @@ priv enum Http1ClientState {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror ClientConnectionError {
   ConnectionClosed
   RequestInProgress
-} derive(Eq, Debug)
+}
 
 ///|
 fn[R, W] ClientConnection::finish_response(
@@ -39,17 +40,19 @@ fn[R, W] ClientConnection::finish_response(
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum ClientConnectionPhase {
   RequestHeaders
   RequestBody
   ResponseHeaders
   ResponseBody
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror ClientConnectionTimeout {
   ClientConnectionTimeout(ClientConnectionPhase)
-} derive(Eq, Debug)
+}
 
 ///|
 /// Builds a sequential HTTP/1 client with independent phase timeouts. `None`
@@ -57,14 +60,14 @@ pub(all) suberror ClientConnectionTimeout {
 pub fn[R, W] ClientConnection::new(
   reader : R,
   writer : W,
-  limits? : @types.Limits = @types.Limits::defaults(),
-  read_size? : Int = 8192,
-  request_headers_timeout_ms? : Int? = Some(30000),
-  request_body_timeout_ms? : Int? = Some(30000),
-  response_headers_timeout_ms? : Int? = Some(30000),
-  response_body_timeout_ms? : Int? = Some(30000),
+  limits~ : @types.Limits = @types.Limits::defaults(),
+  read_size~ : Int32 = 8192,
+  request_headers_timeout_ms~ : Int32? = Some(30000),
+  request_body_timeout_ms~ : Int32? = Some(30000),
+  response_headers_timeout_ms~ : Int32? = Some(30000),
+  response_body_timeout_ms~ : Int32? = Some(30000),
 ) -> Result[ClientConnection[R, W], ServiceConfigError] {
-  let timeouts : Array[(String, Int?)] = [
+  let timeouts : Array[(String, Int32?)] = [
     ("request headers", request_headers_timeout_ms),
     ("request body", request_body_timeout_ms),
     ("response headers", response_headers_timeout_ms),
@@ -96,8 +99,8 @@ pub fn[R, W] ClientConnection::new(
 ///|
 async fn[R : @aio.Reader] client_read_with_timeout(
   reader : R,
-  max_len : Int,
-  timeout_ms : Int?,
+  max_len : Int32,
+  timeout_ms : Int32?,
   phase : ClientConnectionPhase,
 ) -> Bytes? {
   read_some_with_timeout(reader, max_len, timeout_ms) catch {
@@ -110,7 +113,7 @@ async fn[R : @aio.Reader] client_read_with_timeout(
 async fn[W : @aio.Writer] client_write_with_timeout(
   writer : W,
   bytes : Bytes,
-  timeout_ms : Int?,
+  timeout_ms : Int32?,
   phase : ClientConnectionPhase,
 ) -> Unit {
   write_with_timeout(writer, bytes, timeout_ms) catch {
@@ -177,8 +180,8 @@ async fn[R, W : @aio.Writer, B : @body.Body] ClientConnection::write_upload(
 async fn[R : @aio.Reader, W] ClientConnection::read_response_head(
   self : ClientConnection[R, W],
   decoder : @http1.ResponseDecoder,
-  timeout_ms : Int?,
-  stop_at_continue? : Bool = false,
+  timeout_ms : Int32?,
+  stop_at_continue~ : Bool = false,
 ) -> @types.Response[Unit] {
   let mut received_continue = None
   for ;; {

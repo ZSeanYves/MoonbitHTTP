@@ -1,4 +1,5 @@
 ///|
+#derive(Eq, Debug)
 pub(all) suberror CacheError {
   InvalidLimits
   InvalidCacheControl
@@ -6,23 +7,24 @@ pub(all) suberror CacheError {
   InvalidVary
   InvalidRequest
   InvalidResponse
-  EntryTooLarge(Int)
+  EntryTooLarge(Int32)
   CacheFull
   NotCacheable(String)
   InvalidDate
   InvalidValidator
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct CacheLimits {
-  max_entries : Int
-  max_total_bytes : Int
-  max_entry_bytes : Int
-  max_metadata_bytes : Int
-  max_vary_fields : Int
-  max_directives : Int
+  max_entries : Int32
+  max_total_bytes : Int32
+  max_entry_bytes : Int32
+  max_metadata_bytes : Int32
+  max_vary_fields : Int32
+  max_directives : Int32
   heuristic_max_age_seconds : Int64
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn CacheLimits::defaults() -> CacheLimits {
@@ -77,6 +79,7 @@ pub fn CacheConfig::validate(self : CacheConfig) -> Result[Unit, CacheError] {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct CacheControl {
   mut no_cache : Bool
   mut no_store : Bool
@@ -94,7 +97,7 @@ pub(all) struct CacheControl {
   mut immutable : Bool
   mut no_transform : Bool
   mut only_if_cached : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn CacheControl::empty() -> CacheControl {
@@ -188,16 +191,18 @@ pub fn CacheHit::last_modified(self : CacheHit) -> String? {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum CacheStoreOutcome {
   CacheStored
   CacheReplaced
   CacheNotStored(CacheError)
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum CacheCondition {
   ConditionMatches
   ConditionDoesNotMatch
   ConditionAbsent
   ConditionMalformed
-} derive(Eq, Debug)
+}

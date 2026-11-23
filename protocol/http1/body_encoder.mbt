@@ -3,7 +3,7 @@
 /// A rejected operation does not consume bytes or change framing state.
 pub struct BodyEncoder {
   priv framing : BodyFraming
-  priv mut remaining : Int?
+  priv mut remaining : Int32?
   priv mut ended : Bool
 }
 

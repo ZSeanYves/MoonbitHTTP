@@ -10,6 +10,7 @@ import {
 // Values
 
 // Errors
+#derive(Eq, @debug.Debug)
 pub(all) suberror ServerError {
   InvalidConfig(String)
   AlreadyRunning
@@ -21,7 +22,7 @@ pub(all) suberror ServerError {
   ShutdownTimeout
   Closed
   Policy(@transport.PolicyError)
-} derive(Eq, @debug.Debug)
+}
 pub fn ServerError::equal(Self, Self) -> Bool
 pub fn ServerError::not_equal(Self, Self) -> Bool
 pub fn ServerError::to_repr(Self) -> @debug.Repr
@@ -44,39 +45,42 @@ pub fn ServerConfig::with_error_responder(Self, (Error) -> Unit) -> Self
 pub fn ServerConfig::with_limits(Self, ServerLimits) -> Self
 pub fn ServerConfig::with_observer(Self, (ServerEvent) -> Unit) -> Self
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ServerEvent {
   StateChanged(ServerState)
-  Accepted(Int)
+  Accepted(Int32)
   RejectedAtCapacity
-  AcceptError(Int)
-  ConnectionStarted(Int)
-  ConnectionFinished(Int)
-  HandlerError(Int)
+  AcceptError(Int32)
+  ConnectionStarted(Int32)
+  ConnectionFinished(Int32)
+  HandlerError(Int32)
   ShutdownStarted
   ShutdownFinished
-} derive(Eq, @debug.Debug)
+}
 pub fn ServerEvent::equal(Self, Self) -> Bool
 pub fn ServerEvent::not_equal(Self, Self) -> Bool
 pub fn ServerEvent::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct ServerLimits {
-  max_connections : Int
-  max_accept_errors : Int
-  graceful_timeout_ms : Int?
-} derive(Eq, @debug.Debug)
+  max_connections : Int32
+  max_accept_errors : Int32
+  graceful_timeout_ms : Int32?
+}
 pub fn ServerLimits::defaults() -> Self
 pub fn ServerLimits::equal(Self, Self) -> Bool
 pub fn ServerLimits::not_equal(Self, Self) -> Bool
 pub fn ServerLimits::to_repr(Self) -> @debug.Repr
 pub fn ServerLimits::validate(Self) -> Result[Unit, ServerError]
 
+#derive(Eq, @debug.Debug)
 pub(all) struct ServerMetrics {
   mut accepted : Int64
   mut rejected : Int64
   mut accept_errors : Int64
   mut completed : Int64
   mut handler_errors : Int64
-} derive(Eq, @debug.Debug)
+}
 pub fn ServerMetrics::accept_errors(Self) -> Int64
 pub fn ServerMetrics::accepted(Self) -> Int64
 pub fn ServerMetrics::completed(Self) -> Int64
@@ -87,22 +91,24 @@ pub fn ServerMetrics::not_equal(Self, Self) -> Bool
 pub fn ServerMetrics::rejected(Self) -> Int64
 pub fn ServerMetrics::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ServerPhase {
   Accept
   Connection
   Handler
   Shutdown
-} derive(Eq, @debug.Debug)
+}
 pub fn ServerPhase::equal(Self, Self) -> Bool
 pub fn ServerPhase::not_equal(Self, Self) -> Bool
 pub fn ServerPhase::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ServerState {
   Starting
   Running
   Draining
   Stopped
-} derive(Eq, @debug.Debug)
+}
 pub fn ServerState::equal(Self, Self) -> Bool
 pub fn ServerState::not_equal(Self, Self) -> Bool
 pub fn ServerState::to_repr(Self) -> @debug.Repr
@@ -110,25 +116,25 @@ pub fn ServerState::to_repr(Self) -> @debug.Repr
 pub struct ServerSupervisor {
   config : ServerConfig
   mut state : ServerState
-  mut active : Int
-  mut accept_errors : Int
-  mut next_connection_id : Int
+  mut active : Int32
+  mut accept_errors : Int32
+  mut next_connection_id : Int32
   metrics : ServerMetrics
   connections_changed : @cond_var.Cond
   mut close_listener : (() -> Unit)?
   mut cancel_accept : (() -> Unit)?
 }
-pub fn ServerSupervisor::active_connections(Self) -> Int
+pub fn ServerSupervisor::active_connections(Self) -> Int32
 pub fn ServerSupervisor::begin_shutdown(Self) -> Result[Unit, ServerError]
 pub fn ServerSupervisor::finish_shutdown(Self) -> Result[Unit, ServerError]
 pub fn ServerSupervisor::metrics(Self) -> ServerMetrics
 pub fn ServerSupervisor::new(config? : ServerConfig) -> Result[Self, ServerError]
 pub fn ServerSupervisor::record_accept_error(Self) -> Result[Unit, ServerError]
-pub fn ServerSupervisor::release(Self, Int, Error?) -> Unit
+pub fn ServerSupervisor::release(Self, Int32, Error?) -> Unit
 pub async fn[L : Listener] ServerSupervisor::serve(Self, L) -> Result[Unit, ServerError]
 pub fn ServerSupervisor::start(Self) -> Result[Unit, ServerError]
 pub fn ServerSupervisor::state(Self) -> ServerState
-pub fn ServerSupervisor::try_acquire(Self) -> Result[Int, ServerError]
+pub fn ServerSupervisor::try_acquire(Self) -> Result[Int32, ServerError]
 
 // Type aliases
 

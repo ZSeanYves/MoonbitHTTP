@@ -57,7 +57,7 @@ priv struct ClientDialer {
   network : ClientNetwork
   connect_options : @transport.ConnectOptions
   resolve_options : @transport.ResolveOptions
-  tls_timeout_ms : Int?
+  tls_timeout_ms : Int32?
 }
 
 ///|
@@ -65,7 +65,7 @@ fn ClientDialer::new(
   network : ClientNetwork,
   connect_options : @transport.ConnectOptions,
   resolve_options : @transport.ResolveOptions,
-  tls_timeout_ms : Int?,
+  tls_timeout_ms : Int32?,
 ) -> Result[ClientDialer, ClientError] {
   if connect_options.validate() is Err(_) {
     return Err(ClientInvalidOptions("invalid connect options"))
@@ -80,7 +80,7 @@ fn ClientDialer::new(
 }
 
 ///|
-fn client_deadline(start : Int64, timeout_ms : Int) -> Int64 {
+fn client_deadline(start : Int64, timeout_ms : Int32) -> Int64 {
   let timeout = timeout_ms.to_int64()
   if start > @int64.MAX_VALUE - timeout {
     @int64.MAX_VALUE
@@ -93,7 +93,7 @@ fn client_deadline(start : Int64, timeout_ms : Int) -> Int64 {
 fn client_phase_timeout(
   phase : ClientPhase,
   started : Int64,
-  timeout : Int,
+  timeout : Int32,
 ) -> ClientError {
   ClientTimeout(phase, timeout.to_int64(), client_deadline(started, timeout))
 }
@@ -102,7 +102,7 @@ fn client_phase_timeout(
 fn ClientDialer::timeout_error(
   self : ClientDialer,
   phase : ClientPhase,
-  timeout_ms : Int,
+  timeout_ms : Int32,
 ) -> ClientError {
   let start = (self.network.now_millis)().max(0L)
   client_phase_timeout(phase, start, timeout_ms)

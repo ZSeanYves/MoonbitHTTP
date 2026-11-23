@@ -15,23 +15,24 @@ pub fn decode_bytes_response(@types.Response[Bytes], limits? : ContentCodingLimi
 
 pub fn[B : @body.Body] decode_response(@types.Response[B], limits? : ContentCodingLimits) -> Result[@types.Response[DecodedBody[B]], ContentCodingError]
 
-pub fn parse_content_codings(@types.HeaderMap, max_codings? : Int) -> Result[Array[ContentCoding], ContentCodingError]
+pub fn parse_content_codings(@types.HeaderMap, max_codings? : Int32) -> Result[Array[ContentCoding], ContentCodingError]
 
 // Errors
+#derive(Eq, @debug.Debug)
 pub(all) suberror ContentCodingError {
   InvalidContentCodingLimits
   InvalidContentEncoding
   UnsupportedContentCoding(String)
-  TooManyContentCodings(Int)
-  EncodedBodyLimitExceeded(Int)
-  DecodedBodyLimitExceeded(Int)
+  TooManyContentCodings(Int32)
+  EncodedBodyLimitExceeded(Int32)
+  DecodedBodyLimitExceeded(Int32)
   TruncatedEncodedBody(ContentCoding)
   InvalidEncodedBody(ContentCoding)
   TrailingEncodedData(ContentCoding)
   DecoderAlreadyFinished(ContentCoding)
   DecoderStalled(ContentCoding)
   DecoderInputPending
-} derive(Eq, @debug.Debug)
+}
 pub fn ContentCodingError::equal(Self, Self) -> Bool
 pub fn ContentCodingError::not_equal(Self, Self) -> Bool
 pub fn ContentCodingError::to_repr(Self) -> @debug.Repr
@@ -39,39 +40,42 @@ pub fn ContentCodingError::to_repr(Self) -> @debug.Repr
 // Types and methods
 pub struct BrotliSink {
   chunks : Array[Bytes]
-  mut chunk_index : Int
-  mut chunk_offset : Int
+  mut chunk_index : Int32
+  mut chunk_offset : Int32
   mut final_seen : Bool
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ContentCoding {
   Identity
   Gzip
   Deflate
   Brotli
-} derive(Eq, @debug.Debug)
+}
 pub fn ContentCoding::equal(Self, Self) -> Bool
 pub fn ContentCoding::not_equal(Self, Self) -> Bool
 pub fn ContentCoding::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct ContentCodingLimits {
-  max_encoded_bytes : Int
-  max_decoded_bytes : Int
-  max_codings : Int
-  output_chunk_bytes : Int
-} derive(Eq, @debug.Debug)
+  max_encoded_bytes : Int32
+  max_decoded_bytes : Int32
+  max_codings : Int32
+  output_chunk_bytes : Int32
+}
 pub fn ContentCodingLimits::defaults() -> Self
 pub fn ContentCodingLimits::equal(Self, Self) -> Bool
-pub fn ContentCodingLimits::from_http_limits(@types.Limits, max_codings? : Int, output_chunk_bytes? : Int) -> Result[Self, ContentCodingError]
+pub fn ContentCodingLimits::from_http_limits(@types.Limits, max_codings? : Int32, output_chunk_bytes? : Int32) -> Result[Self, ContentCodingError]
 pub fn ContentCodingLimits::not_equal(Self, Self) -> Bool
 pub fn ContentCodingLimits::to_repr(Self) -> @debug.Repr
 pub fn ContentCodingLimits::validate(Self) -> Result[Unit, ContentCodingError]
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ContentDecodePoll {
   ContentDecodeNeedInput
   ContentDecoded(Bytes)
   ContentDecodeDone
-} derive(Eq, @debug.Debug)
+}
 pub fn ContentDecodePoll::equal(Self, Self) -> Bool
 pub fn ContentDecodePoll::not_equal(Self, Self) -> Bool
 pub fn ContentDecodePoll::to_repr(Self) -> @debug.Repr
@@ -80,14 +84,14 @@ pub struct ContentDecoder {
   coding : ContentCoding
   backend : DecoderBackend
   limits : ContentCodingLimits
-  mut encoded_bytes : Int
-  mut decoded_bytes : Int
+  mut encoded_bytes : Int32
+  mut decoded_bytes : Int32
   mut finished : Bool
   mut input_ended : Bool
   mut failure : ContentCodingError?
 }
-pub fn ContentDecoder::decoded_bytes(Self) -> Int
-pub fn ContentDecoder::encoded_bytes(Self) -> Int
+pub fn ContentDecoder::decoded_bytes(Self) -> Int32
+pub fn ContentDecoder::encoded_bytes(Self) -> Int32
 pub fn ContentDecoder::is_finished(Self) -> Bool
 pub fn ContentDecoder::new(ContentCoding, limits? : ContentCodingLimits) -> Result[Self, ContentCodingError]
 pub fn ContentDecoder::step(Self, BytesView, end? : Bool) -> Result[DecodeStep, ContentCodingError]
@@ -95,7 +99,7 @@ pub fn ContentDecoder::step(Self, BytesView, end? : Bool) -> Result[DecodeStep, 
 pub struct ContentDecoderChain {
   decoders : Array[ContentDecoder]
   pending : Array[Bytes?]
-  offsets : Array[Int]
+  offsets : Array[Int32]
   upstream_done : Array[Bool]
   statuses : Array[DecodeStatus]
   mut awaiting_input : Bool
@@ -106,20 +110,22 @@ pub fn ContentDecoderChain::feed(Self, BytesView, end? : Bool) -> Result[Unit, C
 pub fn ContentDecoderChain::new(Array[ContentCoding], limits? : ContentCodingLimits) -> Result[Self, ContentCodingError]
 pub fn ContentDecoderChain::poll(Self) -> Result[ContentDecodePoll, ContentCodingError]
 
+#derive(Eq, @debug.Debug)
 pub(all) enum DecodeStatus {
   DecodeNeedInput
   DecodeNeedOutput
   DecodeDone
-} derive(Eq, @debug.Debug)
+}
 pub fn DecodeStatus::equal(Self, Self) -> Bool
 pub fn DecodeStatus::not_equal(Self, Self) -> Bool
 pub fn DecodeStatus::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct DecodeStep {
-  consumed : Int
+  consumed : Int32
   output : Bytes
   status : DecodeStatus
-} derive(Eq, @debug.Debug)
+}
 pub fn DecodeStep::equal(Self, Self) -> Bool
 pub fn DecodeStep::not_equal(Self, Self) -> Bool
 pub fn DecodeStep::to_repr(Self) -> @debug.Repr

@@ -7,8 +7,8 @@ priv enum QpackParseError {
 ///|
 fn qpack_decode_integer(
   input : BytesView,
-  prefix_bits : Int,
-) -> Result[(Int64, Int), QpackParseError] {
+  prefix_bits : Int32,
+) -> Result[(Int64, Int32), QpackParseError] {
   if input.is_empty() {
     return Err(QpackParseNeedMore)
   }
@@ -39,7 +39,7 @@ fn qpack_decode_integer(
 }
 
 ///|
-fn qpack_encode_integer(prefix_bits : Int, value : Int64) -> Array[Byte] {
+fn qpack_encode_integer(prefix_bits : Int32, value : Int64) -> Array[Byte] {
   let prefix_max = (1 << prefix_bits) - 1
   let output : Array[Byte] = []
   if value < prefix_max.to_int64() {
@@ -59,10 +59,10 @@ fn qpack_encode_integer(prefix_bits : Int, value : Int64) -> Array[Byte] {
 ///|
 fn qpack_decode_string(
   input : BytesView,
-  prefix_bits : Int,
-  huffman_mask : Int,
-  max_decoded_bytes : Int,
-) -> Result[(Bytes, Int), QpackParseError] {
+  prefix_bits : Int32,
+  huffman_mask : Int32,
+  max_decoded_bytes : Int32,
+) -> Result[(Bytes, Int32), QpackParseError] {
   if input.is_empty() {
     return Err(QpackParseNeedMore)
   }
@@ -104,9 +104,9 @@ fn qpack_decode_string(
 ///|
 fn qpack_encode_string(
   raw : BytesView,
-  prefix_bits : Int,
-  huffman_mask : Int,
-  leading_bits : Int,
+  prefix_bits : Int32,
+  huffman_mask : Int32,
+  leading_bits : Int32,
   use_huffman : Bool,
 ) -> Array[Byte] {
   let raw_bytes = raw.to_owned()
@@ -131,7 +131,7 @@ fn qpack_encode_string(
 }
 
 ///|
-fn qpack_field_size(field : QpackField) -> Int {
+fn qpack_field_size(field : QpackField) -> Int32 {
   @utf8.encode(field.name).length() + field.value.length() + 32
 }
 

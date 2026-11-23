@@ -1,36 +1,38 @@
 ///|
 /// Shared finite resource limits. Protocol and policy layers may impose
 /// smaller local limits, but must never silently exceed these values.
+#derive(Debug, Eq)
 pub(all) struct Limits {
-  max_start_line : Int
-  max_header_line : Int
-  max_header_count : Int
-  max_header_bytes : Int
-  max_body_bytes : Int
-  max_buffer_bytes : Int
-  max_streams : Int
-  max_concurrent_requests : Int
-  max_dynamic_table_bytes : Int
-  max_datagram_bytes : Int
-} derive(Debug, Eq)
+  max_start_line : Int32
+  max_header_line : Int32
+  max_header_count : Int32
+  max_header_bytes : Int32
+  max_body_bytes : Int32
+  max_buffer_bytes : Int32
+  max_streams : Int32
+  max_concurrent_requests : Int32
+  max_dynamic_table_bytes : Int32
+  max_datagram_bytes : Int32
+}
 
 ///|
+#derive(Debug, Eq)
 pub(all) suberror LimitsError {
-  InvalidLimit(field~ : String, value~ : Int)
-} derive(Debug, Eq)
+  InvalidLimit(field~ : String, value~ : Int32)
+}
 
 ///|
 pub fn Limits::new(
-  max_start_line? : Int = 8192,
-  max_header_line? : Int = 8192,
-  max_header_count? : Int = 100,
-  max_header_bytes? : Int = 64 * 1024,
-  max_body_bytes? : Int = 16 * 1024 * 1024,
-  max_buffer_bytes? : Int = 256 * 1024,
-  max_streams? : Int = 100,
-  max_concurrent_requests? : Int = 100,
-  max_dynamic_table_bytes? : Int = 4096,
-  max_datagram_bytes? : Int = 65527,
+  max_start_line~ : Int32 = 8192,
+  max_header_line~ : Int32 = 8192,
+  max_header_count~ : Int32 = 100,
+  max_header_bytes~ : Int32 = 64 * 1024,
+  max_body_bytes~ : Int32 = 16 * 1024 * 1024,
+  max_buffer_bytes~ : Int32 = 256 * 1024,
+  max_streams~ : Int32 = 100,
+  max_concurrent_requests~ : Int32 = 100,
+  max_dynamic_table_bytes~ : Int32 = 4096,
+  max_datagram_bytes~ : Int32 = 65527,
 ) -> Result[Limits, LimitsError] {
   let limits = {
     max_start_line,
@@ -68,7 +70,7 @@ pub fn Limits::defaults() -> Limits {
 
 ///|
 pub fn Limits::validate(self : Limits) -> Result[Unit, LimitsError] {
-  let configured : Array[(String, Int, Bool)] = [
+  let configured : Array[(String, Int32, Bool)] = [
     ("max_start_line", self.max_start_line, false),
     ("max_header_line", self.max_header_line, false),
     ("max_header_count", self.max_header_count, true),

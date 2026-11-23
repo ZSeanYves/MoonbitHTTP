@@ -73,7 +73,7 @@ test "lost local CID rotation preserves the old route until peer retirement" {
 
 ///|
 struct CidEntropy {
-  mut fills : Int
+  mut fills : Int32
 }
 
 ///|

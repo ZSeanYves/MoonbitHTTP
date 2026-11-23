@@ -5,13 +5,14 @@ priv enum H3IncomingMessage {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum H3MessagePhase {
   H3WaitingHeaders
   H3OpenBody
   H3TrailersReceived
   H3MessageComplete
   H3MessageCancelled
-} derive(Eq, Debug)
+}
 
 ///|
 priv struct H3RequestStreamState {
@@ -102,7 +103,7 @@ fn H3RequestStreamState::receive_headers(
 fn H3RequestStreamState::receive_data(
   self : H3RequestStreamState,
   data : Bytes,
-  max_body_bytes : Int,
+  max_body_bytes : Int32,
 ) -> Result[Unit, Http3Error] {
   if self.phase != H3OpenBody {
     return Err(

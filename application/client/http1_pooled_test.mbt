@@ -50,10 +50,10 @@ async fn test_resolve_origin(
 ///|
 struct FacadeTestConnector {
   responses : Array[Bytes]
-  mut response_index : Int
+  mut response_index : Int32
   connect_hosts : Array[String]
   writes : Array[Bytes]
-  mut closes : Int
+  mut closes : Int32
 }
 
 ///|
@@ -401,7 +401,7 @@ async test "pooled HTTP/1: missing resolver rejects hostname before connector" {
       pooled_request("http://origin.test/", @types.HeaderMap::new()),
     )
     is Err(
-      ClientInvalidOptions("hostname endpoints require an explicit resolver")
+      ClientInvalidOptions("hostname endpoints require an explicit resolver"),
     ),
   )
   assert_eq(connected_hosts, [])
@@ -439,7 +439,7 @@ async test "pooled HTTP/1: proxy origins require explicit resolution" {
         pooled_request("http://origin.test/", @types.HeaderMap::new()),
       )
       is Err(
-        ClientInvalidOptions("hostname endpoints require an explicit resolver")
+        ClientInvalidOptions("hostname endpoints require an explicit resolver"),
       ),
     )
     executor.close()

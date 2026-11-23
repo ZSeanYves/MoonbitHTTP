@@ -12,7 +12,7 @@ fn IncomingStreams::new(first : Int64, limit : Int64) -> IncomingStreams {
 }
 
 ///|
-fn QuicConnection::stream_slots_used(self : QuicConnection) -> Int {
+fn QuicConnection::stream_slots_used(self : QuicConnection) -> Int32 {
   self.streams.length() +
   self.incoming_bidi.implicit.length() +
   self.incoming_uni.implicit.length()

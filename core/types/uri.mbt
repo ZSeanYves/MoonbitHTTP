@@ -1,32 +1,36 @@
 ///|
+#derive(Debug, Eq)
 pub(all) suberror AuthorityError {
   EmptyAuthority
   InvalidAuthority
   InvalidHost
   InvalidPort
-} derive(Debug, Eq)
+}
 
 ///|
 /// A validated URI authority. `host` never contains brackets; `value` retains
 /// the original spelling so callers can forward a request without rebuilding
 /// it from normalized components.
+#derive(Debug, Eq)
 pub struct Authority {
   value : String
   userinfo : String?
   host : String
-  port : Int?
+  port : Int32?
   ip_literal : Bool
-} derive(Debug, Eq)
+}
 
 ///|
+#derive(Debug, Eq)
 pub(all) enum UriForm {
   AsteriskForm
   OriginForm
   AbsoluteForm
   AuthorityForm
-} derive(Debug, Eq)
+}
 
 ///|
+#derive(Debug, Eq)
 pub struct Uri {
   value : String
   scheme : String?
@@ -35,20 +39,21 @@ pub struct Uri {
   query : String?
   fragment : String?
   form : UriForm
-} derive(Debug, Eq)
+}
 
 ///|
+#derive(Debug, Eq)
 pub(all) suberror UriError {
   InvalidUri(String)
   EmptyUri
-  InvalidCharacter(offset~ : Int)
-  InvalidPercentEncoding(offset~ : Int)
+  InvalidCharacter(offset~ : Int32)
+  InvalidPercentEncoding(offset~ : Int32)
   InvalidScheme
   InvalidAuthority(AuthorityError)
   InvalidRequestTarget
   FragmentNotAllowed
   UserinfoNotAllowed
-} derive(Debug, Eq)
+}
 
 ///|
 fn uri_is_alpha(byte : Byte) -> Bool {
@@ -119,7 +124,7 @@ fn uri_text(value : BytesView) -> String {
 ///|
 fn validate_uri_component(
   bytes : BytesView,
-  offset : Int,
+  offset : Int32,
   allow_slash : Bool,
   allow_question : Bool,
 ) -> Result[Unit, UriError] {
@@ -149,7 +154,7 @@ fn validate_uri_component(
 }
 
 ///|
-fn parse_port(bytes : BytesView) -> Result[Int?, AuthorityError] {
+fn parse_port(bytes : BytesView) -> Result[Int32?, AuthorityError] {
   if bytes.is_empty() {
     return Err(InvalidPort)
   }
@@ -266,7 +271,7 @@ pub fn Authority::parse(value : String) -> Result[Authority, AuthorityError] {
     return Err(InvalidHost)
   }
   let mut host_end = bytes.length()
-  let mut port : Int? = None
+  let mut port : Int32? = None
   let mut ip_literal = false
   if bytes[host_start] == b'[' {
     ip_literal = true
@@ -339,7 +344,7 @@ pub fn Authority::parse_endpoint(
 }
 
 ///|
-fn find_byte(bytes : BytesView, target : Byte, start : Int) -> Int {
+fn find_byte(bytes : BytesView, target : Byte, start : Int32) -> Int32 {
   for index in start..<bytes.length() {
     if bytes[index] == target {
       return index
@@ -349,7 +354,7 @@ fn find_byte(bytes : BytesView, target : Byte, start : Int) -> Int {
 }
 
 ///|
-fn earliest_delimiter(bytes : BytesView, start : Int) -> Int {
+fn earliest_delimiter(bytes : BytesView, start : Int32) -> Int32 {
   let mut end = bytes.length()
   for delimiter in [b'/', b'?', b'#'] {
     let index = find_byte(bytes, delimiter, start)
@@ -380,7 +385,7 @@ fn valid_scheme(bytes : BytesView) -> Bool {
 ///|
 fn split_path_query_fragment(
   bytes : BytesView,
-  start : Int,
+  start : Int32,
 ) -> Result[(String, String?, String?), UriError] {
   let query_mark = find_byte(bytes, b'?', start)
   let fragment_mark = find_byte(bytes, b'#', start)
@@ -630,7 +635,7 @@ pub fn Uri::without_fragment(self : Uri) -> Result[Uri, UriError] {
 }
 
 ///|
-fn uri_last_slash(bytes : BytesView) -> Int {
+fn uri_last_slash(bytes : BytesView) -> Int32 {
   let mut result = -1
   for index in 0..<bytes.length() {
     if bytes[index] == b'/' {

@@ -2,7 +2,7 @@
 struct SecurityCaptureWriter {
   bytes : Array[Byte]
   ready : @aqueue.Queue[Unit]
-  mut writes : Int
+  mut writes : Int32
 }
 
 ///|
@@ -24,7 +24,7 @@ impl @aio.Writer for SecurityCaptureWriter with fn write_once(
 
 ///|
 fn security_h2_response_head(
-  status : Int,
+  status : Int32,
   content_length : String?,
   end_stream : Bool,
 ) -> Bytes {
@@ -44,7 +44,7 @@ fn security_h2_response_head(
 async fn security_h2_response(
   frames : Bytes,
   consume : async (@service.H2Client) -> Unit,
-  max_body_bytes? : Int = 64,
+  max_body_bytes~ : Int32 = 64,
 ) -> Unit {
   let ready : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
   let reader = @aio.MemoryReader(async fn(writer) {
@@ -86,8 +86,8 @@ fn security_request(
 async fn security_expect_h2_failure(
   frames : Bytes,
   expected : @http2.H2ErrorCode,
-  http_method? : @types.Method = Get,
-  max_body_bytes? : Int = 64,
+  http_method~ : @types.Method = Get,
+  max_body_bytes~ : Int32 = 64,
 ) -> Unit {
   security_h2_response(
     frames,

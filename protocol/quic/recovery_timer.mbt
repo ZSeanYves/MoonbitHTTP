@@ -6,11 +6,12 @@ let quic_number_spaces : ReadOnlyArray[PacketNumberSpace] = [
 ]
 
 ///|
+#derive(Debug)
 priv struct QuicSpaceTimer {
   mut last_eliciting_ms : Int64
-  mut outstanding_eliciting : Int
+  mut outstanding_eliciting : Int32
   mut loss_at_ms : Int64?
-} derive(Debug)
+}
 
 ///|
 fn QuicSpaceTimer::new() -> QuicSpaceTimer {
@@ -52,7 +53,7 @@ fn QuicRecovery::recovery_pto(
 }
 
 ///|
-fn pto_backoff(base : Int64, count : Int, limit : Int64) -> Int64 {
+fn pto_backoff(base : Int64, count : Int32, limit : Int64) -> Int64 {
   if base > limit >> count {
     limit
   } else {
@@ -64,7 +65,7 @@ fn pto_backoff(base : Int64, count : Int, limit : Int64) -> Int64 {
 pub fn QuicRecovery::poll(
   self : QuicRecovery,
   now_ms : Int64,
-  application_confirmed? : Bool = true,
+  application_confirmed~ : Bool = true,
 ) -> Result[Array[QuicRecoveryEvent], QuicError] {
   self
   .timer_events(now_ms, application_confirmed, None)
@@ -92,7 +93,7 @@ fn QuicRecovery::probe_sent(
 fn quic_deadline_ms(
   start : Int64,
   duration : Int64,
-  periods? : Int64 = 1L,
+  periods~ : Int64 = 1L,
 ) -> Int64 {
   if duration > (@int64.MAX_VALUE - start) / periods {
     @int64.MAX_VALUE

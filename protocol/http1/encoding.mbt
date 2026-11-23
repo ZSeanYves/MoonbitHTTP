@@ -91,7 +91,7 @@ pub fn encode_request_head(
 }
 
 ///|
-fn default_reason(status : Int) -> String {
+fn default_reason(status : Int32) -> String {
   match status {
     100 => "Continue"
     101 => "Switching Protocols"
@@ -177,7 +177,7 @@ pub fn encode_body_data(
 ///|
 pub fn encode_body_end(
   framing : BodyFraming,
-  trailers? : @types.HeaderMap = @types.HeaderMap::new(),
+  trailers~ : @types.HeaderMap = @types.HeaderMap::new(),
 ) -> Result[Bytes, Http1Error] {
   if framing != Chunked {
     if !trailers.is_empty() {

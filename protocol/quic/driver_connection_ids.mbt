@@ -52,7 +52,7 @@ fn QuicDatagramDriver::receive_peer_connection_id(
 ///|
 fn QuicDatagramDriver::application_payload_limit(
   self : QuicDatagramDriver,
-) -> Int {
+) -> Int32 {
   let header_size = 1 + self.peer_connection_id.bytes().length() + 4 + 16
   (self.send_datagram_limit() - header_size).min(self.limits.max_frame_payload)
 }
@@ -64,7 +64,7 @@ fn QuicDatagramDriver::application_payload_limit(
 fn QuicDatagramDriver::append_pending_retirements(
   self : QuicDatagramDriver,
   frames : Array[QuicFrame],
-) -> Int {
+) -> Int32 {
   if self.pending_retirements.is_empty() {
     return 0
   }
@@ -91,7 +91,7 @@ fn QuicDatagramDriver::append_pending_retirements(
 ///|
 fn QuicDatagramDriver::consume_pending_retirements(
   self : QuicDatagramDriver,
-  count : Int,
+  count : Int32,
 ) -> Unit {
   for _ in 0..<count {
     self.pending_retirements.remove(0) |> ignore

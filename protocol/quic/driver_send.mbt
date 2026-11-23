@@ -2,7 +2,7 @@
 fn QuicDatagramDriver::quic_driver_next_number(
   self : QuicDatagramDriver,
   space : PacketNumberSpace,
-) -> Result[(Int64, Int), QuicError] {
+) -> Result[(Int64, Int32), QuicError] {
   let number = match space {
     Initial => self.next_initial_packet
     Handshake => self.next_handshake_packet
@@ -40,7 +40,7 @@ fn QuicDatagramDriver::packet_layout(
   self : QuicDatagramDriver,
   space : PacketNumberSpace,
   payload : Bytes,
-  minimum : Int,
+  minimum : Int32,
 ) -> Result[QuicPacketLayout, QuicError] {
   let (packet_number, packet_number_length) = match
     self.quic_driver_next_number(space) {

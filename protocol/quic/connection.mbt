@@ -1,18 +1,20 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum QuicConnectionState {
   Handshaking
   Established
   Draining
   Closed
-} derive(Eq, Debug)
+}
 
 ///|
 /// A peer's transport and application close codes occupy separate namespaces.
+#derive(Eq, Debug)
 pub(all) enum QuicPeerClose {
   TransportClose(Int64, String)
   ApplicationClose(Int64, String)
   StatelessReset
-} derive(Eq, Debug)
+}
 
 ///|
 priv enum StreamSendState {
@@ -42,7 +44,7 @@ priv struct QuicStreamState {
 fn quic_new_stream_state(
   send_max : Int64,
   recv_max : Int64,
-  reassembly_limit : Int,
+  reassembly_limit : Int32,
 ) -> Result[QuicStreamState, QuicError] {
   let reassembler = match
     QuicCryptoReassembler::new(max_bytes=reassembly_limit) {
@@ -66,6 +68,7 @@ fn quic_new_stream_state(
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum QuicAction {
   SendFrame(QuicFrame)
   StreamData(Int64, Bytes, Bool)
@@ -74,7 +77,7 @@ pub(all) enum QuicAction {
   ConnectionError(Int64, String)
   PeerAck(AckFrame)
   PacketIgnored
-} derive(Eq, Debug)
+}
 
 ///|
 pub struct QuicConnection {
@@ -95,7 +98,7 @@ pub struct QuicConnection {
   priv incoming_uni : IncomingStreams
   priv recent_final_sizes : Map[Int64, Int64]
   priv final_size_ids : Array[Int64]
-  priv mut final_size_cursor : Int
+  priv mut final_size_cursor : Int32
   priv mut peer_max_streams_bidi : Int64
   priv mut peer_max_streams_uni : Int64
   priv mut next_stream_id : Int64
@@ -106,8 +109,8 @@ pub struct QuicConnection {
 ///|
 pub fn QuicConnection::new(
   role : QuicRole,
-  limits? : QuicLimits = QuicLimits::defaults(),
-  transport_params? : QuicTransportParams = QuicTransportParams::defaults(),
+  limits~ : QuicLimits = QuicLimits::defaults(),
+  transport_params~ : QuicTransportParams = QuicTransportParams::defaults(),
 ) -> Result[QuicConnection, QuicError] {
   match limits.validate() {
     Ok(_) => ()

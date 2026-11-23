@@ -4,7 +4,7 @@ pub(all) struct QuicOpenedPacket {
   header : Bytes
   payload : Bytes
   packet_number : Int64
-  packet_number_length : Int
+  packet_number_length : Int32
   key_phase : Bool
 }
 
@@ -24,7 +24,7 @@ pub fn QuicOpenedPacket::packet_number(self : QuicOpenedPacket) -> Int64 {
 }
 
 ///|
-pub fn QuicOpenedPacket::packet_number_length(self : QuicOpenedPacket) -> Int {
+pub fn QuicOpenedPacket::packet_number_length(self : QuicOpenedPacket) -> Int32 {
   self.packet_number_length
 }
 
@@ -61,7 +61,7 @@ pub fn quic_initial_packet_keys(
 }
 
 ///|
-fn quic_packet_number_limit(length : Int) -> Int64 {
+fn quic_packet_number_limit(length : Int32) -> Int64 {
   match length {
     1 => 0xffL
     2 => 0xffffL
@@ -71,7 +71,7 @@ fn quic_packet_number_limit(length : Int) -> Int64 {
 }
 
 ///|
-fn quic_packet_number_bytes(packet_number : Int64, length : Int) -> Bytes {
+fn quic_packet_number_bytes(packet_number : Int64, length : Int32) -> Bytes {
   let output = FixedArray::make(length, b'\x00')
   for index in 0..<length {
     let shift = (length - index - 1) * 8
@@ -100,7 +100,7 @@ fn quic_join_bytes(parts : Array[Bytes]) -> Bytes {
 /// by RFC 9000 section 12.3. `largest_received` is -1 before the first packet.
 pub fn quic_reconstruct_packet_number(
   truncated : Int64,
-  packet_number_length : Int,
+  packet_number_length : Int32,
   largest_received : Int64,
 ) -> Result[Int64, QuicError] {
   if packet_number_length < 1 ||
@@ -132,7 +132,7 @@ pub fn quic_reconstruct_packet_number(
 }
 
 ///|
-fn quic_copy_with_byte(input : Bytes, index : Int, value : Byte) -> Bytes {
+fn quic_copy_with_byte(input : Bytes, index : Int32, value : Byte) -> Bytes {
   let output = input.to_array()
   output[index] = value
   Bytes::from_array(output)
@@ -144,7 +144,7 @@ fn quic_copy_with_byte(input : Bytes, index : Int, value : Byte) -> Bytes {
 /// header protection can be removed.
 pub fn quic_long_header_packet_layout(
   packet : Bytes,
-) -> Result[(Int, Int64), QuicError] {
+) -> Result[(Int32, Int64), QuicError] {
   quic_parse_long_header(packet).map(header => {
     (header.number_offset, header.length)
   })
@@ -156,7 +156,7 @@ pub fn quic_long_header_packet_layout(
 /// header protection and must only be inspected after the sampling step.
 pub fn quic_long_header_fields(
   packet : Bytes,
-) -> Result[(Int, ConnectionId, ConnectionId, Int, Int, Int64), QuicError] {
+) -> Result[(Int32, ConnectionId, ConnectionId, Int32, Int32, Int64), QuicError] {
   quic_parse_long_header(packet).map(header => {
     (
       header.version,
@@ -171,12 +171,12 @@ pub fn quic_long_header_fields(
 
 ///|
 priv struct QuicLongHeader {
-  version : Int
+  version : Int32
   destination : ConnectionId
   source : ConnectionId
-  kind : Int
+  kind : Int32
   token : BytesView
-  number_offset : Int
+  number_offset : Int32
   length : Int64
 }
 
@@ -248,7 +248,7 @@ fn quic_parse_long_header(
 /// Retry/Version Negotiation response without opening a payload.
 pub fn quic_long_header_connection_ids(
   packet : Bytes,
-) -> Result[(Int, ConnectionId, ConnectionId), QuicError] {
+) -> Result[(Int32, ConnectionId, ConnectionId), QuicError] {
   if packet.length() < 7 || (packet[0].to_int() & 0x80) == 0 {
     return Err(InvalidPacket("not a QUIC long-header packet"))
   }
@@ -280,7 +280,7 @@ pub fn quic_protect_packet_with_keys(
   keys : @tls.QuicPacketKeys,
   header_prefix : Bytes,
   packet_number : Int64,
-  packet_number_length : Int,
+  packet_number_length : Int32,
   payload : Bytes,
   long_header : Bool,
 ) -> Result[Bytes, QuicError] {
@@ -350,7 +350,7 @@ pub fn quic_protect_packet_with_keys(
 pub fn quic_open_packet_with_keys(
   keys : @tls.QuicPacketKeys,
   packet : Bytes,
-  packet_number_offset : Int,
+  packet_number_offset : Int32,
   largest_received : Int64,
   long_header : Bool,
 ) -> Result[QuicOpenedPacket, QuicError] {
@@ -377,7 +377,7 @@ pub fn quic_open_packet_with_keys(
 fn quic_open_protected(
   keys : @tls.QuicPacketKeys,
   packet : Bytes,
-  packet_number_offset : Int,
+  packet_number_offset : Int32,
   largest_received : Int64,
   long_header : Bool,
 ) -> Result[QuicOpenedPacket, QuicError] {

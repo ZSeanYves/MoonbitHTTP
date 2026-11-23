@@ -1,22 +1,24 @@
 ///|
+#derive(Eq, Debug)
 pub(all) suberror HttpDateError {
   InvalidHttpDate
   ObsoleteDateRequiresCurrentTime
   HttpDateOutOfRange
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug, Compare)
 pub(all) struct HttpDate {
   unix_seconds : Int64
-} derive(Eq, Debug, Compare)
+}
 
 ///|
-fn date_leap_year(year : Int) -> Bool {
+fn date_leap_year(year : Int32) -> Bool {
   year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 }
 
 ///|
-fn date_days_in_month(year : Int, month : Int) -> Int {
+fn date_days_in_month(year : Int32, month : Int32) -> Int32 {
   match month {
     1 | 3 | 5 | 7 | 8 | 10 | 12 => 31
     4 | 6 | 9 | 11 => 30
@@ -47,7 +49,7 @@ fn date_floor_mod(value : Int64, divisor : Int64) -> Int64 {
 }
 
 ///|
-fn days_from_civil(year : Int, month : Int, day : Int) -> Int64 {
+fn days_from_civil(year : Int32, month : Int32, day : Int32) -> Int64 {
   let adjusted_year = year.to_int64() - (if month <= 2 { 1L } else { 0L })
   let era = date_floor_div(adjusted_year, 400L)
   let year_of_era = adjusted_year - era * 400L
@@ -61,7 +63,7 @@ fn days_from_civil(year : Int, month : Int, day : Int) -> Int64 {
 }
 
 ///|
-fn civil_from_days(days : Int64) -> (Int, Int, Int) {
+fn civil_from_days(days : Int64) -> (Int32, Int32, Int32) {
   let shifted = days + 719468L
   let era = date_floor_div(shifted, 146097L)
   let day_of_era = shifted - era * 146097L
@@ -85,7 +87,7 @@ fn civil_from_days(days : Int64) -> (Int, Int, Int) {
 }
 
 ///|
-fn date_parse_digits(bytes : BytesView, start : Int, count : Int) -> Int? {
+fn date_parse_digits(bytes : BytesView, start : Int32, count : Int32) -> Int32? {
   if start < 0 ||
     count <= 0 ||
     start > bytes.length() ||
@@ -104,7 +106,7 @@ fn date_parse_digits(bytes : BytesView, start : Int, count : Int) -> Int? {
 }
 
 ///|
-fn date_month(bytes : BytesView, start : Int) -> Int? {
+fn date_month(bytes : BytesView, start : Int32) -> Int32? {
   if start < 0 || start > bytes.length() || bytes.length() - start < 3 {
     return None
   }
@@ -126,7 +128,7 @@ fn date_month(bytes : BytesView, start : Int) -> Int? {
 }
 
 ///|
-fn date_weekday(bytes : BytesView, start : Int) -> Int? {
+fn date_weekday(bytes : BytesView, start : Int32) -> Int32? {
   if start < 0 || start > bytes.length() || bytes.length() - start < 3 {
     return None
   }
@@ -144,13 +146,13 @@ fn date_weekday(bytes : BytesView, start : Int) -> Int? {
 
 ///|
 fn date_components_to_seconds(
-  weekday : Int,
-  year : Int,
-  month : Int,
-  day : Int,
-  hour : Int,
-  minute : Int,
-  second : Int,
+  weekday : Int32,
+  year : Int32,
+  month : Int32,
+  day : Int32,
+  hour : Int32,
+  minute : Int32,
+  second : Int32,
 ) -> Result[Int64, HttpDateError] {
   if year < 1601 ||
     year > 9999 ||
@@ -180,12 +182,12 @@ fn date_components_to_seconds(
 
 ///|
 pub fn HttpDate::from_components(
-  year : Int,
-  month : Int,
-  day : Int,
-  hour : Int,
-  minute : Int,
-  second : Int,
+  year : Int32,
+  month : Int32,
+  day : Int32,
+  hour : Int32,
+  minute : Int32,
+  second : Int32,
 ) -> Result[HttpDate, HttpDateError] {
   if year < 1601 ||
     year > 9999 ||
@@ -253,8 +255,8 @@ fn parse_imf_fixdate(bytes : BytesView) -> Result[Int64, HttpDateError] {
 }
 
 ///|
-fn rfc850_weekday(bytes : BytesView) -> (Int, Int)? {
-  let names : Array[(Bytes, Int)] = [
+fn rfc850_weekday(bytes : BytesView) -> (Int32, Int32)? {
+  let names : Array[(Bytes, Int32)] = [
     (b"Sunday", 0),
     (b"Monday", 1),
     (b"Tuesday", 2),
@@ -380,7 +382,7 @@ fn parse_asctime_date(bytes : BytesView) -> Result[Int64, HttpDateError] {
 ///|
 pub fn HttpDate::parse(
   value : String,
-  now_seconds? : Int64? = None,
+  now_seconds~ : Int64? = None,
 ) -> Result[HttpDate, HttpDateError] {
   let bytes = @utf8.encode(value)
   let parsed = if bytes.length() >= 4 && bytes[3] == b',' {
@@ -414,7 +416,7 @@ pub fn HttpDate::unix_seconds(self : HttpDate) -> Int64 {
 }
 
 ///|
-fn date_two_digits(value : Int) -> String {
+fn date_two_digits(value : Int32) -> String {
   if value < 10 {
     "0" + value.to_string()
   } else {
@@ -423,7 +425,7 @@ fn date_two_digits(value : Int) -> String {
 }
 
 ///|
-fn date_four_digits(value : Int) -> String {
+fn date_four_digits(value : Int32) -> String {
   if value < 10 {
     "000" + value.to_string()
   } else if value < 100 {

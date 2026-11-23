@@ -111,7 +111,7 @@ impl @transport.StreamConnector for H2PoolConnector with fn connect(
 async fn[X] with_pool_peer(
   connector : H2PoolConnector,
   run : async (@client.Http2Client) -> X,
-  max_connections? : Int = 2,
+  max_connections~ : Int32 = 2,
 ) -> X {
   let ip = @types.IpAddress::parse("127.0.0.1").unwrap()
   @client.with_http2_client(

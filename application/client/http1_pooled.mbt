@@ -12,7 +12,7 @@ pub struct Http1PooledRoundTripper {
   priv proxy_tls_identity : String
   priv pool : ConnectionPool
   priv slots : @async.Semaphore
-  priv sessions : Map[Int, Http1PooledSession]
+  priv sessions : Map[Int32, Http1PooledSession]
   priv mut closed : Bool
 }
 
@@ -34,19 +34,19 @@ pub fn Http1PooledRoundTripper::new(
     @transport.PolicyError,
   ],
   now_millis~ : () -> Int64,
-  resolve? : (async (String, @transport.ResolveOptions) -> Result[
+  resolve~ : (async (String, @transport.ResolveOptions) -> Result[
     Array[@types.IpAddress],
     @transport.TransportError,
   ])? = None,
-  options? : RequestOptions = RequestOptions::defaults(),
-  proxy? : ProxyConfig = ProxyConfig::direct(),
-  origin_tls? : @transport.TlsOptions = http1_tls_defaults(),
-  proxy_tls? : @transport.TlsOptions = http1_tls_defaults(),
-  origin_tls_identity? : String = "origin-tls",
-  proxy_tls_identity? : String = "proxy-tls",
-  connect_options? : @transport.ConnectOptions = @transport.ConnectOptions::defaults(),
-  resolve_options? : @transport.ResolveOptions = @transport.ResolveOptions::defaults(),
-  pool_limits? : PoolLimits = PoolLimits::defaults(),
+  options~ : RequestOptions = RequestOptions::defaults(),
+  proxy~ : ProxyConfig = ProxyConfig::direct(),
+  origin_tls~ : @transport.TlsOptions = http1_tls_defaults(),
+  proxy_tls~ : @transport.TlsOptions = http1_tls_defaults(),
+  origin_tls_identity~ : String = "origin-tls",
+  proxy_tls_identity~ : String = "proxy-tls",
+  connect_options~ : @transport.ConnectOptions = @transport.ConnectOptions::defaults(),
+  resolve_options~ : @transport.ResolveOptions = @transport.ResolveOptions::defaults(),
+  pool_limits~ : PoolLimits = PoolLimits::defaults(),
 ) -> Result[Http1PooledRoundTripper, ClientError] {
   Http1PooledRoundTripper::from_network(
     { connect, tls_handshake, resolve, authorize, now_millis, },
@@ -147,15 +147,15 @@ pub fn[
   tls_provider : T,
   policy : P,
   clock : K,
-  options? : RequestOptions = RequestOptions::defaults(),
-  proxy? : ProxyConfig = ProxyConfig::direct(),
-  origin_tls? : @transport.TlsOptions = http1_tls_defaults(),
-  proxy_tls? : @transport.TlsOptions = http1_tls_defaults(),
-  origin_tls_identity? : String = "origin-tls",
-  proxy_tls_identity? : String = "proxy-tls",
-  connect_options? : @transport.ConnectOptions = @transport.ConnectOptions::defaults(),
-  resolve_options? : @transport.ResolveOptions = @transport.ResolveOptions::defaults(),
-  pool_limits? : PoolLimits = PoolLimits::defaults(),
+  options~ : RequestOptions = RequestOptions::defaults(),
+  proxy~ : ProxyConfig = ProxyConfig::direct(),
+  origin_tls~ : @transport.TlsOptions = http1_tls_defaults(),
+  proxy_tls~ : @transport.TlsOptions = http1_tls_defaults(),
+  origin_tls_identity~ : String = "origin-tls",
+  proxy_tls_identity~ : String = "proxy-tls",
+  connect_options~ : @transport.ConnectOptions = @transport.ConnectOptions::defaults(),
+  resolve_options~ : @transport.ResolveOptions = @transport.ResolveOptions::defaults(),
+  pool_limits~ : PoolLimits = PoolLimits::defaults(),
 ) -> Result[Http1PooledRoundTripper, ClientError] {
   Http1PooledRoundTripper::from_network(
     ClientNetwork::from_capabilities(

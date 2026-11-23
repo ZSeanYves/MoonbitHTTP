@@ -16,7 +16,7 @@ fn stream(
   id : Int64,
   offset : Int64,
   data : Bytes,
-  fin? : Bool = false,
+  fin~ : Bool = false,
 ) -> @quic.QuicFrame {
   Stream(@quic.StreamFrame::new(id, offset, data, fin).unwrap())
 }

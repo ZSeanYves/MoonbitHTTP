@@ -1,20 +1,22 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum H3UnidirectionalStream {
   H3ControlStream
   H3PushStream(Int64)
   H3QpackEncoderStream
   H3QpackDecoderStream
   H3UnknownStream(Int64)
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct H3Settings {
   qpack_max_table_capacity : Int64
   max_field_section_size : Int64
   qpack_blocked_streams : Int64
   enable_connect_protocol : Bool
   unknown : Array[H3Setting]
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn H3Settings::defaults() -> H3Settings {
@@ -35,7 +37,7 @@ pub fn Http3Connection::peer_settings(self : Http3Connection) -> H3Settings {
 ///|
 pub fn Http3Connection::local_settings_frame(
   self : Http3Connection,
-  enable_connect_protocol? : Bool = false,
+  enable_connect_protocol~ : Bool = false,
 ) -> Http3Frame {
   // RFC 9220 / RFC 8441: only the server can enable Extended CONNECT. Keep
   // this advertised capability monotonic if the settings frame is regenerated.
@@ -83,7 +85,7 @@ pub fn Http3Connection::register_remote_unidirectional(
   self : Http3Connection,
   stream_id : Int64,
   prefix : BytesView,
-) -> Result[(H3UnidirectionalStream, Int), Http3Error] {
+) -> Result[(H3UnidirectionalStream, Int32), Http3Error] {
   if self.failure is Some(error) {
     return Err(error)
   }

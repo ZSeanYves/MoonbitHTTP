@@ -146,8 +146,8 @@ pub struct NativeHttp3Listener {
     @quic.ConnectionId,
     @quic.ConnectionId,
   ) -> Unit
-  priv inbox_capacity : Int
-  priv datagram_size : Int
+  priv inbox_capacity : Int32
+  priv datagram_size : Int32
   priv mut serving : Bool
 }
 
@@ -157,12 +157,12 @@ pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
   policy : P,
   options : @transport.TlsOptions,
   handler : async (@types.Endpoint, @service.H3ConnectionIo) -> Unit,
-  limits? : @types.Limits = @types.Limits::defaults(),
-  qpack_limits? : @http3.QpackLimits = @http3.QpackLimits::defaults(),
-  transport_params? : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
-  pending_datagrams_per_peer? : Int = 16,
-  handshake_timeout_ms? : Int = 10000,
-  shutdown_timeout_ms? : Int = 5000,
+  limits~ : @types.Limits = @types.Limits::defaults(),
+  qpack_limits~ : @http3.QpackLimits = @http3.QpackLimits::defaults(),
+  transport_params~ : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
+  pending_datagrams_per_peer~ : Int32 = 16,
+  handshake_timeout_ms~ : Int32 = 10000,
+  shutdown_timeout_ms~ : Int32 = 5000,
 ) -> Result[NativeHttp3Listener, @server_api.ServerError] {
   if pending_datagrams_per_peer <= 0 ||
     handshake_timeout_ms <= 0 ||
@@ -422,13 +422,13 @@ pub async fn[P : @transport.NetworkPolicy, B : @body.Body] NativeHttp3Listener::
   policy : P,
   options : @transport.TlsOptions,
   handler : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
-  on_request_error? : (Int64, Error) -> Unit = (_, _) => (),
-  limits? : @types.Limits = @types.Limits::defaults(),
-  qpack_limits? : @http3.QpackLimits = @http3.QpackLimits::defaults(),
-  transport_params? : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
-  pending_datagrams_per_peer? : Int = 16,
-  handshake_timeout_ms? : Int = 10000,
-  shutdown_timeout_ms? : Int = 5000,
+  on_request_error~ : (Int64, Error) -> Unit = (_, _) => (),
+  limits~ : @types.Limits = @types.Limits::defaults(),
+  qpack_limits~ : @http3.QpackLimits = @http3.QpackLimits::defaults(),
+  transport_params~ : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
+  pending_datagrams_per_peer~ : Int32 = 16,
+  handshake_timeout_ms~ : Int32 = 10000,
+  shutdown_timeout_ms~ : Int32 = 5000,
 ) -> Result[NativeHttp3Listener, @server_api.ServerError] {
   let budget = limits.max_buffer_bytes.to_int64()
   NativeHttp3Listener::bind(

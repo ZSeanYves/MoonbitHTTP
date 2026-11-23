@@ -1,10 +1,12 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum H3Role {
   H3Client
   H3Server
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum H3Action {
   H3PeerSettingsReceived(H3Settings)
   H3SendQpackEncoderInstruction(Bytes)
@@ -17,7 +19,7 @@ pub(all) enum H3Action {
   H3MaxPushIdReceived(Int64)
   H3GoawayReceived(Int64)
   H3UnknownFrameIgnored(Int64)
-} derive(Eq, Debug)
+}
 
 ///|
 pub struct Http3Connection {
@@ -44,8 +46,8 @@ pub struct Http3Connection {
 ///|
 pub fn Http3Connection::new(
   role : H3Role,
-  limits? : @types.Limits = @types.Limits::defaults(),
-  qpack_limits? : QpackLimits = QpackLimits::defaults(),
+  limits~ : @types.Limits = @types.Limits::defaults(),
+  qpack_limits~ : QpackLimits = QpackLimits::defaults(),
 ) -> Result[Http3Connection, Http3Error] {
   match qpack_limits.validate_for(limits) {
     Ok(_) => ()
@@ -86,7 +88,7 @@ pub fn Http3Connection::qpack_encoder(self : Http3Connection) -> QpackEncoder {
 ///|
 pub fn Http3Connection::open_request_stream(
   self : Http3Connection,
-  request_method? : String? = None,
+  request_method~ : String? = None,
 ) -> Result[Int64, Http3Error] {
   self
   .next_request_id()

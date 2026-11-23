@@ -1,9 +1,10 @@
 ///|
+#derive(Eq, Debug)
 pub(all) suberror DomainError {
   InvalidDomain
   IpAddressHasNoPublicSuffix
   PublicSuffixHasNoRegistrableDomain
-} derive(Eq, Debug)
+}
 
 ///|
 fn psl_is_ipv4(value : String) -> Bool {
@@ -93,7 +94,7 @@ fn psl_split_labels(value : String) -> Array[String] {
 }
 
 ///|
-fn psl_join_labels(labels : Array[String], start : Int) -> String {
+fn psl_join_labels(labels : Array[String], start : Int32) -> String {
   let output = StringBuilder()
   for index in start..<labels.length() {
     if index > start {
@@ -105,7 +106,7 @@ fn psl_join_labels(labels : Array[String], start : Int) -> String {
 }
 
 ///|
-fn psl_suffix_length(normalized : String) -> Int {
+fn psl_suffix_length(normalized : String) -> Int32 {
   let labels = psl_split_labels(normalized)
   let mut best = 1
   let mut exception = 0

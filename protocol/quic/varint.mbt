@@ -1,7 +1,8 @@
 ///|
+#derive(Eq, Debug, Compare)
 pub(all) struct QuicVarInt {
   value : Int64
-} derive(Eq, Debug, Compare)
+}
 
 ///|
 pub fn QuicVarInt::new(value : Int64) -> Result[QuicVarInt, QuicError] {
@@ -17,7 +18,7 @@ pub fn QuicVarInt::value(self : QuicVarInt) -> Int64 {
 }
 
 ///|
-fn varint_to_index(value : Int64) -> Result[Int, QuicError] {
+fn varint_to_index(value : Int64) -> Result[Int32, QuicError] {
   if value < 0L || value > @int.MAX_VALUE.to_int64() {
     return Err(VarIntOverflow)
   }
@@ -25,12 +26,12 @@ fn varint_to_index(value : Int64) -> Result[Int, QuicError] {
 }
 
 ///|
-pub fn QuicVarInt::encoded_length(self : QuicVarInt) -> Int {
+pub fn QuicVarInt::encoded_length(self : QuicVarInt) -> Int32 {
   quic_encoded_varint_size(self.value)
 }
 
 ///|
-fn quic_encoded_varint_size(value : Int64) -> Int {
+fn quic_encoded_varint_size(value : Int64) -> Int32 {
   if value <= 63L {
     1
   } else if value <= 16383L {
@@ -73,7 +74,7 @@ pub fn QuicVarInt::encode(self : QuicVarInt) -> Bytes {
 }
 
 ///|
-fn quic_varint_length(first : Byte) -> Int {
+fn quic_varint_length(first : Byte) -> Int32 {
   match first.to_int() >> 6 {
     0 => 1
     1 => 2
@@ -85,8 +86,8 @@ fn quic_varint_length(first : Byte) -> Int {
 ///|
 pub fn quic_decode_varint(
   input : BytesView,
-  canonical? : Bool = false,
-) -> Result[(QuicVarInt, Int), QuicError] {
+  canonical~ : Bool = false,
+) -> Result[(QuicVarInt, Int32), QuicError] {
   if input.is_empty() {
     return Err(NeedMoreInput)
   }

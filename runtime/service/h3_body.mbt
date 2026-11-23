@@ -3,7 +3,7 @@ priv struct H3IncomingBody {
   io : H3ConnectionIo
   id : Int64
   chunks : @deque.Deque[Bytes]
-  mut buffered_bytes : Int
+  mut buffered_bytes : Int32
   changed : @cond_var.Cond
   mut trailers : @types.HeaderMap?
   mut finished : Bool
@@ -27,7 +27,7 @@ fn H3IncomingBody::new(io : H3ConnectionIo, id : Int64) -> H3IncomingBody {
 ///|
 fn H3IncomingBody::discard(
   self : H3IncomingBody,
-  reason? : Error = @body.BodyError::Cancelled,
+  reason~ : Error = @body.BodyError::Cancelled,
 ) -> Unit {
   if self.failure is Some(_) {
     return

@@ -7,22 +7,24 @@ import {
 }
 
 // Values
-pub async fn[B : Body] collect(B, max_bytes? : Int) -> (Bytes, @types.HeaderMap?)
+pub async fn[B : Body] collect(B, max_bytes? : Int32) -> (Bytes, @types.HeaderMap?)
 
 // Errors
+#derive(Eq, @debug.Debug)
 pub(all) suberror BodyError {
   DataAfterTrailers
   DuplicateTrailers
-  InvalidLimit(Int)
+  InvalidLimit(Int32)
   Cancelled
-} derive(Eq, @debug.Debug)
+}
 pub fn BodyError::equal(Self, Self) -> Bool
 pub fn BodyError::not_equal(Self, Self) -> Bool
 pub fn BodyError::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) suberror BodyLimitExceeded {
-  BodyLimitExceeded(limit~ : Int)
-} derive(Eq, @debug.Debug)
+  BodyLimitExceeded(limit~ : Int32)
+}
 pub fn BodyLimitExceeded::equal(Self, Self) -> Bool
 pub fn BodyLimitExceeded::not_equal(Self, Self) -> Bool
 pub fn BodyLimitExceeded::to_repr(Self) -> @debug.Repr
@@ -34,8 +36,8 @@ pub struct BodyStream {
 pub fn BodyStream::cancel(Self, Error) -> Unit
 pub fn BodyStream::fail(Self, Error) -> Unit
 pub fn BodyStream::finish(Self) -> Unit
-pub fn BodyStream::from_pull(async () -> Frame?, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit, on_cancel? : (Error) -> Unit) -> Self
-pub fn BodyStream::new(capacity? : Int, size_hint? : SizeHint, on_data_consumed? : async (Int) -> Unit, on_terminate? : (Error?) -> Unit, on_cancel? : (Error) -> Unit) -> Result[Self, BodyError]
+pub fn BodyStream::from_pull(async () -> Frame?, size_hint? : SizeHint, on_data_consumed? : async (Int32) -> Unit, on_terminate? : (Error?) -> Unit, on_cancel? : (Error) -> Unit) -> Self
+pub fn BodyStream::new(capacity? : Int32, size_hint? : SizeHint, on_data_consumed? : async (Int32) -> Unit, on_terminate? : (Error?) -> Unit, on_cancel? : (Error) -> Unit) -> Result[Self, BodyError]
 pub async fn BodyStream::next_frame(Self) -> Frame?
 pub async fn BodyStream::push(Self, Frame) -> Unit
 pub fn BodyStream::size_hint(Self) -> SizeHint
@@ -73,14 +75,14 @@ pub fn QueueBody::size_hint(Self) -> SizeHint
 pub impl Body for QueueBody
 
 pub(all) struct SizeHint {
-  lower : Int
-  upper : Int?
+  lower : Int32
+  upper : Int32?
 }
-pub fn SizeHint::exact(Int) -> Self
-pub fn SizeHint::exact_size(Self) -> Int?
-pub fn SizeHint::lower_bound(Self) -> Int
+pub fn SizeHint::exact(Int32) -> Self
+pub fn SizeHint::exact_size(Self) -> Int32?
+pub fn SizeHint::lower_bound(Self) -> Int32
 pub fn SizeHint::unknown() -> Self
-pub fn SizeHint::upper_bound(Self) -> Int?
+pub fn SizeHint::upper_bound(Self) -> Int32?
 
 // Type aliases
 

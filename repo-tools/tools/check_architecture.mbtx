@@ -1,8 +1,10 @@
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
   "moonbitlang/core/env",
 }
+----
 
 ///|
 struct Dependency {

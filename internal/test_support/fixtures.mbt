@@ -1,11 +1,12 @@
 ///|
+#derive(Debug, Eq)
 pub(all) suberror InjectedIoError {
   InjectedReadFailure
   InjectedWriteFailure
-} derive(Debug, Eq)
+}
 
 ///|
-pub fn fragment(input : BytesView, sizes : Array[Int]) -> Array[Bytes] {
+pub fn fragment(input : BytesView, sizes : Array[Int32]) -> Array[Bytes] {
   let chunks : Array[Bytes] = []
   let mut offset = 0
   for size in sizes {
@@ -29,17 +30,17 @@ pub fn fragment(input : BytesView, sizes : Array[Int]) -> Array[Bytes] {
 pub struct FaultReader {
   reader_buffer : @aio.ReaderBuffer
   chunks : Array[Bytes]
-  mut chunk_index : Int
-  mut chunk_offset : Int
-  mut reads : Int
-  fail_after : Int?
+  mut chunk_index : Int32
+  mut chunk_offset : Int32
+  mut reads : Int32
+  fail_after : Int32?
 }
 
 ///|
 #warnings("-alert_internal")
 pub fn FaultReader::new(
   chunks : Array[Bytes],
-  fail_after? : Int? = None,
+  fail_after~ : Int32? = None,
 ) -> FaultReader {
   {
     reader_buffer: @aio.ReaderBuffer::new(),
@@ -87,12 +88,12 @@ pub impl @aio.Reader for FaultReader with fn _direct_read(
 ///|
 pub struct RecordingWriter {
   bytes : Array[Byte]
-  mut writes : Int
-  fail_after : Int?
+  mut writes : Int32
+  fail_after : Int32?
 }
 
 ///|
-pub fn RecordingWriter::new(fail_after? : Int? = None) -> RecordingWriter {
+pub fn RecordingWriter::new(fail_after~ : Int32? = None) -> RecordingWriter {
   { bytes: [], writes: 0, fail_after, }
 }
 

@@ -1,7 +1,8 @@
 ///|
+#derive(Eq, Debug)
 pub(all) struct QuicTransportParams {
   max_idle_timeout : Int64
-  max_udp_payload_size : Int
+  max_udp_payload_size : Int32
   initial_max_data : Int64
   initial_max_stream_data_bidi_local : Int64
   initial_max_stream_data_bidi_remote : Int64
@@ -10,7 +11,7 @@ pub(all) struct QuicTransportParams {
   initial_max_streams_uni : Int64
   active_connection_id_limit : Int64
   disable_active_migration : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn QuicTransportParams::defaults() -> QuicTransportParams {

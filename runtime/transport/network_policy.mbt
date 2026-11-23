@@ -1,4 +1,5 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum PolicyOperation {
   Listen
   Accept
@@ -7,13 +8,14 @@ pub(all) enum PolicyOperation {
   Redirect
   ProxyConnect
   QuicEndpoint
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror PolicyError {
   Denied(PolicyOperation, String)
   InvalidRule(String)
-} derive(Eq, Debug)
+}
 
 ///|
 pub(open) trait NetworkPolicy {

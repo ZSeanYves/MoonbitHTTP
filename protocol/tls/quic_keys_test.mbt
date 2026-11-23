@@ -1,6 +1,6 @@
 ///|
 fn tls_hex(value : String) -> Bytes {
-  fn nibble(char : Char) -> Int {
+  fn nibble(char : Char) -> Int32 {
     let value = char.to_int()
     if value >= 0x30 && value <= 0x39 {
       value - 0x30

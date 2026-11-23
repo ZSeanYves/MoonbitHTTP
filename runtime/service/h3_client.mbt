@@ -1,11 +1,12 @@
 ///|
+#derive(Eq, Debug)
 pub(all) suberror H3ClientError {
   InvalidOrigin
   InvalidRequest(String)
   ClientClosed
   Goaway(Int64)
   PeerReset(Int64, Int64)
-} derive(Eq, Debug)
+}
 
 ///|
 priv struct H3ClientRequest {
@@ -326,8 +327,8 @@ async fn H3Client::read(self : H3Client) -> Unit {
 pub async fn[X] with_h3_client(
   io : H3ConnectionIo,
   run : async (H3Client) -> X,
-  origin_port? : Int? = None,
-  on_state_change? : () -> Unit = fn() {  },
+  origin_port~ : Int32? = None,
+  on_state_change~ : () -> Unit = fn() {  },
 ) -> X {
   guard io.authenticated_origin is Some(peer) else {
     raise H3ClientError::InvalidOrigin

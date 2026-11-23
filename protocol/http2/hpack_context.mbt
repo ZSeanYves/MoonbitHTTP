@@ -1,17 +1,17 @@
 ///|
 pub struct HpackTable {
   mut entries : Array[HpackHeader]
-  mut size : Int
-  mut max_size : Int
+  mut size : Int32
+  mut max_size : Int32
 }
 
 ///|
-pub fn HpackTable::new(max_size? : Int = 4096) -> HpackTable {
+pub fn HpackTable::new(max_size~ : Int32 = 4096) -> HpackTable {
   { entries: [], size: 0, max_size: max_size.max(0), }
 }
 
 ///|
-fn hpack_entry_size(header : HpackHeader) -> Int {
+fn hpack_entry_size(header : HpackHeader) -> Int32 {
   @utf8.encode(header.name).length() + header.value.length() + 32
 }
 
@@ -25,7 +25,7 @@ fn HpackTable::evict(self : HpackTable) -> Unit {
 }
 
 ///|
-pub fn HpackTable::resize(self : HpackTable, max_size : Int) -> Unit {
+pub fn HpackTable::resize(self : HpackTable, max_size : Int32) -> Unit {
   self.max_size = max_size.max(0)
   self.evict()
 }
@@ -48,12 +48,12 @@ pub fn HpackTable::insert(self : HpackTable, header : HpackHeader) -> Unit {
 }
 
 ///|
-pub fn HpackTable::length(self : HpackTable) -> Int {
+pub fn HpackTable::length(self : HpackTable) -> Int32 {
   self.entries.length()
 }
 
 ///|
-fn HpackTable::get_dynamic(self : HpackTable, index : Int) -> HpackHeader? {
+fn HpackTable::get_dynamic(self : HpackTable, index : Int32) -> HpackHeader? {
   let offset = index - 62
   if offset < 0 || offset >= self.entries.length() {
     None
@@ -65,16 +65,16 @@ fn HpackTable::get_dynamic(self : HpackTable, index : Int) -> HpackHeader? {
 ///|
 pub struct HpackContext {
   priv table : HpackTable
-  priv max_allowed_table_size : Int
-  priv max_header_list_size : Int
-  priv mut pending_min_table_size : Int?
-  priv mut pending_final_table_size : Int?
+  priv max_allowed_table_size : Int32
+  priv max_header_list_size : Int32
+  priv mut pending_min_table_size : Int32?
+  priv mut pending_final_table_size : Int32?
 }
 
 ///|
 pub fn HpackContext::new(
-  max_table_size? : Int = 4096,
-  max_header_list_size? : Int = 64 * 1024,
+  max_table_size~ : Int32 = 4096,
+  max_header_list_size~ : Int32 = 64 * 1024,
 ) -> HpackContext {
   let initial_size = max_table_size.max(0).min(4096)
   let initial_update = if initial_size == 4096 {
@@ -97,7 +97,7 @@ pub fn HpackContext::new(
 /// final size, so the decoder performs the same evictions (RFC 7541 section 4.2).
 pub fn HpackContext::set_encoder_table_size(
   self : HpackContext,
-  max_size : Int,
+  max_size : Int32,
 ) -> Unit {
   let size = max_size.max(0).min(self.max_allowed_table_size)
   if size == self.table.max_size {
@@ -114,14 +114,14 @@ pub fn HpackContext::set_encoder_table_size(
 }
 
 ///|
-fn append_table_size_update(out : Array[Byte], size : Int) -> Unit {
+fn append_table_size_update(out : Array[Byte], size : Int32) -> Unit {
   let encoded = encode_integer(5, size)
   encoded[0] = (encoded[0].to_int() | 0x20).to_byte()
   append_encoded(out, encoded)
 }
 
 ///|
-fn HpackContext::lookup(self : HpackContext, index : Int) -> HpackHeader? {
+fn HpackContext::lookup(self : HpackContext, index : Int32) -> HpackHeader? {
   if index <= 0 {
     return None
   }
@@ -139,9 +139,9 @@ fn HpackContext::lookup(self : HpackContext, index : Int) -> HpackHeader? {
 fn HpackContext::decode_name(
   self : HpackContext,
   block : BytesView,
-  pos : Int,
-  prefix : Int,
-) -> Result[(String, Int), String] {
+  pos : Int32,
+  prefix : Int32,
+) -> Result[(String, Int32), String] {
   let (index, used) = match decode_integer(block, pos, prefix) {
     Ok(value) => value
     Err(error) => return Err(error)
@@ -330,7 +330,7 @@ fn hpack_valid_decoded_field(header : HpackHeader) -> Bool {
 }
 
 ///|
-fn HpackContext::find_exact(self : HpackContext, header : HpackHeader) -> Int {
+fn HpackContext::find_exact(self : HpackContext, header : HpackHeader) -> Int32 {
   for index in 1..<=61 {
     if hpack_static_get(index) is Some((name, value)) &&
       name == header.name &&
@@ -347,7 +347,7 @@ fn HpackContext::find_exact(self : HpackContext, header : HpackHeader) -> Int {
 }
 
 ///|
-fn HpackContext::find_name(self : HpackContext, name : String) -> Int {
+fn HpackContext::find_name(self : HpackContext, name : String) -> Int32 {
   let static_index = hpack_static_find_name(name)
   if static_index != 0 {
     return static_index
@@ -432,6 +432,6 @@ pub fn HpackContext::encode_incremental(
 }
 
 ///|
-pub fn HpackContext::table_length(self : HpackContext) -> Int {
+pub fn HpackContext::table_length(self : HpackContext) -> Int32 {
   self.table.length()
 }

@@ -2,7 +2,7 @@
 priv struct QuicFrameWriter {
   output : @buffer.Buffer
   limits : QuicLimits
-  mut padding_offset : Int?
+  mut padding_offset : Int32?
 }
 
 ///|
@@ -186,7 +186,7 @@ fn QuicFrameWriter::frame(
 /// Encodes one frame into a canonical QUIC packet payload.
 pub fn quic_encode_frame(
   frame : QuicFrame,
-  limits? : QuicLimits = QuicLimits::defaults(),
+  limits~ : QuicLimits = QuicLimits::defaults(),
 ) -> Result[Bytes, QuicError] {
   quic_encode_frames([frame], limits~)
 }
@@ -195,7 +195,7 @@ pub fn quic_encode_frame(
 /// Checks the limits once and writes the entire payload within the byte budget.
 pub fn quic_encode_frames(
   frames : Array[QuicFrame],
-  limits? : QuicLimits = QuicLimits::defaults(),
+  limits~ : QuicLimits = QuicLimits::defaults(),
 ) -> Result[Bytes, QuicError] {
   try {
     limits.validate().unwrap_or_error()
@@ -212,7 +212,7 @@ pub fn quic_encode_frames(
 fn quic_write_frames(
   frames : Array[QuicFrame],
   limits : QuicLimits,
-) -> (Bytes, Int?) raise QuicError {
+) -> (Bytes, Int32?) raise QuicError {
   let writer : QuicFrameWriter = {
     output: Buffer(),
     limits,

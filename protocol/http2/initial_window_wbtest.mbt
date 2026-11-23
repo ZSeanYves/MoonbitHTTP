@@ -1,8 +1,8 @@
 ///|
 fn window_test_frame(
-  typ : Int,
-  flags : Int,
-  stream_id : Int,
+  typ : Int32,
+  flags : Int32,
+  stream_id : Int32,
   payload : Array[Byte],
 ) -> H2Frame {
   { header: { typ, flags, stream_id, length: payload.length(), }, payload, }

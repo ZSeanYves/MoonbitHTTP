@@ -1,10 +1,10 @@
 ///|
 /// Maximum positive HTTP/2 flow-control window.
-const H2_MAX_WINDOW : Int = 0x7fffffff
+const H2_MAX_WINDOW : Int32 = 0x7fffffff
 
 ///|
 /// Minimum signed stream window after a SETTINGS decrease.
-const H2_MIN_WINDOW : Int = -0x80000000
+const H2_MIN_WINDOW : Int32 = -0x80000000
 
 ///|
 /// Register the stream window carried by an outgoing SETTINGS frame, before
@@ -13,7 +13,7 @@ const H2_MIN_WINDOW : Int = -0x80000000
 /// paired with one outgoing SETTINGS frame, in the same order.
 pub fn H2Connection::set_local_initial_window(
   self : H2Connection,
-  window : Int,
+  window : Int32,
 ) -> Result[Unit, H2ProtocolError] {
   if window < 0 || window > 0x7fffffff {
     return Err(
@@ -71,7 +71,7 @@ fn H2Connection::acknowledge_local_initial_window(
 /// WINDOW_UPDATE frame sent to the peer.
 pub fn H2Connection::increase_connection_receive_window(
   self : H2Connection,
-  increment : Int,
+  increment : Int32,
 ) -> Result[Unit, H2ProtocolError] {
   if increment <= 0 || self.connection_recv_window > 0x7fffffff - increment {
     return Err(
@@ -148,8 +148,8 @@ fn H2Connection::receive_window_update(
 ///|
 pub fn H2Connection::release_capacity(
   self : H2Connection,
-  stream_id : Int,
-  amount : Int,
+  stream_id : Int32,
+  amount : Int32,
 ) -> Result[Array[H2Action], H2ProtocolError] {
   if amount <= 0 {
     return Err(
@@ -187,7 +187,7 @@ pub fn H2Connection::release_capacity(
 /// otherwise discarded stream have been accounted for.
 pub fn H2Connection::release_connection_capacity(
   self : H2Connection,
-  amount : Int,
+  amount : Int32,
 ) -> Result[H2Action, H2ProtocolError] {
   if amount <= 0 || self.connection_recv_window > 0x7fffffff - amount {
     return Err(
@@ -221,9 +221,9 @@ pub fn H2Connection::release_discarded_capacity(
 ///|
 pub fn H2Connection::reserve_send_capacity(
   self : H2Connection,
-  stream_id : Int,
-  requested : Int,
-) -> Result[Int, H2ProtocolError] {
+  stream_id : Int32,
+  requested : Int32,
+) -> Result[Int32, H2ProtocolError] {
   if requested < 0 {
     return Err(
       StreamError(stream_id, FlowControlError, "negative send capacity request"),

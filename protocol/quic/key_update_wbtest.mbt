@@ -2,8 +2,8 @@
 fn key_limit_driver_pair(
   client_endpoint : @types.Endpoint,
   server_endpoint : @types.Endpoint,
-  limits? : QuicLimits = QuicLimits::defaults(),
-  recovery_config? : QuicRecoveryConfig = QuicRecoveryConfig::defaults(),
+  limits~ : QuicLimits = QuicLimits::defaults(),
+  recovery_config~ : QuicRecoveryConfig = QuicRecoveryConfig::defaults(),
 ) -> (QuicDatagramDriver, QuicDatagramDriver) {
   let server_id = ConnectionId::new(b"server-id").unwrap()
   let client_id = ConnectionId::new(b"client-id").unwrap()

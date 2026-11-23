@@ -10,37 +10,41 @@ import {
 pub async fn resolve_endpoints(@types.Endpoint, async (String, ResolveOptions) -> Result[Array[@types.IpAddress], TransportError], options? : ResolveOptions) -> Result[Array[@types.Endpoint], TransportError]
 
 // Errors
+#derive(Eq, @debug.Debug)
 pub(all) suberror ConnectOptionsError {
   InvalidTimeout
   InvalidLocalPort
   InvalidLocalHost
-} derive(Eq, @debug.Debug)
+}
 pub fn ConnectOptionsError::equal(Self, Self) -> Bool
 pub fn ConnectOptionsError::not_equal(Self, Self) -> Bool
 pub fn ConnectOptionsError::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) suberror EntropyError {
   Unavailable
   Failed(String)
   InvalidBuffer
-} derive(Eq, @debug.Debug)
+}
 pub fn EntropyError::equal(Self, Self) -> Bool
 pub fn EntropyError::not_equal(Self, Self) -> Bool
 pub fn EntropyError::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) suberror PolicyError {
   Denied(PolicyOperation, String)
   InvalidRule(String)
-} derive(Eq, @debug.Debug)
+}
 pub fn PolicyError::equal(Self, Self) -> Bool
 pub fn PolicyError::not_equal(Self, Self) -> Bool
 pub fn PolicyError::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) suberror TlsError {
   InvalidOptions(TlsOptionsError)
   VerificationFailed(String)
   HostnameMismatch
-  Alert(Int)
+  Alert(Int32)
   HandshakeFailed(String)
   NativeFailure(TlsOperation, UInt64, Int64, String)
   Transport(TransportError)
@@ -52,11 +56,12 @@ pub(all) suberror TlsError {
   UnsupportedCipherSuite
   Unsupported
   Closed
-} derive(Eq, @debug.Debug)
+}
 pub fn TlsError::equal(Self, Self) -> Bool
 pub fn TlsError::not_equal(Self, Self) -> Bool
 pub fn TlsError::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) suberror TlsOptionsError {
   MissingServerName
   InvalidAlpn
@@ -68,11 +73,12 @@ pub(all) suberror TlsOptionsError {
   MissingRevocationList
   OcspRequiresClientRole
   EmptyTrustAnchors
-} derive(Eq, @debug.Debug)
+}
 pub fn TlsOptionsError::equal(Self, Self) -> Bool
 pub fn TlsOptionsError::not_equal(Self, Self) -> Bool
 pub fn TlsOptionsError::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) suberror TransportError {
   InvalidEndpoint(@types.EndpointError)
   InvalidOptions(ConnectOptionsError)
@@ -84,9 +90,9 @@ pub(all) suberror TransportError {
   InvalidDatagramSize
   InvalidResolveOptions
   Policy(PolicyError)
-  SystemFailure(TransportOperation, Int, String)
+  SystemFailure(TransportOperation, Int32, String)
   NativeFailure(TransportOperation, UInt64, Int64, String)
-} derive(Eq, @debug.Debug)
+}
 pub fn TransportError::equal(Self, Self) -> Bool
 pub fn TransportError::not_equal(Self, Self) -> Bool
 pub fn TransportError::to_repr(Self) -> @debug.Repr
@@ -97,22 +103,24 @@ pub fn AllowAllPolicy::authorize(Self, @types.Endpoint, PolicyOperation) -> Resu
 pub fn AllowAllPolicy::new() -> Self
 pub impl NetworkPolicy for AllowAllPolicy
 
+#derive(Eq, @debug.Debug)
 pub(all) struct ConnectOptions {
-  timeout_ms : Int?
-  idle_timeout_ms : Int?
+  timeout_ms : Int32?
+  idle_timeout_ms : Int32?
   local_host : String?
-  local_port : Int?
-} derive(Eq, @debug.Debug)
+  local_port : Int32?
+}
 pub fn ConnectOptions::defaults() -> Self
 pub fn ConnectOptions::equal(Self, Self) -> Bool
 pub fn ConnectOptions::not_equal(Self, Self) -> Bool
 pub fn ConnectOptions::to_repr(Self) -> @debug.Repr
 pub fn ConnectOptions::validate(Self) -> Result[Unit, ConnectOptionsError]
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Datagram {
   payload : Bytes
   endpoint : @types.Endpoint
-} derive(Eq, @debug.Debug)
+}
 pub fn Datagram::endpoint(Self) -> @types.Endpoint
 pub fn Datagram::equal(Self, Self) -> Bool
 pub fn Datagram::new(Bytes, @types.Endpoint) -> Self
@@ -125,6 +133,7 @@ pub fn DenyAllPolicy::authorize(Self, @types.Endpoint, PolicyOperation) -> Resul
 pub fn DenyAllPolicy::new() -> Self
 pub impl NetworkPolicy for DenyAllPolicy
 
+#derive(Eq, @debug.Debug)
 pub(all) enum PolicyOperation {
   Listen
   Accept
@@ -133,41 +142,45 @@ pub(all) enum PolicyOperation {
   Redirect
   ProxyConnect
   QuicEndpoint
-} derive(Eq, @debug.Debug)
+}
 pub fn PolicyOperation::equal(Self, Self) -> Bool
 pub fn PolicyOperation::not_equal(Self, Self) -> Bool
 pub fn PolicyOperation::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum QuicEncryptionLevel {
   QuicInitial
   QuicHandshake
   QuicApplication
-} derive(Eq, @debug.Debug)
+}
 pub fn QuicEncryptionLevel::equal(Self, Self) -> Bool
 pub fn QuicEncryptionLevel::not_equal(Self, Self) -> Bool
 pub fn QuicEncryptionLevel::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct QuicHandshakeMessage {
   level : QuicEncryptionLevel
-  message_type : Int
+  message_type : Int32
   encoded : Bytes
-} derive(Eq, @debug.Debug)
+}
 pub fn QuicHandshakeMessage::equal(Self, Self) -> Bool
 pub fn QuicHandshakeMessage::not_equal(Self, Self) -> Bool
 pub fn QuicHandshakeMessage::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum QuicSecretDirection {
   QuicReadSecret
   QuicWriteSecret
-} derive(Eq, @debug.Debug)
+}
 pub fn QuicSecretDirection::equal(Self, Self) -> Bool
 pub fn QuicSecretDirection::not_equal(Self, Self) -> Bool
 pub fn QuicSecretDirection::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum QuicTlsCipherSuite {
   TlsAes128GcmSha256
   TlsAes256GcmSha384
-} derive(Eq, @debug.Debug)
+}
 pub fn QuicTlsCipherSuite::equal(Self, Self) -> Bool
 pub fn QuicTlsCipherSuite::not_equal(Self, Self) -> Bool
 pub fn QuicTlsCipherSuite::to_repr(Self) -> @debug.Repr
@@ -178,10 +191,11 @@ pub(all) enum QuicTlsEvent {
   HandshakeComplete(String, Bytes)
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) struct ResolveOptions {
-  timeout_ms : Int?
-  max_results : Int
-} derive(Eq, @debug.Debug)
+  timeout_ms : Int32?
+  max_results : Int32
+}
 pub fn ResolveOptions::defaults() -> Self
 pub fn ResolveOptions::equal(Self, Self) -> Bool
 pub fn ResolveOptions::not_equal(Self, Self) -> Bool
@@ -204,7 +218,7 @@ pub fn SecureConnection::is_authenticated(Self) -> Bool
 pub fn SecureConnection::is_closed(Self) -> Bool
 pub fn SecureConnection::new(StreamConnection, TlsVersion, String, String?, String?, Bool) -> Self
 pub fn SecureConnection::peer_identity(Self) -> String?
-pub async fn SecureConnection::read(Self, Int) -> Result[Bytes?, TransportError]
+pub async fn SecureConnection::read(Self, Int32) -> Result[Bytes?, TransportError]
 pub fn SecureConnection::version(Self) -> TlsVersion
 pub async fn SecureConnection::write(Self, Bytes) -> Result[Unit, TransportError]
 
@@ -222,17 +236,18 @@ pub fn StreamConnection::close(Self) -> Unit
 pub fn StreamConnection::endpoint(Self) -> @types.Endpoint
 pub async fn StreamConnection::finish(Self) -> Result[Unit, TransportError]
 pub fn StreamConnection::is_closed(Self) -> Bool
-pub fn StreamConnection::new(@types.Endpoint, async (Int) -> Result[Bytes?, TransportError], async (Bytes) -> Result[Unit, TransportError], () -> Unit, finish? : async () -> Result[Unit, TransportError]) -> Self
-pub async fn StreamConnection::read(Self, Int) -> Result[Bytes?, TransportError]
+pub fn StreamConnection::new(@types.Endpoint, async (Int32) -> Result[Bytes?, TransportError], async (Bytes) -> Result[Unit, TransportError], () -> Unit, finish? : async () -> Result[Unit, TransportError]) -> Self
+pub async fn StreamConnection::read(Self, Int32) -> Result[Bytes?, TransportError]
 pub async fn StreamConnection::write(Self, Bytes) -> Result[Unit, TransportError]
 
+#derive(Eq, @debug.Debug)
 pub(all) enum TlsOperation {
   Configure
   Handshake
   Read
   Write
   Shutdown
-} derive(Eq, @debug.Debug)
+}
 pub fn TlsOperation::equal(Self, Self) -> Bool
 pub fn TlsOperation::not_equal(Self, Self) -> Bool
 pub fn TlsOperation::to_repr(Self) -> @debug.Repr
@@ -262,14 +277,16 @@ pub fn TlsOptions::validate_client(Self) -> Result[Unit, TlsOptionsError]
 pub fn TlsOptions::validate_common(Self) -> Result[Unit, TlsOptionsError]
 pub fn TlsOptions::validate_server(Self) -> Result[Unit, TlsOptionsError]
 
+#derive(Eq, @debug.Debug)
 pub(all) enum TlsVersion {
   Tls12
   Tls13
-} derive(Eq, @debug.Debug)
+}
 pub fn TlsVersion::equal(Self, Self) -> Bool
 pub fn TlsVersion::not_equal(Self, Self) -> Bool
 pub fn TlsVersion::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum TransportOperation {
   Resolve
   Connect
@@ -279,7 +296,7 @@ pub(all) enum TransportOperation {
   Close
   ProxyConnect
   QuicEndpoint
-} derive(Eq, @debug.Debug)
+}
 pub fn TransportOperation::equal(Self, Self) -> Bool
 pub fn TransportOperation::not_equal(Self, Self) -> Bool
 pub fn TransportOperation::to_repr(Self) -> @debug.Repr
@@ -300,7 +317,7 @@ pub(open) trait Clock {
 
 pub(open) trait DatagramSocket {
   async fn send(Self, @types.Endpoint, Bytes) -> Result[Unit, TransportError]
-  async fn receive(Self, Int) -> Result[Datagram, TransportError]
+  async fn receive(Self, Int32) -> Result[Datagram, TransportError]
   fn close(Self) -> Unit
 }
 

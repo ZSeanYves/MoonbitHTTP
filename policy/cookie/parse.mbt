@@ -1,5 +1,5 @@
 ///|
-fn cookie_find_byte(input : BytesView, target : Byte, start : Int) -> Int {
+fn cookie_find_byte(input : BytesView, target : Byte, start : Int32) -> Int32 {
   let mut index = start.max(0)
   while index < input.length() {
     if input[index] == target {

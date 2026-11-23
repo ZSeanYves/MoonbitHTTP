@@ -11,11 +11,11 @@ pub async fn[
   provider : T,
   tls : @transport.TlsOptions,
   handler : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
-  config? : @service.ServerConfig = @service.ServerConfig::defaults(),
-  handshake_timeout_ms? : Int = 10000,
-  shutdown_timeout_ms? : Int = 1000,
-  dual_stack? : Bool = true,
-  reuse_addr? : Bool = true,
+  config~ : @service.ServerConfig = @service.ServerConfig::defaults(),
+  handshake_timeout_ms~ : Int32 = 10000,
+  shutdown_timeout_ms~ : Int32 = 1000,
+  dual_stack~ : Bool = true,
+  reuse_addr~ : Bool = true,
 ) -> Result[NativeTcpListener, @server_api.ServerError] {
   if config.validate() is Err(_) {
     return Err(InvalidConfig("invalid HTTP service configuration"))

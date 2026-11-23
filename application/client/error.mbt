@@ -1,4 +1,5 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum ClientPhase {
   ClientResolve
   ClientConnect
@@ -9,27 +10,30 @@ pub(all) enum ClientPhase {
   ClientResponseBody
   ClientIdle
   ClientTotal
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror RedirectError {
   RedirectDisabled
-  RedirectLimitExceeded(Int)
+  RedirectLimitExceeded(Int32)
   RedirectLoop
   RedirectDowngradeDenied
   RedirectBodyNotReplayable
   InvalidRedirectLocation
-  StatusIsNotRedirect(Int)
-} derive(Eq, Debug)
+  StatusIsNotRedirect(Int32)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror RetryError {
   InvalidRetryPolicy
   RetryLimitExceeded
   RetryBodyNotReplayable
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror ClientError {
   ClientInvalidUri(@types.UriError)
   ClientInvalidEndpoint(@types.EndpointError)
@@ -41,7 +45,7 @@ pub(all) suberror ClientError {
   ClientTls(@transport.TlsError)
   ClientAuth(@auth.AuthError)
   ClientContentCoding(@content_coding.ContentCodingError)
-  ClientBodyLimit(Int)
+  ClientBodyLimit(Int32)
   ClientBody(@body.BodyError)
   ClientTimeout(ClientPhase, Int64, Int64)
   ClientCancelled(String)
@@ -49,4 +53,4 @@ pub(all) suberror ClientError {
   ClientHttp1(@http1.Http1Error)
   ClientHttp2(@http2.H2ProtocolError)
   ClientProtocol(String)
-} derive(Eq, Debug)
+}

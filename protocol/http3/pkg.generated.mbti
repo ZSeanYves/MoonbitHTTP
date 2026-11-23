@@ -39,13 +39,13 @@ pub const H3_STREAM_QPACK_DECODER : Int64 = 3
 
 pub const H3_STREAM_QPACK_ENCODER : Int64 = 2
 
-pub fn decode_http3_frame(BytesView, max_payload_bytes? : Int) -> Result[(Http3Frame, Int), Http3Error]
+pub fn decode_http3_frame(BytesView, max_payload_bytes? : Int32) -> Result[(Http3Frame, Int32), Http3Error]
 
 pub fn encode_http3_frame(Http3Frame) -> Result[Bytes, Http3Error]
 
 pub fn peer_closed_normally(@quic.QuicConnection) -> Bool
 
-pub fn qpack_encode_static(Array[QpackField], max_field_section_bytes? : Int, max_field_count? : Int, use_huffman? : Bool) -> Result[Bytes, Http3Error]
+pub fn qpack_encode_static(Array[QpackField], max_field_section_bytes? : Int32, max_field_count? : Int32, use_huffman? : Bool) -> Result[Bytes, Http3Error]
 
 pub fn qpack_insert_count_increment(Int64) -> Result[Bytes, Http3Error]
 
@@ -56,27 +56,30 @@ pub fn qpack_stream_cancellation(Int64) -> Result[Bytes, Http3Error]
 pub fn validate_http3_field_section(Int64, Array[QpackField], H3FieldSectionKind, request_method? : String?, enable_connect_protocol? : Bool) -> Result[H3MessageMetadata, Http3Error]
 
 // Errors
+#derive(Eq, @debug.Debug)
 pub(all) suberror Http3Error {
   Http3NeedMoreInput
   Http3WriteBlocked
   Http3UnexpectedEof(String)
   Http3ConnectionError(H3ErrorCode, String)
   Http3StreamError(Int64, H3ErrorCode, String)
-  Http3LimitExceeded(String, Int)
-} derive(Eq, @debug.Debug)
+  Http3LimitExceeded(String, Int32)
+}
 pub fn Http3Error::equal(Self, Self) -> Bool
 pub fn Http3Error::not_equal(Self, Self) -> Bool
 pub fn Http3Error::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) suberror Http3SessionError {
   Http3Protocol(Http3Error)
   Http3Transport(@quic.QuicError)
-} derive(Eq, @debug.Debug)
+}
 pub fn Http3SessionError::equal(Self, Self) -> Bool
 pub fn Http3SessionError::not_equal(Self, Self) -> Bool
 pub fn Http3SessionError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) enum H3Action {
   H3PeerSettingsReceived(H3Settings)
   H3SendQpackEncoderInstruction(Bytes)
@@ -89,11 +92,12 @@ pub(all) enum H3Action {
   H3MaxPushIdReceived(Int64)
   H3GoawayReceived(Int64)
   H3UnknownFrameIgnored(Int64)
-} derive(Eq, @debug.Debug)
+}
 pub fn H3Action::equal(Self, Self) -> Bool
 pub fn H3Action::not_equal(Self, Self) -> Bool
 pub fn H3Action::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum H3DriverAction {
   Event(H3Action)
   SendOnStream(Int64, Bytes, Bool)
@@ -101,11 +105,12 @@ pub(all) enum H3DriverAction {
   StopSending(Int64, H3ErrorCode)
   CloseConnection(H3ErrorCode)
   QpackStreamReady(Int64)
-} derive(Eq, @debug.Debug)
+}
 pub fn H3DriverAction::equal(Self, Self) -> Bool
 pub fn H3DriverAction::not_equal(Self, Self) -> Bool
 pub fn H3DriverAction::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum H3ErrorCode {
   H3NoError
   H3GeneralProtocolError
@@ -127,79 +132,86 @@ pub(all) enum H3ErrorCode {
   QpackDecompressionFailed
   QpackEncoderStreamError
   QpackDecoderStreamError
-} derive(Eq, @debug.Debug)
+}
 pub fn H3ErrorCode::equal(Self, Self) -> Bool
 pub fn H3ErrorCode::not_equal(Self, Self) -> Bool
 pub fn H3ErrorCode::to_repr(Self) -> @debug.Repr
 pub fn H3ErrorCode::wire_value(Self) -> Int64
 
+#derive(Eq, @debug.Debug)
 pub(all) enum H3FieldSectionKind {
   H3RequestFields
   H3ResponseFields
   H3TrailerFields
   H3PushPromiseFields
-} derive(Eq, @debug.Debug)
+}
 pub fn H3FieldSectionKind::equal(Self, Self) -> Bool
 pub fn H3FieldSectionKind::not_equal(Self, Self) -> Bool
 pub fn H3FieldSectionKind::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct H3MessageMetadata {
   content_length : Int64?
   http_method : String?
-  status : Int?
+  status : Int32?
   informational : Bool
   body_forbidden : Bool
-} derive(Eq, @debug.Debug)
+}
 pub fn H3MessageMetadata::equal(Self, Self) -> Bool
 pub fn H3MessageMetadata::not_equal(Self, Self) -> Bool
 pub fn H3MessageMetadata::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum H3MessagePhase {
   H3WaitingHeaders
   H3OpenBody
   H3TrailersReceived
   H3MessageComplete
   H3MessageCancelled
-} derive(Eq, @debug.Debug)
+}
 pub fn H3MessagePhase::equal(Self, Self) -> Bool
 pub fn H3MessagePhase::not_equal(Self, Self) -> Bool
 pub fn H3MessagePhase::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum H3Role {
   H3Client
   H3Server
-} derive(Eq, @debug.Debug)
+}
 pub fn H3Role::equal(Self, Self) -> Bool
 pub fn H3Role::not_equal(Self, Self) -> Bool
 pub fn H3Role::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct H3Setting {
   id : Int64
   value : Int64
-} derive(Eq, @debug.Debug)
+}
 pub fn H3Setting::equal(Self, Self) -> Bool
 pub fn H3Setting::not_equal(Self, Self) -> Bool
 pub fn H3Setting::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct H3Settings {
   qpack_max_table_capacity : Int64
   max_field_section_size : Int64
   qpack_blocked_streams : Int64
   enable_connect_protocol : Bool
   unknown : Array[H3Setting]
-} derive(Eq, @debug.Debug)
+}
 pub fn H3Settings::defaults() -> Self
 pub fn H3Settings::equal(Self, Self) -> Bool
 pub fn H3Settings::not_equal(Self, Self) -> Bool
 pub fn H3Settings::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum H3UnidirectionalStream {
   H3ControlStream
   H3PushStream(Int64)
   H3QpackEncoderStream
   H3QpackDecoderStream
   H3UnknownStream(Int64)
-} derive(Eq, @debug.Debug)
+}
 pub fn H3UnidirectionalStream::equal(Self, Self) -> Bool
 pub fn H3UnidirectionalStream::not_equal(Self, Self) -> Bool
 pub fn H3UnidirectionalStream::to_repr(Self) -> @debug.Repr
@@ -238,7 +250,7 @@ pub fn Http3Connection::qpack_decoder(Self) -> QpackDecoder
 pub fn Http3Connection::qpack_encoder(Self) -> QpackEncoder
 pub fn Http3Connection::receive_control_frame(Self, Http3Frame) -> Result[Array[H3Action], Http3Error]
 pub fn Http3Connection::receive_request_frame(Self, Int64, Http3Frame) -> Result[Array[H3Action], Http3Error]
-pub fn Http3Connection::register_remote_unidirectional(Self, Int64, BytesView) -> Result[(H3UnidirectionalStream, Int), Http3Error]
+pub fn Http3Connection::register_remote_unidirectional(Self, Int64, BytesView) -> Result[(H3UnidirectionalStream, Int32), Http3Error]
 pub fn Http3Connection::remote_unidirectional_closed(Self, Int64) -> Result[Unit, Http3Error]
 pub fn Http3Connection::stream_phase(Self, Int64) -> H3MessagePhase?
 
@@ -248,7 +260,7 @@ pub struct Http3Driver {
   kinds : Map[Int64, H3UnidirectionalStream]
   prefixes : Map[Int64, Bytes]
   blocked_frames : Map[Int64, Array[Http3Frame]]
-  mut blocked_bytes : Int
+  mut blocked_bytes : Int32
   pending_fin : @set.Set[Int64]
   mut failure : Http3Error?
   local_control_stream : Int64
@@ -271,6 +283,7 @@ pub fn Http3Driver::on_stream_data(Self, Int64, Bytes, Bool) -> Result[Array[H3D
 pub fn Http3Driver::on_stream_reset(Self, Int64) -> Result[Array[H3DriverAction], Http3Error]
 pub fn Http3Driver::open_request_stream(Self, request_method? : String?) -> Result[Int64, Http3Error]
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Http3Frame {
   H3Data(Bytes)
   H3Headers(Bytes)
@@ -280,20 +293,20 @@ pub(all) enum Http3Frame {
   H3Goaway(Int64)
   H3MaxPushId(Int64)
   H3Unknown(Int64, Bytes)
-} derive(Eq, @debug.Debug)
+}
 pub fn Http3Frame::equal(Self, Self) -> Bool
 pub fn Http3Frame::not_equal(Self, Self) -> Bool
 pub fn Http3Frame::to_repr(Self) -> @debug.Repr
 
 pub struct Http3FrameDecoder {
-  max_buffer_bytes : Int
-  max_payload_bytes : Int
+  max_buffer_bytes : Int32
+  max_payload_bytes : Int32
   mut failure : Http3Error?
   // private fields
 }
 pub fn Http3FrameDecoder::feed(Self, BytesView) -> Result[Unit, Http3Error]
 pub fn Http3FrameDecoder::finish(Self) -> Result[Unit, Http3Error]
-pub fn Http3FrameDecoder::new(max_buffer_bytes? : Int, max_payload_bytes? : Int) -> Result[Self, Http3Error]
+pub fn Http3FrameDecoder::new(max_buffer_bytes? : Int32, max_payload_bytes? : Int32) -> Result[Self, Http3Error]
 pub fn Http3FrameDecoder::next(Self) -> Result[Http3Frame?, Http3Error]
 
 pub struct Http3Session {
@@ -303,11 +316,11 @@ pub fn Http3Session::advance(Self, Array[@quic.QuicDriverAction], Int64) -> Arra
 pub fn Http3Session::can_write(Self, Int64) -> Bool
 pub fn Http3Session::cancel(Self, Int64, code? : H3ErrorCode) -> Result[Unit, Http3Error]
 pub fn Http3Session::close(Self, Int64, code? : H3ErrorCode) -> Result[@quic.QuicDriverAction?, @quic.QuicError]
-pub fn Http3Session::consume_body(Self, Int64, Int) -> Result[Unit, @quic.QuicError]
+pub fn Http3Session::consume_body(Self, Int64, Int32) -> Result[Unit, @quic.QuicError]
 pub fn Http3Session::defer_body_credit(Self) -> Unit
 pub fn Http3Session::ended(Self) -> Bool
 pub fn Http3Session::finish(Self, Int64) -> Result[Unit, Http3Error]
-pub fn[P] Http3Session::new(@quic.QuicTlsDriver[P], limits? : @types.Limits, qpack_limits? : QpackLimits, max_pending_writes? : Int) -> Result[Self, Http3Error]
+pub fn[P] Http3Session::new(@quic.QuicTlsDriver[P], limits? : @types.Limits, qpack_limits? : QpackLimits, max_pending_writes? : Int32) -> Result[Self, Http3Error]
 pub fn Http3Session::peer_goaway(Self) -> Int64?
 pub fn Http3Session::send_data(Self, Int64, Bytes, fin? : Bool) -> Result[Unit, Http3Error]
 pub fn Http3Session::send_goaway(Self, Int64) -> Result[Unit, Http3Error]
@@ -316,52 +329,54 @@ pub fn Http3Session::start_request(Self, Array[QpackField], fin? : Bool) -> Resu
 pub fn Http3Session::stop_reading(Self, Int64) -> Result[Unit, Http3Error]
 pub fn Http3Session::writes_pending(Self) -> Bool
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Http3SessionAction {
   Transport(@quic.QuicDriverAction)
   Message(H3Action)
   StreamFailed(Int64, H3ErrorCode)
   Failed(Http3SessionError)
-} derive(Eq, @debug.Debug)
+}
 pub fn Http3SessionAction::equal(Self, Self) -> Bool
 pub fn Http3SessionAction::not_equal(Self, Self) -> Bool
 pub fn Http3SessionAction::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum QpackDecodeResult {
   QpackDecoded(Array[QpackField], Bool)
   QpackBlocked(Int64)
-} derive(Eq, @debug.Debug)
+}
 pub fn QpackDecodeResult::equal(Self, Self) -> Bool
 pub fn QpackDecodeResult::not_equal(Self, Self) -> Bool
 pub fn QpackDecodeResult::to_repr(Self) -> @debug.Repr
 
 pub struct QpackDecoder {
   limits : QpackLimits
-  mut table_size : Int
-  mut capacity : Int
+  mut table_size : Int32
+  mut capacity : Int32
   mut total_inserts : Int64
   blocked : Map[Int64, Int64]
   mut encoder_buffer : Array[Byte]
   mut failure : Http3Error?
   // private fields
 }
-pub fn QpackDecoder::blocked_stream_count(Self) -> Int
+pub fn QpackDecoder::blocked_stream_count(Self) -> Int32
 pub fn QpackDecoder::cancel_stream(Self, Int64) -> Unit
-pub fn QpackDecoder::capacity(Self) -> Int
+pub fn QpackDecoder::capacity(Self) -> Int32
 pub fn QpackDecoder::decode_field_section(Self, Int64, BytesView) -> Result[QpackDecodeResult, Http3Error]
 pub fn QpackDecoder::feed_encoder_stream(Self, BytesView) -> Result[Unit, Http3Error]
 pub fn QpackDecoder::finish_encoder_stream(Self) -> Result[Unit, Http3Error]
 pub fn QpackDecoder::new(limits? : QpackLimits) -> Result[Self, Http3Error]
 pub fn QpackDecoder::ready_blocked_streams(Self) -> Array[Int64]
-pub fn QpackDecoder::table_size(Self) -> Int
+pub fn QpackDecoder::table_size(Self) -> Int32
 pub fn QpackDecoder::total_inserts(Self) -> Int64
 
 pub struct QpackEncoder {
   limits : QpackLimits
-  mut table_size : Int
-  mut capacity : Int
+  mut table_size : Int32
+  mut capacity : Int32
   mut total_inserts : Int64
   mut known_received_count : Int64
-  mut pending_bytes : Int
+  mut pending_bytes : Int32
   mut decoder_buffer : Array[Byte]
   mut failure : Http3Error?
   // private fields
@@ -372,16 +387,17 @@ pub fn QpackEncoder::finish_decoder_stream(Self) -> Result[Unit, Http3Error]
 pub fn QpackEncoder::insert(Self, QpackField, use_huffman? : Bool) -> Result[(Bytes, Int64), Http3Error]
 pub fn QpackEncoder::known_received_count(Self) -> Int64
 pub fn QpackEncoder::new(limits? : QpackLimits) -> Result[Self, Http3Error]
-pub fn QpackEncoder::pending_bytes(Self) -> Int
-pub fn QpackEncoder::set_capacity(Self, Int) -> Result[Bytes, Http3Error]
-pub fn QpackEncoder::table_size(Self) -> Int
+pub fn QpackEncoder::pending_bytes(Self) -> Int32
+pub fn QpackEncoder::set_capacity(Self, Int32) -> Result[Bytes, Http3Error]
+pub fn QpackEncoder::table_size(Self) -> Int32
 pub fn QpackEncoder::total_inserts(Self) -> Int64
 
+#derive(Eq)
 pub(all) struct QpackField {
   name : String
   value : Bytes
   sensitive : Bool
-} derive(Eq)
+}
 pub fn QpackField::equal(Self, Self) -> Bool
 pub fn QpackField::from_strings(String, String, sensitive? : Bool) -> Result[Self, Http3Error]
 pub fn QpackField::new(String, Bytes, sensitive? : Bool) -> Result[Self, Http3Error]
@@ -389,18 +405,19 @@ pub fn QpackField::not_equal(Self, Self) -> Bool
 pub fn QpackField::to_repr(Self) -> @debug.Repr
 pub impl @debug.Debug for QpackField
 
+#derive(Eq, @debug.Debug)
 pub(all) struct QpackLimits {
-  max_encoded_field_section_bytes : Int
-  max_decoded_field_section_bytes : Int
-  max_field_count : Int
-  max_table_capacity : Int
-  max_blocked_streams : Int
-  max_instruction_buffer_bytes : Int
-} derive(Eq, @debug.Debug)
+  max_encoded_field_section_bytes : Int32
+  max_decoded_field_section_bytes : Int32
+  max_field_count : Int32
+  max_table_capacity : Int32
+  max_blocked_streams : Int32
+  max_instruction_buffer_bytes : Int32
+}
 pub fn QpackLimits::defaults() -> Self
 pub fn QpackLimits::equal(Self, Self) -> Bool
-pub fn QpackLimits::from_http_limits(@types.Limits, max_table_capacity? : Int, max_blocked_streams? : Int) -> Result[Self, Http3Error]
-pub fn QpackLimits::new(max_encoded_field_section_bytes? : Int, max_decoded_field_section_bytes? : Int, max_field_count? : Int, max_table_capacity? : Int, max_blocked_streams? : Int, max_instruction_buffer_bytes? : Int) -> Result[Self, Http3Error]
+pub fn QpackLimits::from_http_limits(@types.Limits, max_table_capacity? : Int32, max_blocked_streams? : Int32) -> Result[Self, Http3Error]
+pub fn QpackLimits::new(max_encoded_field_section_bytes? : Int32, max_decoded_field_section_bytes? : Int32, max_field_count? : Int32, max_table_capacity? : Int32, max_blocked_streams? : Int32, max_instruction_buffer_bytes? : Int32) -> Result[Self, Http3Error]
 pub fn QpackLimits::not_equal(Self, Self) -> Bool
 pub fn QpackLimits::to_repr(Self) -> @debug.Repr
 pub fn QpackLimits::validate(Self) -> Result[Unit, Http3Error]

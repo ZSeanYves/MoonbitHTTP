@@ -1,9 +1,11 @@
+----
 import {
   "moonbitlang/async",
   "moonbitlang/async/fs",
   "moonbitlang/core/env",
   "moonbit-community/idna",
 }
+----
 
 ///|
 fn psl_trim_cr(value : String) -> String {

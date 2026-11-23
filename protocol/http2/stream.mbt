@@ -1,27 +1,28 @@
 ///|
+#derive(Debug, Eq)
 pub(all) enum H2StreamState {
   Idle
   Open
   HalfClosedLocal
   HalfClosedRemote
   Closed
-} derive(Debug, Eq)
+}
 
 ///|
 /// Closed stream IDs are retained only long enough to preserve precise
 /// post-close errors; flow-control records themselves are reclaimed.
-const H2_CLOSED_STREAM_HISTORY : Int = 1024
+const H2_CLOSED_STREAM_HISTORY : Int32 = 1024
 
 ///|
 priv struct H2Stream {
-  id : Int
+  id : Int32
   mut state : H2StreamState
-  mut send_window : Int
-  mut recv_window : Int
+  mut send_window : Int32
+  mut recv_window : Int32
 }
 
 ///|
-fn H2Connection::is_remote_stream_id(self : H2Connection, id : Int) -> Bool {
+fn H2Connection::is_remote_stream_id(self : H2Connection, id : Int32) -> Bool {
   if self.role == Client {
     id % 2 == 0
   } else {
@@ -51,7 +52,7 @@ fn close_local_side(stream : H2Stream) -> Unit {
 /// Closed stream records no longer carry flow-control state. The stream ID
 /// monotonicity fields below retain enough history to distinguish an already
 /// created stream from an idle future stream after its record is reclaimed.
-fn H2Connection::was_created_stream_id(self : H2Connection, id : Int) -> Bool {
+fn H2Connection::was_created_stream_id(self : H2Connection, id : Int32) -> Bool {
   if id < 0 {
     false
   } else if self.is_remote_stream_id(id) {
@@ -62,7 +63,10 @@ fn H2Connection::was_created_stream_id(self : H2Connection, id : Int) -> Bool {
 }
 
 ///|
-fn H2Connection::remember_closed_stream(self : H2Connection, id : Int) -> Unit {
+fn H2Connection::remember_closed_stream(
+  self : H2Connection,
+  id : Int32,
+) -> Unit {
   if self.closed_streams.contains(id) {
     return
   }
@@ -73,7 +77,7 @@ fn H2Connection::remember_closed_stream(self : H2Connection, id : Int) -> Unit {
 }
 
 ///|
-fn H2Connection::remove_closed_stream(self : H2Connection, id : Int) -> Unit {
+fn H2Connection::remove_closed_stream(self : H2Connection, id : Int32) -> Unit {
   match self.streams.get(id) {
     Some(stream) if stream.state == Closed => {
       self.streams.remove(id)
@@ -111,8 +115,8 @@ fn H2Connection::has_stream_capacity(
 ///|
 pub fn H2Connection::open_local_stream(
   self : H2Connection,
-  end_stream? : Bool = false,
-) -> Result[Int, H2ProtocolError] {
+  end_stream~ : Bool = false,
+) -> Result[Int32, H2ProtocolError] {
   match self.try_open_local_stream(end_stream~) {
     Ok(Some(id)) => Ok(id)
     Ok(None) =>
@@ -128,8 +132,8 @@ pub fn H2Connection::open_local_stream(
 /// not consume an identifier. GOAWAY and ID exhaustion remain terminal errors.
 pub fn H2Connection::try_open_local_stream(
   self : H2Connection,
-  end_stream? : Bool = false,
-) -> Result[Int?, H2ProtocolError] {
+  end_stream~ : Bool = false,
+) -> Result[Int32?, H2ProtocolError] {
   if self.failure is Some(error) {
     return Err(error)
   }
@@ -185,7 +189,7 @@ pub fn H2Connection::accept_upgraded_stream1(
 ///|
 fn H2Connection::get_open_stream(
   self : H2Connection,
-  id : Int,
+  id : Int32,
 ) -> Result[H2Stream, H2ProtocolError] {
   match self.streams.get(id) {
     None =>
@@ -210,7 +214,7 @@ fn H2Connection::get_open_stream(
 fn H2Connection::receive_stream_frame(
   self : H2Connection,
   frame : H2Frame,
-  header_fragment_length : Int,
+  header_fragment_length : Int32,
 ) -> Result[Array[H2Action], H2ProtocolError] {
   let h = frame.header
   let actions : Array[H2Action] = []
@@ -438,7 +442,7 @@ fn H2Connection::receive_stream_frame(
 ///|
 pub fn H2Connection::finish_local_stream(
   self : H2Connection,
-  stream_id : Int,
+  stream_id : Int32,
 ) -> Result[Unit, H2ProtocolError] {
   match self.streams.get(stream_id) {
     None => Err(StreamError(stream_id, StreamClosed, "unknown stream"))
@@ -453,7 +457,7 @@ pub fn H2Connection::finish_local_stream(
 ///|
 pub fn H2Connection::reset_stream(
   self : H2Connection,
-  stream_id : Int,
+  stream_id : Int32,
 ) -> Result[Unit, H2ProtocolError] {
   match self.streams.get(stream_id) {
     None => Err(StreamError(stream_id, StreamClosed, "unknown stream"))
@@ -468,7 +472,7 @@ pub fn H2Connection::reset_stream(
 ///|
 pub fn H2Connection::stream_state(
   self : H2Connection,
-  stream_id : Int,
+  stream_id : Int32,
 ) -> H2StreamState? {
   match self.streams.get(stream_id) {
     Some(stream) => Some(stream.state)

@@ -1,7 +1,8 @@
 ///|
+#derive(Debug)
 priv suberror Http1LifecycleFailure {
   Http1LifecycleFailure(String)
-} derive(Debug)
+}
 
 ///|
 struct Http1LifecycleBody {
@@ -40,7 +41,7 @@ fn http1_lifecycle_error_label(error : Error) -> String {
 ///|
 fn http1_lifecycle_response(
   body : Http1LifecycleBody,
-  status? : Int = 200,
+  status~ : Int32 = 200,
 ) -> @types.Response[Http1LifecycleBody] {
   { status, version: Http11, headers: @types.HeaderMap::new(), body, }
 }

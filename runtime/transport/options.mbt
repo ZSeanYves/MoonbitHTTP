@@ -1,10 +1,11 @@
 ///|
+#derive(Debug, Eq)
 pub(all) struct ConnectOptions {
-  timeout_ms : Int?
-  idle_timeout_ms : Int?
+  timeout_ms : Int32?
+  idle_timeout_ms : Int32?
   local_host : String?
-  local_port : Int?
-} derive(Debug, Eq)
+  local_port : Int32?
+}
 
 ///|
 pub fn ConnectOptions::defaults() -> ConnectOptions {
@@ -41,10 +42,11 @@ pub fn ConnectOptions::validate(
 }
 
 ///|
+#derive(Debug, Eq)
 pub(all) struct ResolveOptions {
-  timeout_ms : Int?
-  max_results : Int
-} derive(Debug, Eq)
+  timeout_ms : Int32?
+  max_results : Int32
+}
 
 ///|
 pub fn ResolveOptions::defaults() -> ResolveOptions {

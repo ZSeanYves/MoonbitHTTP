@@ -2,14 +2,14 @@
 pub struct FrameDecoder {
   buffer : @codec.Buffer
   mut pending : H2FrameHeader?
-  max_frame_size : Int
+  max_frame_size : Int32
   mut failure : H2ProtocolError?
 }
 
 ///|
 pub fn FrameDecoder::new(
-  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
-  max_buffer_size? : Int = 256 * 1024,
+  max_frame_size~ : Int32 = H2_DEFAULT_MAX_FRAME_SIZE,
+  max_buffer_size~ : Int32 = 256 * 1024,
 ) -> FrameDecoder {
   {
     buffer: @codec.Buffer::new(max_bytes=max_buffer_size),
@@ -106,7 +106,7 @@ pub fn header_fragment(frame : H2Frame) -> Result[Bytes, H2ProtocolError] {
 ///|
 fn h2_header_fragment_bounds(
   frame : H2Frame,
-) -> Result[(Int, Int), H2ProtocolError] {
+) -> Result[(Int32, Int32), H2ProtocolError] {
   let end = frame.payload.length()
   if frame.header.typ == H2_FRAME_CONTINUATION {
     return Ok((0, end))
@@ -150,8 +150,8 @@ pub fn encode_ping_ack(payload : Array[Byte]) -> Result[Bytes, H2ProtocolError] 
 
 ///|
 pub fn encode_window_update(
-  stream_id : Int,
-  increment : Int,
+  stream_id : Int32,
+  increment : Int32,
 ) -> Result[Bytes, H2ProtocolError] {
   if stream_id < 0 || stream_id > 0x7fffffff {
     return Err(
@@ -168,7 +168,7 @@ pub fn encode_window_update(
 
 ///|
 fn validate_regular_field(
-  stream_id : Int,
+  stream_id : Int32,
   field : @types.HeaderField,
   section : @http_fields.Section,
 ) -> Result[Unit, H2ProtocolError] {
@@ -182,7 +182,7 @@ fn validate_regular_field(
 
 ///|
 fn[A] request_hpack_fields(
-  stream_id : Int,
+  stream_id : Int32,
   request : @types.Request[A],
   requested_scheme : String,
 ) -> Result[Array[HpackHeader], H2ProtocolError] {
@@ -215,9 +215,9 @@ fn[A] request_hpack_fields(
 ///|
 pub fn encode_response_frames(
   context : HpackContext,
-  stream_id : Int,
+  stream_id : Int32,
   response : @types.Response[Bytes],
-  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
+  max_frame_size~ : Int32 = H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Result[Bytes, H2ProtocolError] {
   if !response.body.is_empty() && !@types.status_allows_body(response.status) {
     return Err(
@@ -241,10 +241,10 @@ pub fn encode_response_frames(
 ///|
 pub fn[A] encode_response_headers(
   context : HpackContext,
-  stream_id : Int,
+  stream_id : Int32,
   response : @types.Response[A],
   end_stream : Bool,
-  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
+  max_frame_size~ : Int32 = H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Result[Bytes, H2ProtocolError] {
   if stream_id <= 0 ||
     stream_id > 0x7fffffff ||
@@ -302,9 +302,9 @@ pub fn[A] encode_response_headers(
 /// Encodes HTTP/2 trailing headers and closes the stream.
 pub fn encode_trailers(
   context : HpackContext,
-  stream_id : Int,
+  stream_id : Int32,
   trailers : @types.HeaderMap,
-  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
+  max_frame_size~ : Int32 = H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Result[Bytes, H2ProtocolError] {
   if stream_id <= 0 ||
     stream_id > 0x7fffffff ||
@@ -335,10 +335,10 @@ pub fn encode_trailers(
 
 ///|
 pub fn encode_data_frames(
-  stream_id : Int,
+  stream_id : Int32,
   body : Bytes,
   end_stream : Bool,
-  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
+  max_frame_size~ : Int32 = H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Result[Bytes, H2ProtocolError] {
   if stream_id <= 0 ||
     stream_id > 0x7fffffff ||
@@ -358,10 +358,10 @@ pub fn encode_data_frames(
 ///|
 pub fn encode_request_frames(
   context : HpackContext,
-  stream_id : Int,
+  stream_id : Int32,
   request : @types.Request[Bytes],
-  scheme? : String = "http",
-  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
+  scheme~ : String = "http",
+  max_frame_size~ : Int32 = H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Result[Bytes, H2ProtocolError] {
   let empty = request.body.is_empty()
   let headers = match
@@ -383,9 +383,9 @@ pub fn encode_request_frames(
 /// The header encoder has already checked the stream ID and frame size.
 fn append_buffered_body(
   headers : Bytes,
-  stream_id : Int,
+  stream_id : Int32,
   body : Bytes,
-  max_frame_size : Int,
+  max_frame_size : Int32,
 ) -> Bytes {
   if body.is_empty() {
     return headers
@@ -401,11 +401,11 @@ fn append_buffered_body(
 /// connection implementation so it can honor flow-control windows.
 pub fn[A] encode_request_headers(
   context : HpackContext,
-  stream_id : Int,
+  stream_id : Int32,
   request : @types.Request[A],
   end_stream : Bool,
-  scheme? : String = "http",
-  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
+  scheme~ : String = "http",
+  max_frame_size~ : Int32 = H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Result[Bytes, H2ProtocolError] {
   if stream_id <= 0 ||
     stream_id > 0x7fffffff ||

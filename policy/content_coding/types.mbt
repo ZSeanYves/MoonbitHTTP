@@ -1,54 +1,59 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum ContentCoding {
   Identity
   Gzip
   Deflate
   Brotli
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum DecodeStatus {
   DecodeNeedInput
   DecodeNeedOutput
   DecodeDone
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct DecodeStep {
-  consumed : Int
+  consumed : Int32
   output : Bytes
   status : DecodeStatus
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror ContentCodingError {
   InvalidContentCodingLimits
   InvalidContentEncoding
   UnsupportedContentCoding(String)
-  TooManyContentCodings(Int)
-  EncodedBodyLimitExceeded(Int)
-  DecodedBodyLimitExceeded(Int)
+  TooManyContentCodings(Int32)
+  EncodedBodyLimitExceeded(Int32)
+  DecodedBodyLimitExceeded(Int32)
   TruncatedEncodedBody(ContentCoding)
   InvalidEncodedBody(ContentCoding)
   TrailingEncodedData(ContentCoding)
   DecoderAlreadyFinished(ContentCoding)
   DecoderStalled(ContentCoding)
   DecoderInputPending
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct ContentCodingLimits {
-  max_encoded_bytes : Int
-  max_decoded_bytes : Int
-  max_codings : Int
-  output_chunk_bytes : Int
-} derive(Eq, Debug)
+  max_encoded_bytes : Int32
+  max_decoded_bytes : Int32
+  max_codings : Int32
+  output_chunk_bytes : Int32
+}
 
 ///|
 pub fn ContentCodingLimits::from_http_limits(
   limits : @types.Limits,
-  max_codings? : Int = 4,
-  output_chunk_bytes? : Int = 8192,
+  max_codings~ : Int32 = 4,
+  output_chunk_bytes~ : Int32 = 8192,
 ) -> Result[ContentCodingLimits, ContentCodingError] {
   match limits.validate() {
     Ok(_) => ()

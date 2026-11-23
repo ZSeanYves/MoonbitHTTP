@@ -32,7 +32,7 @@ jobs:
       - name: Setup MoonBit
         uses: hustcer/setup-moonbit@9199da0ab63ea0c0bab1dc15f03d76e17ed4f75f # v1.22
         with:
-          version: 0.10.14+7d59c7ec9
+          version: 0.10.22+124d61d05
 
       - name: Update package registry
         run: moon update
@@ -119,7 +119,7 @@ jobs:
       - name: Setup MoonBit
         uses: hustcer/setup-moonbit@9199da0ab63ea0c0bab1dc15f03d76e17ed4f75f # v1.22
         with:
-          version: 0.10.14+7d59c7ec9
+          version: 0.10.22+124d61d05
 
       - name: Update package registry
         run: moon update

@@ -90,8 +90,8 @@ pub fn DigestSession::new(
   challenge : DigestChallenge,
   credentials : DigestCredentials,
   origin : String,
-  policy? : DigestPolicy = DigestPolicy::defaults(),
-  limits? : AuthLimits = AuthLimits::defaults(),
+  policy~ : DigestPolicy = DigestPolicy::defaults(),
+  limits~ : AuthLimits = AuthLimits::defaults(),
 ) -> Result[DigestSession, AuthError] {
   match limits.validate() {
     Ok(_) => ()
@@ -115,7 +115,7 @@ pub fn DigestSession::new(
 }
 
 ///|
-fn digest_cnonce_valid(value : String, maximum : Int) -> Bool {
+fn digest_cnonce_valid(value : String, maximum : Int32) -> Bool {
   let bytes = @utf8.encode(value)
   if bytes.is_empty() || bytes.length() > maximum {
     return false
@@ -195,7 +195,7 @@ pub fn DigestSession::authorize(
   http_method : @types.Method,
   request_target : String,
   cnonce : String,
-  entity_hash? : DigestEntityHash? = None,
+  entity_hash~ : DigestEntityHash? = None,
 ) -> Result[DigestAuthorization, AuthError] {
   if origin != self.origin {
     return Err(DigestOriginMismatch)
@@ -354,7 +354,7 @@ pub fn DigestSession::authorization(
   http_method : @types.Method,
   request_target : String,
   cnonce : String,
-  entity_hash? : DigestEntityHash? = None,
+  entity_hash~ : DigestEntityHash? = None,
 ) -> Result[@types.HeaderValue, AuthError] {
   match
     self.authorize(origin, http_method, request_target, cnonce, entity_hash~) {
@@ -386,8 +386,8 @@ pub fn DigestSession::replace_stale_challenge(
 ///|
 pub fn select_digest_challenge(
   headers : Array[@types.HeaderValue],
-  policy? : DigestPolicy = DigestPolicy::defaults(),
-  limits? : AuthLimits = AuthLimits::defaults(),
+  policy~ : DigestPolicy = DigestPolicy::defaults(),
+  limits~ : AuthLimits = AuthLimits::defaults(),
 ) -> Result[DigestChallenge, AuthError] {
   let mut last_error : AuthError = InvalidChallenge
   for header in headers {

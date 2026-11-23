@@ -2,7 +2,7 @@
 fn QpackDecoder::parse_encoder_instruction(
   self : QpackDecoder,
   input : BytesView,
-) -> Result[Int, QpackParseError] {
+) -> Result[Int32, QpackParseError] {
   if input.is_empty() {
     return Err(QpackParseNeedMore)
   }

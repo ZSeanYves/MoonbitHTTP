@@ -27,7 +27,7 @@ fn tls_concat_bytes(parts : Array[Bytes]) -> Bytes {
 }
 
 ///|
-fn tls_u16_be(value : Int) -> Bytes {
+fn tls_u16_be(value : Int32) -> Bytes {
   Bytes::from_array([((value >> 8) & 0xff).to_byte(), (value & 0xff).to_byte()])
 }
 
@@ -40,7 +40,7 @@ fn quic_hash_algorithm(suite : QuicTlsCipherSuite) -> @hkdf.HashAlg {
 }
 
 ///|
-fn quic_key_length(suite : QuicTlsCipherSuite) -> Int {
+fn quic_key_length(suite : QuicTlsCipherSuite) -> Int32 {
   match suite {
     TlsAes128GcmSha256 => 16
     TlsAes256GcmSha384 => 32
@@ -48,7 +48,7 @@ fn quic_key_length(suite : QuicTlsCipherSuite) -> Int {
 }
 
 ///|
-fn quic_secret_length(suite : QuicTlsCipherSuite) -> Int {
+fn quic_secret_length(suite : QuicTlsCipherSuite) -> Int32 {
   match suite {
     TlsAes128GcmSha256 => 32
     TlsAes256GcmSha384 => 48
@@ -68,7 +68,7 @@ fn tls13_expand_label(
   secret : Bytes,
   suite : QuicTlsCipherSuite,
   label : String,
-  length : Int,
+  length : Int32,
 ) -> Result[Bytes, TlsError] {
   if label.length() > 249 || length < 0 || length > 65535 {
     return Err(InvalidTrafficSecret)
@@ -96,7 +96,7 @@ fn tls13_expand_label(
 /// 5.1). A traffic secret must match the hash length of its cipher suite.
 pub fn derive_quic_packet_keys(
   traffic_secret : Bytes,
-  suite? : QuicTlsCipherSuite = TlsAes128GcmSha256,
+  suite~ : QuicTlsCipherSuite = TlsAes128GcmSha256,
 ) -> Result[QuicPacketKeys, TlsError] {
   if traffic_secret.length() != quic_secret_length(suite) {
     return Err(InvalidTrafficSecret)

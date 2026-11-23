@@ -9,7 +9,7 @@ priv struct Http1PooledSession {
 fn Http1PooledSession::new(
   connection : @transport.StreamConnection,
   options : RequestOptions,
-  proxy_target? : @types.Endpoint? = None,
+  proxy_target~ : @types.Endpoint? = None,
 ) -> Result[Http1PooledSession, ClientError] {
   let io = @service.StreamIo::new(connection)
   let protocol = match

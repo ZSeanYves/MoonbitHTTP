@@ -2,6 +2,11 @@ name = "ZSeanYves/MoonbitHTTP"
 
 version = "0.7.0"
 
+// Protocol parsers, state machines and transport capabilities return failures
+// as values so callers can inspect them before choosing a recovery action.
+
+warnings = "-result_error_return"
+
 import {
   "moonbitlang/x@0.5.5",
   "moonbitlang/async@0.22.4",

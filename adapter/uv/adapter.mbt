@@ -4,8 +4,8 @@
 #warnings("-alert_internal")
 pub struct CallbackTransport {
   reader_buffer : @aio.ReaderBuffer
-  read_callback : async (FixedArray[Byte], Int, Int) -> Int
-  write_callback : async (Bytes, Int, Int) -> Int
+  read_callback : async (FixedArray[Byte], Int32, Int32) -> Int32
+  write_callback : async (Bytes, Int32, Int32) -> Int32
   close_callback : () -> Unit
   mut closed : Bool
 }
@@ -13,9 +13,9 @@ pub struct CallbackTransport {
 ///|
 #warnings("-alert_internal")
 pub fn CallbackTransport::new(
-  read_callback : async (FixedArray[Byte], Int, Int) -> Int,
-  write_callback : async (Bytes, Int, Int) -> Int,
-  close_callback? : () -> Unit = fn() { () },
+  read_callback : async (FixedArray[Byte], Int32, Int32) -> Int32,
+  write_callback : async (Bytes, Int32, Int32) -> Int32,
+  close_callback~ : () -> Unit = fn() { () },
 ) -> CallbackTransport {
   {
     reader_buffer: @aio.ReaderBuffer::new(),
@@ -68,6 +68,7 @@ pub impl @aio.Writer for CallbackTransport with fn write_once(
 }
 
 ///|
+#derive(Debug, Eq)
 pub(all) suberror CallbackTransportClosed {
   CallbackTransportClosed
-} derive(Debug, Eq)
+}

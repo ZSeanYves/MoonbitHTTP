@@ -66,7 +66,7 @@ fn QuicDatagramDriver::count_received_datagram(
 fn QuicDatagramDriver::check_amplification(
   self : QuicDatagramDriver,
   destination : @types.Endpoint,
-  bytes : Int,
+  bytes : Int32,
 ) -> Result[Unit, QuicError] {
   // RFC 9000 section 21.1.1.1 exempts clients initiating a connection or
   // migration. Servers cannot borrow credit from the previous path.
@@ -87,7 +87,7 @@ fn QuicDatagramDriver::check_amplification(
 fn QuicDatagramDriver::count_sent_datagram(
   self : QuicDatagramDriver,
   destination : @types.Endpoint,
-  bytes : Int,
+  bytes : Int32,
 ) -> Unit {
   if self.path_budget(destination) is Some(budget) {
     budget.sent = (budget.sent + bytes.to_int64()).min(QUIC_MAX_VARINT)

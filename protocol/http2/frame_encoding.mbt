@@ -18,9 +18,9 @@ fn encode_frame_header(header : H2FrameHeader) -> Array[Byte] {
 ///|
 fn append_frame(
   out : Array[Byte],
-  typ : Int,
-  flags : Int,
-  stream_id : Int,
+  typ : Int32,
+  flags : Int32,
+  stream_id : Int32,
   payload : ArrayView[Byte],
 ) -> Unit {
   let encoded = encode_frame_header({
@@ -88,7 +88,10 @@ fn build_ping_frame(payload : Array[Byte], ack : Bool) -> Array[Byte] {
 }
 
 ///|
-fn encode_window_update_frame(stream_id : Int, increment : Int) -> Array[Byte] {
+fn encode_window_update_frame(
+  stream_id : Int32,
+  increment : Int32,
+) -> Array[Byte] {
   let value = increment & 0x7fffffff
   let payload : Array[Byte] = [
     ((value >> 24) & 0x7f).to_byte(),
@@ -102,7 +105,7 @@ fn encode_window_update_frame(stream_id : Int, increment : Int) -> Array[Byte] {
 }
 
 ///|
-fn h2_error_code_value(code : H2ErrorCode) -> Int {
+fn h2_error_code_value(code : H2ErrorCode) -> Int32 {
   match code {
     NoError => 0
     ProtocolError => 1
@@ -123,7 +126,7 @@ fn h2_error_code_value(code : H2ErrorCode) -> Int {
 
 ///|
 pub fn encode_rst_stream(
-  stream_id : Int,
+  stream_id : Int32,
   code : H2ErrorCode,
 ) -> Result[Bytes, H2ProtocolError] {
   if stream_id <= 0 || stream_id > 0x7fffffff {
@@ -143,10 +146,10 @@ pub fn encode_rst_stream(
 
 ///|
 fn build_headers_frames(
-  stream_id : Int,
+  stream_id : Int32,
   fragment : Array[Byte],
   end_stream : Bool,
-  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
+  max_frame_size~ : Int32 = H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Array[Byte] {
   let out : Array[Byte] = []
   let mut offset = 0
@@ -169,10 +172,10 @@ fn build_headers_frames(
 
 ///|
 fn build_data_frames(
-  stream_id : Int,
+  stream_id : Int32,
   payload : Array[Byte],
   end_stream : Bool,
-  max_frame_size? : Int = H2_DEFAULT_MAX_FRAME_SIZE,
+  max_frame_size~ : Int32 = H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Array[Byte] {
   let out : Array[Byte] = []
   let mut offset = 0

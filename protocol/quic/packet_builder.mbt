@@ -2,16 +2,17 @@
 /// Options for constructing a QUIC v1 Initial packet. Packet padding is
 /// calculated by the builder so the resulting datagram meets the minimum
 /// client Initial size without changing the caller's application payload.
+#derive(Eq, Debug)
 pub(all) struct QuicInitialPacketOptions {
-  version : Int
+  version : Int32
   destination : ConnectionId
   source : ConnectionId
   token : Bytes
   packet_number : Int64
-  packet_number_length : Int
-  min_datagram_size : Int
-  max_datagram_size : Int
-} derive(Eq, Debug)
+  packet_number_length : Int32
+  min_datagram_size : Int32
+  max_datagram_size : Int32
+}
 
 ///|
 pub fn QuicInitialPacketOptions::defaults(
@@ -32,7 +33,7 @@ pub fn QuicInitialPacketOptions::defaults(
 }
 
 ///|
-fn quic_builder_u32(value : Int) -> Bytes {
+fn quic_builder_u32(value : Int32) -> Bytes {
   Bytes::from_array([
     (value >> 24).to_byte(),
     (value >> 16).to_byte(),
@@ -56,7 +57,7 @@ fn quic_builder_cid(cid : ConnectionId) -> Bytes {
 pub fn quic_build_version_negotiation_packet(
   destination : ConnectionId,
   source : ConnectionId,
-  supported_versions : Array[Int],
+  supported_versions : Array[Int32],
 ) -> Result[Bytes, QuicError] {
   if supported_versions.is_empty() ||
     destination.bytes().length() > QUIC_MAX_CONNECTION_ID ||
@@ -86,7 +87,7 @@ pub fn quic_build_version_negotiation_packet(
 /// is the client's first Initial DCID, while `destination` is the client's
 /// Source CID and `source` is the server's fresh Retry CID.
 pub fn quic_build_retry_packet(
-  version : Int,
+  version : Int32,
   destination : ConnectionId,
   source : ConnectionId,
   token : Bytes,
@@ -118,12 +119,12 @@ pub fn quic_build_retry_packet(
 /// interval. Length-varint width changes leave gaps in possible total sizes;
 /// enumerating the four widths terminates even when the minimum is in a gap.
 fn quic_builder_padding(
-  prefix_length : Int,
-  payload_length : Int,
-  packet_number_length : Int,
-  minimum : Int,
-  maximum : Int,
-) -> Result[Int, QuicError] {
+  prefix_length : Int32,
+  payload_length : Int32,
+  packet_number_length : Int32,
+  minimum : Int32,
+  maximum : Int32,
+) -> Result[Int32, QuicError] {
   let unpadded_length = payload_length.to_int64() +
     packet_number_length.to_int64() +
     16L
@@ -173,16 +174,16 @@ pub fn quic_build_initial_packet(
 /// driver can use the same framing rules while TLS keys change.
 pub fn quic_build_long_packet(
   keys : @tls.QuicPacketKeys,
-  packet_type : Int,
-  version : Int,
+  packet_type : Int32,
+  version : Int32,
   destination : ConnectionId,
   source : ConnectionId,
   token : Bytes,
   packet_number : Int64,
-  packet_number_length : Int,
+  packet_number_length : Int32,
   payload : Bytes,
-  min_datagram_size? : Int = 0,
-  max_datagram_size? : Int = QUIC_MAX_PACKET_SIZE,
+  min_datagram_size~ : Int32 = 0,
+  max_datagram_size~ : Int32 = QUIC_MAX_PACKET_SIZE,
 ) -> Result[Bytes, QuicError] {
   quic_long_layout(
     packet_type,
@@ -204,14 +205,14 @@ pub fn quic_build_long_packet(
 priv struct QuicPacketLayout {
   prefix : Bytes
   number : Int64
-  number_length : Int
+  number_length : Int32
   payload : Bytes
-  padding : Int
+  padding : Int32
   long_header : Bool
 }
 
 ///|
-fn QuicPacketLayout::wire_size(self : QuicPacketLayout) -> Int {
+fn QuicPacketLayout::wire_size(self : QuicPacketLayout) -> Int32 {
   self.prefix.length() +
   self.number_length +
   self.payload.length() +
@@ -221,7 +222,7 @@ fn QuicPacketLayout::wire_size(self : QuicPacketLayout) -> Int {
 
 ///|
 fn quic_long_layout(
-  packet_type : Int,
+  packet_type : Int32,
   options : QuicInitialPacketOptions,
   payload : Bytes,
 ) -> Result[QuicPacketLayout, QuicError] {
@@ -284,9 +285,9 @@ pub fn quic_build_short_packet(
   keys : @tls.QuicPacketKeys,
   destination : ConnectionId,
   packet_number : Int64,
-  packet_number_length : Int,
+  packet_number_length : Int32,
   payload : Bytes,
-  key_phase? : Bool = false,
+  key_phase~ : Bool = false,
 ) -> Result[Bytes, QuicError] {
   quic_short_layout(
     destination,
@@ -302,10 +303,10 @@ pub fn quic_build_short_packet(
 fn quic_short_layout(
   destination : ConnectionId,
   packet_number : Int64,
-  packet_number_length : Int,
+  packet_number_length : Int32,
   payload : Bytes,
-  minimum : Int,
-  maximum : Int,
+  minimum : Int32,
+  maximum : Int32,
 ) -> Result[QuicPacketLayout, QuicError] {
   if packet_number_length < 1 || packet_number_length > 4 {
     return Err(InvalidPacket("invalid short-header packet number length"))
@@ -334,8 +335,8 @@ fn quic_short_layout(
 fn QuicPacketLayout::seal(
   self : QuicPacketLayout,
   keys : @tls.QuicPacketKeys,
-  key_phase? : Bool = false,
-  feedback_at? : Int? = None,
+  key_phase~ : Bool = false,
+  feedback_at~ : Int32? = None,
 ) -> Result[Bytes, QuicError] {
   let prefix = if key_phase && !self.long_header {
     quic_copy_with_byte(self.prefix, 0, b'\x44')

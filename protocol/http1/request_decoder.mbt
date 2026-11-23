@@ -6,8 +6,8 @@ priv enum RequestState {
     @types.Uri,
     @types.Version,
     @types.HeaderMap,
-    Int,
-    Int
+    Int32,
+    Int32,
   )
   RequestBody(BodyDecoder)
 }
@@ -23,7 +23,7 @@ pub struct RequestDecoder {
 
 ///|
 pub fn RequestDecoder::new(
-  limits? : @types.Limits = @types.Limits::defaults(),
+  limits~ : @types.Limits = @types.Limits::defaults(),
 ) -> RequestDecoder {
   {
     buffer: @codec.Buffer::new(max_bytes=limits.max_buffer_bytes),

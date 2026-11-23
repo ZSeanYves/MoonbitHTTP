@@ -2,21 +2,22 @@
 priv struct QpackDynamicEntry {
   absolute_index : Int64
   field : QpackField
-  size : Int
+  size : Int32
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum QpackDecodeResult {
   QpackDecoded(Array[QpackField], Bool)
   QpackBlocked(Int64)
-} derive(Eq, Debug)
+}
 
 ///|
 pub struct QpackDecoder {
   limits : QpackLimits
   priv mut entries : Array[QpackDynamicEntry]
-  mut table_size : Int
-  mut capacity : Int
+  mut table_size : Int32
+  mut capacity : Int32
   mut total_inserts : Int64
   blocked : Map[Int64, Int64]
   mut encoder_buffer : Array[Byte]
@@ -25,7 +26,7 @@ pub struct QpackDecoder {
 
 ///|
 pub fn QpackDecoder::new(
-  limits? : QpackLimits = QpackLimits::defaults(),
+  limits~ : QpackLimits = QpackLimits::defaults(),
 ) -> Result[QpackDecoder, Http3Error] {
   limits.validate().map(_ => QpackDecoder::with_valid_limits(limits))
 }
@@ -50,17 +51,17 @@ pub fn QpackDecoder::total_inserts(self : QpackDecoder) -> Int64 {
 }
 
 ///|
-pub fn QpackDecoder::table_size(self : QpackDecoder) -> Int {
+pub fn QpackDecoder::table_size(self : QpackDecoder) -> Int32 {
   self.table_size
 }
 
 ///|
-pub fn QpackDecoder::capacity(self : QpackDecoder) -> Int {
+pub fn QpackDecoder::capacity(self : QpackDecoder) -> Int32 {
   self.capacity
 }
 
 ///|
-pub fn QpackDecoder::blocked_stream_count(self : QpackDecoder) -> Int {
+pub fn QpackDecoder::blocked_stream_count(self : QpackDecoder) -> Int32 {
   self.blocked.length()
 }
 
@@ -164,7 +165,7 @@ fn QpackDecoder::relative_field(
 ///|
 fn qpack_required_insert_count(
   encoded : Int64,
-  max_table_capacity : Int,
+  max_table_capacity : Int32,
   total_inserts : Int64,
 ) -> Result[Int64, QpackParseError] {
   if encoded == 0L {

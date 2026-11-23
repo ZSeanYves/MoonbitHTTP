@@ -2,8 +2,8 @@
 fn pump_quic_tls(
   client_options : @transport.TlsOptions,
   server_options : @transport.TlsOptions,
-  client_completion? : Ref[Bool] = Ref(false),
-) -> Result[(Bool, Bool, Int), @transport.TlsError] {
+  client_completion~ : Ref[Bool] = Ref(false),
+) -> Result[(Bool, Bool, Int32), @transport.TlsError] {
   let client = NativeQuicTlsProvider::new(allow_system_roots=false)
   let server = NativeQuicTlsProvider::new(server=true, allow_system_roots=false)
   defer {

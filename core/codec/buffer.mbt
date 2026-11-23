@@ -1,25 +1,26 @@
 ///|
+#derive(Debug, Eq)
 pub(all) suberror CodecError {
   NeedMore
-  LimitExceeded(kind~ : String, limit~ : Int)
+  LimitExceeded(kind~ : String, limit~ : Int32)
   Malformed(String)
   UnexpectedEof(String)
-} derive(Debug, Eq)
+}
 
 ///|
 pub struct Buffer {
   mut bytes : Array[Byte]
-  mut start : Int
-  max_bytes : Int
+  mut start : Int32
+  max_bytes : Int32
 }
 
 ///|
-pub fn Buffer::new(max_bytes? : Int = 256 * 1024) -> Buffer {
+pub fn Buffer::new(max_bytes~ : Int32 = 256 * 1024) -> Buffer {
   { bytes: [], start: 0, max_bytes, }
 }
 
 ///|
-pub fn Buffer::length(self : Buffer) -> Int {
+pub fn Buffer::length(self : Buffer) -> Int32 {
   self.bytes.length() - self.start
 }
 
@@ -55,13 +56,13 @@ pub fn Buffer::peek(self : Buffer) -> Bytes {
 
 ///|
 /// Copy at most the requested number of unread bytes without consuming them.
-pub fn Buffer::peek_prefix(self : Buffer, count : Int) -> Bytes {
+pub fn Buffer::peek_prefix(self : Buffer, count : Int32) -> Bytes {
   let count = count.max(0).min(self.length())
   Bytes::from_array(self.bytes[self.start:self.start + count])
 }
 
 ///|
-pub fn Buffer::take(self : Buffer, count : Int) -> Bytes {
+pub fn Buffer::take(self : Buffer, count : Int32) -> Bytes {
   let count = count.max(0).min(self.length())
   let start = self.start
   self.start += count
@@ -69,7 +70,7 @@ pub fn Buffer::take(self : Buffer, count : Int) -> Bytes {
 }
 
 ///|
-pub fn Buffer::find_crlf(self : Buffer) -> Int? {
+pub fn Buffer::find_crlf(self : Buffer) -> Int32? {
   for i in (self.start + 1)..<self.bytes.length() {
     if self.bytes[i - 1] == b'\r' && self.bytes[i] == b'\n' {
       return Some(i - self.start - 1)
@@ -81,7 +82,7 @@ pub fn Buffer::find_crlf(self : Buffer) -> Int? {
 ///|
 pub fn Buffer::read_line(
   self : Buffer,
-  max_length : Int,
+  max_length : Int32,
 ) -> Result[Bytes, CodecError] {
   match self.find_crlf() {
     None => {

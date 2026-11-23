@@ -3,9 +3,9 @@
 /// while this counter bounds the complete response, including consumed bytes.
 fn H2ClientStream::accept_response_data(
   self : H2ClientStream,
-  length : Int,
+  length : Int32,
   end_stream : Bool,
-  max_body_bytes : Int,
+  max_body_bytes : Int32,
 ) -> Result[Unit, @http2.H2ProtocolError] {
   if !self.response_started {
     return Err(

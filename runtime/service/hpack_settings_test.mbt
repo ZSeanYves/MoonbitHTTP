@@ -1,5 +1,5 @@
 ///|
-fn captured_h2_frame(bytes : Array[Byte], typ : Int, flags : Int) -> Bool {
+fn captured_h2_frame(bytes : Array[Byte], typ : Int32, flags : Int32) -> Bool {
   if bytes.length() < 24 {
     return false
   }

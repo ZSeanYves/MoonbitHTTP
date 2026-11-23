@@ -1,23 +1,24 @@
 ///|
 /// RFC 9000 transport parameters authenticated by TLS. Numeric limits are
 /// separate from connection identity: neither is applied before authentication.
+#derive(Eq, Debug)
 pub(all) struct QuicTransportParameters {
   limits : QuicTransportParams
   initial_source_connection_id : ConnectionId
   original_destination_connection_id : ConnectionId?
   retry_source_connection_id : ConnectionId?
   stateless_reset_token : Bytes?
-  ack_delay_exponent : Int
-  max_ack_delay : Int
+  ack_delay_exponent : Int32
+  max_ack_delay : Int32
   preferred_address : Bytes?
   max_datagram_frame_size : Int64
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn QuicTransportParameters::new(
   initial_source_connection_id : ConnectionId,
-  original_destination_connection_id? : ConnectionId? = None,
-  limits? : QuicTransportParams = QuicTransportParams::defaults(),
+  original_destination_connection_id~ : ConnectionId? = None,
+  limits~ : QuicTransportParams = QuicTransportParams::defaults(),
 ) -> QuicTransportParameters {
   {
     limits,
@@ -97,8 +98,8 @@ pub fn QuicTransportParameters::validate(
 pub fn QuicTransportParameters::validate_connection_ids(
   self : QuicTransportParameters,
   expected_initial : ConnectionId,
-  expected_original? : ConnectionId? = None,
-  expected_retry? : ConnectionId? = None,
+  expected_original~ : ConnectionId? = None,
+  expected_retry~ : ConnectionId? = None,
 ) -> Result[Unit, QuicError] {
   if self.initial_source_connection_id != expected_initial ||
     self.original_destination_connection_id != expected_original ||
@@ -187,8 +188,8 @@ fn quic_parameter_integer(bytes : BytesView) -> Result[Int64, QuicError] {
 pub fn QuicTransportParameters::decode(
   input : BytesView,
   peer_role : QuicRole,
-  max_bytes? : Int = 65535,
-  max_parameters? : Int = 64,
+  max_bytes~ : Int32 = 65535,
+  max_parameters~ : Int32 = 64,
 ) -> Result[QuicTransportParameters, QuicError] {
   if max_bytes < 0 || input.length() > max_bytes || max_parameters < 1 {
     return Err(LimitExceeded("transport parameters", max_bytes))

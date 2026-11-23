@@ -6,7 +6,7 @@ priv struct QuicFrameReader {
 ///|
 fn QuicFrameReader::varint(
   self : QuicFrameReader,
-  canonical? : Bool = false,
+  canonical~ : Bool = false,
 ) -> Int64 raise QuicError {
   let (value, used) = quic_decode_varint(self.remaining, canonical~).unwrap_or_error()
   self.remaining = self.remaining[used:]
@@ -16,15 +16,15 @@ fn QuicFrameReader::varint(
 ///|
 fn QuicFrameReader::index(
   self : QuicFrameReader,
-  canonical? : Bool = false,
-) -> Int raise QuicError {
+  canonical~ : Bool = false,
+) -> Int32 raise QuicError {
   varint_to_index(self.varint(canonical~)).unwrap_or_error()
 }
 
 ///|
 fn QuicFrameReader::take(
   self : QuicFrameReader,
-  count : Int,
+  count : Int32,
 ) -> BytesView raise QuicError {
   if count > self.remaining.length() {
     raise NeedMoreInput
@@ -179,7 +179,7 @@ fn QuicFrameReader::frame(
 ///|
 pub fn quic_decode_frames(
   payload : BytesView,
-  limits? : QuicLimits = QuicLimits::defaults(),
+  limits~ : QuicLimits = QuicLimits::defaults(),
 ) -> Result[Array[QuicFrame], QuicError] {
   try {
     limits.validate().unwrap_or_error()

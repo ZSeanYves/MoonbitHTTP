@@ -13,19 +13,19 @@ pub fn[
   policy : P,
   clock : K,
   tls_provider : T,
-  options? : @client_api.RequestOptions = @client_api.RequestOptions::defaults(),
-  proxy? : @client_api.ProxyConfig = @client_api.ProxyConfig::direct(),
-  origin_tls? : @transport.TlsOptions = {
+  options~ : @client_api.RequestOptions = @client_api.RequestOptions::defaults(),
+  proxy~ : @client_api.ProxyConfig = @client_api.ProxyConfig::direct(),
+  origin_tls~ : @transport.TlsOptions = {
     ..@transport.TlsOptions::defaults(),
     alpn: ["http/1.1"],
   },
-  proxy_tls? : @transport.TlsOptions = {
+  proxy_tls~ : @transport.TlsOptions = {
     ..@transport.TlsOptions::defaults(),
     alpn: ["http/1.1"],
   },
-  content_decoding? : Bool = false,
-  content_coding_limits? : @content_coding.ContentCodingLimits = @content_coding.ContentCodingLimits::defaults(),
-  cache_enabled? : Bool = false,
+  content_decoding~ : Bool = false,
+  content_coding_limits~ : @content_coding.ContentCodingLimits = @content_coding.ContentCodingLimits::defaults(),
+  cache_enabled~ : Bool = false,
 ) -> Result[@client_api.Http1Client, @client_api.ClientError] {
   @client_api.Http1Client::from_capabilities(
     @transport_native.TcpConnector::new(),
@@ -57,7 +57,7 @@ pub async fn[
   clock : K,
   tls_provider : T,
   run : async (@client_api.Http2Client) -> X,
-  options? : @client_api.Http2PoolOptions = @client_api.Http2PoolOptions::defaults(),
+  options~ : @client_api.Http2PoolOptions = @client_api.Http2PoolOptions::defaults(),
 ) -> X {
   @client_api.with_http2_client(
     @transport_native.TcpConnector::new(),

@@ -13,13 +13,13 @@ priv struct OriginSession[S] {
   // A burst for one origin needs only one idle connection to make room.
   mut retiring_for : String?
   // Includes callers waiting for a handshake or for a peer stream slot.
-  mut users : Int
+  mut users : Int32
   mut worker : @async.Task[Unit]?
 }
 
 ///|
 priv struct OriginPool[S] {
-  max_connections : Int
+  max_connections : Int32
   sessions : Array[OriginSession[S]]
   changed : @cond_var.Cond
   spawn : (async () -> Unit) -> @async.Task[Unit]
@@ -36,7 +36,7 @@ priv struct OriginPool[S] {
 ///|
 async fn[S, X] with_origin_pool(
   protocol_name : String,
-  max_connections : Int,
+  max_connections : Int32,
   open : async (ClientEndpoint, async (S) -> Unit, () -> Unit) -> Result[
     Unit,
     ClientError,
@@ -190,7 +190,7 @@ async fn[S, B : @body.Body, X] OriginPool::exchange(
   self : OriginPool[S],
   request : @types.Request[B],
   send : async (S, @types.Request[B]) -> X,
-  validate_origin? : (ClientEndpoint) -> Unit raise = _ => (),
+  validate_origin~ : (ClientEndpoint) -> Unit raise = _ => (),
 ) -> Result[X, ClientError] {
   let mut submitted = false
   defer (if !submitted { request.body.cancel(@body.BodyError::Cancelled) })

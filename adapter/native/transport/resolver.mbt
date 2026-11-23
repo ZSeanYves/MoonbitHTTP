@@ -28,7 +28,7 @@ async fn resolve_family(
 fn append_unique_address(
   addresses : Array[@types.IpAddress],
   candidate : @types.IpAddress,
-  max_results : Int,
+  max_results : Int32,
 ) -> Unit {
   guard addresses.length() < max_results else { return }
   for address in addresses {
@@ -42,7 +42,7 @@ fn append_unique_address(
 ///|
 async fn resolve_native_host(
   host : String,
-  max_results : Int,
+  max_results : Int32,
   lookup~ : async (String, @socket.IpProtocolPreference) -> Result[
     @types.IpAddress,
     @transport_api.TransportError,

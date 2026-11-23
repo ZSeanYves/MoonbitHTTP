@@ -3,7 +3,7 @@ fn content_test_collect(
   codings : Array[@content_coding.ContentCoding],
   encoded : Bytes,
   limits : @content_coding.ContentCodingLimits,
-  split_size? : Int = 3,
+  split_size~ : Int32 = 3,
 ) -> Result[Bytes, @content_coding.ContentCodingError] {
   let chain = match @content_coding.ContentDecoderChain::new(codings, limits~) {
     Ok(value) => value
@@ -41,8 +41,8 @@ fn content_test_collect(
 
 ///|
 fn content_test_limits(
-  max_encoded : Int,
-  max_decoded : Int,
+  max_encoded : Int32,
+  max_decoded : Int32,
 ) -> @content_coding.ContentCodingLimits {
   {
     max_encoded_bytes: max_encoded,

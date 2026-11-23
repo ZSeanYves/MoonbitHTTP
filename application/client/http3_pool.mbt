@@ -12,8 +12,8 @@ pub struct Http3Client {
 pub async fn[X] with_http3_pool(
   open : async (ClientEndpoint, async (@service.H3Client) -> Unit, () -> Unit) -> Unit,
   run : async (Http3Client) -> X,
-  max_connections? : Int = 32,
-  server_name? : String? = None,
+  max_connections~ : Int32 = 32,
+  server_name~ : String? = None,
 ) -> X {
   let pinned_host = server_name.map(name => {
     @types.Endpoint::new("https", name, 443).unwrap_or_error().host()
@@ -54,6 +54,6 @@ pub fn Http3Client::close(self : Http3Client) -> Unit {
 
 ///|
 /// Count opening, usable and draining connections against the same bound.
-pub fn Http3Client::connection_count(self : Http3Client) -> Int {
+pub fn Http3Client::connection_count(self : Http3Client) -> Int32 {
   self.pool.sessions.length()
 }

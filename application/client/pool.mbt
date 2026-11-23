@@ -1,21 +1,23 @@
 ///|
+#derive(Eq, Debug, Compare, Hash)
 pub(all) enum ClientProtocol {
   Http1
   Http2
   Http3
-} derive(Eq, Debug, Compare, Hash)
+}
 
 ///|
+#derive(Eq, Debug, Compare, Hash)
 pub(all) struct ConnectionKey {
   scheme : String
   host : String
-  port : Int
+  port : Int32
   proxy_endpoint : @types.Endpoint?
   proxy_identity : String?
   tls_identity : String?
   protocol : ClientProtocol
   options_identity : String?
-} derive(Eq, Debug, Compare, Hash)
+}
 
 ///|
 pub fn ConnectionKey::new(
@@ -24,7 +26,7 @@ pub fn ConnectionKey::new(
   tls_identity : String?,
   protocol : ClientProtocol,
   options_identity : String?,
-  proxy_endpoint? : @types.Endpoint? = None,
+  proxy_endpoint~ : @types.Endpoint? = None,
 ) -> ConnectionKey {
   {
     scheme: endpoint.scheme(),
@@ -49,7 +51,7 @@ pub fn ConnectionKey::host(self : ConnectionKey) -> String {
 }
 
 ///|
-pub fn ConnectionKey::port(self : ConnectionKey) -> Int {
+pub fn ConnectionKey::port(self : ConnectionKey) -> Int32 {
   self.port
 }
 
@@ -64,6 +66,7 @@ pub fn ConnectionKey::proxy_endpoint(self : ConnectionKey) -> @types.Endpoint? {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum PoolError {
   InvalidLimits
   AtCapacity
@@ -71,13 +74,14 @@ pub(all) enum PoolError {
   LeaseAlreadyReleased
   LeaseInUse
   IdExhausted
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct PoolLimits {
-  max_total : Int
-  max_idle : Int
-} derive(Eq, Debug)
+  max_total : Int32
+  max_idle : Int32
+}
 
 ///|
 pub fn PoolLimits::defaults() -> PoolLimits {
@@ -94,20 +98,22 @@ pub fn PoolLimits::validate(self : PoolLimits) -> Result[Unit, PoolError] {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum PoolAcquire {
-  Reused(Int)
-  Created(Int)
-} derive(Eq, Debug)
+  Reused(Int32)
+  Created(Int32)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct PoolLease {
   key : ConnectionKey
-  id : Int
+  id : Int32
   mut released : Bool
-} derive(Eq, Debug)
+}
 
 ///|
-pub fn PoolLease::id(self : PoolLease) -> Int {
+pub fn PoolLease::id(self : PoolLease) -> Int32 {
   self.id
 }
 
@@ -125,7 +131,7 @@ pub fn PoolLease::is_released(self : PoolLease) -> Bool {
 ///|
 struct PoolEntry {
   key : ConnectionKey
-  id : Int
+  id : Int32
   mut in_use : Bool
   mut reusable : Bool
   mut last_used : Int64
@@ -135,14 +141,14 @@ struct PoolEntry {
 pub struct ConnectionPool {
   limits : PoolLimits
   entries : Array[PoolEntry]
-  evicted : Array[Int]
-  mut next_id : Int
+  evicted : Array[Int32]
+  mut next_id : Int32
   mut clock : Int64
 }
 
 ///|
 pub fn ConnectionPool::new(
-  limits? : PoolLimits = PoolLimits::defaults(),
+  limits~ : PoolLimits = PoolLimits::defaults(),
 ) -> Result[ConnectionPool, PoolError] {
   match limits.validate() {
     Ok(_) => Ok({ limits, entries: [], evicted: [], next_id: 0, clock: 0L, })
@@ -151,12 +157,12 @@ pub fn ConnectionPool::new(
 }
 
 ///|
-pub fn ConnectionPool::len(self : ConnectionPool) -> Int {
+pub fn ConnectionPool::len(self : ConnectionPool) -> Int32 {
   self.entries.length()
 }
 
 ///|
-pub fn ConnectionPool::idle_len(self : ConnectionPool) -> Int {
+pub fn ConnectionPool::idle_len(self : ConnectionPool) -> Int32 {
   let mut count = 0
   for entry in self.entries {
     if !entry.in_use && entry.reusable {
@@ -168,7 +174,7 @@ pub fn ConnectionPool::idle_len(self : ConnectionPool) -> Int {
 
 ///|
 /// Number of connection IDs waiting for the resource-owning caller to close.
-pub fn ConnectionPool::evicted_len(self : ConnectionPool) -> Int {
+pub fn ConnectionPool::evicted_len(self : ConnectionPool) -> Int32 {
   self.evicted.length()
 }
 
@@ -251,7 +257,7 @@ fn ConnectionPool::evict_one_idle(self : ConnectionPool) -> Bool {
 ///|
 /// Returns IDs removed by automatic capacity, idle, or invalidation policy.
 /// Resource-owning callers must close and forget the corresponding sessions.
-pub fn ConnectionPool::take_evicted_ids(self : ConnectionPool) -> Array[Int] {
+pub fn ConnectionPool::take_evicted_ids(self : ConnectionPool) -> Array[Int32] {
   let output = self.evicted.copy()
   self.evicted.clear()
   output
@@ -314,7 +320,7 @@ pub fn ConnectionPool::acquire_lease(
 ///|
 pub fn ConnectionPool::release(
   self : ConnectionPool,
-  id : Int,
+  id : Int32,
   reusable : Bool,
 ) -> Result[Unit, PoolError] {
   for entry in self.entries {
@@ -380,7 +386,7 @@ pub fn ConnectionPool::release_lease(
 ///|
 pub fn ConnectionPool::remove(
   self : ConnectionPool,
-  id : Int,
+  id : Int32,
 ) -> Result[Unit, PoolError] {
   for index, entry in self.entries {
     if entry.id == id {

@@ -8,7 +8,7 @@ fn cookie_header_text(
   jar : @cookie.CookieJar,
   uri : String,
   now_seconds : Int64,
-  context? : @cookie.CookieContext = @cookie.CookieContext::http(Get),
+  context~ : @cookie.CookieContext = @cookie.CookieContext::http(Get),
 ) -> Result[String?, @cookie.CookieError] {
   match jar.cookie_header(cookie_test_uri(uri), now_seconds, context~) {
     Ok(Some(value)) => Ok(Some(value.to_string_lossy()))

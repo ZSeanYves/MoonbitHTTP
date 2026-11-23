@@ -1,17 +1,18 @@
 ///|
+#derive(Debug, Eq)
 pub(all) suberror ServiceConfigError {
   InvalidLimits(@types.LimitsError)
-  InvalidReadSize(Int)
-  InvalidBodyQueueCapacity(Int)
-  InvalidReceiveWindow(Int)
-  InvalidConcurrentStreams(Int)
-  InvalidTimeout(String, Int)
-} derive(Debug, Eq)
+  InvalidReadSize(Int32)
+  InvalidBodyQueueCapacity(Int32)
+  InvalidReceiveWindow(Int32)
+  InvalidConcurrentStreams(Int32)
+  InvalidTimeout(String, Int32)
+}
 
 ///|
 fn validate_timeout(
   name : String,
-  value : Int?,
+  value : Int32?,
 ) -> Result[Unit, ServiceConfigError] {
   match value {
     Some(timeout) if timeout <= 0 => Err(InvalidTimeout(name, timeout))
@@ -22,7 +23,7 @@ fn validate_timeout(
 ///|
 fn validate_read_limits(
   limits : @types.Limits,
-  read_size : Int,
+  read_size : Int32,
 ) -> Result[Unit, ServiceConfigError] {
   if limits.validate() is Err(error) {
     return Err(InvalidLimits(error))
@@ -36,10 +37,10 @@ fn validate_read_limits(
 ///|
 fn validate_io(
   limits : @types.Limits,
-  read_size : Int,
-  queue_capacity : Int,
-  read_timeout : Int?,
-  write_timeout : Int?,
+  read_size : Int32,
+  queue_capacity : Int32,
+  read_timeout : Int32?,
+  write_timeout : Int32?,
 ) -> Result[Unit, ServiceConfigError] {
   if validate_read_limits(limits, read_size) is Err(error) {
     return Err(error)
@@ -55,7 +56,7 @@ fn validate_io(
 
 ///|
 fn validate_receive_window(
-  window : Int,
+  window : Int32,
   limits : @types.Limits,
 ) -> Result[Unit, ServiceConfigError] {
   if window <= 0 || window > limits.max_buffer_bytes {

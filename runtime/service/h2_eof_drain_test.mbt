@@ -66,7 +66,7 @@ async test "h2c EOF before initial SETTINGS cancels the outer upgrade task" {
       catch {
         @http2.H2ProtocolError::ConnectionError(
           ProtocolError,
-          "HTTP/2 peer closed before initial SETTINGS"
+          "HTTP/2 peer closed before initial SETTINGS",
         ) => ()
         error => fail("incomplete upgrade failed unexpectedly: \{error}")
       } noraise {
@@ -115,7 +115,7 @@ async test "h2c EOF after preface cancels handler before initial SETTINGS" {
   catch {
     @http2.H2ProtocolError::ConnectionError(
       ProtocolError,
-      "HTTP/2 peer closed before initial SETTINGS"
+      "HTTP/2 peer closed before initial SETTINGS",
     ) => ()
     error => fail("incomplete h2c failed unexpectedly: \{error}")
   } noraise {
@@ -176,7 +176,7 @@ async test "H2 and h2c EOF cancel suspended handlers and join cleanup" {
     catch {
       @http2.H2ProtocolError::ConnectionError(
         Cancel,
-        "HTTP/2 peer EOF drain deadline exceeded"
+        "HTTP/2 peer EOF drain deadline exceeded",
       ) => ()
       error => fail("EOF drain failed with unexpected error: \{error}")
     } noraise {
@@ -226,7 +226,7 @@ async test "H2 EOF deadline cancels a suspended response body exactly once" {
   catch {
     @http2.H2ProtocolError::ConnectionError(
       Cancel,
-      "HTTP/2 peer EOF drain deadline exceeded"
+      "HTTP/2 peer EOF drain deadline exceeded",
     ) => ()
     error => fail("response EOF drain failed: \{error}")
   } noraise {
@@ -314,7 +314,7 @@ async test "H2 EOF deadline covers a writer with IO timeout disabled" {
   catch {
     @http2.H2ProtocolError::ConnectionError(
       Cancel,
-      "HTTP/2 peer EOF drain deadline exceeded"
+      "HTTP/2 peer EOF drain deadline exceeded",
     ) => ()
     error => fail("writer EOF drain failed: \{error}")
   } noraise {
@@ -377,7 +377,7 @@ async test "H2 control writes do not hide peer EOF when IO timeout is disabled" 
   catch {
     @http2.H2ProtocolError::ConnectionError(
       Cancel,
-      "HTTP/2 peer EOF drain deadline exceeded"
+      "HTTP/2 peer EOF drain deadline exceeded",
     ) => ()
     error => fail("control write EOF drain failed: \{error}")
   } noraise {

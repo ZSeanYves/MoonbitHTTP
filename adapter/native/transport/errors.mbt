@@ -15,7 +15,7 @@ fn native_transport_error(
 ///|
 async fn[A] native_io(
   operation : @transport_api.TransportOperation,
-  timeout_ms : Int?,
+  timeout_ms : Int32?,
   action : async () -> A,
 ) -> Result[A, @transport_api.TransportError] {
   Ok(

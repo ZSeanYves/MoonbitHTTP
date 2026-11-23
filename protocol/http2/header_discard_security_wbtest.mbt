@@ -1,8 +1,8 @@
 ///|
 fn discard_test_frame(
-  typ : Int,
-  id : Int,
-  flags : Int,
+  typ : Int32,
+  id : Int32,
+  flags : Int32,
   bytes : Array[Byte],
 ) -> H2Frame {
   {

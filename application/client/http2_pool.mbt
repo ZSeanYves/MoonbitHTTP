@@ -2,17 +2,17 @@
 /// Scoped, direct-origin HTTP/2 executor.
 pub struct Http2Client {
   priv pool : OriginPool[@service.H2Client]
-  priv max_body_bytes : Int
+  priv max_body_bytes : Int32
 }
 
 ///|
 pub(all) struct Http2PoolOptions {
-  max_connections : Int
+  max_connections : Int32
   session : @service.H2ClientConfig
   tls : @transport.TlsOptions
   connect_options : @transport.ConnectOptions
   resolve_options : @transport.ResolveOptions
-  tls_timeout_ms : Int?
+  tls_timeout_ms : Int32?
 }
 
 ///|
@@ -44,7 +44,7 @@ pub async fn[
   policy : P,
   clock : K,
   run : async (Http2Client) -> X,
-  options? : Http2PoolOptions = Http2PoolOptions::defaults(),
+  options~ : Http2PoolOptions = Http2PoolOptions::defaults(),
 ) -> X {
   let {
     max_connections,
@@ -103,6 +103,6 @@ pub fn Http2Client::close(self : Http2Client) -> Unit {
 
 ///|
 /// Count opening, usable and draining connections against the same bound.
-pub fn Http2Client::connection_count(self : Http2Client) -> Int {
+pub fn Http2Client::connection_count(self : Http2Client) -> Int32 {
   self.pool.sessions.length()
 }

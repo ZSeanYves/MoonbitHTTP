@@ -1,4 +1,5 @@
 ///|
+#derive(Debug, Eq)
 pub(all) enum Method {
   Get
   Post
@@ -10,14 +11,15 @@ pub(all) enum Method {
   Trace
   Connect
   Extension(String)
-} derive(Debug, Eq)
+}
 
 ///|
+#derive(Debug, Eq)
 pub(all) suberror MethodError {
   EmptyMethod
   InvalidMethodToken
   NonCanonicalMethod
-} derive(Debug, Eq)
+}
 
 ///|
 pub fn Method::parse_bytes(raw : BytesView) -> Result[Method, MethodError] {
@@ -77,12 +79,13 @@ pub fn Method::validate(self : Method) -> Result[Unit, MethodError] {
 }
 
 ///|
+#derive(Debug, Eq)
 pub(all) enum Version {
   Http10
   Http11
   Http2
   Http3
-} derive(Debug, Eq)
+}
 
 ///|
 pub(all) struct Request[B] {
@@ -95,7 +98,7 @@ pub(all) struct Request[B] {
 
 ///|
 pub(all) struct Response[B] {
-  status : Int
+  status : Int32
   version : Version
   headers : HeaderMap
   body : B
@@ -129,12 +132,12 @@ pub fn[A, B] Response::map_body(
 }
 
 ///|
-pub fn status_allows_body(status : Int) -> Bool {
+pub fn status_allows_body(status : Int32) -> Bool {
   !(status >= 100 && status < 200) && status != 204 && status != 304
 }
 
 ///|
-pub fn response_allows_body(http_method : Method, status : Int) -> Bool {
+pub fn response_allows_body(http_method : Method, status : Int32) -> Bool {
   http_method != Head &&
   !(http_method == Connect && status >= 200 && status < 300) &&
   status_allows_body(status)

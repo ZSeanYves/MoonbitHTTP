@@ -96,7 +96,7 @@ fn cache_directive_value(
 /// fail closed.
 pub fn parse_cache_control(
   headers : @types.HeaderMap,
-  max_directives? : Int = 64,
+  max_directives~ : Int32 = 64,
 ) -> Result[CacheControl, CacheError] {
   if max_directives < 1 {
     return Err(InvalidCacheControl)
@@ -218,7 +218,7 @@ pub fn cache_control_value(control : CacheControl, name : String) -> Bool {
 ///|
 pub fn parse_vary(
   headers : @types.HeaderMap,
-  max_fields? : Int = 32,
+  max_fields~ : Int32 = 32,
 ) -> Result[(Bool, Array[String]), CacheError] {
   if max_fields < 1 {
     return Err(InvalidVary)

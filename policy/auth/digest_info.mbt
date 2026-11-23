@@ -1,5 +1,5 @@
 ///|
-fn digest_hex_length(algorithm : DigestAlgorithm) -> Int {
+fn digest_hex_length(algorithm : DigestAlgorithm) -> Int32 {
   match digest_base_algorithm(algorithm) {
     DigestMd5 => 32
     DigestSha256 | DigestSha512256 => 64
@@ -8,7 +8,7 @@ fn digest_hex_length(algorithm : DigestAlgorithm) -> Int {
 }
 
 ///|
-fn digest_valid_lower_hex(value : String, expected_length : Int) -> Bool {
+fn digest_valid_lower_hex(value : String, expected_length : Int32) -> Bool {
   let bytes = @utf8.encode(value)
   if bytes.length() != expected_length {
     return false
@@ -67,8 +67,8 @@ fn digest_authentication_info_parameters(
 pub fn DigestAuthorization::verify_authentication_info(
   self : DigestAuthorization,
   header : @types.HeaderValue,
-  response_entity_hash? : DigestEntityHash? = None,
-  limits? : AuthLimits = AuthLimits::defaults(),
+  response_entity_hash~ : DigestEntityHash? = None,
+  limits~ : AuthLimits = AuthLimits::defaults(),
 ) -> Result[DigestAuthenticationInfo, AuthError] {
   let parameters = match digest_authentication_info_parameters(header, limits) {
     Ok(value) => value
@@ -175,8 +175,8 @@ pub fn DigestSession::verify_authentication_info(
   self : DigestSession,
   authorization : DigestAuthorization,
   header : @types.HeaderValue,
-  response_entity_hash? : DigestEntityHash? = None,
-  limits? : AuthLimits = AuthLimits::defaults(),
+  response_entity_hash~ : DigestEntityHash? = None,
+  limits~ : AuthLimits = AuthLimits::defaults(),
 ) -> Result[DigestAuthenticationInfo, AuthError] {
   if authorization.origin != self.origin ||
     authorization.realm != self.challenge.realm ||

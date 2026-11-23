@@ -1,8 +1,9 @@
 ///|
+#derive(Eq, Debug)
 pub(all) struct AckRange {
   largest : Int64
   smallest : Int64
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn AckRange::new(
@@ -34,19 +35,20 @@ pub fn AckRange::smallest(self : AckRange) -> Int64 {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct AckFrame {
   largest_acknowledged : Int64
   ack_delay : Int64
   ranges : Array[AckRange]
   ecn_counts : (Int64, Int64, Int64)?
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn AckFrame::new(
   largest_acknowledged : Int64,
   ack_delay : Int64,
   ranges : Array[AckRange],
-  ecn_counts? : (Int64, Int64, Int64)? = None,
+  ecn_counts~ : (Int64, Int64, Int64)? = None,
 ) -> Result[AckFrame, QuicError] {
   let ack : AckFrame = { largest_acknowledged, ack_delay, ranges, ecn_counts, }
   ack.validate() catch {
@@ -95,12 +97,13 @@ pub fn AckFrame::ack_delay(self : AckFrame) -> Int64 {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct StreamFrame {
   stream_id : Int64
   offset : Int64
   data : Bytes
   fin : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn StreamFrame::new(
@@ -119,7 +122,7 @@ pub fn StreamFrame::new(
 }
 
 ///|
-fn quic_range_end(offset : Int64, length : Int) -> Result[Int64, QuicError] {
+fn quic_range_end(offset : Int64, length : Int32) -> Result[Int64, QuicError] {
   if offset < 0L || length < 0 || offset > QUIC_MAX_VARINT - length.to_int64() {
     return Err(VarIntOverflow)
   }
@@ -134,7 +137,7 @@ fn quic_check_stream_count(value : Int64) -> Unit raise QuicError {
 }
 
 ///|
-fn quic_check_new_token(length : Int) -> Unit raise QuicError {
+fn quic_check_new_token(length : Int32) -> Unit raise QuicError {
   if length == 0 {
     raise Protocol(0x07L, "NEW_TOKEN must carry a token")
   }
@@ -144,8 +147,8 @@ fn quic_check_new_token(length : Int) -> Unit raise QuicError {
 fn quic_valid_connection_id_announcement(
   sequence : Int64,
   retire_prior_to : Int64,
-  id_length : Int,
-  token_length : Int,
+  id_length : Int32,
+  token_length : Int32,
 ) -> Bool {
   retire_prior_to >= 0L &&
   retire_prior_to <= sequence &&
@@ -176,6 +179,7 @@ pub fn StreamFrame::fin(self : StreamFrame) -> Bool {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum QuicFrame {
   Padding
   Ping
@@ -198,4 +202,4 @@ pub(all) enum QuicFrame {
   ConnectionClose(Bool, Int64, Int64, Bytes)
   HandshakeDone
   Datagram(Bytes)
-} derive(Eq, Debug)
+}

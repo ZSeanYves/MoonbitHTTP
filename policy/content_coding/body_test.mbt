@@ -1,8 +1,8 @@
 ///|
 struct ContentTrackingBody {
   frames : Array[@body.Frame]
-  mut cursor : Int
-  mut cancel_count : Int
+  mut cursor : Int32
+  mut cancel_count : Int32
 }
 
 ///|

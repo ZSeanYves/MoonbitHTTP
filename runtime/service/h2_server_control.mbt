@@ -12,16 +12,16 @@ priv enum H2ControlItem {
 /// credit so a burst of ordinary DATA cannot crowd out ACKs and stream resets.
 priv struct H2ServerControl {
   queue : @aqueue.Queue[H2ControlItem]
-  windows : Map[Int, Int]
+  windows : Map[Int32, Int32]
   connection : @http2.H2Connection
-  max_streams : Int
-  mut frames : Int
+  max_streams : Int32
+  mut frames : Int32
 }
 
 ///|
 fn H2ServerControl::new(
   connection : @http2.H2Connection,
-  max_streams : Int,
+  max_streams : Int32,
 ) -> H2ServerControl {
   {
     queue: Queue(kind=Blocking(H2_MAX_QUEUED_CONTROLS + 1)),
@@ -44,7 +44,7 @@ fn H2ServerControl::frame(self : H2ServerControl, bytes : Bytes) -> Unit raise {
 }
 
 ///|
-fn H2ServerControl::needs_credit(self : H2ServerControl, id : Int) -> Bool {
+fn H2ServerControl::needs_credit(self : H2ServerControl, id : Int32) -> Bool {
   id == 0 || self.connection.stream_state(id) is Some(Open | HalfClosedLocal)
 }
 

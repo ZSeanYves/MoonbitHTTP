@@ -1,4 +1,4 @@
-///|
+----
 import {
   "moonbitlang/async@0.22.4",
   "moonbitlang/async@0.22.4/fs",
@@ -9,6 +9,7 @@ import {
   "moonbitlang/core/math",
   "moonbitlang/x@0.5.5/crypto",
 }
+----
 
 ///|
 let baseline_revision = "391e415e5ce2bff3e4abc52d5c5cca80d9f60b1a"
@@ -301,12 +302,12 @@ async fn run_window(
   guard result is {
     "passed": true, "post_cancel_reuse_passed": true, "failures": 0,
     "unexpected_process_timeouts": 0, "server_cleanup": "cancelled and reaped", ..
-  } && field(result, "server_sha256") == binary_hash.to_json() &&
-    field(result, "payload_bytes") == payload_bytes.to_json() &&
-    field(result, "concurrency") == concurrency.to_json() &&
-    field(result, "protocol") == protocol.to_json() &&
-    field(result, "requests_per_batch") == batch_requests.to_json() &&
-    field(result, "requested_duration_seconds") == seconds.to_json() else {
+  } && field(result, "server_sha256") == @json.to_json(binary_hash) &&
+    field(result, "payload_bytes") == @json.to_json(payload_bytes) &&
+    field(result, "concurrency") == @json.to_json(concurrency) &&
+    field(result, "protocol") == @json.to_json(protocol) &&
+    field(result, "requests_per_batch") == @json.to_json(batch_requests) &&
+    field(result, "requested_duration_seconds") == @json.to_json(seconds) else {
     fail("\{label} failed its behavior or configuration oracle")
   }
   { arm, pair, protocol, evidence: label, result }
@@ -424,7 +425,7 @@ async fn compare(directory : String, root : String, verify_only : Bool, method_v
     fail("resolved dependencies differ between arms; no comparison windows were taken")
   }
   @fs.write_file(directory + "/shared-dependency-graph.json", dependency_graphs[0], create_mode=CreateNew)
-  @fs.write_file(directory + "/compiled-binaries.json", binary_hashes.to_json(), create_mode=CreateNew)
+  @fs.write_file(directory + "/compiled-binaries.json", @json.to_json(binary_hashes), create_mode=CreateNew)
   // A short behavior check for each complete build precedes all paired windows.
   // These are explicitly excluded from the comparison and are never promoted
   // into a performance sample when the measurement window is incomplete.

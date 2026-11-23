@@ -16,15 +16,16 @@ import {
 }
 
 // Values
-pub fn decide_retry(RetryPolicy, Int, @types.Method, BodyReplayability, RetryCause, retry_after? : String?, now_seconds? : Int64, jitter_ms? : Int64) -> Result[RetryDecision, RetryError]
+pub fn decide_retry(RetryPolicy, Int32, @types.Method, BodyReplayability, RetryCause, retry_after? : String?, now_seconds? : Int64, jitter_ms? : Int64) -> Result[RetryDecision, RetryError]
 
 pub fn response_from_cache(@cache.CacheHit, @types.Method) -> @types.Response[Bytes]
 
 pub async fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @transport.TlsProvider, P : @transport.NetworkPolicy, K : @transport.Clock, X] with_http2_client(C, R, T, P, K, async (Http2Client) -> X, options? : Http2PoolOptions) -> X
 
-pub async fn[X] with_http3_pool(async (ClientEndpoint, async (@service.H3Client) -> Unit, () -> Unit) -> Unit, async (Http3Client) -> X, max_connections? : Int, server_name? : String?) -> X
+pub async fn[X] with_http3_pool(async (ClientEndpoint, async (@service.H3Client) -> Unit, () -> Unit) -> Unit, async (Http3Client) -> X, max_connections? : Int32, server_name? : String?) -> X
 
 // Errors
+#derive(Eq, @debug.Debug)
 pub(all) suberror ClientError {
   ClientInvalidUri(@types.UriError)
   ClientInvalidEndpoint(@types.EndpointError)
@@ -36,7 +37,7 @@ pub(all) suberror ClientError {
   ClientTls(@transport.TlsError)
   ClientAuth(@auth.AuthError)
   ClientContentCoding(@content_coding.ContentCodingError)
-  ClientBodyLimit(Int)
+  ClientBodyLimit(Int32)
   ClientBody(@body.BodyError)
   ClientTimeout(ClientPhase, Int64, Int64)
   ClientCancelled(String)
@@ -44,39 +45,42 @@ pub(all) suberror ClientError {
   ClientHttp1(@http1.Http1Error)
   ClientHttp2(@http2.H2ProtocolError)
   ClientProtocol(String)
-} derive(Eq, @debug.Debug)
+}
 pub fn ClientError::equal(Self, Self) -> Bool
 pub fn ClientError::not_equal(Self, Self) -> Bool
 pub fn ClientError::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) suberror RedirectError {
   RedirectDisabled
-  RedirectLimitExceeded(Int)
+  RedirectLimitExceeded(Int32)
   RedirectLoop
   RedirectDowngradeDenied
   RedirectBodyNotReplayable
   InvalidRedirectLocation
-  StatusIsNotRedirect(Int)
-} derive(Eq, @debug.Debug)
+  StatusIsNotRedirect(Int32)
+}
 pub fn RedirectError::equal(Self, Self) -> Bool
 pub fn RedirectError::not_equal(Self, Self) -> Bool
 pub fn RedirectError::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) suberror RetryError {
   InvalidRetryPolicy
   RetryLimitExceeded
   RetryBodyNotReplayable
-} derive(Eq, @debug.Debug)
+}
 pub fn RetryError::equal(Self, Self) -> Bool
 pub fn RetryError::not_equal(Self, Self) -> Bool
 pub fn RetryError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) enum BodyReplayability {
   ReplayNotRequired
   ReplayableBody
   NonReplayableBody
-} derive(Eq, @debug.Debug)
+}
 pub fn BodyReplayability::equal(Self, Self) -> Bool
 pub fn BodyReplayability::not_equal(Self, Self) -> Bool
 pub fn BodyReplayability::to_repr(Self) -> @debug.Repr
@@ -100,18 +104,20 @@ pub fn Client::set_content_decoding(Self, Bool) -> Unit
 pub fn Client::set_digest_auth(Self, @types.Uri, @auth.DigestCredentials, () -> Result[String, @auth.AuthError], policy? : @auth.DigestPolicy, limits? : @auth.AuthLimits) -> Result[Unit, ClientError]
 pub fn Client::tls(Self) -> @transport.TlsOptions
 
+#derive(Eq, @debug.Debug)
 pub(all) struct ClientEndpoint {
   uri : @types.Uri
   transport : @types.Endpoint
   secure : Bool
   origin : String
-} derive(Eq, @debug.Debug)
+}
 pub fn ClientEndpoint::equal(Self, Self) -> Bool
 pub fn ClientEndpoint::from_uri(@types.Uri) -> Result[Self, ClientError]
 pub fn ClientEndpoint::not_equal(Self, Self) -> Bool
 pub fn ClientEndpoint::same_origin(Self, Self) -> Bool
 pub fn ClientEndpoint::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ClientPhase {
   ClientResolve
   ClientConnect
@@ -122,19 +128,20 @@ pub(all) enum ClientPhase {
   ClientResponseBody
   ClientIdle
   ClientTotal
-} derive(Eq, @debug.Debug)
+}
 pub fn ClientPhase::equal(Self, Self) -> Bool
 pub fn ClientPhase::not_equal(Self, Self) -> Bool
 pub fn ClientPhase::to_repr(Self) -> @debug.Repr
 
+#derive(Compare, Eq, Hash, @debug.Debug)
 pub(all) enum ClientProtocol {
   Http1
   Http2
   Http3
-} derive(Compare, Eq, Hash, @debug.Debug)
-pub fn ClientProtocol::compare(Self, Self) -> Int
+}
+pub fn ClientProtocol::compare(Self, Self) -> Int32
 pub fn ClientProtocol::equal(Self, Self) -> Bool
-pub fn ClientProtocol::hash(Self) -> Int
+pub fn ClientProtocol::hash(Self) -> Int32
 pub fn ClientProtocol::hash_combine(Self, Hasher) -> Unit
 pub fn ClientProtocol::not_equal(Self, Self) -> Bool
 pub fn ClientProtocol::op_ge(Self, Self) -> Bool
@@ -143,17 +150,18 @@ pub fn ClientProtocol::op_le(Self, Self) -> Bool
 pub fn ClientProtocol::op_lt(Self, Self) -> Bool
 pub fn ClientProtocol::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct ClientTimeouts {
-  resolve_ms : Int?
-  connect_ms : Int?
-  tls_ms : Int?
-  request_headers_ms : Int?
-  request_body_ms : Int?
-  response_headers_ms : Int?
-  response_body_ms : Int?
-  idle_ms : Int?
-  total_ms : Int?
-} derive(Eq, @debug.Debug)
+  resolve_ms : Int32?
+  connect_ms : Int32?
+  tls_ms : Int32?
+  request_headers_ms : Int32?
+  request_body_ms : Int32?
+  response_headers_ms : Int32?
+  response_body_ms : Int32?
+  idle_ms : Int32?
+  total_ms : Int32?
+}
 pub fn ClientTimeouts::defaults() -> Self
 pub fn ClientTimeouts::equal(Self, Self) -> Bool
 pub fn ClientTimeouts::not_equal(Self, Self) -> Bool
@@ -167,19 +175,20 @@ pub async fn ClosureRoundTripper::execute(Self, @types.Request[Bytes]) -> Result
 pub fn ClosureRoundTripper::new(async (@types.Request[Bytes]) -> Result[@types.Response[Bytes], ClientError]) -> Self
 pub impl ByteRoundTripper for ClosureRoundTripper
 
+#derive(Compare, Eq, Hash, @debug.Debug)
 pub(all) struct ConnectionKey {
   scheme : String
   host : String
-  port : Int
+  port : Int32
   proxy_endpoint : @types.Endpoint?
   proxy_identity : String?
   tls_identity : String?
   protocol : ClientProtocol
   options_identity : String?
-} derive(Compare, Eq, Hash, @debug.Debug)
-pub fn ConnectionKey::compare(Self, Self) -> Int
+}
+pub fn ConnectionKey::compare(Self, Self) -> Int32
 pub fn ConnectionKey::equal(Self, Self) -> Bool
-pub fn ConnectionKey::hash(Self) -> Int
+pub fn ConnectionKey::hash(Self) -> Int32
 pub fn ConnectionKey::hash_combine(Self, Hasher) -> Unit
 pub fn ConnectionKey::host(Self) -> String
 pub fn ConnectionKey::new(@types.Endpoint, String?, String?, ClientProtocol, String?, proxy_endpoint? : @types.Endpoint?) -> Self
@@ -188,7 +197,7 @@ pub fn ConnectionKey::op_ge(Self, Self) -> Bool
 pub fn ConnectionKey::op_gt(Self, Self) -> Bool
 pub fn ConnectionKey::op_le(Self, Self) -> Bool
 pub fn ConnectionKey::op_lt(Self, Self) -> Bool
-pub fn ConnectionKey::port(Self) -> Int
+pub fn ConnectionKey::port(Self) -> Int32
 pub fn ConnectionKey::protocol(Self) -> ClientProtocol
 pub fn ConnectionKey::proxy_endpoint(Self) -> @types.Endpoint?
 pub fn ConnectionKey::scheme(Self) -> String
@@ -197,34 +206,34 @@ pub fn ConnectionKey::to_repr(Self) -> @debug.Repr
 pub struct ConnectionPool {
   limits : PoolLimits
   entries : Array[PoolEntry]
-  evicted : Array[Int]
-  mut next_id : Int
+  evicted : Array[Int32]
+  mut next_id : Int32
   mut clock : Int64
 }
 pub fn ConnectionPool::acquire(Self, ConnectionKey) -> Result[PoolAcquire, PoolError]
 pub fn ConnectionPool::acquire_lease(Self, ConnectionKey) -> Result[PoolLease, PoolError]
 pub fn ConnectionPool::close_idle(Self, ConnectionKey) -> Unit
-pub fn ConnectionPool::evicted_len(Self) -> Int
-pub fn ConnectionPool::idle_len(Self) -> Int
+pub fn ConnectionPool::evicted_len(Self) -> Int32
+pub fn ConnectionPool::idle_len(Self) -> Int32
 pub fn ConnectionPool::invalidate_key(Self, ConnectionKey) -> Unit
-pub fn ConnectionPool::len(Self) -> Int
+pub fn ConnectionPool::len(Self) -> Int32
 pub fn ConnectionPool::new(limits? : PoolLimits) -> Result[Self, PoolError]
-pub fn ConnectionPool::release(Self, Int, Bool) -> Result[Unit, PoolError]
+pub fn ConnectionPool::release(Self, Int32, Bool) -> Result[Unit, PoolError]
 pub fn ConnectionPool::release_lease(Self, PoolLease, Bool) -> Result[Unit, PoolError]
-pub fn ConnectionPool::remove(Self, Int) -> Result[Unit, PoolError]
-pub fn ConnectionPool::take_evicted_ids(Self) -> Array[Int]
+pub fn ConnectionPool::remove(Self, Int32) -> Result[Unit, PoolError]
+pub fn ConnectionPool::take_evicted_ids(Self) -> Array[Int32]
 
 pub struct Http1Client {
   // private fields
 }
 pub fn Http1Client::cache(Self) -> @cache.HttpCache
 pub fn Http1Client::close(Self) -> Unit
-pub fn Http1Client::connection_count(Self) -> Int
+pub fn Http1Client::connection_count(Self) -> Int32
 pub fn Http1Client::content_coding_limits(Self) -> @content_coding.ContentCodingLimits
 pub fn Http1Client::content_decoding(Self) -> Bool
 pub fn Http1Client::cookie_jar(Self) -> @cookie.CookieJar
 pub fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @transport.TlsProvider, P : @transport.NetworkPolicy, K : @transport.Clock] Http1Client::from_capabilities(C, R, T, P, K, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @transport.TlsOptions, proxy_tls? : @transport.TlsOptions, cookie_jar? : @cookie.CookieJar, cache? : @cache.HttpCache, cache_enabled? : Bool, wait? : async (Int64) -> Unit, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, resolve_options? : @transport.ResolveOptions, content_decoding? : Bool, content_coding_limits? : @content_coding.ContentCodingLimits, pool_limits? : PoolLimits) -> Result[Self, ClientError]
-pub fn Http1Client::idle_connection_count(Self) -> Int
+pub fn Http1Client::idle_connection_count(Self) -> Int32
 pub async fn Http1Client::send(Self, @types.Request[Bytes]) -> Result[@types.Response[Bytes], ClientError]
 pub async fn Http1Client::send_at(Self, @types.Request[Bytes], Int64) -> Result[@types.Response[Bytes], ClientError]
 pub fn Http1Client::set_content_decoding(Self, Bool) -> Unit
@@ -233,12 +242,12 @@ pub struct Http1PooledRoundTripper {
   // private fields
 }
 pub fn Http1PooledRoundTripper::close(Self) -> Unit
-pub fn Http1PooledRoundTripper::connection_count(Self) -> Int
+pub fn Http1PooledRoundTripper::connection_count(Self) -> Int32
 pub async fn Http1PooledRoundTripper::execute(Self, @types.Request[Bytes]) -> Result[@types.Response[Bytes], ClientError]
 pub async fn[B : @body.Body] Http1PooledRoundTripper::execute_body(Self, @types.Request[B]) -> Result[@types.Response[@body.BodyStream], ClientError]
 pub async fn Http1PooledRoundTripper::execute_stream(Self, @types.Request[Bytes]) -> Result[@types.Response[@body.BodyStream], ClientError]
 pub fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @transport.TlsProvider, P : @transport.NetworkPolicy, K : @transport.Clock] Http1PooledRoundTripper::from_capabilities(C, R, T, P, K, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @transport.TlsOptions, proxy_tls? : @transport.TlsOptions, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, resolve_options? : @transport.ResolveOptions, pool_limits? : PoolLimits) -> Result[Self, ClientError]
-pub fn Http1PooledRoundTripper::idle_connection_count(Self) -> Int
+pub fn Http1PooledRoundTripper::idle_connection_count(Self) -> Int32
 pub fn Http1PooledRoundTripper::new(async (@types.Endpoint, @transport.ConnectOptions) -> Result[@transport.StreamConnection, @transport.TransportError], async (@transport.StreamConnection, @transport.TlsOptions) -> Result[@transport.SecureConnection, @transport.TlsError], authorize~ : (@types.Endpoint, @transport.PolicyOperation) -> Result[Unit, @transport.PolicyError], now_millis~ : () -> Int64, resolve? : (async (String, @transport.ResolveOptions) -> Result[Array[@types.IpAddress], @transport.TransportError])?, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @transport.TlsOptions, proxy_tls? : @transport.TlsOptions, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, resolve_options? : @transport.ResolveOptions, pool_limits? : PoolLimits) -> Result[Self, ClientError]
 pub impl ByteRoundTripper for Http1PooledRoundTripper
 pub impl StreamingRoundTripper for Http1PooledRoundTripper
@@ -247,7 +256,7 @@ pub struct Http2Client {
   // private fields
 }
 pub fn Http2Client::close(Self) -> Unit
-pub fn Http2Client::connection_count(Self) -> Int
+pub fn Http2Client::connection_count(Self) -> Int32
 pub async fn Http2Client::execute(Self, @types.Request[Bytes]) -> Result[@types.Response[Bytes], ClientError]
 pub async fn[B : @body.Body] Http2Client::execute_body(Self, @types.Request[B]) -> Result[@types.Response[@body.BodyStream], ClientError]
 pub async fn Http2Client::execute_stream(Self, @types.Request[Bytes]) -> Result[@types.Response[@body.BodyStream], ClientError]
@@ -255,12 +264,12 @@ pub impl ByteRoundTripper for Http2Client
 pub impl StreamingRoundTripper for Http2Client
 
 pub(all) struct Http2PoolOptions {
-  max_connections : Int
+  max_connections : Int32
   session : @service.H2ClientConfig
   tls : @transport.TlsOptions
   connect_options : @transport.ConnectOptions
   resolve_options : @transport.ResolveOptions
-  tls_timeout_ms : Int?
+  tls_timeout_ms : Int32?
 }
 pub fn Http2PoolOptions::defaults() -> Self
 
@@ -268,19 +277,21 @@ pub struct Http3Client {
   // private fields
 }
 pub fn Http3Client::close(Self) -> Unit
-pub fn Http3Client::connection_count(Self) -> Int
+pub fn Http3Client::connection_count(Self) -> Int32
 pub async fn[B : @body.Body] Http3Client::send(Self, @types.Request[B]) -> @types.Response[@body.BodyStream]
 
+#derive(Eq, @debug.Debug)
 pub(all) enum PoolAcquire {
-  Reused(Int)
-  Created(Int)
-} derive(Eq, @debug.Debug)
+  Reused(Int32)
+  Created(Int32)
+}
 pub fn PoolAcquire::equal(Self, Self) -> Bool
 pub fn PoolAcquire::not_equal(Self, Self) -> Bool
 pub fn PoolAcquire::to_repr(Self) -> @debug.Repr
 
 type PoolEntry
 
+#derive(Eq, @debug.Debug)
 pub(all) enum PoolError {
   InvalidLimits
   AtCapacity
@@ -288,38 +299,41 @@ pub(all) enum PoolError {
   LeaseAlreadyReleased
   LeaseInUse
   IdExhausted
-} derive(Eq, @debug.Debug)
+}
 pub fn PoolError::equal(Self, Self) -> Bool
 pub fn PoolError::not_equal(Self, Self) -> Bool
 pub fn PoolError::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct PoolLease {
   key : ConnectionKey
-  id : Int
+  id : Int32
   mut released : Bool
-} derive(Eq, @debug.Debug)
+}
 pub fn PoolLease::equal(Self, Self) -> Bool
-pub fn PoolLease::id(Self) -> Int
+pub fn PoolLease::id(Self) -> Int32
 pub fn PoolLease::is_released(Self) -> Bool
 pub fn PoolLease::key(Self) -> ConnectionKey
 pub fn PoolLease::not_equal(Self, Self) -> Bool
 pub fn PoolLease::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct PoolLimits {
-  max_total : Int
-  max_idle : Int
-} derive(Eq, @debug.Debug)
+  max_total : Int32
+  max_idle : Int32
+}
 pub fn PoolLimits::defaults() -> Self
 pub fn PoolLimits::equal(Self, Self) -> Bool
 pub fn PoolLimits::not_equal(Self, Self) -> Bool
 pub fn PoolLimits::to_repr(Self) -> @debug.Repr
 pub fn PoolLimits::validate(Self) -> Result[Unit, PoolError]
 
+#derive(Eq, @debug.Debug)
 pub(all) struct ProxyConfig {
   mode : ProxyMode
   endpoint : @types.Endpoint?
   identity_key : String?
-} derive(Eq, @debug.Debug)
+}
 pub fn ProxyConfig::direct() -> Self
 pub fn ProxyConfig::endpoint(Self) -> @types.Endpoint?
 pub fn ProxyConfig::equal(Self, Self) -> Bool
@@ -331,11 +345,12 @@ pub fn ProxyConfig::not_equal(Self, Self) -> Bool
 pub fn ProxyConfig::to_repr(Self) -> @debug.Repr
 pub fn ProxyConfig::validate(Self) -> Result[Unit, ClientError]
 
+#derive(Eq, @debug.Debug)
 pub(all) enum ProxyMode {
   Direct
   HttpForward
   HttpsConnect
-} derive(Eq, @debug.Debug)
+}
 pub fn ProxyMode::equal(Self, Self) -> Bool
 pub fn ProxyMode::not_equal(Self, Self) -> Bool
 pub fn ProxyMode::to_repr(Self) -> @debug.Repr
@@ -348,25 +363,27 @@ pub(all) struct RedirectDecision {
   cross_origin : Bool
 }
 
+#derive(Eq, @debug.Debug)
 pub(all) struct RedirectPolicy {
   enabled : Bool
-  max_redirects : Int
+  max_redirects : Int32
   allow_https_downgrade : Bool
-} derive(Eq, @debug.Debug)
+}
 pub fn RedirectPolicy::disabled() -> Self
 pub fn RedirectPolicy::equal(Self, Self) -> Bool
-pub fn RedirectPolicy::limited(max_redirects? : Int, allow_https_downgrade? : Bool) -> Result[Self, RedirectError]
+pub fn RedirectPolicy::limited(max_redirects? : Int32, allow_https_downgrade? : Bool) -> Result[Self, RedirectError]
 pub fn RedirectPolicy::not_equal(Self, Self) -> Bool
 pub fn RedirectPolicy::to_repr(Self) -> @debug.Repr
 
 pub struct RedirectTracker {
   policy : RedirectPolicy
   visited : Map[String, Bool]
-  mut followed : Int
+  mut followed : Int32
 }
-pub fn RedirectTracker::follow(Self, @types.Uri, String, Int, @types.Method, @types.HeaderMap, BodyReplayability) -> Result[RedirectDecision, RedirectError]
+pub fn RedirectTracker::follow(Self, @types.Uri, String, Int32, @types.Method, @types.HeaderMap, BodyReplayability) -> Result[RedirectDecision, RedirectError]
 pub fn RedirectTracker::new(@types.Uri, RedirectPolicy) -> Result[Self, RedirectError]
 
+#derive(Eq, @debug.Debug)
 pub(all) struct RequestOptions {
   limits : @types.Limits
   timeouts : ClientTimeouts
@@ -375,57 +392,61 @@ pub(all) struct RequestOptions {
   body_replayability : BodyReplayability
   explicitly_idempotent : Bool
   allow_early_data : Bool
-} derive(Eq, @debug.Debug)
+}
 pub fn RequestOptions::defaults() -> Self
 pub fn RequestOptions::equal(Self, Self) -> Bool
 pub fn RequestOptions::not_equal(Self, Self) -> Bool
 pub fn RequestOptions::to_repr(Self) -> @debug.Repr
 pub fn RequestOptions::validate(Self) -> Result[Unit, ClientError]
 
+#derive(Eq, @debug.Debug)
 pub(all) enum RetryCause {
   RetryConnectFailure
   RetryTimeoutBeforeResponse
   RetryRefusedStream
   RetryGoawayUnprocessed
-  RetryStatus(Int)
+  RetryStatus(Int32)
   RetryPolicyDenied
   RetryTlsVerificationFailed
   RetryCancelled
   RetryBodyPartiallySent
   RetryOther
-} derive(Eq, @debug.Debug)
+}
 pub fn RetryCause::equal(Self, Self) -> Bool
 pub fn RetryCause::not_equal(Self, Self) -> Bool
 pub fn RetryCause::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum RetryDecision {
   DoNotRetry
   RetryAfterMillis(Int64)
-} derive(Eq, @debug.Debug)
+}
 pub fn RetryDecision::equal(Self, Self) -> Bool
 pub fn RetryDecision::not_equal(Self, Self) -> Bool
 pub fn RetryDecision::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum RetryMode {
   RetryDisabled
   RetryIdempotent
   RetryExplicit(Array[@types.Method])
-} derive(Eq, @debug.Debug)
+}
 pub fn RetryMode::equal(Self, Self) -> Bool
 pub fn RetryMode::not_equal(Self, Self) -> Bool
 pub fn RetryMode::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct RetryPolicy {
   mode : RetryMode
-  max_attempts : Int
+  max_attempts : Int32
   base_delay_ms : Int64
   max_delay_ms : Int64
   respect_retry_after : Bool
-} derive(Eq, @debug.Debug)
+}
 pub fn RetryPolicy::disabled() -> Self
 pub fn RetryPolicy::equal(Self, Self) -> Bool
-pub fn RetryPolicy::explicit(Array[@types.Method], max_attempts? : Int, base_delay_ms? : Int64, max_delay_ms? : Int64, respect_retry_after? : Bool) -> Result[Self, RetryError]
-pub fn RetryPolicy::idempotent(max_attempts? : Int, base_delay_ms? : Int64, max_delay_ms? : Int64, respect_retry_after? : Bool) -> Result[Self, RetryError]
+pub fn RetryPolicy::explicit(Array[@types.Method], max_attempts? : Int32, base_delay_ms? : Int64, max_delay_ms? : Int64, respect_retry_after? : Bool) -> Result[Self, RetryError]
+pub fn RetryPolicy::idempotent(max_attempts? : Int32, base_delay_ms? : Int64, max_delay_ms? : Int64, respect_retry_after? : Bool) -> Result[Self, RetryError]
 pub fn RetryPolicy::not_equal(Self, Self) -> Bool
 pub fn RetryPolicy::to_repr(Self) -> @debug.Repr
 pub fn RetryPolicy::validate(Self) -> Result[Unit, RetryError]

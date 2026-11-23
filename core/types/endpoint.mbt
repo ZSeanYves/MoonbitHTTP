@@ -1,16 +1,18 @@
 ///|
+#derive(Eq, Debug, Compare, Hash)
 pub struct Endpoint {
   scheme : String
   host : String
-  port : Int
-} derive(Eq, Debug, Compare, Hash)
+  port : Int32
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror EndpointError {
   InvalidScheme
   InvalidHost
   InvalidPort
-} derive(Eq, Debug)
+}
 
 ///|
 fn endpoint_valid_host(value : String) -> Bool {
@@ -30,7 +32,7 @@ fn endpoint_valid_host(value : String) -> Bool {
 pub fn Endpoint::new(
   scheme : String,
   host : String,
-  port : Int,
+  port : Int32,
 ) -> Result[Endpoint, EndpointError] {
   guard valid_scheme(@utf8.encode(scheme)) else { return Err(InvalidScheme) }
   let normalized_host = if host.has_prefix("[") {
@@ -70,7 +72,7 @@ pub fn Endpoint::host(self : Endpoint) -> String {
 }
 
 ///|
-pub fn Endpoint::port(self : Endpoint) -> Int {
+pub fn Endpoint::port(self : Endpoint) -> Int32 {
   self.port
 }
 

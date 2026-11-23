@@ -146,7 +146,7 @@ async fn[B : @body.Body] H3ConnectionIo::respond(
 pub async fn[B : @body.Body] serve_http3_connection(
   io : H3ConnectionIo,
   handler : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
-  on_request_error? : (Int64, Error) -> Unit = (_, _) => (),
+  on_request_error~ : (Int64, Error) -> Unit = (_, _) => (),
 ) -> Unit {
   io.session.defer_body_credit()
   let active : Map[Int64, H3ServerRequest] = Map([])

@@ -29,21 +29,21 @@ pub fn[
   tls_provider : T,
   policy : P,
   clock : K,
-  options? : RequestOptions = RequestOptions::defaults(),
-  proxy? : ProxyConfig = ProxyConfig::direct(),
-  origin_tls? : @transport.TlsOptions = http1_tls_defaults(),
-  proxy_tls? : @transport.TlsOptions = http1_tls_defaults(),
-  cookie_jar? : @cookie.CookieJar = @cookie.CookieJar::new().unwrap(),
-  cache? : @cache.HttpCache = @cache.HttpCache::new().unwrap(),
-  cache_enabled? : Bool = false,
-  wait? : async (Int64) -> Unit = client_default_wait,
-  origin_tls_identity? : String = "origin-tls",
-  proxy_tls_identity? : String = "proxy-tls",
-  connect_options? : @transport.ConnectOptions = @transport.ConnectOptions::defaults(),
-  resolve_options? : @transport.ResolveOptions = @transport.ResolveOptions::defaults(),
-  content_decoding? : Bool = false,
-  content_coding_limits? : @content_coding.ContentCodingLimits = @content_coding.ContentCodingLimits::defaults(),
-  pool_limits? : PoolLimits = PoolLimits::defaults(),
+  options~ : RequestOptions = RequestOptions::defaults(),
+  proxy~ : ProxyConfig = ProxyConfig::direct(),
+  origin_tls~ : @transport.TlsOptions = http1_tls_defaults(),
+  proxy_tls~ : @transport.TlsOptions = http1_tls_defaults(),
+  cookie_jar~ : @cookie.CookieJar = @cookie.CookieJar::new().unwrap(),
+  cache~ : @cache.HttpCache = @cache.HttpCache::new().unwrap(),
+  cache_enabled~ : Bool = false,
+  wait~ : async (Int64) -> Unit = client_default_wait,
+  origin_tls_identity~ : String = "origin-tls",
+  proxy_tls_identity~ : String = "proxy-tls",
+  connect_options~ : @transport.ConnectOptions = @transport.ConnectOptions::defaults(),
+  resolve_options~ : @transport.ResolveOptions = @transport.ResolveOptions::defaults(),
+  content_decoding~ : Bool = false,
+  content_coding_limits~ : @content_coding.ContentCodingLimits = @content_coding.ContentCodingLimits::defaults(),
+  pool_limits~ : PoolLimits = PoolLimits::defaults(),
 ) -> Result[Http1Client, ClientError] {
   let now_millis = fn() { @transport.Clock::monotonic_millis(clock) }
   let wall_clock_seconds = fn() { @transport.Clock::wall_clock_seconds(clock) }
@@ -124,12 +124,12 @@ pub fn Http1Client::cache(self : Http1Client) -> @cache.HttpCache {
 }
 
 ///|
-pub fn Http1Client::connection_count(self : Http1Client) -> Int {
+pub fn Http1Client::connection_count(self : Http1Client) -> Int32 {
   self.round_tripper.connection_count()
 }
 
 ///|
-pub fn Http1Client::idle_connection_count(self : Http1Client) -> Int {
+pub fn Http1Client::idle_connection_count(self : Http1Client) -> Int32 {
   self.round_tripper.idle_connection_count()
 }
 

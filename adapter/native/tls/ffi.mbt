@@ -7,8 +7,8 @@ extern "C" fn openssl_new(
   server : Bool,
   verify : Bool,
   system_roots : Bool,
-  min_version : Int,
-  max_version : Int,
+  min_version : Int32,
+  max_version : Int32,
   host : Bytes,
   numeric_host : Bool,
   roots : Bytes,
@@ -56,11 +56,11 @@ extern "C" fn OpenSsl::error_message(self : OpenSsl) -> Bytes = "moon_http_tls_e
 
 ///|
 #borrow(self)
-extern "C" fn OpenSsl::handshake(self : OpenSsl) -> Int = "moon_http_tls_handshake"
+extern "C" fn OpenSsl::handshake(self : OpenSsl) -> Int32 = "moon_http_tls_handshake"
 
 ///|
 #borrow(self, bytes)
-extern "C" fn OpenSsl::feed(self : OpenSsl, bytes : Bytes) -> Int = "moon_http_tls_feed"
+extern "C" fn OpenSsl::feed(self : OpenSsl, bytes : Bytes) -> Int32 = "moon_http_tls_feed"
 
 ///|
 #borrow(self)
@@ -71,22 +71,22 @@ extern "C" fn OpenSsl::drain(self : OpenSsl) -> Bytes = "moon_http_tls_drain"
 extern "C" fn OpenSsl::read(
   self : OpenSsl,
   bytes : FixedArray[Byte],
-  count : Ref[Int],
-) -> Int = "moon_http_tls_read"
+  count : Ref[Int32],
+) -> Int32 = "moon_http_tls_read"
 
 ///|
 #borrow(self, bytes, count)
 extern "C" fn OpenSsl::write(
   self : OpenSsl,
   bytes : Bytes,
-  offset : Int,
-  length : Int,
-  count : Ref[Int],
-) -> Int = "moon_http_tls_write"
+  offset : Int32,
+  length : Int32,
+  count : Ref[Int32],
+) -> Int32 = "moon_http_tls_write"
 
 ///|
 #borrow(self)
-extern "C" fn OpenSsl::version(self : OpenSsl) -> Int = "moon_http_tls_version"
+extern "C" fn OpenSsl::version(self : OpenSsl) -> Int32 = "moon_http_tls_version"
 
 ///|
 #borrow(self)

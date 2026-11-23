@@ -1,6 +1,6 @@
 ///|
 async fn[B : @body.Body] serve_cleartext(
-  port : Int,
+  port : Int32,
   handler : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
 ) -> Unit {
   let server = @socket.TcpServer(

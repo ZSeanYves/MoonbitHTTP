@@ -1,34 +1,38 @@
 ///|
 /// TLS 1.3 cipher suites that can produce QUIC packet-protection keys.
 /// AES-128-GCM is the mandatory-to-implement QUIC v1 suite.
+#derive(Eq, Debug)
 pub(all) enum QuicTlsCipherSuite {
   TlsAes128GcmSha256
   TlsAes256GcmSha384
-} derive(Eq, Debug)
+}
 
 ///|
 /// Encryption levels have independent CRYPTO byte streams. Early data carries
 /// application data only and deliberately has no handshake level here.
+#derive(Eq, Debug)
 pub(all) enum QuicEncryptionLevel {
   QuicInitial
   QuicHandshake
   QuicApplication
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum QuicSecretDirection {
   QuicReadSecret
   QuicWriteSecret
-} derive(Eq, Debug)
+}
 
 ///|
 /// A complete, bounded TLS Handshake message, including its four-byte header.
 /// QUIC carries these bytes directly, without TLS records.
+#derive(Eq, Debug)
 pub(all) struct QuicHandshakeMessage {
   level : QuicEncryptionLevel
-  message_type : Int
+  message_type : Int32
   encoded : Bytes
-} derive(Eq, Debug)
+}
 
 ///|
 /// Provider results intentionally do not implement Debug: traffic secrets must
@@ -42,7 +46,7 @@ pub(all) enum QuicTlsEvent {
     QuicEncryptionLevel,
     QuicSecretDirection,
     QuicTlsCipherSuite,
-    Bytes
+    Bytes,
   )
   HandshakeComplete(String, Bytes)
 }

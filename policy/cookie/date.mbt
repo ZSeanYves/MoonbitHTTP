@@ -36,7 +36,11 @@ fn cookie_ascii_lower_byte(byte : Byte) -> Byte {
 }
 
 ///|
-fn cookie_date_digits(token : BytesView, minimum : Int, maximum : Int) -> Int? {
+fn cookie_date_digits(
+  token : BytesView,
+  minimum : Int32,
+  maximum : Int32,
+) -> Int32? {
   let mut count = 0
   let mut value = 0
   while count < token.length() &&
@@ -55,8 +59,8 @@ fn cookie_date_digits(token : BytesView, minimum : Int, maximum : Int) -> Int? {
 }
 
 ///|
-fn cookie_date_time(token : BytesView) -> (Int, Int, Int)? {
-  let separators : Array[Int] = []
+fn cookie_date_time(token : BytesView) -> (Int32, Int32, Int32)? {
+  let separators : Array[Int32] = []
   for index, byte in token {
     if byte == b':' {
       separators.push(index)
@@ -87,7 +91,7 @@ fn cookie_date_time(token : BytesView) -> (Int, Int, Int)? {
 }
 
 ///|
-fn cookie_date_month(token : BytesView) -> Int? {
+fn cookie_date_month(token : BytesView) -> Int32? {
   if token.length() < 3 {
     return None
   }
@@ -113,10 +117,10 @@ fn cookie_date_month(token : BytesView) -> Int? {
 
 ///|
 fn parse_cookie_date(input : BytesView) -> Int64? {
-  let mut time : (Int, Int, Int)? = None
-  let mut day : Int? = None
-  let mut month : Int? = None
-  let mut year : Int? = None
+  let mut time : (Int32, Int32, Int32)? = None
+  let mut day : Int32? = None
+  let mut month : Int32? = None
+  let mut year : Int32? = None
   for token in cookie_date_tokens(input) {
     if time is None {
       match cookie_date_time(token) {

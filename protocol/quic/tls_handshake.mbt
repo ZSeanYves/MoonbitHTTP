@@ -10,8 +10,8 @@ pub struct QuicHandshakeInput {
 
 ///|
 pub fn QuicHandshakeInput::new(
-  max_bytes_per_level? : Int = 1024 * 1024,
-  max_messages_per_level? : Int = 256,
+  max_bytes_per_level~ : Int32 = 1024 * 1024,
+  max_messages_per_level~ : Int32 = 256,
 ) -> Result[QuicHandshakeInput, QuicError] {
   let initial = match
     @tls.QuicHandshakeDecoder::new(
@@ -87,7 +87,7 @@ pub fn QuicDatagramDriver::install_traffic_secret(
   level : @transport.QuicEncryptionLevel,
   direction : @transport.QuicSecretDirection,
   secret : Bytes,
-  suite? : @transport.QuicTlsCipherSuite = TlsAes128GcmSha256,
+  suite~ : @transport.QuicTlsCipherSuite = TlsAes128GcmSha256,
 ) -> Result[Unit, QuicError] {
   if self.state() != Handshaking {
     return Err(

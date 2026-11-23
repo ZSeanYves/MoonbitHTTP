@@ -2,6 +2,7 @@
 /// Events emitted by the QUIC datagram driver.  The driver owns packet
 /// protection, packet-number spaces, recovery and connection bookkeeping, but
 /// leaves UDP I/O to the `DatagramSocket` capability.
+#derive(Eq, Debug)
 pub(all) enum QuicDriverAction {
   SendDatagram(@types.Endpoint, Bytes)
   StreamData(Int64, Bytes, Bool)
@@ -12,7 +13,7 @@ pub(all) enum QuicDriverAction {
   ConnectionClosed(Int64, String)
   RetryReceived(ConnectionId)
   PacketIgnored
-} derive(Eq, Debug)
+}
 
 ///|
 pub struct QuicDatagramDriver {
@@ -245,7 +246,7 @@ fn QuicDatagramDriver::quic_driver_space_keys(
 pub async fn[S : @transport.DatagramSocket] QuicDatagramDriver::receive_once(
   self : QuicDatagramDriver,
   socket : S,
-  max_bytes : Int,
+  max_bytes : Int32,
   now_ms : Int64,
 ) -> Result[Array[QuicDriverAction], QuicError] {
   let datagram = match socket.receive(max_bytes) {
@@ -283,13 +284,13 @@ pub fn QuicDatagramDriver::new(
   initial_destination : ConnectionId,
   local_connection_id : ConnectionId,
   peer_connection_id : ConnectionId,
-  retry_context? : QuicRetryContext? = None,
-  limits? : QuicLimits = QuicLimits::defaults(),
-  transport_params? : QuicTransportParams = QuicTransportParams::defaults(),
-  recovery_config? : QuicRecoveryConfig = QuicRecoveryConfig::defaults(),
-  now_ms? : Int64 = 0L,
-  retry_tokens? : QuicRetryTokenManager? = None,
-  authorize? : (@types.Endpoint, @transport.PolicyOperation) -> Result[
+  retry_context~ : QuicRetryContext? = None,
+  limits~ : QuicLimits = QuicLimits::defaults(),
+  transport_params~ : QuicTransportParams = QuicTransportParams::defaults(),
+  recovery_config~ : QuicRecoveryConfig = QuicRecoveryConfig::defaults(),
+  now_ms~ : Int64 = 0L,
+  retry_tokens~ : QuicRetryTokenManager? = None,
+  authorize~ : (@types.Endpoint, @transport.PolicyOperation) -> Result[
     Unit,
     @transport.PolicyError,
   ] = fn(_, _) { Ok(()) },

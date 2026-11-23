@@ -1,19 +1,21 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum H3FieldSectionKind {
   H3RequestFields
   H3ResponseFields
   H3TrailerFields
   H3PushPromiseFields
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct H3MessageMetadata {
   content_length : Int64?
   http_method : String?
-  status : Int?
+  status : Int32?
   informational : Bool
   body_forbidden : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 fn h3_parse_decimal(value : BytesView) -> Result[Int64, Unit] {
@@ -119,8 +121,8 @@ pub fn validate_http3_field_section(
   stream_id : Int64,
   fields : Array[QpackField],
   kind : H3FieldSectionKind,
-  request_method? : String? = None,
-  enable_connect_protocol? : Bool = false,
+  request_method~ : String? = None,
+  enable_connect_protocol~ : Bool = false,
 ) -> Result[H3MessageMetadata, Http3Error] {
   let regular_section : @http_fields.Section = match kind {
     H3RequestFields | H3PushPromiseFields => Request
@@ -134,7 +136,7 @@ pub fn validate_http3_field_section(
   let mut authority : String? = None
   let mut path : String? = None
   let mut protocol : String? = None
-  let mut status : Int? = None
+  let mut status : Int32? = None
   let mut host : String? = None
   for field in fields {
     match qpack_validate_field(field) {

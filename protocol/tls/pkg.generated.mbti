@@ -22,7 +22,7 @@ pub struct QuicHandshakeDecoder {
 }
 pub fn QuicHandshakeDecoder::feed(Self, Int64, Bytes) -> Result[Array[@transport.QuicHandshakeMessage], @transport.TlsError]
 pub fn QuicHandshakeDecoder::finish(Self) -> Result[Unit, @transport.TlsError]
-pub fn QuicHandshakeDecoder::new(@transport.QuicEncryptionLevel, max_bytes? : Int, max_messages? : Int) -> Result[Self, @transport.TlsError]
+pub fn QuicHandshakeDecoder::new(@transport.QuicEncryptionLevel, max_bytes? : Int32, max_messages? : Int32) -> Result[Self, @transport.TlsError]
 
 pub struct QuicPacketKeys {
   // private fields

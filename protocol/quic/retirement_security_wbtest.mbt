@@ -1,6 +1,6 @@
 ///|
 fn retirement_security_pair(
-  recovery_config? : QuicRecoveryConfig = QuicRecoveryConfig::defaults(),
+  recovery_config~ : QuicRecoveryConfig = QuicRecoveryConfig::defaults(),
 ) -> (QuicDatagramDriver, QuicDatagramDriver) {
   let endpoint = @types.Endpoint::new("udp", "peer.test", 443).unwrap()
   let server_id = ConnectionId::new(b"serverid").unwrap()
@@ -225,7 +225,7 @@ test "quic received CID retirement preserves ACKs through queue saturation" {
   }
   // MAX_DATA fills both queues; PING fills recovery without retaining a
   // retransmission. Both cases must accept and ACK the authenticated CID update.
-  let outstanding_frames : Array[(QuicFrame, Int)] = [
+  let outstanding_frames : Array[(QuicFrame, Int32)] = [
     (MaxData(1048576L), 1),
     (Ping, 0),
   ]

@@ -1,8 +1,8 @@
 ///|
 fn test_frame(
-  typ : Int,
-  flags : Int,
-  stream_id : Int,
+  typ : Int32,
+  flags : Int32,
+  stream_id : Int32,
   payload : Array[Byte],
 ) -> @http2.H2Frame {
   { header: { length: payload.length(), typ, flags, stream_id, }, payload, }

@@ -2,9 +2,9 @@
 fn established_driver_pair(
   client_endpoint : @types.Endpoint,
   server_endpoint : @types.Endpoint,
-  established? : Bool = true,
-  server_reset_token? : Bytes? = None,
-  recovery_config? : @quic.QuicRecoveryConfig = @quic.QuicRecoveryConfig::defaults(),
+  established~ : Bool = true,
+  server_reset_token~ : Bytes? = None,
+  recovery_config~ : @quic.QuicRecoveryConfig = @quic.QuicRecoveryConfig::defaults(),
 ) -> (@quic.QuicDatagramDriver, @quic.QuicDatagramDriver) {
   let server_id = @quic.ConnectionId::new(b"server-id").unwrap()
   let client_id = @quic.ConnectionId::new(b"client-id").unwrap()

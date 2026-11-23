@@ -2,9 +2,9 @@
 pub struct ServerSupervisor {
   config : ServerConfig
   mut state : ServerState
-  mut active : Int
-  mut accept_errors : Int
-  mut next_connection_id : Int
+  mut active : Int32
+  mut accept_errors : Int32
+  mut next_connection_id : Int32
   metrics : ServerMetrics
   connections_changed : @async.CondVar
   mut close_listener : (() -> Unit)?
@@ -13,7 +13,7 @@ pub struct ServerSupervisor {
 
 ///|
 pub fn ServerSupervisor::new(
-  config? : ServerConfig = ServerConfig::defaults(),
+  config~ : ServerConfig = ServerConfig::defaults(),
 ) -> Result[ServerSupervisor, ServerError] {
   match config.validate() {
     Ok(_) =>
@@ -38,7 +38,7 @@ pub fn ServerSupervisor::state(self : ServerSupervisor) -> ServerState {
 }
 
 ///|
-pub fn ServerSupervisor::active_connections(self : ServerSupervisor) -> Int {
+pub fn ServerSupervisor::active_connections(self : ServerSupervisor) -> Int32 {
   self.active
 }
 
@@ -62,7 +62,7 @@ pub fn ServerSupervisor::start(
 ///|
 pub fn ServerSupervisor::try_acquire(
   self : ServerSupervisor,
-) -> Result[Int, ServerError] {
+) -> Result[Int32, ServerError] {
   if self.state != Running {
     return Err(NotRunning)
   }
@@ -83,7 +83,7 @@ pub fn ServerSupervisor::try_acquire(
 ///|
 pub fn ServerSupervisor::release(
   self : ServerSupervisor,
-  connection_id : Int,
+  connection_id : Int32,
   handler_error : Error?,
 ) -> Unit {
   if self.active > 0 {
@@ -165,7 +165,7 @@ pub async fn[L : Listener] ServerSupervisor::serve(
     Err(error) => return Err(error)
   }
   self.close_listener = Some(fn() { listener.close() })
-  let cleanups : Map[Int, () -> Unit] = Map([])
+  let cleanups : Map[Int32, () -> Unit] = Map([])
   let mut pending_accept : AcceptedConnection? = None
   defer {
     // Cancellation can arrive after accept acquires a connection but before

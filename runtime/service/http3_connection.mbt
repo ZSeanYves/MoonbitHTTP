@@ -58,11 +58,11 @@ pub async fn[
   clock : K,
   options : @transport.TlsOptions,
   run : async (H3ConnectionIo) -> X,
-  server_shutdown? : H3ServerShutdown? = None,
-  limits? : @types.Limits = @types.Limits::defaults(),
-  qpack_limits? : @http3.QpackLimits = @http3.QpackLimits::defaults(),
-  handshake_timeout_ms? : Int = 10000,
-  shutdown_timeout_ms? : Int = 5000,
+  server_shutdown~ : H3ServerShutdown? = None,
+  limits~ : @types.Limits = @types.Limits::defaults(),
+  qpack_limits~ : @http3.QpackLimits = @http3.QpackLimits::defaults(),
+  handshake_timeout_ms~ : Int32 = 10000,
+  shutdown_timeout_ms~ : Int32 = 5000,
 ) -> X {
   defer socket.close()
   if handshake_timeout_ms <= 0 {

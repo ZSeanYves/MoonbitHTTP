@@ -1,5 +1,5 @@
 ///|
-fn qpack_static_get(index : Int) -> (String, String)? {
+fn qpack_static_get(index : Int32) -> (String, String)? {
   match index {
     0 => Some((":authority", ""))
     1 => Some((":path", "/"))
@@ -128,7 +128,7 @@ fn qpack_static_field(index : Int64) -> QpackField? {
 }
 
 ///|
-fn qpack_static_find_exact(field : QpackField) -> Int {
+fn qpack_static_find_exact(field : QpackField) -> Int32 {
   for index in 0..<99 {
     if qpack_static_get(index) is Some((name, value)) &&
       name == field.name &&
@@ -140,7 +140,7 @@ fn qpack_static_find_exact(field : QpackField) -> Int {
 }
 
 ///|
-fn qpack_static_find_name(name : String) -> Int {
+fn qpack_static_find_name(name : String) -> Int32 {
   for index in 0..<99 {
     if qpack_static_get(index) is Some((candidate, _)) && candidate == name {
       return index
@@ -152,9 +152,9 @@ fn qpack_static_find_name(name : String) -> Int {
 ///|
 pub fn qpack_encode_static(
   fields : Array[QpackField],
-  max_field_section_bytes? : Int = 64 * 1024,
-  max_field_count? : Int = 100,
-  use_huffman? : Bool = true,
+  max_field_section_bytes~ : Int32 = 64 * 1024,
+  max_field_count~ : Int32 = 100,
+  use_huffman~ : Bool = true,
 ) -> Result[Bytes, Http3Error] {
   if max_field_section_bytes < 0 || max_field_count < 0 {
     return Err(

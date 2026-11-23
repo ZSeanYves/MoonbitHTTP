@@ -14,7 +14,7 @@ fn request(
 }
 
 ///|
-fn echo_payload(seed : Int) -> Bytes {
+fn echo_payload(seed : Int32) -> Bytes {
   Bytes::from_array(FixedArray::makei(4096, i => ((i + seed) % 251).to_byte()))
 }
 

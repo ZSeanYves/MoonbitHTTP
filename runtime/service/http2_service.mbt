@@ -5,8 +5,8 @@ priv struct H2PendingRequest {
   headers : @types.HeaderMap
   body : @body.BodyStream
   credit : H2ReceiveCredit
-  mut body_bytes : Int
-  expected_body_bytes : Int?
+  mut body_bytes : Int32
+  expected_body_bytes : Int32?
   mut dispatched : Bool
   mut response_finished : Bool
   mut request_ended : Bool
@@ -33,10 +33,10 @@ fn H2PendingRequest::has_expected_length(self : H2PendingRequest) -> Bool {
 
 ///|
 fn decode_h2_request(
-  stream_id : Int,
+  stream_id : Int32,
   fields : Array[@http2.HpackHeader],
-  body? : @body.BodyStream = @body.BodyStream::new().unwrap(),
-  credit? : H2ReceiveCredit = H2ReceiveCredit::new(),
+  body~ : @body.BodyStream = @body.BodyStream::new().unwrap(),
+  credit~ : H2ReceiveCredit = H2ReceiveCredit::new(),
 ) -> Result[H2PendingRequest, @http2.H2ProtocolError] {
   let mut meth_text = ""
   let mut path = ""
@@ -254,7 +254,7 @@ async fn[W : @aio.Writer] write_h2_frame(
   lock : @async.Mutex,
   writer : W,
   bytes : Bytes,
-  timeout_ms : Int?,
+  timeout_ms : Int32?,
 ) -> Unit {
   lock.acquire()
   defer lock.release()
@@ -266,7 +266,7 @@ async fn[W : @aio.Writer] write_h2_header_block(
   lock : @async.Mutex,
   writer : W,
   encode : () -> Result[Bytes, @http2.H2ProtocolError],
-  timeout_ms : Int?,
+  timeout_ms : Int32?,
 ) -> Unit {
   lock.acquire()
   defer lock.release()
@@ -282,9 +282,9 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
-  config? : ServerConfig = ServerConfig::defaults(),
-  upgraded_request? : @types.Request[@body.BodyStream]? = None,
-  upgrade_settings? : Bytes? = None,
+  config~ : ServerConfig = ServerConfig::defaults(),
+  upgraded_request~ : @types.Request[@body.BodyStream]? = None,
+  upgrade_settings~ : Bytes? = None,
 ) -> Unit {
   match config.validate() {
     Ok(_) => ()
@@ -350,13 +350,13 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
       }
     }
   }
-  let pending : Map[Int, H2PendingRequest] = Map([])
+  let pending : Map[Int32, H2PendingRequest] = Map([])
   // A reset can remove protocol state before cancellation finishes. Keep the
   // handler's admission slot until its task exits, independently of pending.
-  let handlers : Map[Int, H2HandlerTask] = Map([])
+  let handlers : Map[Int32, H2HandlerTask] = Map([])
   // The protocol receive window bounds queued DATA bytes, including legal
   // DATA sent under the RFC default before our smaller SETTINGS is ACKed.
-  let blocked : Map[Int, @deque.Deque[H2ServerBlockedFrame]] = Map([])
+  let blocked : Map[Int32, @deque.Deque[H2ServerBlockedFrame]] = Map([])
   let header_block : Array[Byte] = []
   let mut header_stream = 0
   let mut header_end_stream = false
@@ -395,7 +395,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
       },
       no_wait=true,
     )
-    let cancel_handler = async fn(stream_id : Int) {
+    let cancel_handler = async fn(stream_id : Int32) {
       if handlers.get(stream_id) is Some(handler) && handler.task is Some(task) {
         task.cancel()
         // Cancellation is complete only after wait returns. The task's defer
@@ -405,7 +405,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         }
       }
     }
-    let release_discarded_data = fn(amount : Int) -> Unit raise {
+    let release_discarded_data = fn(amount : Int32) -> Unit raise {
       if amount <= 0 {
         return
       }
@@ -416,9 +416,9 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
       control.credit(update)
     }
     let release_consumed_data = async fn(
-      stream_id : Int,
+      stream_id : Int32,
       credit : H2ReceiveCredit,
-      amount : Int,
+      amount : Int32,
     ) {
       if amount <= 0 {
         return
@@ -441,12 +441,11 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
       }
       blocked_signal.put(())
     }
-    let reset_stream_with_error = async fn(
-      stream_id : Int,
+    let reset_stream_with_error = fn(
+      stream_id : Int32,
       code : @http2.H2ErrorCode,
       failure : Error,
-      cancel_task : Bool,
-    ) {
+    ) raise {
       let unread = match pending.get(stream_id) {
         Some(value) => {
           let amount = value.credit.retire()
@@ -459,9 +458,6 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
       blocked.remove(stream_id)
       ignore(connection.reset_stream(stream_id))
       release_discarded_data(unread)
-      if cancel_task {
-        cancel_handler(stream_id)
-      }
       window_signal.broadcast()
       let encoded = match @http2.encode_rst_stream(stream_id, code) {
         Ok(value) => value
@@ -469,17 +465,17 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
       }
       control.frame(encoded)
     }
-    let reset_stream = async fn(stream_id : Int, code : @http2.H2ErrorCode) {
+    let reset_stream = async fn(stream_id : Int32, code : @http2.H2ErrorCode) {
       reset_stream_with_error(
         stream_id,
         code,
         @http2.H2ProtocolError::StreamError(
           stream_id, code, "HTTP/2 stream reset",
         ),
-        true,
       )
+      cancel_handler(stream_id)
     }
-    let finish_response = fn(stream_id : Int) raise {
+    let finish_response = fn(stream_id : Int32) raise {
       match connection.finish_local_stream(stream_id) {
         Ok(_) => ()
         Err(error) => raise error
@@ -503,7 +499,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
       }
     }
     let send_response = async fn(
-      stream_id : Int,
+      stream_id : Int32,
       meth : @types.Method,
       response : @types.Response[B],
     ) {
@@ -583,7 +579,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
       )
       finish_response(stream_id)
     }
-    let dispatch = fn(stream_id : Int) {
+    let dispatch = fn(stream_id : Int32) {
       guard pending.get(stream_id) is Some(value) else { return }
       if value.dispatched {
         return
@@ -602,17 +598,18 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         group.spawn(async fn() {
           defer handlers.remove(stream_id)
           // This cleanup runs inside the handler; it must not join itself.
-          errdefer (reset_stream_with_error(
-            stream_id,
-            Cancel,
-            @http2.H2ProtocolError::StreamError(
+          errdefer (if pending.contains(stream_id) {
+            reset_stream_with_error(
               stream_id,
               Cancel,
-              "handler terminated",
-            ),
-            false,
-          ) catch {
-            _ => ()
+              @http2.H2ProtocolError::StreamError(
+                stream_id,
+                Cancel,
+                "handler terminated",
+              ),
+            ) catch {
+              _ => ()
+            }
           })
           if expectation_response(request.headers, () => {
               !value.request_ended &&
@@ -650,24 +647,25 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
       )
     }
     let make_body = fn(
-      stream_id : Int,
+      stream_id : Int32,
     ) -> (@body.BodyStream, H2ReceiveCredit) raise {
       let credit = H2ReceiveCredit::new()
       let body = match
         @body.BodyStream::new(
           capacity=config.body_queue_capacity,
           on_data_consumed=async fn(amount) {
-            errdefer (reset_stream_with_error(
-              stream_id,
-              Cancel,
-              @http2.H2ProtocolError::StreamError(
+            errdefer (if pending.contains(stream_id) {
+              reset_stream_with_error(
                 stream_id,
                 Cancel,
-                "request body credit release failed",
-              ),
-              false,
-            ) catch {
-              _ => ()
+                @http2.H2ProtocolError::StreamError(
+                  stream_id,
+                  Cancel,
+                  "request body credit release failed",
+                ),
+              ) catch {
+                _ => ()
+              }
             })
             release_consumed_data(stream_id, credit, amount)
           },
@@ -687,7 +685,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
       (body, credit)
     }
     let complete_headers = async fn(
-      stream_id : Int,
+      stream_id : Int32,
       block : Array[Byte],
       end_stream : Bool,
     ) {
@@ -1118,9 +1116,9 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_conne
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
-  config? : ServerConfig = ServerConfig::defaults(),
-  upgraded_request? : @types.Request[@body.BodyStream]? = None,
-  upgrade_settings? : Bytes? = None,
+  config~ : ServerConfig = ServerConfig::defaults(),
+  upgraded_request~ : @types.Request[@body.BodyStream]? = None,
+  upgrade_settings~ : Bytes? = None,
 ) -> Unit {
   run_connection_scope(
     () => {

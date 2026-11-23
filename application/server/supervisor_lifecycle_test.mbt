@@ -6,15 +6,15 @@ struct LifecycleListener {
   fail_accept : Bool
   mut waiting : Bool
   mut closed : Bool
-  mut close_calls : Int
+  mut close_calls : Int32
   mut before_return : (() -> Unit)?
 }
 
 ///|
 fn LifecycleListener::new(
   pending : Array[@server.AcceptedConnection],
-  keep_open? : Bool = false,
-  fail_accept? : Bool = false,
+  keep_open~ : Bool = false,
+  fail_accept~ : Bool = false,
 ) -> LifecycleListener {
   {
     pending,

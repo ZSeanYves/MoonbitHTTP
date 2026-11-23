@@ -1,18 +1,20 @@
 ///|
 /// One authenticated QUIC connection drives one HTTP/3 session. The owner
 /// delivers TLS-driver actions in order and transmits each outgoing datagram.
+#derive(Eq, Debug)
 pub(all) enum Http3SessionAction {
   Transport(@quic.QuicDriverAction)
   Message(H3Action)
   StreamFailed(Int64, H3ErrorCode)
   Failed(Http3SessionError)
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror Http3SessionError {
   Http3Protocol(Http3Error)
   Http3Transport(@quic.QuicError)
-} derive(Eq, Debug)
+}
 
 ///|
 pub struct Http3Session {
@@ -25,7 +27,7 @@ pub struct Http3Session {
   priv stops : Map[Int64, H3ErrorCode]
   priv decoder_cancellations : Map[Int64, Bytes]
   priv mut sent_goaway : Int64?
-  priv mut withheld : Map[Int64, Int]?
+  priv mut withheld : Map[Int64, Int32]?
   priv mut initialized : Bool
   priv mut ended : Bool
 }
@@ -36,9 +38,9 @@ pub struct Http3Session {
 /// bytes. The critical queue reserves at least three entries for startup.
 pub fn[P] Http3Session::new(
   tls : @quic.QuicTlsDriver[P],
-  limits? : @types.Limits = @types.Limits::defaults(),
-  qpack_limits? : QpackLimits = QpackLimits::defaults(),
-  max_pending_writes? : Int = 1024,
+  limits~ : @types.Limits = @types.Limits::defaults(),
+  qpack_limits~ : QpackLimits = QpackLimits::defaults(),
+  max_pending_writes~ : Int32 = 1024,
 ) -> Result[Http3Session, Http3Error] {
   if max_pending_writes <= 0 {
     return Err(
@@ -224,7 +226,7 @@ fn Http3Session::abort_stream(
 pub fn Http3Session::cancel(
   self : Http3Session,
   id : Int64,
-  code? : H3ErrorCode = H3RequestCancelled,
+  code~ : H3ErrorCode = H3RequestCancelled,
 ) -> Result[Unit, Http3Error] {
   if self.ended ||
     (
@@ -489,7 +491,7 @@ pub fn Http3Session::advance(
 pub fn Http3Session::close(
   self : Http3Session,
   now_ms : Int64,
-  code? : H3ErrorCode = H3NoError,
+  code~ : H3ErrorCode = H3NoError,
 ) -> Result[@quic.QuicDriverAction?, @quic.QuicError] {
   if self.ended {
     return Ok(None)
@@ -530,7 +532,7 @@ pub fn Http3Session::defer_body_credit(self : Http3Session) -> Unit {
 pub fn Http3Session::consume_body(
   self : Http3Session,
   id : Int64,
-  count : Int,
+  count : Int32,
 ) -> Result[Unit, @quic.QuicError] {
   if count < 0 {
     return Err(InvalidFrame("negative HTTP/3 consumption count"))

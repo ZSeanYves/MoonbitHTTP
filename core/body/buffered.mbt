@@ -49,7 +49,7 @@ pub impl Body for FullBody with fn size_hint(self) {
 ///|
 pub struct QueueBody {
   priv frames : Array[Frame]
-  priv mut cursor : Int
+  priv mut cursor : Int32
   priv hint : SizeHint
   priv mut trailers_seen : Bool
 }

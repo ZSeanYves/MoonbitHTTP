@@ -1,4 +1,5 @@
 ///|
+#derive(Debug, Eq)
 pub(all) enum H2ErrorCode {
   NoError
   ProtocolError
@@ -14,34 +15,36 @@ pub(all) enum H2ErrorCode {
   EnhanceYourCalm
   InadequateSecurity
   Http11Required
-} derive(Debug, Eq)
+}
 
 ///|
+#derive(Debug, Eq)
 pub(all) suberror H2ProtocolError {
   ConnectionError(H2ErrorCode, String)
-  StreamError(Int, H2ErrorCode, String)
-} derive(Debug, Eq)
+  StreamError(Int32, H2ErrorCode, String)
+}
 
 ///|
+#derive(Debug, Eq)
 pub(all) enum H2Role {
   Client
   Server
-} derive(Debug, Eq)
+}
 
 ///|
 pub(all) enum H2Action {
-  PeerHeaderTableSize(Int)
+  PeerHeaderTableSize(Int32)
   SendSettingsAck
   SendPingAck(Array[Byte])
-  HeadersStarted(Int, Bool)
+  HeadersStarted(Int32, Bool)
   // Decode this field block to retain connection-wide HPACK state, then reset
   // the stream with the supplied error. Do not dispatch its decoded fields.
   // Further fragments use HeadersContinued until END_HEADERS.
-  HeadersDiscarded(Int, Bool, H2ErrorCode)
-  HeadersContinued(Int, Bool)
-  DataReceived(Int, Array[Byte], Bool, Int)
-  StreamResetReceived(Int, Int)
-  GoawayReceived(Int, Int)
-  WindowAvailable(Int, Int)
-  SendWindowUpdate(Int, Int)
+  HeadersDiscarded(Int32, Bool, H2ErrorCode)
+  HeadersContinued(Int32, Bool)
+  DataReceived(Int32, Array[Byte], Bool, Int32)
+  StreamResetReceived(Int32, Int32)
+  GoawayReceived(Int32, Int32)
+  WindowAvailable(Int32, Int32)
+  SendWindowUpdate(Int32, Int32)
 }

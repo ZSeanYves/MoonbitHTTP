@@ -31,8 +31,8 @@ pub async fn[P : @transport.NetworkPolicy] NativeTcpListener::bind(
   endpoint : @types.Endpoint,
   policy : P,
   handler : async (@transport.StreamConnection) -> Result[Unit, Error],
-  dual_stack? : Bool = true,
-  reuse_addr? : Bool = true,
+  dual_stack~ : Bool = true,
+  reuse_addr~ : Bool = true,
 ) -> Result[NativeTcpListener, @server_api.ServerError] {
   // Give cancellation a scheduling point before allocating the host listener.
   @async.pause()
@@ -67,10 +67,10 @@ pub async fn[P : @transport.NetworkPolicy, T : @transport.TlsProvider] NativeTcp
   provider : T,
   options : @transport.TlsOptions,
   handler : async (@transport.SecureConnection) -> Result[Unit, Error],
-  handshake_timeout_ms? : Int = 10000,
-  shutdown_timeout_ms? : Int = 1000,
-  dual_stack? : Bool = true,
-  reuse_addr? : Bool = true,
+  handshake_timeout_ms~ : Int32 = 10000,
+  shutdown_timeout_ms~ : Int32 = 1000,
+  dual_stack~ : Bool = true,
+  reuse_addr~ : Bool = true,
 ) -> Result[NativeTcpListener, @server_api.ServerError] {
   if handshake_timeout_ms <= 0 {
     return Err(InvalidConfig("TLS handshake timeout must be positive"))

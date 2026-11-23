@@ -5,8 +5,8 @@ priv struct QuicKeyUpdateState {
   mut confirmed : Bool
   mut send_phase : Bool
   mut receive_phase : Bool
-  mut send_generation : Int
-  mut receive_generation : Int
+  mut send_generation : Int32
+  mut receive_generation : Int32
   mut send_phase_start : Int64
   mut receive_phase_start : Int64
   mut send_phase_acked : Bool
@@ -99,7 +99,7 @@ fn QuicDatagramDriver::advance_send_keys(
 fn QuicDatagramDriver::open_application_packet(
   self : QuicDatagramDriver,
   packet : Bytes,
-  offset : Int,
+  offset : Int32,
   now_ms : Int64,
 ) -> Result[(QuicOpenedPacket, Bool), QuicError] {
   let current = match self.application_receive_keys {

@@ -7,7 +7,7 @@ fn cache_test_uri(path : String) -> @types.Uri {
 fn cache_test_request(
   http_method_arg : @types.Method,
   path : String,
-  headers? : @types.HeaderMap = @types.HeaderMap::new(),
+  headers~ : @types.HeaderMap = @types.HeaderMap::new(),
 ) -> @types.Request[Unit] {
   {
     http_method: http_method_arg,
@@ -20,11 +20,11 @@ fn cache_test_request(
 
 ///|
 fn cache_test_response(
-  status : Int,
+  status : Int32,
   cache_control : String,
   body : Bytes,
   date_seconds : Int64,
-  etag? : String? = None,
+  etag~ : String? = None,
 ) -> @types.Response[Unit] {
   let headers = @types.HeaderMap::new()
   headers.append_string("cache-control", cache_control).unwrap()

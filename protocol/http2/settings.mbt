@@ -1,13 +1,13 @@
 ///|
 priv struct H2Settings {
   mut enable_push : Bool
-  mut max_concurrent_streams : Int
-  mut initial_window_size : Int
-  mut max_frame_size : Int
+  mut max_concurrent_streams : Int32
+  mut initial_window_size : Int32
+  mut max_frame_size : Int32
 }
 
 ///|
-fn H2Settings::new(max_concurrent_streams : Int) -> H2Settings {
+fn H2Settings::new(max_concurrent_streams : Int32) -> H2Settings {
   {
     enable_push: true,
     max_concurrent_streams,
@@ -67,8 +67,8 @@ fn H2Connection::apply_settings_entries(
 ///|
 fn H2Connection::apply_setting(
   self : H2Connection,
-  id : Int,
-  value : Int,
+  id : Int32,
+  value : Int32,
 ) -> Result[Unit, H2ProtocolError] {
   match id {
     // The ordered PeerHeaderTableSize action updates the driver's encoder.

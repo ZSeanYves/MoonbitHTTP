@@ -1,8 +1,9 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum TlsVersion {
   Tls12
   Tls13
-} derive(Eq, Debug)
+}
 
 ///|
 pub(all) struct TlsOptions {
@@ -51,6 +52,7 @@ pub fn TlsOptions::defaults() -> TlsOptions {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror TlsOptionsError {
   MissingServerName
   InvalidAlpn
@@ -62,7 +64,7 @@ pub(all) suberror TlsOptionsError {
   MissingRevocationList
   OcspRequiresClientRole
   EmptyTrustAnchors
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn TlsOptions::validate_common(
@@ -182,20 +184,22 @@ pub fn TlsOptions::for_quic(server_name : String) -> TlsOptions {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum TlsOperation {
   Configure
   Handshake
   Read
   Write
   Shutdown
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror TlsError {
   InvalidOptions(TlsOptionsError)
   VerificationFailed(String)
   HostnameMismatch
-  Alert(Int)
+  Alert(Int32)
   HandshakeFailed(String)
   NativeFailure(TlsOperation, UInt64, Int64, String)
   Transport(TransportError)
@@ -207,7 +211,7 @@ pub(all) suberror TlsError {
   UnsupportedCipherSuite
   Unsupported
   Closed
-} derive(Eq, Debug)
+}
 
 ///|
 pub(all) struct SecureConnection {
@@ -261,7 +265,7 @@ pub fn SecureConnection::is_authenticated(self : SecureConnection) -> Bool {
 ///|
 pub async fn SecureConnection::read(
   self : SecureConnection,
-  max_bytes : Int,
+  max_bytes : Int32,
 ) -> Result[Bytes?, TransportError] {
   self.transport.read(max_bytes)
 }

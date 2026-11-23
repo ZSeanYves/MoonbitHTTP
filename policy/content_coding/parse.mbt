@@ -54,7 +54,7 @@ fn content_coding_from_token(
 /// sequence is the order in which encodings were applied by the sender.
 pub fn parse_content_codings(
   headers : @types.HeaderMap,
-  max_codings? : Int = 4,
+  max_codings~ : Int32 = 4,
 ) -> Result[Array[ContentCoding], ContentCodingError] {
   if max_codings < 1 {
     return Err(InvalidContentCodingLimits)

@@ -1,7 +1,8 @@
 ///|
+#derive(Eq, Debug)
 pub struct ConnectionId {
   bytes : Bytes
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn ConnectionId::new(bytes : Bytes) -> Result[ConnectionId, QuicError] {
@@ -15,7 +16,7 @@ pub fn ConnectionId::new(bytes : Bytes) -> Result[ConnectionId, QuicError] {
 /// Generate a nonempty connection ID with the supplied cryptographic entropy.
 pub fn[E : @transport.Entropy] ConnectionId::random(
   entropy : E,
-  length? : Int = 16,
+  length~ : Int32 = 16,
 ) -> Result[ConnectionId, QuicError] {
   if length < 1 || length > 20 {
     return Err(
@@ -35,77 +36,86 @@ pub fn ConnectionId::bytes(self : ConnectionId) -> Bytes {
 }
 
 ///|
+#derive(Eq, Hash, Debug)
 pub(all) enum PacketNumberSpace {
   Initial
   Handshake
   Application
-} derive(Eq, Hash, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum QuicRole {
   Client
   Server
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct InitialPacket {
-  version : Int
+  version : Int32
   destination : ConnectionId
   source : ConnectionId
   token : Bytes
   payload_length : Int64
   packet_number : Int64
-  packet_number_length : Int
-} derive(Eq, Debug)
+  packet_number_length : Int32
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct ZeroRttPacket {
-  version : Int
+  version : Int32
   destination : ConnectionId
   source : ConnectionId
   payload_length : Int64
   packet_number : Int64
-  packet_number_length : Int
-} derive(Eq, Debug)
+  packet_number_length : Int32
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct HandshakePacket {
-  version : Int
+  version : Int32
   destination : ConnectionId
   source : ConnectionId
   payload_length : Int64
   packet_number : Int64
-  packet_number_length : Int
-} derive(Eq, Debug)
+  packet_number_length : Int32
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct RetryPacket {
-  version : Int
+  version : Int32
   destination : ConnectionId
   source : ConnectionId
   token : Bytes
   integrity_tag : Bytes
-} derive(Eq, Debug)
+}
 
 ///|
 /// A Version Negotiation packet is not packet-protected and carries the
 /// versions supported by the sender.  Its destination/source IDs are retained
 /// so a client can reject unsolicited negotiation responses.
+#derive(Eq, Debug)
 pub(all) struct VersionNegotiationPacket {
   destination : ConnectionId
   source : ConnectionId
-  versions : Array[Int]
-} derive(Eq, Debug)
+  versions : Array[Int32]
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct ShortPacket {
   destination : ConnectionId
   packet_number : Int64
-  packet_number_length : Int
+  packet_number_length : Int32
   key_phase : Bool
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum QuicPacketHeader {
   Initial(InitialPacket)
   ZeroRtt(ZeroRttPacket)
@@ -113,13 +123,13 @@ pub(all) enum QuicPacketHeader {
   Retry(RetryPacket)
   VersionNegotiation(VersionNegotiationPacket)
   Short(ShortPacket)
-} derive(Eq, Debug)
+}
 
 ///|
 fn take_connection_id(
   input : BytesView,
-  offset : Int,
-) -> Result[(ConnectionId, Int), QuicError] {
+  offset : Int32,
+) -> Result[(ConnectionId, Int32), QuicError] {
   if offset < 0 || offset >= input.length() {
     return Err(NeedMoreInput)
   }
@@ -141,9 +151,9 @@ fn take_connection_id(
 ///|
 fn decode_truncated_packet_number(
   input : BytesView,
-  offset : Int,
-  length : Int,
-) -> Result[(Int64, Int), QuicError] {
+  offset : Int32,
+  length : Int32,
+) -> Result[(Int64, Int32), QuicError] {
   if length < 1 ||
     length > 4 ||
     offset < 0 ||
@@ -159,7 +169,7 @@ fn decode_truncated_packet_number(
 }
 
 ///|
-fn packet_version(input : BytesView) -> Int {
+fn packet_version(input : BytesView) -> Int32 {
   (input[1].to_int() << 24) |
   (input[2].to_int() << 16) |
   (input[3].to_int() << 8) |
@@ -171,9 +181,9 @@ fn packet_version(input : BytesView) -> Int {
 /// length from the connection context because it is not encoded on the wire.
 pub fn quic_decode_packet_header(
   input : BytesView,
-  short_destination_length? : Int = 0,
-  canonical_varints? : Bool = false,
-) -> Result[(QuicPacketHeader, Int), QuicError] {
+  short_destination_length~ : Int32 = 0,
+  canonical_varints~ : Bool = false,
+) -> Result[(QuicPacketHeader, Int32), QuicError] {
   if input.is_empty() {
     return Err(NeedMoreInput)
   }
@@ -231,7 +241,7 @@ pub fn quic_decode_packet_header(
     if remaining < 4 || remaining % 4 != 0 {
       return Err(InvalidPacket("Version Negotiation list is malformed"))
     }
-    let versions : Array[Int] = []
+    let versions : Array[Int32] = []
     let version_count = remaining / 4
     for index in 0..<version_count {
       let at = offset + index * 4

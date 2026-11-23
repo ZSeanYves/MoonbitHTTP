@@ -25,13 +25,13 @@ pub struct QuicRetryContext {
 let retry_token_magic : Bytes = b"QRT2"
 
 ///|
-let retry_token_max_length : Int = 512
+let retry_token_max_length : Int32 = 512
 
 ///|
-let retry_token_max_endpoint_length : Int = 256
+let retry_token_max_endpoint_length : Int32 = 256
 
 ///|
-fn retry_token_u16(value : Int) -> Bytes {
+fn retry_token_u16(value : Int32) -> Bytes {
   Bytes::from_array([((value >> 8) & 0xff).to_byte(), (value & 0xff).to_byte()])
 }
 
@@ -65,8 +65,8 @@ fn retry_token_cid_part(cid : ConnectionId) -> Bytes {
 ///|
 fn retry_token_read_cid(
   body : Bytes,
-  cursor : Int,
-) -> Result[(ConnectionId, Int), QuicError] {
+  cursor : Int32,
+) -> Result[(ConnectionId, Int32), QuicError] {
   if cursor >= body.length() {
     return Err(InvalidPacket("Retry token connection ID length is missing"))
   }
@@ -85,7 +85,7 @@ fn retry_token_read_cid(
 ///|
 pub fn QuicRetryTokenManager::new(
   secret : Bytes,
-  lifetime_ms? : Int64 = 30000L,
+  lifetime_ms~ : Int64 = 30000L,
 ) -> Result[QuicRetryTokenManager, QuicError] {
   if secret.length() != 32 || lifetime_ms <= 0L {
     return Err(InvalidPacket("Retry token secret or lifetime is invalid"))

@@ -1,7 +1,7 @@
 // RFC 7541 Appendix A static table, including all entries 1 through 61.
 
 ///|
-fn hpack_static_get(idx : Int) -> (String, String)? {
+fn hpack_static_get(idx : Int32) -> (String, String)? {
   match idx {
     1 => Some((":authority", ""))
     2 => Some((":method", "GET"))
@@ -71,7 +71,7 @@ fn hpack_static_get(idx : Int) -> (String, String)? {
 // Returns the first static-table index for a literal with an indexed name.
 
 ///|
-fn hpack_static_find_name(name : String) -> Int {
+fn hpack_static_find_name(name : String) -> Int32 {
   // Pseudo-headers.
   if name == ":authority" {
     return 1
@@ -239,9 +239,9 @@ fn hpack_static_find_name(name : String) -> Int {
 ///|
 fn decode_integer(
   buf : BytesView,
-  pos : Int,
-  n : Int,
-) -> Result[(Int, Int), String] {
+  pos : Int32,
+  n : Int32,
+) -> Result[(Int32, Int32), String] {
   if pos >= buf.length() {
     return Err("hpack int: OOB")
   }
@@ -277,7 +277,10 @@ fn decode_integer(
 // String literals with the RFC 7541 section 5.2 Huffman flag in the high bit.
 
 ///|
-fn decode_string(buf : BytesView, pos : Int) -> Result[(Bytes, Int), String] {
+fn decode_string(
+  buf : BytesView,
+  pos : Int32,
+) -> Result[(Bytes, Int32), String] {
   if pos >= buf.length() {
     return Err("hpack str: OOB")
   }
@@ -311,7 +314,7 @@ fn decode_string(buf : BytesView, pos : Int) -> Result[(Bytes, Int), String] {
 // Encodes an integer with an N-bit prefix.
 
 ///|
-fn encode_integer(n : Int, value : Int) -> Array[Byte] {
+fn encode_integer(n : Int32, value : Int32) -> Array[Byte] {
   let out : Array[Byte] = []
   let prefix_max = (1 << n) - 1
   if value < prefix_max {
@@ -331,7 +334,7 @@ fn encode_integer(n : Int, value : Int) -> Array[Byte] {
 // Encodes a string; callers opt into Huffman encoding explicitly.
 
 ///|
-fn encode_string(raw : BytesView, use_huffman? : Bool = false) -> Array[Byte] {
+fn encode_string(raw : BytesView, use_huffman~ : Bool = false) -> Array[Byte] {
   let (payload, hflag) = if use_huffman {
     (@codec.huffman_encode(raw), true)
   } else {

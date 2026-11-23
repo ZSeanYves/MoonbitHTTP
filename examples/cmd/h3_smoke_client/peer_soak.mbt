@@ -3,8 +3,8 @@ async fn run_peer_soak(
   address : String,
   authority : String,
   trust_file : String,
-  seconds : Int,
-  workers : Int,
+  seconds : Int32,
+  workers : Int32,
 ) -> Unit {
   guard seconds >= 1 && seconds <= 3600 && workers >= 1 && workers <= 32 else {
     fail("expected 1–3600 seconds and 1–32 concurrent workers")

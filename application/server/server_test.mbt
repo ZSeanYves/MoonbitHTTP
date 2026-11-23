@@ -1,6 +1,6 @@
 ///|
 struct PolicyRejectingListener {
-  mut remaining : Int
+  mut remaining : Int32
 }
 
 ///|

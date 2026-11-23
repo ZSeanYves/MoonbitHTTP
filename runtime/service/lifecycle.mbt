@@ -1,5 +1,6 @@
 ///|
-priv suberror ConnectionScopeCancelled derive(Debug)
+#derive(Debug)
+priv suberror ConnectionScopeCancelled
 
 ///|
 /// Runs a connection scope and reports its terminal state exactly once. The

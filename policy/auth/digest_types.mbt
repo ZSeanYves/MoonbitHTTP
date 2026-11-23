@@ -1,4 +1,5 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum DigestAlgorithm {
   DigestMd5
   DigestMd5Sess
@@ -6,21 +7,23 @@ pub(all) enum DigestAlgorithm {
   DigestSha256Sess
   DigestSha512256
   DigestSha512256Sess
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum DigestQop {
   DigestAuth
   DigestAuthInt
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct DigestPolicy {
   allow_md5 : Bool
   allow_legacy_no_qop : Bool
   prefer_auth_int : Bool
   max_nonce_uses : Int64
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn DigestPolicy::defaults() -> DigestPolicy {
@@ -86,7 +89,7 @@ pub struct DigestCredentials {
 pub fn DigestCredentials::new(
   username : String,
   password : String,
-  limits? : AuthLimits = AuthLimits::defaults(),
+  limits~ : AuthLimits = AuthLimits::defaults(),
 ) -> Result[DigestCredentials, AuthError] {
   match limits.validate() {
     Ok(_) => ()

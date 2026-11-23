@@ -1,10 +1,10 @@
 ///|
 /// Resolve a declared wire length against the producer's hint before HEADERS.
 fn h2_outgoing_length(
-  stream_id : Int,
+  stream_id : Int32,
   headers : @types.HeaderMap,
-  hint : Int?,
-) -> Int? raise @http2.H2ProtocolError {
+  hint : Int32?,
+) -> Int32? raise @http2.H2ProtocolError {
   let declared = match headers.content_length() {
     Ok(value) => value
     Err(_) =>
@@ -27,11 +27,11 @@ fn h2_outgoing_length(
 /// Both roles apply the same length and trailer rules. Each connection owns
 /// its flow-control waiter, header compression context and serialized writer.
 async fn[B : @body.Body] write_h2_body(
-  stream_id : Int,
+  stream_id : Int32,
   body : B,
-  expected : Int?,
+  expected : Int32?,
   end_on_headers : Bool,
-  reserve : async (Int) -> Int,
+  reserve : async (Int32) -> Int32,
   write_bytes : async (Bytes) -> Unit,
   write_trailers : async (@types.HeaderMap) -> Unit,
 ) -> Unit {

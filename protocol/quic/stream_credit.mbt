@@ -16,7 +16,7 @@ fn QuicConnection::release_receive_credit(
 pub fn QuicConnection::consume_stream_data(
   self : QuicConnection,
   id : Int64,
-  count : Int,
+  count : Int32,
 ) -> Result[Unit, QuicError] {
   if count < 0 {
     return Err(InvalidFrame("negative consumption count"))
@@ -51,7 +51,7 @@ pub fn QuicConnection::consume_stream_data(
 /// are committed, so congestion or partial batches cannot lose updates.
 fn QuicConnection::credit_updates(
   self : QuicConnection,
-  budget : Int,
+  budget : Int32,
 ) -> Array[QuicFrame] {
   if self.released_receive_bytes == 0L &&
     self.incoming_bidi.retired_credit == 0L &&
@@ -61,7 +61,7 @@ fn QuicConnection::credit_updates(
   }
   let frames : Array[QuicFrame] = []
   let mut remaining = budget
-  let append = fn(frame : QuicFrame, size : Int) {
+  let append = fn(frame : QuicFrame, size : Int32) {
     if size > remaining {
       return false
     }

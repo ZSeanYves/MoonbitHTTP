@@ -1,20 +1,23 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum ServerState {
   Starting
   Running
   Draining
   Stopped
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum ServerPhase {
   Accept
   Connection
   Handler
   Shutdown
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror ServerError {
   InvalidConfig(String)
   AlreadyRunning
@@ -26,16 +29,17 @@ pub(all) suberror ServerError {
   ShutdownTimeout
   Closed
   Policy(@transport.PolicyError)
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct ServerLimits {
-  max_connections : Int
-  max_accept_errors : Int
+  max_connections : Int32
+  max_accept_errors : Int32
   /// Deadline for active connections after draining begins; None waits for
   /// normal completion without a deadline.
-  graceful_timeout_ms : Int?
-} derive(Eq, Debug)
+  graceful_timeout_ms : Int32?
+}
 
 ///|
 pub fn ServerLimits::defaults() -> ServerLimits {
@@ -59,26 +63,28 @@ pub fn ServerLimits::validate(self : ServerLimits) -> Result[Unit, ServerError] 
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum ServerEvent {
   StateChanged(ServerState)
-  Accepted(Int)
+  Accepted(Int32)
   RejectedAtCapacity
-  AcceptError(Int)
-  ConnectionStarted(Int)
-  ConnectionFinished(Int)
-  HandlerError(Int)
+  AcceptError(Int32)
+  ConnectionStarted(Int32)
+  ConnectionFinished(Int32)
+  HandlerError(Int32)
   ShutdownStarted
   ShutdownFinished
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct ServerMetrics {
   mut accepted : Int64
   mut rejected : Int64
   mut accept_errors : Int64
   mut completed : Int64
   mut handler_errors : Int64
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn ServerMetrics::new() -> ServerMetrics {

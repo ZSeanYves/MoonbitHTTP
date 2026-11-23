@@ -1,11 +1,13 @@
 ///|
+#derive(Eq, Debug)
 pub(all) suberror CookieError {
   InvalidCookieLimits
   InvalidCookieRequestUri
   CookieHeaderLimitExceeded
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum CookieRejection {
   CookieJarDisabled
   MalformedSetCookie
@@ -21,49 +23,53 @@ pub(all) enum CookieRejection {
   SameSiteNoneWithoutSecure
   CookiePrefixViolation
   PartitionedCookieUnsupported
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum CookieStoreOutcome {
   CookieStored
   CookieReplaced
   CookieDeleted
   CookieIgnored(CookieRejection)
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum CookieSameSite {
   SameSiteDefault
   SameSiteStrict
   SameSiteLax
   SameSiteNone
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum CookieApi {
   HttpCookieApi
   NonHttpCookieApi
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct CookieContext {
   http_method : @types.Method
   api : CookieApi
   same_site : Bool
   top_level_navigation : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn CookieContext::http(
   http_method : @types.Method,
-  same_site? : Bool = true,
-  top_level_navigation? : Bool = false,
+  same_site~ : Bool = true,
+  top_level_navigation~ : Bool = false,
 ) -> CookieContext {
   { http_method, api: HttpCookieApi, same_site, top_level_navigation, }
 }
 
 ///|
-pub fn CookieContext::non_http(same_site? : Bool = true) -> CookieContext {
+pub fn CookieContext::non_http(same_site~ : Bool = true) -> CookieContext {
   {
     http_method: Get,
     api: NonHttpCookieApi,
@@ -73,15 +79,16 @@ pub fn CookieContext::non_http(same_site? : Bool = true) -> CookieContext {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct CookieLimits {
-  max_set_cookie_bytes : Int
-  max_cookie_bytes : Int
-  max_attribute_bytes : Int
-  max_cookie_header_bytes : Int
-  max_cookies : Int
-  max_cookies_per_domain : Int
+  max_set_cookie_bytes : Int32
+  max_cookie_bytes : Int32
+  max_attribute_bytes : Int32
+  max_cookie_header_bytes : Int32
+  max_cookies : Int32
+  max_cookies_per_domain : Int32
   max_lifetime_seconds : Int64
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn CookieLimits::defaults() -> CookieLimits {

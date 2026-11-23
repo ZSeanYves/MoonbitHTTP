@@ -1,8 +1,9 @@
 ///|
+#derive(Debug, Eq)
 pub(all) struct Datagram {
   payload : Bytes
   endpoint : Endpoint
-} derive(Debug, Eq)
+}
 
 ///|
 pub fn Datagram::new(payload : Bytes, endpoint : Endpoint) -> Datagram {
@@ -22,6 +23,6 @@ pub fn Datagram::endpoint(self : Datagram) -> Endpoint {
 ///|
 pub(open) trait DatagramSocket {
   async fn send(Self, Endpoint, Bytes) -> Result[Unit, TransportError]
-  async fn receive(Self, Int) -> Result[Datagram, TransportError]
+  async fn receive(Self, Int32) -> Result[Datagram, TransportError]
   fn close(Self) -> Unit
 }

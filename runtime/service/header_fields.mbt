@@ -29,7 +29,7 @@ fn append_regular_header(
 fn expectation_response(
   headers : @types.HeaderMap,
   content_pending : () -> Bool,
-) -> Int? {
+) -> Int32? {
   let expectation = @types.RequestExpectations::from_headers(headers)
   if expectation.unsupported {
     Some(417)

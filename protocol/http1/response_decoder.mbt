@@ -1,7 +1,7 @@
 ///|
 priv enum ResponseState {
   ResponseStart
-  ResponseHeaders(Int, @types.Version, @types.HeaderMap, Int, Int)
+  ResponseHeaders(Int32, @types.Version, @types.HeaderMap, Int32, Int32)
   ResponseBodyState(BodyDecoder)
 }
 
@@ -18,7 +18,7 @@ pub struct ResponseDecoder {
 ///|
 pub fn ResponseDecoder::new(
   request_method : @types.Method,
-  limits? : @types.Limits = @types.Limits::defaults(),
+  limits~ : @types.Limits = @types.Limits::defaults(),
 ) -> ResponseDecoder {
   {
     buffer: @codec.Buffer::new(max_bytes=limits.max_buffer_bytes),

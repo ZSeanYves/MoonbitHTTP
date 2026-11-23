@@ -1,12 +1,13 @@
 ///|
+#derive(Debug, Eq)
 pub(all) suberror BodyLimitExceeded {
-  BodyLimitExceeded(limit~ : Int)
-} derive(Debug, Eq)
+  BodyLimitExceeded(limit~ : Int32)
+}
 
 ///|
 pub async fn[B : Body] collect(
   body : B,
-  max_bytes? : Int = 16 * 1024 * 1024,
+  max_bytes~ : Int32 = 16 * 1024 * 1024,
 ) -> (Bytes, @types.HeaderMap?) {
   let mut failure : Error? = None
   errdefer body.cancel(failure.unwrap_or(BodyError::Cancelled))

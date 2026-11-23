@@ -1,19 +1,21 @@
 ///|
+#derive(Debug, Eq)
 pub(all) suberror Http1Error {
   InvalidStartLine(String)
   InvalidHeader(String)
   InvalidFraming(String)
   LimitExceeded(String)
   UnexpectedEof(String)
-} derive(Debug, Eq)
+}
 
 ///|
+#derive(Debug, Eq)
 pub(all) enum BodyFraming {
   NoBody
-  ContentLength(Int)
+  ContentLength(Int32)
   Chunked
   CloseDelimited
-} derive(Debug, Eq)
+}
 
 ///|
 pub(all) enum RequestEvent {

@@ -7,7 +7,7 @@ priv enum StreamState {
 
 ///|
 pub struct StreamConnection {
-  priv read_fn : async (Int) -> Result[Bytes?, TransportError]
+  priv read_fn : async (Int32) -> Result[Bytes?, TransportError]
   priv write_fn : async (Bytes) -> Result[Unit, TransportError]
   priv close_fn : () -> Unit
   priv finish_fn : async () -> Result[Unit, TransportError]
@@ -18,10 +18,10 @@ pub struct StreamConnection {
 ///|
 pub fn StreamConnection::new(
   endpoint : Endpoint,
-  read : async (Int) -> Result[Bytes?, TransportError],
+  read : async (Int32) -> Result[Bytes?, TransportError],
   write : async (Bytes) -> Result[Unit, TransportError],
   close : () -> Unit,
-  finish? : async () -> Result[Unit, TransportError] = fn() { Ok(()) },
+  finish~ : async () -> Result[Unit, TransportError] = fn() { Ok(()) },
 ) -> StreamConnection {
   {
     read_fn: read,
@@ -36,7 +36,7 @@ pub fn StreamConnection::new(
 ///|
 pub async fn StreamConnection::read(
   self : StreamConnection,
-  max_bytes : Int,
+  max_bytes : Int32,
 ) -> Result[Bytes?, TransportError] {
   guard self.state is Open else { return Err(Closed) }
   errdefer self.close()

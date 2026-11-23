@@ -4,9 +4,9 @@
 /// byte-at-a-time feed does constant framing work until the instruction ends.
 fn qpack_buffer_integer(
   input : Array[Byte],
-  offset : Int,
-  prefix_bits : Int,
-) -> Result[(Int64, Int), QpackParseError] {
+  offset : Int32,
+  prefix_bits : Int32,
+) -> Result[(Int64, Int32), QpackParseError] {
   if offset >= input.length() {
     return Err(QpackParseNeedMore)
   }
@@ -36,10 +36,10 @@ fn qpack_buffer_integer(
 ///|
 fn qpack_buffer_string_end(
   input : Array[Byte],
-  offset : Int,
-  prefix_bits : Int,
-  max_string_bytes : Int,
-) -> Result[Int, QpackParseError] {
+  offset : Int32,
+  prefix_bits : Int32,
+  max_string_bytes : Int32,
+) -> Result[Int32, QpackParseError] {
   let (length, start) = match qpack_buffer_integer(input, offset, prefix_bits) {
     Ok(value) => value
     Err(error) => return Err(error)
@@ -56,10 +56,10 @@ fn qpack_buffer_string_end(
 ///|
 fn qpack_instruction_length(
   input : Array[Byte],
-  offset : Int,
+  offset : Int32,
   encoder_stream : Bool,
-  max_string_bytes : Int,
-) -> Result[Int, QpackParseError] {
+  max_string_bytes : Int32,
+) -> Result[Int32, QpackParseError] {
   let first = input[offset].to_int()
   let end = if !encoder_stream {
     match

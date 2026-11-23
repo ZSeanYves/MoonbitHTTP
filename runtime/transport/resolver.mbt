@@ -62,7 +62,7 @@ pub async fn resolve_endpoints(
     Array[IpAddress],
     TransportError,
   ],
-  options? : ResolveOptions = ResolveOptions::defaults(),
+  options~ : ResolveOptions = ResolveOptions::defaults(),
 ) -> Result[Array[Endpoint], TransportError] {
   match options.validate() {
     Err(error) => return Err(error)

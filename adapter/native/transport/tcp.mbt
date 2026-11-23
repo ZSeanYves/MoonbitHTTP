@@ -7,7 +7,7 @@ pub struct TcpConnector {
 }
 
 ///|
-pub fn TcpConnector::new(keep_alive? : Bool = true) -> TcpConnector {
+pub fn TcpConnector::new(keep_alive~ : Bool = true) -> TcpConnector {
   { keep_alive, }
 }
 

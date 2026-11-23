@@ -1,6 +1,6 @@
 ///|
 priv enum StreamWrite {
-  Data(BytesView, Bool, Int?)
+  Data(BytesView, Bool, Int32?)
   Reset(Int64)
 }
 
@@ -11,7 +11,7 @@ fn[T] QuicConnection::write_stream(
   self : QuicConnection,
   id : Int64,
   write : StreamWrite,
-  emit : (QuicFrame, Int) -> Result[T, QuicError],
+  emit : (QuicFrame, Int32) -> Result[T, QuicError],
 ) -> Result[T, QuicError] {
   match self.state {
     Closed | Draining =>
@@ -173,7 +173,7 @@ pub fn QuicDatagramDriver::send_stream_prefix(
   data : BytesView,
   fin : Bool,
   now_ms : Int64,
-) -> Result[(Int, QuicDriverAction)?, QuicError] {
+) -> Result[(Int32, QuicDriverAction)?, QuicError] {
   let write = Data(data, fin, Some(self.application_payload_limit()))
   match
     self.connection.write_stream(stream_id, write, fn(frame, count) {
@@ -225,8 +225,8 @@ pub fn QuicConnection::acknowledge_stream_data(
   self : QuicConnection,
   id : Int64,
   offset : Int64,
-  length : Int,
-  fin? : Bool = false,
+  length : Int32,
+  fin~ : Bool = false,
 ) -> Result[Unit, QuicError] {
   let end = match quic_range_end(offset, length) {
     Ok(end) => end

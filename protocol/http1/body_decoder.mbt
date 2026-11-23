@@ -1,11 +1,11 @@
 ///|
 priv enum BodyState {
   BodyNone
-  BodyFixed(Int)
+  BodyFixed(Int32)
   BodyChunkSize
-  BodyChunkData(Int)
+  BodyChunkData(Int32)
   BodyChunkCrlf
-  BodyTrailers(@types.HeaderMap, Int, Int)
+  BodyTrailers(@types.HeaderMap, Int32, Int32)
   BodyClose
   BodyEnd
 }
@@ -13,7 +13,7 @@ priv enum BodyState {
 ///|
 priv struct BodyDecoder {
   mut state : BodyState
-  mut total : Int
+  mut total : Int32
   limits : @types.Limits
   mut eof : Bool
 }
@@ -74,7 +74,7 @@ fn http1_is_tchar(byte : Byte) -> Bool {
 /// interpretation in a downstream proxy.
 fn parse_chunk_extension(
   input : BytesView,
-  start : Int,
+  start : Int32,
 ) -> Result[Unit, Http1Error] {
   let mut index = start
   while index < input.length() {
@@ -152,7 +152,7 @@ fn parse_chunk_extension(
 }
 
 ///|
-fn parse_hex_size(line : Bytes) -> Result[Int, Http1Error] {
+fn parse_hex_size(line : Bytes) -> Result[Int32, Http1Error] {
   let mut size = 0
   let mut digits = 0
   for byte in line {

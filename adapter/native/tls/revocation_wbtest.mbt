@@ -1,11 +1,11 @@
 ///|
 async fn signed_ocsp(
-  subject? : String = "revoked.cert.pem",
-  status? : Int = 0,
-  this_offset? : Int = -60,
-  next_offset? : Int = 3600,
-  omit_next? : Bool = false,
-  corrupt_signature? : Bool = false,
+  subject~ : String = "revoked.cert.pem",
+  status~ : Int32 = 0,
+  this_offset~ : Int32 = -60,
+  next_offset~ : Int32 = 3600,
+  omit_next~ : Bool = false,
+  corrupt_signature~ : Bool = false,
 ) -> Bytes {
   let response = @revocation_test.test_ocsp(
     fixture(subject),
@@ -26,10 +26,10 @@ async fn signed_ocsp(
 
 ///|
 async fn signed_crl(
-  issuer? : String = "localhost",
-  revoked? : String = "",
-  this_offset? : Int = -60,
-  next_offset? : Int = 3600,
+  issuer~ : String = "localhost",
+  revoked~ : String = "",
+  this_offset~ : Int32 = -60,
+  next_offset~ : Int32 = 3600,
 ) -> Bytes {
   let response = @revocation_test.test_crl(
     fixture(issuer + ".cert.pem"),
@@ -87,7 +87,7 @@ async fn assert_revocation_rejected(
   client_options : @transport.TlsOptions,
   server_options : @transport.TlsOptions,
   expected : Int64,
-  allow_omitted_staple? : Bool = false,
+  allow_omitted_staple~ : Bool = false,
 ) -> Unit {
   let (client, server) = handshake_pair(client_options, server_options)
   match server {

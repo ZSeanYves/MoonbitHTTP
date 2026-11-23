@@ -6,12 +6,12 @@ pub(all) enum Frame {
 
 ///|
 pub(all) struct SizeHint {
-  lower : Int
-  upper : Int?
+  lower : Int32
+  upper : Int32?
 }
 
 ///|
-pub fn SizeHint::exact(size : Int) -> SizeHint {
+pub fn SizeHint::exact(size : Int32) -> SizeHint {
   { lower: size, upper: Some(size), }
 }
 
@@ -21,17 +21,17 @@ pub fn SizeHint::unknown() -> SizeHint {
 }
 
 ///|
-pub fn SizeHint::lower_bound(self : SizeHint) -> Int {
+pub fn SizeHint::lower_bound(self : SizeHint) -> Int32 {
   self.lower
 }
 
 ///|
-pub fn SizeHint::upper_bound(self : SizeHint) -> Int? {
+pub fn SizeHint::upper_bound(self : SizeHint) -> Int32? {
   self.upper
 }
 
 ///|
-pub fn SizeHint::exact_size(self : SizeHint) -> Int? {
+pub fn SizeHint::exact_size(self : SizeHint) -> Int32? {
   match self.upper {
     Some(value) if value == self.lower => Some(value)
     _ => None
@@ -56,12 +56,13 @@ impl Body with fn cancel(_self, _error) {
 ///|
 /// Stable body state errors. These errors describe violations of the body
 /// frame contract and never include body bytes or sensitive header values.
+#derive(Debug, Eq)
 pub(all) suberror BodyError {
   DataAfterTrailers
   DuplicateTrailers
-  InvalidLimit(Int)
+  InvalidLimit(Int32)
   Cancelled
-} derive(Debug, Eq)
+}
 
 ///|
 priv enum FrameDisposition {

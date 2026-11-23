@@ -2,6 +2,7 @@
 using @types {type Endpoint, type EndpointError, type IpAddress}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum TransportOperation {
   Resolve
   Connect
@@ -11,16 +12,18 @@ pub(all) enum TransportOperation {
   Close
   ProxyConnect
   QuicEndpoint
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Debug, Eq)
 pub(all) suberror ConnectOptionsError {
   InvalidTimeout
   InvalidLocalPort
   InvalidLocalHost
-} derive(Debug, Eq)
+}
 
 ///|
+#derive(Debug, Eq)
 pub(all) suberror TransportError {
   InvalidEndpoint(EndpointError)
   InvalidOptions(ConnectOptionsError)
@@ -33,13 +36,14 @@ pub(all) suberror TransportError {
   InvalidResolveOptions
   Policy(PolicyError)
   /// The host system error number and original diagnostic are preserved.
-  SystemFailure(TransportOperation, Int, String)
+  SystemFailure(TransportOperation, Int32, String)
   NativeFailure(TransportOperation, UInt64, Int64, String)
-} derive(Debug, Eq)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) suberror EntropyError {
   Unavailable
   Failed(String)
   InvalidBuffer
-} derive(Eq, Debug)
+}

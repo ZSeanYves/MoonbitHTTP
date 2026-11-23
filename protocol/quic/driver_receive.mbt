@@ -1,6 +1,6 @@
 ///|
 fn quic_driver_packet_space(
-  packet_type : Int,
+  packet_type : Int32,
 ) -> Result[PacketNumberSpace, QuicError] {
   match packet_type {
     0 => Ok(Initial)
@@ -291,7 +291,7 @@ fn QuicDatagramDriver::on_packet(
   source : @types.Endpoint,
   packet : Bytes,
   header : QuicLongHeader?,
-  datagram_size : Int,
+  datagram_size : Int32,
   now_ms : Int64,
 ) -> Result[Array[QuicDriverAction], QuicError] {
   let candidate_path = source != self.path.active()

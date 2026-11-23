@@ -9,7 +9,7 @@ pub struct NativeTlsProvider {
 
 ///|
 pub fn NativeTlsProvider::new(
-  allow_system_roots? : Bool = true,
+  allow_system_roots~ : Bool = true,
 ) -> NativeTlsProvider {
   { allow_system_roots, }
 }
@@ -178,7 +178,7 @@ async fn NativeTlsSession::handshake(
 ///|
 async fn NativeTlsSession::read(
   self : NativeTlsSession,
-  max_bytes : Int,
+  max_bytes : Int32,
 ) -> Result[Bytes?, @transport.TransportError] {
   errdefer self.close()
   self.read_lock.acquire()
@@ -259,7 +259,7 @@ async fn NativeTlsSession::write(
 }
 
 ///|
-fn native_tls_wire_version(version : @transport.TlsVersion) -> Int {
+fn native_tls_wire_version(version : @transport.TlsVersion) -> Int32 {
   match version {
     Tls12 => 0x0303
     Tls13 => 0x0304

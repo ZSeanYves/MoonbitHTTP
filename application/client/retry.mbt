@@ -1,22 +1,24 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum RetryCause {
   RetryConnectFailure
   RetryTimeoutBeforeResponse
   RetryRefusedStream
   RetryGoawayUnprocessed
-  RetryStatus(Int)
+  RetryStatus(Int32)
   RetryPolicyDenied
   RetryTlsVerificationFailed
   RetryCancelled
   RetryBodyPartiallySent
   RetryOther
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) enum RetryDecision {
   DoNotRetry
   RetryAfterMillis(Int64)
-} derive(Eq, Debug)
+}
 
 ///|
 fn retry_method_idempotent(http_method : @types.Method) -> Bool {
@@ -93,7 +95,7 @@ fn retry_after_millis(
 }
 
 ///|
-fn retry_backoff(policy : RetryPolicy, completed_attempts : Int) -> Int64 {
+fn retry_backoff(policy : RetryPolicy, completed_attempts : Int32) -> Int64 {
   let mut delay = policy.base_delay_ms
   let mut remaining = completed_attempts - 1
   while remaining > 0 && delay < policy.max_delay_ms {
@@ -110,13 +112,13 @@ fn retry_backoff(policy : RetryPolicy, completed_attempts : Int) -> Int64 {
 ///|
 pub fn decide_retry(
   policy : RetryPolicy,
-  completed_attempts : Int,
+  completed_attempts : Int32,
   http_method : @types.Method,
   body_replayability : BodyReplayability,
   cause : RetryCause,
-  retry_after? : String? = None,
-  now_seconds? : Int64 = 0L,
-  jitter_ms? : Int64 = 0L,
+  retry_after~ : String? = None,
+  now_seconds~ : Int64 = 0L,
+  jitter_ms~ : Int64 = 0L,
 ) -> Result[RetryDecision, RetryError] {
   match policy.validate() {
     Ok(_) => ()

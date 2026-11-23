@@ -1,8 +1,9 @@
 ///|
+#derive(Debug, Eq)
 pub(all) struct FixedClock {
   mut monotonic : Int64
   mut wall_seconds : Int64
-} derive(Debug, Eq)
+}
 
 ///|
 pub fn FixedClock::new(monotonic : Int64, wall_seconds : Int64) -> FixedClock {
@@ -52,13 +53,13 @@ pub impl @transport.Entropy for ZeroEntropy with fn fill(_self, buffer) {
 pub struct MemoryDatagramSocket {
   inbound : @aqueue.Queue[@transport.Datagram]
   sent : Array[@transport.Datagram]
-  max_datagram_size : Int
+  max_datagram_size : Int32
   mut closed : Bool
 }
 
 ///|
 pub fn MemoryDatagramSocket::new(
-  max_datagram_size? : Int = 65527,
+  max_datagram_size~ : Int32 = 65527,
 ) -> Result[MemoryDatagramSocket, @transport.TransportError] {
   if max_datagram_size <= 0 {
     return Err(InvalidDatagramSize)

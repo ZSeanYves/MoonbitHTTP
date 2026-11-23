@@ -32,20 +32,20 @@ async fn client_default_wait(delay_ms : Int64) -> Unit {
 
 ///|
 pub fn Client::new(
-  options? : RequestOptions = RequestOptions::defaults(),
-  proxy? : ProxyConfig = ProxyConfig::direct(),
-  tls? : @transport.TlsOptions = @transport.TlsOptions::defaults(),
-  cookie_jar? : @cookie.CookieJar = @cookie.CookieJar::new().unwrap(),
-  cache? : @cache.HttpCache = @cache.HttpCache::new().unwrap(),
-  cache_enabled? : Bool = false,
-  wait? : async (Int64) -> Unit = client_default_wait,
+  options~ : RequestOptions = RequestOptions::defaults(),
+  proxy~ : ProxyConfig = ProxyConfig::direct(),
+  tls~ : @transport.TlsOptions = @transport.TlsOptions::defaults(),
+  cookie_jar~ : @cookie.CookieJar = @cookie.CookieJar::new().unwrap(),
+  cache~ : @cache.HttpCache = @cache.HttpCache::new().unwrap(),
+  cache_enabled~ : Bool = false,
+  wait~ : async (Int64) -> Unit = client_default_wait,
   authorize_redirect~ : (@types.Endpoint, @transport.PolicyOperation) -> Result[
     Unit,
     @transport.PolicyError,
   ],
   now_millis~ : () -> Int64,
-  content_decoding? : Bool = false,
-  content_coding_limits? : @content_coding.ContentCodingLimits = @content_coding.ContentCodingLimits::defaults(),
+  content_decoding~ : Bool = false,
+  content_coding_limits~ : @content_coding.ContentCodingLimits = @content_coding.ContentCodingLimits::defaults(),
 ) -> Result[Client, ClientError] {
   match options.validate() {
     Ok(_) => ()

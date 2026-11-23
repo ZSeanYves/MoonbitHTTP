@@ -1,15 +1,17 @@
 ///|
+#derive(Debug, Eq)
 pub(all) enum Protocol {
   Http1
   Http2PriorKnowledge
   Http2Upgrade
-} derive(Debug, Eq)
+}
 
 ///|
+#derive(Debug, Eq)
 pub(all) enum Detection {
   Undetermined
   Detected(Protocol)
-} derive(Debug, Eq)
+}
 
 ///|
 pub struct Detector {

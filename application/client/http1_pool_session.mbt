@@ -239,13 +239,13 @@ pub fn Http1PooledRoundTripper::close(self : Http1PooledRoundTripper) -> Unit {
 ///|
 pub fn Http1PooledRoundTripper::connection_count(
   self : Http1PooledRoundTripper,
-) -> Int {
+) -> Int32 {
   self.sessions.length()
 }
 
 ///|
 pub fn Http1PooledRoundTripper::idle_connection_count(
   self : Http1PooledRoundTripper,
-) -> Int {
+) -> Int32 {
   self.pool.idle_len()
 }

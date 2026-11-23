@@ -1,13 +1,13 @@
 ///|
 pub(all) struct ServerConfig {
   limits : @types.Limits
-  read_size : Int
-  body_queue_capacity : Int
-  h2_receive_window_bytes : Int
-  read_timeout_ms : Int?
-  write_timeout_ms : Int?
+  read_size : Int32
+  body_queue_capacity : Int32
+  h2_receive_window_bytes : Int32
+  read_timeout_ms : Int32?
+  write_timeout_ms : Int32?
   /// Maximum time to finish H2 handlers and response bodies after peer EOF.
-  h2_eof_drain_timeout_ms : Int
+  h2_eof_drain_timeout_ms : Int32
   close_callback : ((Error?) -> Unit)?
 }
 
@@ -33,8 +33,8 @@ fn ServerConfig::without_close_callback(self : ServerConfig) -> ServerConfig {
 ///|
 async fn[R : @aio.Reader] read_some_with_timeout(
   reader : R,
-  max_len : Int,
-  timeout_ms : Int?,
+  max_len : Int32,
+  timeout_ms : Int32?,
 ) -> Bytes? {
   match timeout_ms {
     Some(timeout) if timeout > 0 =>
@@ -46,8 +46,8 @@ async fn[R : @aio.Reader] read_some_with_timeout(
 ///|
 async fn[R : @aio.Reader] read_exactly_with_timeout(
   reader : R,
-  len : Int,
-  timeout_ms : Int?,
+  len : Int32,
+  timeout_ms : Int32?,
 ) -> Bytes {
   match timeout_ms {
     Some(timeout) if timeout > 0 =>
@@ -60,7 +60,7 @@ async fn[R : @aio.Reader] read_exactly_with_timeout(
 async fn[W : @aio.Writer] write_with_timeout(
   writer : W,
   bytes : Bytes,
-  timeout_ms : Int?,
+  timeout_ms : Int32?,
 ) -> Unit {
   match timeout_ms {
     Some(timeout) if timeout > 0 =>
@@ -88,7 +88,7 @@ fn expects_request_body(request : @types.Request[Unit]) -> Bool {
 async fn[W : @aio.Writer] accept_http1_expectation(
   request : @types.Request[Unit],
   writer : W,
-  timeout_ms : Int?,
+  timeout_ms : Int32?,
 ) -> Bool {
   let status = expectation_response(request.headers, () => {
     request.version == Http11 && expects_request_body(request)
@@ -143,8 +143,8 @@ fn http1_allows_persistence(
 priv struct Http1RequestInput[R] {
   reader : R
   decoder : @http1.RequestDecoder
-  read_size : Int
-  timeout_ms : Int?
+  read_size : Int32
+  timeout_ms : Int32?
   mut eof : Bool
 }
 
@@ -187,7 +187,7 @@ async fn[R : @aio.Reader] Http1RequestInput::next(
 pub async fn[R : @aio.Reader] drive_http1_events(
   reader : R,
   on_event : async (@http1.RequestEvent) -> Unit,
-  config? : ServerConfig = ServerConfig::defaults(),
+  config~ : ServerConfig = ServerConfig::defaults(),
 ) -> Unit {
   config.validate_http1().unwrap_or_error()
   let input = Http1RequestInput::new(reader, config)
@@ -202,7 +202,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   config : ServerConfig,
-  first_head? : @types.Request[Unit]? = None,
+  first_head~ : @types.Request[Unit]? = None,
 ) -> Unit {
   let mut active : @async.Task[Unit]? = None
   let mut active_stream : @body.BodyStream? = None
@@ -379,7 +379,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_conne
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
-  config? : ServerConfig = ServerConfig::defaults(),
+  config~ : ServerConfig = ServerConfig::defaults(),
 ) -> Unit {
   run_connection_scope(
     () => {
@@ -401,7 +401,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_with_
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   error_responder : (Error) -> @types.Response[B],
-  config? : ServerConfig = ServerConfig::defaults(),
+  config~ : ServerConfig = ServerConfig::defaults(),
 ) -> Unit {
   let mut terminal : Error? = None
   let close_callback = match config.close_callback {

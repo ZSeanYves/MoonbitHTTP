@@ -1,19 +1,21 @@
 ///|
+#derive(Eq, Debug)
 pub(all) enum QuicPathStatus {
   PathActive
   PathChallenging
   PathValidated
   PathFailed
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Debug)
 pub(all) struct QuicPathManager {
   mut active : @types.Endpoint
   mut candidate : @types.Endpoint?
   mut challenge : Bytes?
   mut status : QuicPathStatus
   mut generation : Int64
-} derive(Debug)
+}
 
 ///|
 pub fn QuicPathManager::new(endpoint : @types.Endpoint) -> QuicPathManager {
@@ -121,12 +123,13 @@ pub fn QuicPathManager::abandon(self : QuicPathManager) -> Unit {
 }
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct QuicConnectionId {
   sequence : Int64
   id : ConnectionId
   reset_token : Bytes
   mut retired : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 pub fn QuicConnectionId::sequence(self : QuicConnectionId) -> Int64 {
@@ -144,11 +147,12 @@ pub fn QuicConnectionId::retired(self : QuicConnectionId) -> Bool {
 }
 
 ///|
+#derive(Debug)
 pub struct QuicConnectionIdManager {
   mut ids : Array[QuicConnectionId]
-  max_active : Int
+  max_active : Int32
   mut retire_prior_to : Int64
-} derive(Debug)
+}
 
 ///|
 priv struct QuicConnectionIdUpdate {
@@ -160,7 +164,7 @@ priv struct QuicConnectionIdUpdate {
 ///|
 pub fn QuicConnectionIdManager::new(
   initial : ConnectionId,
-  max_active? : Int = 2,
+  max_active~ : Int32 = 2,
 ) -> Result[QuicConnectionIdManager, QuicError] {
   if max_active < 1 {
     return Err(LimitExceeded("active connection IDs", max_active))

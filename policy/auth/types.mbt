@@ -1,4 +1,5 @@
 ///|
+#derive(Eq, Debug)
 pub(all) suberror AuthError {
   InvalidAuthLimits
   InvalidBasicCredentials
@@ -26,16 +27,17 @@ pub(all) suberror AuthError {
   DigestResponseAuthMismatch
   DigestAuthenticationContextMismatch
   DigestNextNonceRace
-} derive(Eq, Debug)
+}
 
 ///|
+#derive(Eq, Debug)
 pub(all) struct AuthLimits {
-  max_challenge_bytes : Int
-  max_parameters : Int
-  max_parameter_bytes : Int
-  max_credential_bytes : Int
-  max_token_bytes : Int
-} derive(Eq, Debug)
+  max_challenge_bytes : Int32
+  max_parameters : Int32
+  max_parameter_bytes : Int32
+  max_credential_bytes : Int32
+  max_token_bytes : Int32
+}
 
 ///|
 pub fn AuthLimits::defaults() -> AuthLimits {

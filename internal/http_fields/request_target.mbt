@@ -9,7 +9,7 @@ pub struct RequestTarget {
 pub fn[B] request_target(
   request : @types.Request[B],
   default_scheme : String,
-  fallback? : @types.Authority? = None,
+  fallback~ : @types.Authority? = None,
 ) -> Result[RequestTarget, String] {
   if request.http_method.validate() is Err(_) ||
     request.uri.validate_request_target(request.http_method) is Err(_) {

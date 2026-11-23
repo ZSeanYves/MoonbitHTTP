@@ -3,7 +3,7 @@ priv struct LocalConnectionIds {
   entropy : &@transport.Entropy
   reserve : (ConnectionId) -> Bool
   release : (ConnectionId) -> Unit
-  max_issued : Int
+  max_issued : Int32
   issued : Set[Bytes]
   tokens : Set[Bytes]
   // In sequence order. Both routing and peer admission need at most two.
@@ -22,9 +22,9 @@ priv struct LocalConnectionIds {
 pub fn[E : @transport.Entropy] QuicDatagramDriver::enable_connection_id_issuance(
   self : QuicDatagramDriver,
   entropy : E,
-  reserve? : (ConnectionId) -> Bool = _ => true,
-  release? : (ConnectionId) -> Unit = _ => (),
-  max_issued? : Int = 256,
+  reserve~ : (ConnectionId) -> Bool = _ => true,
+  release~ : (ConnectionId) -> Unit = _ => (),
+  max_issued~ : Int32 = 256,
 ) -> Result[Unit, QuicError] {
   let initial = self.local_connection_id
   if initial.bytes().is_empty() || self.local_ids is Some(_) {
@@ -118,7 +118,7 @@ fn QuicDatagramDriver::unknown_destination(
 ///|
 fn LocalConnectionIds::reserve_spare(
   self : LocalConnectionIds,
-  length : Int,
+  length : Int32,
 ) -> QuicConnectionId raise QuicError {
   for _ in 0..<8 {
     let spare = match self.pending {

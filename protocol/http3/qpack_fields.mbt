@@ -1,9 +1,10 @@
 ///|
+#derive(Eq)
 pub(all) struct QpackField {
   name : String
   value : Bytes
   sensitive : Bool
-} derive(Eq)
+}
 
 ///|
 pub impl @debug.Debug for QpackField with fn to_repr(self) {
@@ -82,7 +83,7 @@ fn qpack_validate_field(field : QpackField) -> Result[Unit, Http3Error] {
 pub fn QpackField::new(
   name : String,
   value : Bytes,
-  sensitive? : Bool = false,
+  sensitive~ : Bool = false,
 ) -> Result[QpackField, Http3Error] {
   let field = {
     name,
@@ -99,7 +100,7 @@ pub fn QpackField::new(
 pub fn QpackField::from_strings(
   name : String,
   value : String,
-  sensitive? : Bool = false,
+  sensitive~ : Bool = false,
 ) -> Result[QpackField, Http3Error] {
   QpackField::new(name, @utf8.encode(value), sensitive~)
 }
