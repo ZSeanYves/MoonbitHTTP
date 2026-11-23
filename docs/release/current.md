@@ -14,6 +14,43 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## HTTP/3 peer restart at `3bc9995`
+
+A quic-go v0.55.0 process accepted a readiness request and held a second
+request open. It restarted at the same UDP address with the same reset key.
+A POST on the old connection caused quic-go to send a stateless reset. Both
+pending requests reported that transport error. A subsequent GET succeeded through
+the original one-slot pool. The restarted HTTP application saw only the GET.
+The [restart runner](../development/interop.md#http3-peer-restart) records
+the peer version, source revision, binary hashes and application traces.
+
+The original peer also exposed a handshake incompatibility. The driver now
+caps its advertised receive size at the configured UDP buffer capacity and keeps
+a default outgoing packet budget of 1,200 bytes. A portable regression checks
+a 1,280-byte Initial against a 1,400-byte receive limit. CID tests cover unused
+and retired tokens, path probes and reset delivery through a full listener
+inbox. Matching a reset releases the original route and all its aliases.
+
+The restart exchange passed three times on macOS and twice on Ubuntu arm64.
+One Ubuntu run used the build and invocation configured for CI. Native tests passed 583/583 on each OS. The macOS Wasm, Wasm-GC and
+JS suites passed 512, 368 and 512 tests. Both focused native suites passed
+192/192, and the architecture check covered 28 manifests and 98 local edges.
+macOS ASan passed 33 native TLS tests with leak detection unavailable.
+
+Each OS passed six TCP interoperability cases. With loss and reordering, each
+aioquic run verified 256 requests on one connection, eight concurrent requests
+on another, and request data on a replacement CID. The fresh-connection
+windows completed 58 exchanges in 120.865 s on macOS and 57 in 121.658 s on
+Ubuntu. Across the VM gateway the ngtcp2 client verified the echo, GOAWAY and
+application close. In the reverse direction the Ubuntu MoonBit client verified
+the echo, 128 KiB download and hostname rejection against macOS aioquic.
+
+The frozen 436-file archive at `3bc9995` passed its extracted four-target
+check (SHA-256 `5e3d35ab75b291c7a019d3443a238c099b736c10c7d01af803a1c96024254775`).
+The two operating systems share one physical Mac. A current Windows run,
+sustained traffic between separate physical machines and independent review
+of the release revision remain open.
+
 ## QUIC frame decoding and CID rotation at `015ae0c`
 
 Packet receive and retirement batching use the immutable limits checked at

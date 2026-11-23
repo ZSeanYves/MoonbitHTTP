@@ -174,6 +174,11 @@ jobs:
       - name: Run independent HTTP/3 and QUIC TLS loss/reorder interoperability
         run: moon run repo-tools/tools/http3_interoperability.mbtx --reverse --impair --duration-seconds 60 --concurrent-requests 8
 
+      - name: Verify HTTP/3 pool recovery after a quic-go server restart
+        run: |
+          go -C repo-tools/tools/quic_go_reset_reference build -mod=readonly -o "$PWD/_build/quic-go-reset-reference" .
+          moon run repo-tools/tools/http3_interoperability.mbtx --peer-restart "$PWD/_build/quic-go-reset-reference"
+
       - name: Execute native release benchmarks
         run: moon run repo-tools/tools/benchmarks.mbtx
 
