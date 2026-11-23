@@ -144,8 +144,6 @@ saved in full. Never trim, retry, replace or discard an unfavorable observation.
 An execution failure preserves partial evidence and yields no comparison
 conclusion. An incomplete or noisy run does not close the performance gate.
 
-## Designing additional workloads
-
 ## Go `net/http` external reference
 
 Run the standard-library Go baseline or the paired server comparison with:
@@ -175,6 +173,11 @@ release performance threshold.
 
 CPU, RSS and cancellation measurements remain separate metrics and must be
 reported as unavailable when the harness does not collect them.
+
+The [paired results at `ffd5394`](../release/current.md#native-http-servers-at-ffd5394)
+include all eight windows and the earlier preflight failure.
+
+## Designing additional workloads
 
 Add a workload only when it answers a concrete release question. Freeze the
 request/response bytes, body sizes, stream count, loss profile, TLS provider,

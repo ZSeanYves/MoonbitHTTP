@@ -1,7 +1,7 @@
 # Current validation facts
 
 > Status: local validation and explicitly labelled historical evidence; not production approval
-> Scope: MoonbitHTTP 0.7.0 security remediation and historical release evidence
+> Scope: unreleased protocol suite, 0.7.0 alpha and historical release evidence
 > Source: current working tree; exact revisions belong to local/CI evidence
 > Last reviewed: 2026-11-23
 
@@ -13,6 +13,50 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 92 async integration tests and 131 Native TLS tests per OS on Linux, macOS and
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
+
+## Native HTTP servers at `ffd5394`
+
+The native listener serves HTTP/1.1 and HTTP/2 over TLS. A one-second
+preflight against the preceding revision `7dbae42` exposed a full HTTP/2
+control queue during four concurrent 64 KiB POSTs. The probe completed 942
+requests and recorded 164 errors. The server now coalesces receive-window
+credits before the writer flushes them. The same preflight on the corrected
+code completed 1,228 requests with zero errors.
+
+The paired release-mode comparison used an Ubuntu 24.04 arm64 guest with four
+vCPUs and 4 GiB of RAM, Go 1.26.8 and moonc 0.10.14+7d59c7ec9. The same
+four-worker Go client sent 64 KiB POSTs over loopback, verified the protocol,
+status and exact response body, and recorded zero errors in all eight measured
+windows. Each protocol used two ten-second windows per server with a separate
+one-second warmup. Ranges below span the two windows. P95 uses up to 100,000
+samples per window.
+
+| Protocol and server | Successful requests | Requests/s | P95 (ms) |
+| --- | ---: | ---: | ---: |
+| HTTP/1.1 cleartext, MoonBit | 33,544 | 1,675–1,679 | 2.453–2.464 |
+| HTTP/1.1 cleartext, Go | 344,858 | 17,160–17,325 | 0.462–0.470 |
+| HTTP/2 with TLS 1.3, MoonBit | 23,311 | 1,110–1,221 | 4.653–5.526 |
+| HTTP/2 with TLS 1.3, Go | 140,787 | 7,004–7,074 | 0.940–0.951 |
+
+This workload exposes a throughput and tail-latency gap. CPU and RSS were
+not measured. See the [benchmark method](../development/performance.md#go-nethttp-external-reference)
+for the workload and collection procedure.
+
+Strict macOS checks, builds and tests passed for Wasm (473), Wasm-GC (334),
+JS (473) and Native (532). The focused async and Native QUIC/TLS suites passed
+95 and 140 tests respectively. Ubuntu passed the strict Native build and all
+532 tests. Six independent HTTP/1.1, HTTP/2 and h2c socket exercises passed
+on each OS. The macOS client again completed 32 cold-start requests against
+two Linux nghttpd 1.59.0 origins, each advertising one stream slot. The 16
+responses from each origin matched on one connection, including the TLS
+origin with verified h2 ALPN. The host and guest share physical hardware.
+
+The frozen distribution contained 409 files and passed a strict four-target
+check after extraction. Its SHA-256 was
+`43d3ec0fbf2b28fdd06f35df8d806272bb1306ffadb1f480a4e55778384529ba`.
+Open release work includes the general HTTP/3 client/server API, Windows at
+the candidate revision, independent-host soak and capacity measurements, and
+final independent review.
 
 ## Origin-managed HTTP/2 at `4d3dab7`
 
@@ -32,9 +76,7 @@ The client checked status 200 and exact body bytes for every response.
 The distribution contained 406 files and passed a strict four-target check
 after extraction. Its SHA-256 was
 `4d694086b4f02888a650536b2c42ba102485edff149e8204c0d3f9c5f6a2f190`.
-The host and VM share physical hardware. A general HTTP/3 client/server API,
-Windows validation for the candidate, independent-host soak and capacity
-measurements, a paired Go comparison and final independent review remain open.
+The host and VM share physical hardware.
 
 ## Unreleased protocol suite at `128f9fd`
 
@@ -128,7 +170,7 @@ the 15%/20% limits. This closes only the declared local Native socket workload;
 it is not a production-wide or cross-platform performance claim.
 
 The Go `net/http` H1/H2 runner measured the Go baseline in the hosted release
-run. A paired MoonbitHTTP comparison under the same workload remains open.
+run. The unreleased comparison at `ffd5394` above adds both servers on one guest.
 
 The historical 2026-10-03 Standard security review is sealed under scan
 `5e0f9eab-60e1-458a-b97a-e89b3a69aa48` with zero reportable findings and
@@ -181,7 +223,7 @@ revoked, unknown, malformed and missing-staple cases with fail-closed behavior.
 The implementation intentionally does not fetch OCSP responses online, and
 Wasm requires a host-provided TLS/revocation capability. Historical security
 reviews have the scoped limitations above. The open production gates include release-revision security coverage and
-cross-host interoperability. The external Go comparison also remains open.
+independent-host interoperability.
 
 See [release gates](gates.md) for the remaining acceptance criteria and the
 [GitHub Actions run](https://github.com/ZSeanYves/MoonbitHTTP/actions/runs/36837820455)
