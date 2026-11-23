@@ -98,3 +98,35 @@ async test "transport: stream failures close exactly once and bound reads" {
   assert_eq(close_on_write, 1)
   assert_true(write_failure.write(b"x") is Err(Closed))
 }
+
+///|
+async test "transport: cancellation closes a stalled finish once and rejects new writes" {
+  let endpoint = @types.Endpoint::new("tcp", "127.0.0.1", 443).unwrap()
+  let mut closes = 0
+  let mut flushing = false
+  let stream = @transport.StreamConnection::new(
+    endpoint,
+    fn(_) { Ok(None) },
+    fn(_) { Ok(()) },
+    fn() { closes += 1 },
+    finish=async fn() {
+      flushing = true
+      @async.sleep(60000)
+      Ok(())
+    },
+  )
+  @async.with_timeout(1000, async fn() {
+    @async.with_task_group(async fn(group) {
+      let task = group.spawn(async fn() { stream.finish() })
+      while !flushing {
+        @async.pause()
+      }
+      assert_eq(stream.write(b"late"), Err(Closed))
+      assert_eq(stream.finish(), Err(Closed))
+      task.cancel()
+    })
+  })
+  assert_true(stream.is_closed())
+  assert_eq(stream.finish(), Ok(()))
+  assert_eq(closes, 1)
+}

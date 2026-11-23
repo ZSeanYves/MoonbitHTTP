@@ -13,6 +13,7 @@ pub async fn[
   handler : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   config? : @service.ServerConfig = @service.ServerConfig::defaults(),
   handshake_timeout_ms? : Int = 10000,
+  shutdown_timeout_ms? : Int = 1000,
   dual_stack? : Bool = true,
   reuse_addr? : Bool = true,
 ) -> Result[NativeTcpListener, @server_api.ServerError] {
@@ -47,6 +48,7 @@ pub async fn[
       Ok(())
     },
     handshake_timeout_ms~,
+    shutdown_timeout_ms~,
     dual_stack~,
     reuse_addr~,
   )

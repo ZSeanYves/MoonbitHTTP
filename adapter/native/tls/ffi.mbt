@@ -40,6 +40,10 @@ extern "C" fn OpenSsl::close(self : OpenSsl) -> Unit = "moon_http_tls_close"
 
 ///|
 #borrow(self)
+extern "C" fn OpenSsl::send_close_notify(self : OpenSsl) -> Bool = "moon_http_tls_send_close_notify"
+
+///|
+#borrow(self)
 extern "C" fn OpenSsl::error_code(self : OpenSsl) -> UInt64 = "moon_http_tls_error_code"
 
 ///|

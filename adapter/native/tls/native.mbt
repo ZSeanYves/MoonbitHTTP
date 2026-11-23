@@ -100,6 +100,19 @@ async fn NativeTlsSession::flush(
 }
 
 ///|
+async fn NativeTlsSession::send_close_notify(
+  self : NativeTlsSession,
+) -> Result[Unit, @transport.TransportError] {
+  self.write_lock.acquire()
+  defer self.write_lock.release()
+  guard !self.closed else { return Err(Closed) }
+  guard self.ssl.send_close_notify() else {
+    return Err(self.ssl.transport_failure(Close))
+  }
+  self.flush()
+}
+
+///|
 async fn NativeTlsSession::receive(
   self : NativeTlsSession,
   generation : Int64,
@@ -359,6 +372,7 @@ async fn NativeTlsProvider::handshake(
     async fn(max_bytes) { session.read(max_bytes) },
     async fn(bytes) { session.write(bytes) },
     fn() { session.close() },
+    finish=async fn() { session.send_close_notify() },
   )
   transferred = true
   Ok(

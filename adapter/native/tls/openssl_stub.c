@@ -94,6 +94,7 @@ typedef struct {
   F(void, SSL_get0_alpn_selected, (const SSL *, const unsigned char **, unsigned int *)) \
   F(int, SSL_read, (SSL *, void *, int)) \
   F(int, SSL_write, (SSL *, const void *, int)) \
+  F(int, SSL_get_shutdown, (const SSL *)) \
   F(int, SSL_shutdown, (SSL *)) \
   F(int, SSL_version, (const SSL *)) \
   F(const SSL_CIPHER *, SSL_get_current_cipher, (const SSL *)) \
@@ -671,6 +672,19 @@ static int step_result(HttpTls *self, int ret) {
 MOONBIT_FFI_EXPORT int moon_http_tls_handshake(HttpTls *self) {
   if (self->initialized != 1) return -1;
   p_ERR_clear_error(); return step_result(self, p_SSL_do_handshake(self->ssl));
+}
+MOONBIT_FFI_EXPORT int moon_http_tls_send_close_notify(HttpTls *self) {
+  if (self->initialized != 1) return 0;
+  p_ERR_clear_error();
+  int ret = p_SSL_shutdown(self->ssl);
+  if (ret >= 0) return 1;
+  /* The output BIO is a growable memory buffer. Some versions already ask
+     for the peer alert after queuing ours. Only the local alert is needed. */
+  enum { ssl_error_want_read = 2, ssl_sent_shutdown = 1 };
+  if (p_SSL_get_error(self->ssl, ret) == ssl_error_want_read &&
+      (p_SSL_get_shutdown(self->ssl) & ssl_sent_shutdown)) return 1;
+  capture_error(self, "OpenSSL could not send close_notify");
+  return 0;
 }
 MOONBIT_FFI_EXPORT int moon_http_tls_feed(HttpTls *self, moonbit_bytes_t bytes) {
   if (self->initialized != 1) return -1;

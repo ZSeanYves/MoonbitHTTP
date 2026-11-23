@@ -134,6 +134,8 @@ async test "native TLS: memory PEM credentials negotiate TLS13 ALPN and exchange
   assert_eq(server.read(16).unwrap(), Some(b"hello"))
   server.write(b"world").unwrap()
   assert_eq(client.read(16).unwrap(), Some(b"world"))
+  server.close()
+  assert_true(client.read(1) is Err(Failed(Receive, _)))
 }
 
 ///|

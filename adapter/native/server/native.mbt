@@ -68,11 +68,15 @@ pub async fn[P : @transport.NetworkPolicy, T : @transport.TlsProvider] NativeTcp
   options : @transport.TlsOptions,
   handler : async (@transport.SecureConnection) -> Result[Unit, Error],
   handshake_timeout_ms? : Int = 10000,
+  shutdown_timeout_ms? : Int = 1000,
   dual_stack? : Bool = true,
   reuse_addr? : Bool = true,
 ) -> Result[NativeTcpListener, @server_api.ServerError] {
   if handshake_timeout_ms <= 0 {
     return Err(InvalidConfig("TLS handshake timeout must be positive"))
+  }
+  if shutdown_timeout_ms <= 0 {
+    return Err(InvalidConfig("TLS shutdown timeout must be positive"))
   }
   match options.validate_server() {
     Err(_) => return Err(InvalidConfig("invalid server TLS options"))
@@ -96,7 +100,21 @@ pub async fn[P : @transport.NetworkPolicy, T : @transport.TlsProvider] NativeTcp
         Err(error) => Err(error)
         Ok(secure) => {
           defer secure.close()
-          handler(secure)
+          match handler(secure) {
+            Err(error) => return Err(error)
+            Ok(_) => ()
+          }
+          let finished = @async.with_timeout(shutdown_timeout_ms, async fn() {
+            secure.finish()
+          }) catch {
+            @async.TimeoutError =>
+              return Err(@transport.TransportError::Timeout(Close))
+            error => raise error
+          }
+          match finished {
+            Err(error) => Err(error)
+            Ok(_) => Ok(())
+          }
         }
       }
     },

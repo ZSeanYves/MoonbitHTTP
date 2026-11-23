@@ -271,6 +271,15 @@ pub async fn SecureConnection::write(
 }
 
 ///|
+/// Sends the provider's TLS close notification and releases the stream.
+/// Use close() to immediately abandon a failed or cancelled exchange.
+pub async fn SecureConnection::finish(
+  self : SecureConnection,
+) -> Result[Unit, TransportError] {
+  self.transport.finish()
+}
+
+///|
 pub fn SecureConnection::close(self : SecureConnection) -> Unit {
   self.transport.close()
 }

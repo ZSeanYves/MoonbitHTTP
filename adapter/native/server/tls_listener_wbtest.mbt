@@ -37,61 +37,74 @@ async fn listener_tls_options() -> (
 }
 
 ///|
-async test "native TLS HTTP listener serves HTTP/1.1 over an authenticated channel" {
+async test "native TLS HTTP listener finishes chunked and close-delimited responses over authenticated TLS" {
   let (client_options, server_options) = listener_tls_options()
   let provider = @tls_native.NativeTlsProvider::new(allow_system_roots=false)
   let endpoint = unused_tcp_endpoint()
-  let mut handled = false
+  let handled : Array[@types.Version] = []
   let listener = NativeTcpListener::bind_http_tls(
     endpoint,
     @transport.AllowAllPolicy::new(),
     provider,
     server_options,
     request => {
-      assert_eq(request.version, Http11)
-      handled = true
+      handled.push(request.version)
+      let body = @body.BodyStream::new().unwrap()
+      body.push(Data(b"secure"))
+      body.finish()
       {
         status: 200,
         version: request.version,
         headers: @types.HeaderMap::new(),
-        body: @body.FullBody::new(b"secure"),
+        body,
       }
     },
   ).unwrap()
   defer listener.close()
   @async.with_timeout(5000, async fn() {
-    @async.with_task_group(async fn(group) {
-      group.spawn_bg(async fn() {
-        let accepted = listener.accept().unwrap().unwrap()
-        match (accepted.run)() {
-          Err(error) => raise error
-          Ok(_) => ()
-        }
+    for version in [@types.Version::Http11, Http10] {
+      @async.with_task_group(async fn(group) {
+        group.spawn_bg(async fn() {
+          let accepted = listener.accept().unwrap().unwrap()
+          match (accepted.run)() {
+            Err(error) => raise error
+            Ok(_) => ()
+          }
+        })
+        let stream = @transport_native.TcpConnector::new()
+          .connect(endpoint, @transport.ConnectOptions::defaults())
+          .unwrap()
+        let secure = provider.client_handshake(stream, client_options).unwrap()
+        defer secure.close()
+        assert_true(secure.is_authenticated())
+        assert_eq(secure.alpn(), Some("http/1.1"))
+        let io = @service.StreamIo::new(secure.transport)
+        let client = @service.ClientConnection::new(io, io).unwrap()
+        let headers = @types.HeaderMap::new()
+        headers.append_string("host", "localhost").unwrap()
+        headers.append_string("connection", "close").unwrap()
+        let response = client.send({
+          http_method: Get,
+          version,
+          headers,
+          uri: @types.Uri::parse("/").unwrap(),
+          body: @body.EmptyBody::new(),
+        })
+        assert_eq(response.version, version)
+        assert_true(
+          response.headers.get_all_string("content-length").is_empty(),
+        )
+        assert_eq(
+          response.headers.get_all_string("transfer-encoding").is_empty(),
+          version == Http10,
+        )
+        let (bytes, _) = @body.collect(response.body)
+        assert_eq((response.status, bytes), (200, b"secure"))
+        assert_eq(secure.read(1), Ok(None))
       })
-      let stream = @transport_native.TcpConnector::new()
-        .connect(endpoint, @transport.ConnectOptions::defaults())
-        .unwrap()
-      let secure = provider.client_handshake(stream, client_options).unwrap()
-      defer secure.close()
-      assert_true(secure.is_authenticated())
-      assert_eq(secure.alpn(), Some("http/1.1"))
-      let io = @service.StreamIo::new(secure.transport)
-      let client = @service.ClientConnection::new(io, io).unwrap()
-      let headers = @types.HeaderMap::new()
-      headers.append_string("host", "localhost").unwrap()
-      headers.append_string("connection", "close").unwrap()
-      let response = client.send({
-        http_method: Get,
-        version: Http11,
-        headers,
-        uri: @types.Uri::parse("/").unwrap(),
-        body: @body.EmptyBody::new(),
-      })
-      let (bytes, _) = @body.collect(response.body)
-      assert_eq((response.status, bytes), (200, b"secure"))
-    })
+    }
   })
-  assert_true(handled)
+  assert_eq(handled, [Http11, Http10])
 }
 
 ///|

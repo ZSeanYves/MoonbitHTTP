@@ -13,3 +13,5 @@ async handler. The listener routes negotiated `h2` to the HTTP/2 driver and
 `http/1.1` to HTTP/1.1. A peer without ALPN can use HTTP/1.1 when the
 listener offers that protocol. Pass the resulting listener to
 `ServerSupervisor::serve` to manage active connections and shutdown.
+
+After a successful exchange the listener flushes the provider's close notification. `shutdown_timeout_ms` bounds the flush (default 1,000 ms). Handler failure or cancellation closes the transport immediately.

@@ -198,6 +198,7 @@ pub(all) struct SecureConnection {
 pub fn SecureConnection::alpn(Self) -> String?
 pub fn SecureConnection::cipher_suite(Self) -> String
 pub fn SecureConnection::close(Self) -> Unit
+pub async fn SecureConnection::finish(Self) -> Result[Unit, TransportError]
 pub fn SecureConnection::is_authenticated(Self) -> Bool
 pub fn SecureConnection::is_closed(Self) -> Bool
 pub fn SecureConnection::new(StreamConnection, TlsVersion, String, String?, String?, Bool) -> Self
@@ -218,8 +219,9 @@ pub struct StreamConnection {
 }
 pub fn StreamConnection::close(Self) -> Unit
 pub fn StreamConnection::endpoint(Self) -> @types.Endpoint
+pub async fn StreamConnection::finish(Self) -> Result[Unit, TransportError]
 pub fn StreamConnection::is_closed(Self) -> Bool
-pub fn StreamConnection::new(@types.Endpoint, async (Int) -> Result[Bytes?, TransportError], async (Bytes) -> Result[Unit, TransportError], () -> Unit) -> Self
+pub fn StreamConnection::new(@types.Endpoint, async (Int) -> Result[Bytes?, TransportError], async (Bytes) -> Result[Unit, TransportError], () -> Unit, finish? : async () -> Result[Unit, TransportError]) -> Self
 pub async fn StreamConnection::read(Self, Int) -> Result[Bytes?, TransportError]
 pub async fn StreamConnection::write(Self, Bytes) -> Result[Unit, TransportError]
 
