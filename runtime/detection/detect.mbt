@@ -52,22 +52,10 @@ pub fn Detector::buffered(self : Detector) -> Bytes {
 }
 
 ///|
-fn has_token(headers : @types.HeaderMap, name : String, token : String) -> Bool {
-  for value in headers.get_all_string(name) {
-    for part in value.to_string_lossy().split(",") {
-      if part.trim().to_lower() == token {
-        return true
-      }
-    }
-  }
-  false
-}
-
-///|
 pub fn detect_h2c_upgrade(headers : @types.HeaderMap) -> Bool {
-  has_token(headers, "connection", "upgrade") &&
-  has_token(headers, "connection", "http2-settings") &&
-  has_token(headers, "upgrade", "h2c") &&
+  headers.contains_list_token("connection", "upgrade") &&
+  headers.contains_list_token("connection", "http2-settings") &&
+  headers.contains_list_token("upgrade", "h2c") &&
   headers.get_string("http2-settings") is Some(_)
 }
 

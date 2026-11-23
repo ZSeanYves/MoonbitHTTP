@@ -99,8 +99,8 @@ async fn main {
       curl_common + ["--header", "Expect: 100-continue", "--dump-header", directory + "/curl-post.headers",
         "--data-binary", "roundtrip", url + "echo"])
     require_equal("curl HTTP/1.1 POST", post, "roundtrip\n__status:200;http:1.1\n")
-    let post_headers = @fs.read_file(directory + "/curl-post.headers").text().replace(old="\r\n", new="\n")
-    guard post_headers.has_prefix("HTTP/1.1 100 Continue\n\nHTTP/1.1 200 ") else {
+    let post_headers = @fs.read_file(directory + "/curl-post.headers").binary()
+    guard post_headers.has_prefix(b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 ") else {
       fail("curl POST did not receive 100 Continue before its final response")
     }
     let wget_common = ["--server-response", "--output-document=-", "--no-proxy",

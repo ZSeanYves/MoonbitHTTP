@@ -138,6 +138,7 @@ pub struct HeaderMap {
 pub fn HeaderMap::append(Self, HeaderName, HeaderValue) -> Unit
 pub fn HeaderMap::append_string(Self, String, String) -> Result[Unit, HeaderError]
 pub fn HeaderMap::contains(Self, HeaderName) -> Bool
+pub fn HeaderMap::contains_list_token(Self, String, String) -> Bool
 pub fn HeaderMap::content_length(Self) -> Result[Int?, HeaderError]
 pub fn HeaderMap::copy(Self) -> Self
 pub fn HeaderMap::fields(Self) -> Array[HeaderField]

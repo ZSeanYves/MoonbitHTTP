@@ -212,6 +212,31 @@ pub fn HeaderMap::get_all_string(
 }
 
 ///|
+/// Searches fields whose grammar is a comma-separated list of tokens,
+/// including Connection. Field and token names use ASCII case folding.
+pub fn HeaderMap::contains_list_token(
+  self : HeaderMap,
+  name : String,
+  token : String,
+) -> Bool {
+  if token.is_empty() ||
+    !token.all(c => c.is_ascii() && is_token_byte(c.to_int().to_byte())) {
+    return false
+  }
+  for field in self.entries {
+    if !field.name.value.equal_ignore_ascii_case(name) {
+      continue
+    }
+    for part in field.value.to_string_lossy().split(",") {
+      if part.trim(chars=" \t").equal_ignore_ascii_case(token) {
+        return true
+      }
+    }
+  }
+  false
+}
+
+///|
 pub fn HeaderMap::contains(self : HeaderMap, name : HeaderName) -> Bool {
   self.get(name) is Some(_)
 }

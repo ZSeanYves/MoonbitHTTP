@@ -124,7 +124,7 @@ pub fn RequestExpectations::from_headers(
       if i == text.length() || (!quoted && text[i] == ',') {
         let item = text[start:i].trim(chars=" \t")
         if !item.is_empty() {
-          if item.to_lower() == "100-continue" {
+          if item.equal_ignore_ascii_case("100-continue") {
             continue_requested = true
           } else {
             unsupported = true

@@ -77,22 +77,6 @@ fn copy_data(target : Array[Byte], source : BytesView) -> Unit {
 }
 
 ///|
-fn header_has_token(
-  headers : @types.HeaderMap,
-  name : String,
-  token : String,
-) -> Bool {
-  for value in headers.get_all_string(name) {
-    for part in value.to_string_lossy().split(",") {
-      if part.trim().to_lower() == token {
-        return true
-      }
-    }
-  }
-  false
-}
-
-///|
 fn expects_request_body(request : @types.Request[Unit]) -> Bool {
   match request.headers.content_length() {
     Ok(Some(size)) if size > 0 => true
@@ -145,10 +129,13 @@ fn http1_allows_persistence(
   version : @types.Version,
   headers : @types.HeaderMap,
 ) -> Bool {
-  !header_has_token(headers, "connection", "close") &&
+  !headers.contains_list_token("connection", "close") &&
   (
     version == Http11 ||
-    (version == Http10 && header_has_token(headers, "connection", "keep-alive"))
+    (
+      version == Http10 &&
+      headers.contains_list_token("connection", "keep-alive")
+    )
   )
 }
 
@@ -282,7 +269,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
                       request.headers,
                     ) ||
                     framing == CloseDelimited ||
-                    header_has_token(response.headers, "connection", "close")
+                    response.headers.contains_list_token("connection", "close")
                   finish_after_response = close ||
                     response.status == 101 ||
                     !response.headers.get_all_string("upgrade").is_empty()
@@ -292,10 +279,8 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
                       @types.HeaderValue::from_string("close").unwrap(),
                     )
                   } else if version == Http10 &&
-                    !header_has_token(
-                      response.headers,
-                      "connection",
-                      "keep-alive",
+                    !response.headers.contains_list_token(
+                      "connection", "keep-alive",
                     ) {
                     ignore(
                       response.headers.append_string("connection", "keep-alive"),
