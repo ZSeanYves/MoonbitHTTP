@@ -104,10 +104,19 @@ pub fn QuicConnection::open_unidirectional_stream(
 pub fn QuicConnection::close_reason(self : QuicConnection) -> (Int64, String)? {
   self.peer_close.map(fn(close) {
     match close {
+      StatelessReset => (0L, stateless_reset_reason)
       TransportClose(code, reason) | ApplicationClose(code, reason) =>
         (code, reason)
     }
   })
+}
+
+///|
+fn QuicConnection::closed_error(self : QuicConnection) -> QuicError {
+  let (code, reason) = self
+    .close_reason()
+    .unwrap_or((0L, "connection is closed"))
+  ConnectionClosed(code, reason)
 }
 
 ///|

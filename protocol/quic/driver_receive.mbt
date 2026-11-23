@@ -40,6 +40,13 @@ fn QuicDatagramDriver::receive_datagram(
     return Ok([PacketIgnored])
   }
   let size = packet.length()
+  if now_ms < 0L {
+    return Err(InvalidPacket("QUIC clock cannot be negative"))
+  }
+  if self.receive_stateless_reset(source, packet)
+    is Some(ConnectionClosed(code, reason)) {
+    return Ok([ConnectionClosed(code, reason)])
+  }
   if size == 0 || size > self.connection.transport_params.max_udp_payload_size {
     return Err(
       LimitExceeded(
@@ -47,9 +54,6 @@ fn QuicDatagramDriver::receive_datagram(
         self.connection.transport_params.max_udp_payload_size,
       ),
     )
-  }
-  if now_ms < 0L {
-    return Err(InvalidPacket("QUIC clock cannot be negative"))
   }
   self.count_received_datagram(source, packet)
   let candidate_path = source != self.path.active()
@@ -252,7 +256,7 @@ fn QuicDatagramDriver::receive_retry(
   self.initial_send_keys = Some(keys.0)
   self.initial_receive_keys = Some(keys.1)
   self.initial_destination = retry.source
-  self.peer_connection_id = retry.source
+  self.select_peer_cid(retry.source, None)
   self.initial_token = retry.token
   self.retry_source = Some(retry.source)
   // RFC 9000 section 17.2.5.3 forbids reusing packet numbers after Retry.
@@ -463,8 +467,8 @@ fn QuicDatagramDriver::on_packet(
     if space == Initial && self.initial_peer_id is None {
       self.initial_peer_id = Some(id)
     }
-    if self.state() == Handshaking {
-      self.peer_connection_id = id
+    if self.state() == Handshaking && self.peer_connection_id != id {
+      self.select_peer_cid(id, None)
     }
   }
   if space == Handshake && source == self.active_budget.endpoint {

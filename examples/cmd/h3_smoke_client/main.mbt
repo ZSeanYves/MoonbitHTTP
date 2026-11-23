@@ -1,9 +1,32 @@
 ///|
+fn request(
+  path : String,
+  meth : @types.Method,
+  data : Bytes,
+) -> @types.Request[@body.FullBody] {
+  {
+    http_method: meth,
+    uri: @types.Uri::parse(path).unwrap(),
+    version: Http3,
+    headers: @types.HeaderMap::new(),
+    body: @body.FullBody::new(data),
+  }
+}
+
+///|
 async fn main {
   let cert = @fs.read_file("adapter/native/tls/testdata/localhost.cert.pem").binary()
   let options = {
     ..@transport.TlsOptions::for_quic("localhost"),
     trust_anchors: Some(cert),
+  }
+  match @env.args() {
+    [_, "--peer-restart", marker] => {
+      check_peer_restart(options, marker)
+      return
+    }
+    [_] => ()
+    _ => fail("usage: h3_smoke_client [--peer-restart READY_FILE]")
   }
   let endpoint = @types.Endpoint::new("udp", "localhost", 18444).unwrap()
   let resolver = @transport_native.NativeResolver::new()
@@ -16,19 +39,6 @@ async fn main {
       @transport.AllowAllPolicy::new(),
       tls=options,
       async fn(client) {
-        fn request(
-          path : String,
-          meth : @types.Method,
-          data : Bytes,
-        ) -> @types.Request[@body.FullBody] {
-          {
-            http_method: meth,
-            uri: @types.Uri::parse(path).unwrap(),
-            version: Http3,
-            headers: @types.HeaderMap::new(),
-            body: @body.FullBody::new(data),
-          }
-        }
         let foreign = request("https://other.test/echo", Post, payload)
         let rejected = try {
           ignore(client.send(foreign))

@@ -4,8 +4,9 @@ priv struct H3PeerSocket {
   inbox : @aqueue.Queue[@transport.Datagram]
   routes : Map[Bytes, H3PeerSocket]
   owned : Set[Bytes]
-  initials : Map[(@types.Endpoint, Bytes), H3PeerSocket]
+  initials : Map[@types.Endpoint, Map[Bytes, H3PeerSocket]]
   initial_key : (@types.Endpoint, Bytes)
+  mut packets : @quic.QuicDatagramDriver?
   mut closed : Bool
 }
 
@@ -17,7 +18,10 @@ fn H3PeerSocket::reserve_route(
   let bytes = id.bytes()
   if self.closed ||
     self.routes.contains(bytes) ||
-    self.initials.contains((self.initial_key.0, bytes)) {
+    (
+      self.initials.get(self.initial_key.0) is Some(peers) &&
+      peers.contains(bytes)
+    ) {
     return false
   }
   self.owned.add(bytes)
@@ -51,11 +55,9 @@ impl @transport.DatagramSocket for H3PeerSocket with fn send(
 
 ///|
 impl @transport.DatagramSocket for H3PeerSocket with fn receive(self, max_bytes) {
-  if self.closed {
-    return Err(Closed)
-  }
   let packet = self.inbox.get() catch {
-    error => if self.closed { return Err(Closed) } else { raise error }
+    @aqueue.QueueAlreadyClosed => return Err(Closed)
+    error => raise error
   }
   if packet.payload().length() > max_bytes {
     return Err(InvalidDatagramSize)
@@ -65,14 +67,38 @@ impl @transport.DatagramSocket for H3PeerSocket with fn receive(self, max_bytes)
 
 ///|
 impl @transport.DatagramSocket for H3PeerSocket with fn close(self) {
+  self.finish()
+}
+
+///|
+fn H3PeerSocket::receive_reset(
+  self : H3PeerSocket,
+  packet : @transport.Datagram,
+) -> Bool {
+  guard self.packets is Some(driver) &&
+    driver.receive_stateless_reset(packet.endpoint(), packet.payload())
+    is Some(error) else {
+    return false
+  }
+  self.finish(error~)
+  true
+}
+
+///|
+fn H3PeerSocket::finish(self : H3PeerSocket, error? : Error) -> Unit {
   if !self.closed {
     self.closed = true
     for id in self.owned {
       self.routes.remove(id)
     }
     self.owned.clear()
-    self.initials.remove(self.initial_key)
-    self.inbox.close(clear=true)
+    if self.initials.get(self.initial_key.0) is Some(peers) {
+      peers.remove(self.initial_key.1)
+      if peers.is_empty() {
+        self.initials.remove(self.initial_key.0)
+      }
+    }
+    self.inbox.close(clear=true, error?)
   }
 }
 
@@ -112,7 +138,7 @@ pub struct NativeHttp3Listener {
   priv socket : @transport_native.UdpServerSocket
   priv admissions : H3Admissions
   priv routes : Map[Bytes, H3PeerSocket]
-  priv initials : Map[(@types.Endpoint, Bytes), H3PeerSocket]
+  priv initials : Map[@types.Endpoint, Map[Bytes, H3PeerSocket]]
   priv run_peer : async (
     H3PeerSocket,
     @types.Endpoint,
@@ -154,6 +180,7 @@ pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
     )
   }
   if qpack_limits.validate_for(limits) is Err(_) ||
+    limits.max_datagram_bytes < 1200 ||
     transport_params.validate() is Err(_) {
     return Err(InvalidConfig("invalid HTTP/3 limits or transport parameters"))
   }
@@ -183,11 +210,19 @@ pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
       local_id,
       remote_id,
       now_ms=clock.monotonic_millis(),
+      limits={
+        ..@quic.QuicLimits::defaults(),
+        max_datagram_size: limits.max_datagram_bytes,
+      },
       transport_params~,
       authorize=fn(endpoint, operation) {
         policy.authorize(endpoint, operation)
       },
     ).unwrap_or_error()
+    peer.packets = Some(packets)
+    defer {
+      peer.packets = None
+    }
     packets
     .enable_connection_id_issuance(
       @tls_native.NativeEntropy::new(),
@@ -241,70 +276,89 @@ fn NativeHttp3Listener::route(
     return
   }
   let source = packet.endpoint()
-  let peer = if (bytes[0].to_int() & 0x80) == 0 {
-    // Short headers omit the destination CID length. All locally issued IDs
-    // for this listener are sixteen bytes.
-    if bytes.length() < 17 || (bytes[0].to_int() & 0x40) == 0 {
-      return
-    }
-    guard self.routes.get(bytes[1:17].to_owned()) is Some(peer) else { return }
-    peer
-  } else {
-    guard @quic.quic_long_header_fields(bytes)
-      is Ok((1, destination, remote, kind, _, _)) else {
-      return
-    }
-    let id = destination.bytes()
-    let key = (source, id)
-    if kind == 0 && self.initials.get(key) is Some(peer) {
-      peer
-    } else if self.routes.get(id) is Some(peer) {
-      peer
+  let peers = self.initials.get(source)
+  let mut initial : (@quic.ConnectionId, @quic.ConnectionId)? = None
+  let direct = if (bytes[0].to_int() & 0x80) == 0 {
+    // The shared socket issues fixed-width 16-byte local IDs.
+    if bytes.length() >= 17 && (bytes[0].to_int() & 0x40) != 0 {
+      self.routes.get(bytes[1:17].to_owned())
     } else {
-      if kind != 0 || id.length() < 8 || bytes.length() < 1200 {
+      None
+    }
+  } else if @quic.quic_long_header_fields(bytes)
+    is Ok((1, destination, remote, kind, _, _)) {
+    let id = destination.bytes()
+    if kind == 0 && bytes.length() >= 1200 && id.length() >= 8 {
+      initial = Some((destination, remote))
+    }
+    if kind == 0 && peers is Some(group) && group.get(id) is Some(peer) {
+      Some(peer)
+    } else {
+      self.routes.get(id)
+    }
+  } else {
+    None
+  }
+  // A reset can have an unrelated DCID, even one belonging to another peer.
+  // The common single-peer address needs no scan on CID-routable traffic.
+  if peers is Some(group) &&
+    !(group.length() == 1 &&
+    direct is Some(known) &&
+    known.initial_key.0 == source) {
+    for _, peer in group {
+      if !(direct is Some(known) && physical_equal(peer, known)) &&
+        peer.receive_reset(packet) {
         return
       }
-      if self.admissions.shutdown.started() {
-        return
-      }
-      let peer = {
-        socket: self.socket,
-        inbox: Queue(kind=Blocking(self.inbox_capacity)),
-        closed: false,
-        routes: self.routes,
-        owned: Set([]),
-        initials: self.initials,
-        initial_key: key,
-      }
-      let accepted = @server_api.AcceptedConnection::new(
-        async fn() {
-          try {
-            // Allocate the CID and TLS state only after the supervisor grants a slot.
-            let cid = @quic.ConnectionId::random(
-              @tls_native.NativeEntropy::new(),
-            ).unwrap_or_error()
-            if !peer.reserve_route(cid) {
-              raise @quic.QuicError::InvalidPacket(
-                "server connection ID collision",
-              )
-            }
-            (self.run_peer)(peer, source, destination, cid, remote)
-            Ok(())
-          } catch {
-            err => Err(err)
-          }
-        },
-        fn() { @transport.DatagramSocket::close(peer) },
-      )
-      if !self.admissions.pending.try_put(accepted) {
-        return
-      }
-      self.initials[key] = peer
-      peer
     }
   }
-  // One stalled consumer may lose datagrams. The shared receiver remains
-  // available to other peers, and QUIC recovery retransmits lost stream data.
+  if direct is Some(peer) {
+    // This listener admits a fixed remote endpoint per peer.
+    if peer.initial_key.0 != source {
+      return
+    }
+    // A saturated inbox can drop ordinary data. Deliver a recognized reset
+    // directly so it can wake a stalled peer and discard its queued packets.
+    if !peer.inbox.try_put(packet) {
+      ignore(peer.receive_reset(packet))
+    }
+    return
+  }
+  guard initial is Some((destination, remote)) &&
+    !self.admissions.shutdown.started() else {
+    return
+  }
+  let id = destination.bytes()
+  let peer = {
+    socket: self.socket,
+    inbox: Queue(kind=Blocking(self.inbox_capacity)),
+    closed: false,
+    routes: self.routes,
+    owned: Set([]),
+    initials: self.initials,
+    initial_key: (source, id),
+    packets: None,
+  }
+  let accepted = @server_api.AcceptedConnection::new(
+    async fn() {
+      try {
+        // Allocate the CID and TLS state only after the supervisor grants a slot.
+        let cid = @quic.ConnectionId::random(@tls_native.NativeEntropy::new()).unwrap_or_error()
+        if !peer.reserve_route(cid) {
+          raise @quic.QuicError::InvalidPacket("server connection ID collision")
+        }
+        (self.run_peer)(peer, source, destination, cid, remote)
+        Ok(())
+      } catch {
+        err => Err(err)
+      }
+    },
+    fn() { @transport.DatagramSocket::close(peer) },
+  )
+  if !self.admissions.pending.try_put(accepted) {
+    return
+  }
+  self.initials.get_or_init(source, () => Map([]))[id] = peer
   ignore(peer.inbox.try_put(packet))
 }
 

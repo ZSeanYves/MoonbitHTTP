@@ -186,7 +186,7 @@ fn QuicDatagramDriver::send_frames_internal_to(
     return Err(InvalidPacket("QUIC clock cannot be negative"))
   }
   guard self.state() != Closed && self.state() != Draining else {
-    return Err(ConnectionClosed(0L, "connection is closed"))
+    return Err(self.connection.closed_error())
   }
   if space == Application && self.state() != Established {
     return Err(
@@ -279,6 +279,7 @@ fn QuicDatagramDriver::send_frames_internal_to(
     Err(error) => return Err(error)
   }
   self.recovery.record_sent(meta, in_flight, probe~)
+  self.remember_reset_destination(destination)
   self.count_sent_datagram(destination, packet_size)
   self.quic_driver_commit_number(space)
   if space == Application &&

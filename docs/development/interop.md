@@ -9,6 +9,25 @@ Interoperability checks exercise the built library through real sockets and an
 independent client. They complement codec and state-machine tests; they do not
 replace conformance review, long-duration pressure or performance thresholds.
 
+## HTTP/3 peer restart
+
+Build the independent quic-go reference server with Go 1.24 or newer. Run the
+following commands from the module root with the native HTTP/3 toolchain:
+
+```sh
+mkdir -p _build
+go -C repo-tools/tools/quic_go_reset_reference build -mod=readonly -o "$PWD/_build/quic-go-reset-reference" .
+moon run repo-tools/tools/http3_interoperability.mbtx --peer-restart "$PWD/_build/quic-go-reset-reference"
+```
+
+The runner waits for a pending request, restarts the reference process on the
+same loopback port with the same temporary reset key and sends another request
+on the old connection. Both requests must report a stateless reset. A fresh
+request must succeed in the same one-slot pool. The runner records both server
+logs, the client result, the
+source revision and binary hashes in `_build/evidence/http3-interoperability/`.
+Only the new readiness request should reach the restarted application.
+
 ## TCP protocols
 
 `repo-tools/tools/interoperability.mbtx` requires `curl`, `wget` and `nghttp`. It builds

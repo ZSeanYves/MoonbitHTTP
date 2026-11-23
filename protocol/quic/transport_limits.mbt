@@ -16,7 +16,7 @@ pub(all) struct QuicTransportParams {
 pub fn QuicTransportParams::defaults() -> QuicTransportParams {
   {
     max_idle_timeout: 30000L,
-    max_udp_payload_size: 1200,
+    max_udp_payload_size: QUIC_MAX_PACKET_SIZE,
     initial_max_data: 16 * 1024 * 1024L,
     initial_max_stream_data_bidi_local: 1024 * 1024L,
     initial_max_stream_data_bidi_remote: 1024 * 1024L,

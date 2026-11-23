@@ -24,6 +24,10 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_connection(
     local_id,
     original,
     now_ms=clock.monotonic_millis(),
+    limits={
+      ..@quic.QuicLimits::defaults(),
+      max_datagram_size: limits.max_datagram_bytes,
+    },
     transport_params~,
     authorize=fn(peer, operation) { policy.authorize(peer, operation) },
   ).unwrap_or_error()

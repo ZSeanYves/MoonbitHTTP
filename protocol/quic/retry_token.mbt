@@ -45,7 +45,7 @@ fn retry_token_u64(value : Int64) -> Bytes {
 }
 
 ///|
-fn retry_token_equal(left : Bytes, right : Bytes) -> Bool {
+fn quic_token_equal(left : BytesView, right : BytesView) -> Bool {
   if left.length() != right.length() {
     return false
   }
@@ -156,9 +156,9 @@ pub fn QuicRetryTokenManager::validate_initial(
   }
   let mac_offset = token.length() - 32
   let body = token[:mac_offset].to_owned()
-  let supplied_mac = token[mac_offset:].to_owned()
+  let supplied_mac = token[mac_offset:]
   let expected_mac = @mooncry.hmac_sha256(self.secret, body)
-  if !retry_token_equal(expected_mac, supplied_mac) {
+  if !quic_token_equal(expected_mac, supplied_mac) {
     return Err(InvalidPacket("Retry token authentication failed"))
   }
   if body[:4] != retry_token_magic {

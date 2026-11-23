@@ -344,11 +344,17 @@ pub async fn[X] with_h3_client(
       state_changed: on_state_change,
       spawn: task => group.spawn(task, no_wait=true),
     }
-    defer client.close(H3ClientError::ClientClosed, preserve_complete=false)
+    defer client.close(
+      io.failure.unwrap_or(H3ClientError::ClientClosed),
+      preserve_complete=false,
+    )
     group.spawn_bg(
       async fn() {
         client.read() catch {
-          error => client.close(error, preserve_complete=true)
+          error =>
+            if !@async.is_being_cancelled() {
+              client.close(error, preserve_complete=true)
+            }
         }
       },
       no_wait=true,

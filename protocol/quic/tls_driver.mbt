@@ -71,11 +71,6 @@ pub fn[P] QuicTlsDriver::poll(
     Ok(value) => value
     Err(error) => return Err(self.fail(error))
   }
-  if self.driver.state() == Closed || self.driver.state() == Draining {
-    self.pending.clear()
-    self.pending_bytes = 0
-    return Ok(actions)
-  }
   match self.flush_crypto(now_ms) {
     Ok(pending) => {
       actions.append(pending)
@@ -311,6 +306,11 @@ fn[P] QuicTlsDriver::flush_crypto(
   now_ms : Int64,
 ) -> Result[Array[QuicDriverAction], QuicError] {
   let actions : Array[QuicDriverAction] = []
+  if self.driver.state() == Closed || self.driver.state() == Draining {
+    self.pending.clear()
+    self.pending_bytes = 0
+    return Ok(actions)
+  }
   while !self.pending.is_empty() {
     let next = self.pending[0]
     let frame = Crypto(next.offset, next.bytes)
@@ -373,7 +373,10 @@ pub fn QuicDatagramDriver::set_peer_transport_parameters(
     },
   ]
   ids.retire_prior_to = 0L
-  self.peer_connection_id = params.initial_source_connection_id
+  self.select_peer_cid(
+    params.initial_source_connection_id,
+    params.stateless_reset_token,
+  )
   self.peer_parameters = Some(params)
   self.recovery.peer_max_ack_delay_ms = params.max_ack_delay.to_int64()
   Ok(())
@@ -381,13 +384,11 @@ pub fn QuicDatagramDriver::set_peer_transport_parameters(
 
 ///|
 fn QuicDatagramDriver::send_datagram_limit(self : QuicDatagramDriver) -> Int {
-  match self.peer_parameters {
-    Some(params) =>
-      self.connection.transport_params.max_udp_payload_size.min(
-        params.limits.max_udp_payload_size,
-      )
-    None => self.connection.transport_params.max_udp_payload_size.min(1200)
+  let peer_limit = match self.peer_parameters {
+    Some(params) => params.limits.max_udp_payload_size
+    None => 1200
   }
+  self.limits.max_packet_size.min(peer_limit)
 }
 
 ///|

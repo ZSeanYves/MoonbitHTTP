@@ -11,6 +11,7 @@ pub(all) enum QuicConnectionState {
 pub(all) enum QuicPeerClose {
   TransportClose(Int64, String)
   ApplicationClose(Int64, String)
+  StatelessReset
 } derive(Eq, Debug)
 
 ///|
@@ -116,8 +117,16 @@ pub fn QuicConnection::new(
     Ok(_) => ()
     Err(error) => return Err(error)
   }
+  if limits.max_packet_size < 1200 {
+    return Err(
+      InvalidTransportParameter("QUIC requires a 1200-byte path packet budget"),
+    )
+  }
   let transport_params = {
     ..transport_params,
+    max_udp_payload_size: transport_params.max_udp_payload_size.min(
+      limits.max_datagram_size,
+    ),
     initial_max_data: transport_params.initial_max_data.min(
       limits.max_connection_data,
     ),

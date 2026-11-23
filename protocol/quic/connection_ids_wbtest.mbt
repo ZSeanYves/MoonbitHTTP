@@ -24,6 +24,8 @@ test "quic CID retirement survives congestion and pending limits are atomic" {
   assert_false(blocked.any(fn(action) { action is SendDatagram(_, _) }))
   assert_eq(server.peer_connection_id(), replacement)
   assert_eq(server.pending_retirements, [0L])
+  let replacement_reset = b"spare" + Bytes::make(16, b'\x01')
+  assert_eq(server.receive_stateless_reset(endpoint, replacement_reset), None)
   server.recovery.bytes_in_flight = 0L
   let sent = server.poll(2L).unwrap()
   assert_true(server.pending_retirements.is_empty())
@@ -52,6 +54,10 @@ test "quic CID retirement survives congestion and pending limits are atomic" {
   assert_eq(server.peer_connection_ids.active(), previous_ids)
   assert_eq(server.peer_connection_ids.retire_prior_to, 1L)
   assert_eq(server.peer_connection_id(), replacement)
+  assert_true(
+    server.receive_stateless_reset(endpoint, replacement_reset)
+    is Some(ConnectionClosed(_, _)),
+  )
 }
 
 ///|

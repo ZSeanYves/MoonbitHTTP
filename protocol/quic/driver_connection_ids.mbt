@@ -31,9 +31,21 @@ fn QuicDatagramDriver::receive_peer_connection_id(
   self.peer_connection_ids.apply_update(update)
   self.pending_retirements.append(additional)
   let active = self.peer_connection_ids.active()
-  if !active.any(fn(value) { value.id == self.peer_connection_id }) {
-    self.peer_connection_id = active[0].id
+  let selected = for entry in active {
+    if entry.id == self.peer_connection_id {
+      break entry
+    }
+  } nobreak {
+    active[0]
   }
+  self.select_peer_cid(
+    selected.id,
+    if selected.reset_token.is_empty() {
+      None
+    } else {
+      Some(selected.reset_token)
+    },
+  )
   Ok(())
 }
 
@@ -42,9 +54,7 @@ fn QuicDatagramDriver::application_payload_limit(
   self : QuicDatagramDriver,
 ) -> Int {
   let header_size = 1 + self.peer_connection_id.bytes().length() + 4 + 16
-  (self.send_datagram_limit().min(self.limits.max_packet_size) - header_size).min(
-    self.limits.max_frame_payload,
-  )
+  (self.send_datagram_limit() - header_size).min(self.limits.max_frame_payload)
 }
 
 ///|

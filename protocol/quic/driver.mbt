@@ -38,6 +38,8 @@ pub struct QuicDatagramDriver {
   // Handshake/Application data. Its own amplification exemption is unrelated.
   priv mut peer_address_validated : Bool
   priv mut peer_connection_id : ConnectionId
+  priv mut peer_reset_token : Bytes?
+  priv reset_destinations : Array[@types.Endpoint]
   priv mut initial_send_keys : @tls.QuicPacketKeys?
   priv mut initial_receive_keys : @tls.QuicPacketKeys?
   priv mut handshake_send_keys : @tls.QuicPacketKeys?
@@ -259,8 +261,9 @@ pub async fn[S : @transport.DatagramSocket] QuicDatagramDriver::send_action(
   socket : S,
   action : QuicDriverAction,
 ) -> Result[Unit, QuicError] {
-  ignore(self)
   match action {
+    SendDatagram(_, _) if self.state() == Draining || self.state() == Closed =>
+      Err(self.connection.closed_error())
     SendDatagram(endpoint, bytes) =>
       match socket.send(endpoint, bytes) {
         Ok(_) => Ok(())
@@ -379,6 +382,8 @@ pub fn QuicDatagramDriver::new(
     peer_address_validated: retry_context is Some(_),
     peer_connection_id,
     initial_send_keys: Some(send_keys),
+    peer_reset_token: None,
+    reset_destinations: [],
     initial_receive_keys: Some(receive_keys),
     handshake_send_keys: None,
     handshake_receive_keys: None,

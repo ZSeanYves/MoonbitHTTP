@@ -6,6 +6,7 @@ pub struct H3ConnectionIo {
   session : @http3.Http3Session
   priv server_shutdown : H3ServerShutdown?
   priv authenticated_origin : @types.Endpoint?
+  priv mut failure : Error?
   priv limits : @types.Limits
   priv write_changed : @cond_var.Cond
   priv events : @aqueue.Queue[Array[@http3.Http3SessionAction]]
@@ -176,6 +177,7 @@ pub async fn[
   }
   let io = {
     authenticated_origin,
+    failure: None,
     server_shutdown,
     cancel_request,
     session,
@@ -192,40 +194,48 @@ pub async fn[
     flush_writes: async fn() { dispatch([]) },
   }
   @async.with_task_group(async fn(group) {
-    group.spawn_bg(
-      async fn() {
-        dispatch(tls.start(options, clock.monotonic_millis()).unwrap_or_error())
-        while peer_close is None {
-          let packet = socket
-            .receive(limits.max_datagram_bytes)
-            .unwrap_or_error()
-          // MAX_STREAMS can admit a writer without producing an application event.
-          write_changed.broadcast()
-          dispatch(
-            tls
-            .on_datagram(
-              packet.endpoint(),
-              packet.payload(),
-              clock.monotonic_millis(),
-            )
-            .unwrap_or_error(),
-          )
-        }
-      },
-      no_wait=true,
-    )
-    group.spawn_bg(
-      async fn() {
-        while true {
-          @async.sleep(25)
-          if peer_close is Some(_) || closing {
-            return
+    // The request tasks may live in a pool outside this connection scope.
+    // Preserve the driver error before structured cancellation unwinds it.
+    fn spawn_driver(task : async () -> Unit) -> Unit {
+      group.spawn_bg(
+        async fn() {
+          task() catch {
+            error if io.failure is None && !@async.is_being_cancelled() => {
+              io.failure = Some(error)
+              raise error
+            }
+            error => raise error
           }
-          dispatch(tls.poll(clock.monotonic_millis()).unwrap_or_error())
+        },
+        no_wait=true,
+      )
+    }
+    spawn_driver(async fn() {
+      dispatch(tls.start(options, clock.monotonic_millis()).unwrap_or_error())
+      while peer_close is None {
+        let packet = socket.receive(limits.max_datagram_bytes).unwrap_or_error()
+        // MAX_STREAMS can admit a writer without producing an application event.
+        write_changed.broadcast()
+        dispatch(
+          tls
+          .on_datagram(
+            packet.endpoint(),
+            packet.payload(),
+            clock.monotonic_millis(),
+          )
+          .unwrap_or_error(),
+        )
+      }
+    })
+    spawn_driver(async fn() {
+      while true {
+        @async.sleep(25)
+        if peer_close is Some(_) || closing {
+          return
         }
-      },
-      no_wait=true,
-    )
+        dispatch(tls.poll(clock.monotonic_millis()).unwrap_or_error())
+      }
+    })
     @async.with_timeout(handshake_timeout_ms, async fn() { ready.get() })
     let result = run(io)
     draining = true

@@ -608,22 +608,28 @@ async fn request_case(
 }
 
 ///|
+async fn file_hash(path : String) -> String {
+  @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file(path).binary()))
+}
+
+///|
+async fn build_smoke_client() -> String {
+  let args = ["build", "examples/cmd/h3_smoke_client", "--target", "native", "--deny-warn", "--warn-list", "+73"]
+  guard @process.run("moon", args) == 0 else { fail("HTTP/3 client build failed") }
+  "_build/native/debug/build/examples/cmd/h3_smoke_client/h3_smoke_client.exe"
+}
+
+///|
 async fn reverse_client_case(directory : String, python : String, source : String) -> Json {
   let script = source + "/examples/http3_server.py"
   let app = source + "/examples/demo.py"
-  let binary = "_build/native/debug/build/examples/cmd/h3_smoke_client/h3_smoke_client.exe"
-  async fn hash(path : String) -> String {
-    @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file(path).binary()))
-  }
-  let server_hash = hash(script)
-  let app_hash = hash(app)
+  let server_hash = file_hash(script)
+  let app_hash = file_hash(app)
   if server_hash != "504e85ad00ea5e093ebe4a05b415077456dfad39186864e37229fd4ae7a6a9e8" ||
       app_hash != "8e80272bbc8e52cd709fe6bde9daf03dc85963faddbbded11f440488c1914928" {
     fail("independent server or ASGI application differs from pinned upstream")
   }
-  if @process.run("moon", ["build", "examples/cmd/h3_smoke_client", "--target", "native", "--deny-warn", "--warn-list", "+73"]) != 0 {
-    fail("HTTP/3 client build failed")
-  }
+  let binary = build_smoke_client()
   let reservation = @socket.UdpServer(@socket.Addr::parse("127.0.0.1:18444"))
   reservation.close()
   @async.with_task_group(async fn(group) {
@@ -677,7 +683,7 @@ async fn reverse_client_case(directory : String, python : String, source : Strin
   })
   {
     "status": "passed",
-    "client_sha256": hash(binary),
+    "client_sha256": file_hash(binary),
     "server_source_sha256": server_hash,
     "asgi_source_sha256": app_hash,
     "echo_bytes": 4096,
@@ -688,8 +694,82 @@ async fn reverse_client_case(directory : String, python : String, source : Strin
 }
 
 ///|
+async fn check_peer_restart(reference : String) -> Unit {
+  let private_dir = @fs.tmpdir(prefix="moonbithttp-h3-restart")
+  defer @fs.rmdir(private_dir, recursive=true)
+  let directory = "_build/evidence/http3-interoperability/" +
+    private_dir.split("/").to_array().last().unwrap().to_owned()
+  @fs.mkdir(directory, recursive=true)
+  println("HTTP/3 restart evidence: " + directory)
+  let revision = record(directory, "git-revision", "git", ["rev-parse", "HEAD"])
+  let status = record(directory, "git-status", "git", ["status", "--porcelain=v1"])
+  let client = build_smoke_client()
+  let secret = private_dir + "/restart-key"
+  ignore(record(directory, "generate-key", "openssl", ["rand", "-out", secret, "32"]))
+  let fixture = "adapter/native/tls/testdata/localhost"
+  let server_args = [fixture + ".cert.pem", fixture + ".key.pem", secret]
+  let peer_version = "github.com/quic-go/quic-go v0.55.0 h1:zccPQIqYCXDt5NmcEabyYvOnomjs8Tlwl7tISjJh9Mk="
+  async fn wait_for(child : @process.Process, log : String, line : String, probe : @process.Process?) -> Unit {
+    while !@fs.read_file(log).text().split("\n").any(entry => entry == line) {
+      if child.try_wait() is Some(code) { fail("peer exited with \{code} before \{line}. See \{log}.") }
+      if probe is Some(client) && client.try_wait() is Some(code) { fail("client exited with \{code} before \{line}. See \{directory}/client.stderr.") }
+      @async.sleep(5)
+    }
+  }
+  @async.with_timeout(30000, async fn() {
+    @async.with_task_group(async fn(group) {
+      async fn start(name : String) -> @process.Process {
+        let log = directory + "/" + name + ".stdout"
+        let child = @process.spawn(group, reference, server_args,
+          stdout=@process.redirect_to_file(log, create_mode=CreateNew),
+          stderr=@process.redirect_to_file(directory + "/" + name + ".stderr", create_mode=CreateNew),
+          no_wait=true)
+        wait_for(child, log, "LISTENING", None)
+        guard @fs.read_file(log).text().contains("PEER " + peer_version + "\n") else {
+          fail("restart reference does not report the pinned quic-go build")
+        }
+        child
+      }
+      let first = start("first")
+      let marker = private_dir + "/restarted"
+      let probe = @process.spawn(group, "./" + client, ["--peer-restart", marker],
+        stdout=@process.redirect_to_file(directory + "/client.stdout", create_mode=CreateNew),
+        stderr=@process.redirect_to_file(directory + "/client.stderr", create_mode=CreateNew),
+        no_wait=true)
+      wait_for(first, directory + "/first.stdout", "REQUEST /hold", Some(probe))
+      first.cancel()
+      ignore(first.wait() catch { _ => -1 })
+      let second = start("second")
+      defer second.cancel()
+      @fs.write_file(marker, "ready", create_mode=CreateNew)
+      guard probe.wait() == 0 else { fail("restart client failed. See \{directory}/client.stderr.") }
+      let requests = @fs.read_file(directory + "/second.stdout").text()
+        .split("\n").filter(line => line.has_prefix("REQUEST ")).to_array()
+      guard requests == ["REQUEST /ready"] else { fail("unexpected request on the restarted server") }
+    })
+  })
+  let evidence : Json = {
+    "status": "passed",
+    "git_revision": revision.trim().to_owned(),
+    "worktree_dirty": !status.is_empty(),
+    "reference": peer_version,
+    "reference_sha256": file_hash(reference),
+    "client_sha256": file_hash(client),
+    "pending_request_released": true,
+    "fresh_connection_verified": true,
+    "same_pool_max_connections": 1,
+  }
+  @fs.write_file(directory + "/result.json", evidence, create_mode=CreateNew)
+  println("PASS: HTTP/3 request cleanup and fresh connection after a quic-go server restart")
+}
+
+///|
 async fn main {
   let args = @env.args()
+  if args is [_, "--peer-restart", reference] {
+    check_peer_restart(reference)
+    return
+  }
   let mut python = "_build/interop-aioquic/venv/bin/python"
   let mut client = "_build/interop-aioquic/upstream/examples/http3_client.py"
   let mut server_path = "_build/native/debug/build/examples/cmd/h3_smoke_server/h3_smoke_server.exe"
@@ -777,12 +857,8 @@ async fn main {
   ignore(record(directory, "python-version", python, ["--version"]))
   ignore(record(directory, "openssl-version", "openssl", ["version", "-a"]))
   ignore(record(directory, "moon-version", "moon", ["version", "--all"]))
-  let server_hash = @crypto.bytes_to_hex_string(
-    @crypto.sha256(@fs.read_file(server_path).binary()),
-  )
-  let source_hash = @crypto.bytes_to_hex_string(
-    @crypto.sha256(@fs.read_file(client).binary()),
-  )
+  let server_hash = file_hash(server_path)
+  let source_hash = file_hash(client)
   if source_hash !=
     "7eab21d50460f0b4f55a18f110bd5d1901e336fef8f4ca5597d8794f1d2381bc" {
     fail("upstream aioquic HTTP/3 client source was modified")

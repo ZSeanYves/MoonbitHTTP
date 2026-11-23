@@ -1,4 +1,41 @@
 ///|
+test "QUIC receives a larger Initial while retaining its outgoing path budget" {
+  let peer = @types.Endpoint::new("udp", "peer.test", 443).unwrap()
+  let dst = @quic.ConnectionId::new(b"server-id").unwrap()
+  let src = @quic.ConnectionId::new(b"client-id").unwrap()
+  assert_true(
+    @quic.QuicConnection::new(Client, limits={
+      ..@quic.QuicLimits::defaults(),
+      max_packet_size: 1199,
+    })
+    is Err(InvalidTransportParameter(_)),
+  )
+  let server = @quic.QuicDatagramDriver::new(Server, peer, dst, dst, src, limits={
+    ..@quic.QuicLimits::defaults(),
+    max_datagram_size: 1400,
+  }).unwrap()
+  assert_eq(
+    server.connection().local_transport_params().max_udp_payload_size,
+    1400,
+  )
+  let keys = @quic.quic_initial_packet_keys(dst).unwrap()
+  let packet = @quic.quic_build_initial_packet(
+    keys.0,
+    {
+      ..@quic.QuicInitialPacketOptions::defaults(dst, src, 0L),
+      min_datagram_size: 1280,
+    },
+    @quic.quic_encode_frames([Ping]).unwrap(),
+  ).unwrap()
+  assert_eq(packet.length(), 1280)
+  assert_true(server.on_datagram(peer, packet, 0L) is Ok([SendDatagram(_, _)]))
+  assert_eq(
+    server.send_frames(Initial, [Crypto(0L, Bytes::make(1220, b'x'))], 1L),
+    Err(InvalidPacket("packet exceeds datagram limit")),
+  )
+}
+
+///|
 test "quic crypto reassembler: out of order and duplicate ranges" {
   let reassembler = @quic.QuicCryptoReassembler::new(max_bytes=32).unwrap()
   assert_eq(reassembler.feed(3L, b"lo").unwrap(), [])
@@ -367,10 +404,7 @@ test "quic datagram driver: multiple losses are retransmitted as separate packet
     guard action is SendDatagram(_, packet) else {
       fail("expected one datagram per lost packet")
     }
-    assert_true(
-      packet.length() <=
-      @quic.QuicTransportParams::defaults().max_udp_payload_size,
-    )
+    assert_true(packet.length() <= @quic.QuicLimits::defaults().max_packet_size)
     let (offset, _) = @quic.quic_long_header_packet_layout(packet).unwrap()
     let opened = @quic.quic_open_packet_with_keys(
       keys.0,

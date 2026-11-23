@@ -3,6 +3,7 @@ fn established_driver_pair(
   client_endpoint : @types.Endpoint,
   server_endpoint : @types.Endpoint,
   established? : Bool = true,
+  server_reset_token? : Bytes? = None,
   recovery_config? : @quic.QuicRecoveryConfig = @quic.QuicRecoveryConfig::defaults(),
 ) -> (@quic.QuicDatagramDriver, @quic.QuicDatagramDriver) {
   let server_id = @quic.ConnectionId::new(b"server-id").unwrap()
@@ -30,12 +31,13 @@ fn established_driver_pair(
   client.install_application_keys(keys.0, keys.1).unwrap()
   server.install_application_keys(keys.1, keys.0).unwrap()
   client
-  .set_peer_transport_parameters(
-    @quic.QuicTransportParameters::new(
+  .set_peer_transport_parameters({
+    ..@quic.QuicTransportParameters::new(
       server_id,
       original_destination_connection_id=Some(server_id),
     ),
-  )
+    stateless_reset_token: server_reset_token,
+  })
   .unwrap()
   server
   .set_peer_transport_parameters(@quic.QuicTransportParameters::new(client_id))

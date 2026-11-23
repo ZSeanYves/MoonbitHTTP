@@ -1,4 +1,101 @@
 ///|
+fn listener_test_initial(
+  source : @types.Endpoint,
+  id : Bytes,
+) -> @transport.Datagram {
+  let dst = @quic.ConnectionId::new(id).unwrap()
+  let src = @quic.ConnectionId::new(b"client-id").unwrap()
+  let key = @quic.quic_initial_packet_key(dst, Client).unwrap()
+  let opts = @quic.QuicInitialPacketOptions::defaults(dst, src, 0L)
+  @transport.Datagram::new(
+    @quic.quic_build_initial_packet(
+      key,
+      opts,
+      @quic.quic_encode_frames([Ping]).unwrap(),
+    ).unwrap(),
+    source,
+  )
+}
+
+///|
+async test "HTTP/3 shared socket routes stateless resets among peers at one address" {
+  let (_, options) = listener_tls_options()
+  let (_, listener) = bind_test_listener(endpoint => {
+    NativeHttp3Listener::bind(
+      endpoint,
+      @transport.AllowAllPolicy::new(),
+      { ..options, alpn: ["h3"], },
+      (_, _) => (),
+      pending_datagrams_per_peer=1,
+    )
+  })
+  defer listener.close()
+  let source = @types.Endpoint::new("udp", "127.0.0.1", 4321).unwrap()
+  async fn add(
+    id : Bytes,
+    route : Bytes,
+    token : Bytes,
+  ) -> (H3PeerSocket, @quic.QuicDriverAction) {
+    listener.route(listener_test_initial(source, id))
+    ignore(listener.admissions.pending.get())
+    let peer = listener.initials[source][id]
+    let remote_id = @quic.ConnectionId::new(id).unwrap()
+    let local_id = @quic.ConnectionId::new(route).unwrap()
+    // Seed a recipient with an authenticated test token. The routing decision
+    // is identical for a token learned from an encrypted CID announcement.
+    let driver = @quic.QuicDatagramDriver::new(
+      Client,
+      source,
+      remote_id,
+      local_id,
+      remote_id,
+    ).unwrap()
+    driver
+    .set_peer_transport_parameters({
+      ..@quic.QuicTransportParameters::new(
+        remote_id,
+        original_destination_connection_id=Some(remote_id),
+      ),
+      stateless_reset_token: Some(token),
+    })
+    .unwrap()
+    let action = driver.send_frames(Initial, [Ping], 0L).unwrap()
+    peer.packets = Some(driver)
+    assert_true(peer.reserve_route(local_id))
+    (peer, action)
+  }
+  let route_a = Bytes::make(16, b'A')
+  let token_a = Bytes::make(16, b'a')
+  let token_b = Bytes::make(16, b'b')
+  let token_c = Bytes::make(16, b'c')
+  let (a, queued) = add(b"first peer", route_a, token_a)
+  let (b, _) = add(b"second peer", Bytes::make(16, b'B'), token_b)
+  let (c, _) = add(b"third peer", Bytes::make(16, b'C'), token_c)
+  listener.route(@transport.Datagram::new(b"\xc0test" + token_c, source))
+  assert_true(c.closed && !b.closed && !a.closed)
+  listener.route(@transport.Datagram::new(b"\x40" + route_a + token_b, source))
+  assert_true(b.closed && !a.closed)
+  assert_eq(listener.initials[source].length(), 1)
+  assert_eq(listener.routes.length(), 1)
+  // The one remaining inbox still holds its Initial and cannot accept a packet.
+  listener.route(@transport.Datagram::new(b"\x40" + route_a + token_a, source))
+  assert_true(a.closed)
+  assert_true(listener.routes.is_empty() && listener.initials.is_empty())
+  let result = try {
+    ignore(@transport.DatagramSocket::receive(a, 1200))
+    false
+  } catch {
+    @quic.QuicError::ConnectionClosed(0L, "QUIC stateless reset") => true
+    err => raise err
+  }
+  assert_true(result)
+  assert_true(
+    a.packets.unwrap().send_action(a, queued)
+    is Err(ConnectionClosed(0L, "QUIC stateless reset")),
+  )
+}
+
+///|
 async fn bind_test_listener(
   bind : async (@types.Endpoint) -> Result[
     NativeHttp3Listener,
@@ -134,33 +231,23 @@ async test "HTTP/3 admissions distinguish connection IDs on one address and cap 
   })
   defer listener.close()
   let source = @types.Endpoint::new("udp", "127.0.0.1", 4321).unwrap()
-  fn initial(id : Bytes) -> @transport.Datagram {
-    let dst = @quic.ConnectionId::new(id).unwrap()
-    let src = @quic.ConnectionId::new(b"client-id").unwrap()
-    let key = @quic.quic_initial_packet_key(dst, Client).unwrap()
-    let opts = @quic.QuicInitialPacketOptions::defaults(dst, src, 0L)
-    @transport.Datagram::new(
-      @quic.quic_build_initial_packet(key, opts, b"hello").unwrap(),
-      source,
-    )
-  }
-  let a = initial(b"first-destination")
-  let b = initial(b"second-destination")
+  let a = listener_test_initial(source, b"first-destination")
+  let b = listener_test_initial(source, b"second-destination")
   listener.route(a)
   let accepted_a = listener.admissions.pending.get()
   listener.route(a)
   listener.route(b)
   let accepted_b = listener.admissions.pending.get()
-  assert_eq(listener.initials.length(), 2)
+  assert_eq(listener.initials[source].length(), 2)
   assert_eq(listener.routes.length(), 0)
-  let inbox = listener.initials[(source, b"first-destination")].inbox
+  let inbox = listener.initials[source][b"first-destination"].inbox
   assert_eq(inbox.try_get(), Some(a))
   assert_eq(inbox.try_get(), None)
   (accepted_a.close)()
-  assert_eq(listener.initials.length(), 1)
+  assert_eq(listener.initials[source].length(), 1)
   listener.close()
   listener.route(a)
-  assert_eq(listener.initials.length(), 1)
+  assert_eq(listener.initials[source].length(), 1)
   (accepted_b.close)()
   assert_eq(listener.initials.length(), 0)
 }

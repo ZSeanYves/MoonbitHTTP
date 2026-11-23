@@ -57,7 +57,9 @@ pub(all) suberror QuicError {
 
 ///|
 pub(all) struct QuicLimits {
+  /// Maximum protected packet size on the outgoing path.
   max_packet_size : Int
+  /// Receive capacity for a complete, possibly coalesced UDP datagram.
   max_datagram_size : Int
   max_frame_payload : Int
   /// Maximum additional ACK ranges after the mandatory first range.
@@ -71,7 +73,7 @@ pub(all) struct QuicLimits {
 ///|
 pub fn QuicLimits::defaults() -> QuicLimits {
   {
-    max_packet_size: 1350,
+    max_packet_size: 1200,
     max_datagram_size: 65527,
     max_frame_payload: 16 * 1024 * 1024,
     max_ack_ranges: 256,

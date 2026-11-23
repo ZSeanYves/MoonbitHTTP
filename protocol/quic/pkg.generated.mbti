@@ -264,6 +264,7 @@ pub fn QuicDatagramDriver::path_status(Self) -> QuicPathStatus
 pub fn QuicDatagramDriver::peer_connection_id(Self) -> ConnectionId
 pub fn QuicDatagramDriver::poll(Self, Int64) -> Result[Array[QuicDriverAction], QuicError]
 pub async fn[S : @transport.DatagramSocket] QuicDatagramDriver::receive_once(Self, S, Int, Int64) -> Result[Array[QuicDriverAction], QuicError]
+pub fn QuicDatagramDriver::receive_stateless_reset(Self, @types.Endpoint, BytesView) -> QuicError?
 pub fn QuicDatagramDriver::reset_stream(Self, Int64, Int64, Int64) -> Result[QuicDriverAction, QuicError]
 pub fn QuicDatagramDriver::role(Self) -> QuicRole
 pub fn QuicDatagramDriver::rotate_local_connection_id(Self, Int64) -> Result[Array[QuicDriverAction], QuicError]
@@ -411,6 +412,7 @@ pub fn QuicPathStatus::to_repr(Self) -> @debug.Repr
 pub(all) enum QuicPeerClose {
   TransportClose(Int64, String)
   ApplicationClose(Int64, String)
+  StatelessReset
 } derive(Eq, @debug.Debug)
 pub fn QuicPeerClose::equal(Self, Self) -> Bool
 pub fn QuicPeerClose::not_equal(Self, Self) -> Bool

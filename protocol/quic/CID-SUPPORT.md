@@ -32,10 +32,14 @@ A further explicit rotation returns a limit error. Zero-length initial IDs
 keep their original routing. Raw frame encoding remains available to
 integrations with a separate issuer.
 
-The driver stores reset tokens from authenticated peer announcements.
-Recognizing a stateless reset from a peer that has lost connection state
-remains an implementation gap. The live rotation tests keep the UDP path
-fixed. [RFC 9000 section 10.3.1](https://www.rfc-editor.org/rfc/rfc9000.html#section-10.3.1)
+The driver recognizes a peer's stateless reset using its authenticated transport
+parameter or the token for a selected replacement CID. Only a CID used for
+sending to the source address qualifies. Rotation discards the retired token.
+The driver remembers up to eight recent destinations and retains the active
+path when evicting old probe addresses. A matching reset enters draining
+without replying. The shared listener can match an unfamiliar destination CID
+against connections from the same UDP endpoint, release the routes and wake
+the receiver even when its inbox is full. [RFC 9000 section 10.3.1](https://www.rfc-editor.org/rfc/rfc9000.html#section-10.3.1)
 
 The standalone peer CID manager preserves a bounded set of individually retired
 entries to detect reuse. Its history budget equals `max_active`; a new

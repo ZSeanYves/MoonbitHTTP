@@ -51,6 +51,13 @@ packet is opened. A server checks the complete UDP payload against the
 1,200-byte minimum for client Initials. Its own Initial ACK can be shorter.
 [RFC 9000 section 14.1](https://www.rfc-editor.org/rfc/rfc9000.html#section-14.1)
 
+The receive limit advertised in `max_udp_payload_size` is capped by the
+configured datagram buffer. By default it permits UDP payloads up to 65,527
+bytes. Outgoing packets start with a 1,200-byte path budget. A configured
+larger packet size also requires sufficient peer receive capacity. The native
+HTTP/3 adapters use the same receive bound for their UDP socket and driver.
+[RFC 9000 section 14](https://www.rfc-editor.org/rfc/rfc9000.html#section-14)
+
 The send path calculates the protected wire length before checking congestion
 and the path's amplification budget. Recovery charges packets that elicit an ACK
 or contain PADDING, including padding inserted by the builder. The driver
