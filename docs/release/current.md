@@ -14,6 +14,20 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## QUIC connection ID rotation at `fc5317f`
+
+Native HTTP/3 clients and listeners advertise one spare connection ID after
+the handshake. During rotation the listener reserves the new UDP route before
+sending the advertisement. Both routes accept traffic until the peer retires
+the old ID. The default lifetime budget covers 256 IDs including the initial
+one. Existing streams continue on the final route after that budget runs out.
+
+The packet-driver tests cover a lost advertisement recovered by a timer,
+route reservation rollback under backpressure, retirement of an unused spare
+and late packets on a retired route. A native listener test rotates two peers
+independently during shutdown, delivers both 8 KiB responses and checks that
+the routing tables are empty after close.
+
 ## HTTP/3 origin pooling at `a30dcf8`
 
 The native pool resolves each absolute HTTPS origin and verifies its hostname.
@@ -54,9 +68,9 @@ hostname.
 
 The frozen 432-file `a30dcf8` archive passed its extracted four-target check.
 Its SHA-256 is `b06fddb9a245d7eed21d3d9894974e576d6d8d1d2a640efdbb99ccb19ad3d452`.
-Local QUIC connection ID issuance and rotation remain open. The Windows
-candidate run, sustained traffic between separate physical hosts and
-independent release-revision security review still need evidence.
+Local QUIC connection ID issuance and rotation were still open at that
+revision, along with the Windows candidate run, sustained traffic between
+separate physical hosts and independent release-revision security review.
 
 ## Native HTTP/3 hostname connections at `e1b4445`
 
