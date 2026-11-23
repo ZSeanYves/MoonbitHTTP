@@ -321,7 +321,14 @@ async fn[B : ByteRoundTripper] Client::send_inner(
             current_headers, hit,
           )
         }
-        Ok(_) => ()
+        Ok(OnlyIfCachedMiss) =>
+          return Ok({
+            status: 504,
+            version: request.version,
+            headers: @types.HeaderMap::new(),
+            body: b"",
+          })
+        Ok(CacheMiss) => ()
         Err(_) => return Err(ClientProtocol("cache lookup failed"))
       }
     }

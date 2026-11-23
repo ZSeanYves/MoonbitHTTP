@@ -1,0 +1,27 @@
+----
+import {
+  "moonbitlang/async@0.22.10",
+  "moonbitlang/async@0.22.10/process",
+}
+----
+
+///|
+async fn require_test(target : String, package : String, name : String) -> Unit {
+  let (code, output, errors) = @process.collect_output("moon", [
+    "test", package, "--target", target, "--filter", name, "--deny-warn", "--warn-list", "+73",
+  ])
+  let report = output.text() + errors.text()
+  guard code == 0 && report.contains("Total tests: 1, passed: 1, failed: 0.") else {
+    fail("\{target} did not execute '\{name}' successfully:\n\{report}")
+  }
+  println("PASS \{target}: \{name}")
+}
+
+///|
+async fn main {
+  for target in ["native", "wasm", "js"] {
+    require_test(target, "runtime/service", "HTTP/1 final response interrupts a pending upload")
+    require_test(target, "runtime/service", "H2 admission resumes on SETTINGS, resets an abandoned request and wakes on GOAWAY")
+  }
+  require_test("wasm-gc", "protocol/quic", "QUIC driver honors the negotiated idle timeout")
+}

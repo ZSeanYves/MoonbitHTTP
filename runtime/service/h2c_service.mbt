@@ -28,6 +28,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   config~ : ServerConfig = ServerConfig::defaults(),
+  shutdown~ : ServerShutdown? = None,
 ) -> Unit {
   config.validate().unwrap_or_error()
   let input = Http1RequestInput::new(reader, config)
@@ -161,6 +162,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
           }
         },
         config=config.without_close_callback(),
+        shutdown~,
         upgraded_request=Some(upgraded),
         upgrade_settings=Some(settings),
       ) catch {
@@ -200,6 +202,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   config~ : ServerConfig = ServerConfig::defaults(),
+  shutdown~ : ServerShutdown? = None,
 ) -> Unit {
   run_connection_scope(
     () => {
@@ -208,6 +211,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve
         writer,
         service,
         config=config.without_close_callback(),
+        shutdown~,
       )
     },
     config.close_callback,

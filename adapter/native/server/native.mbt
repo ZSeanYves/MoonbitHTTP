@@ -5,6 +5,7 @@ pub struct NativeTcpListener {
   server : @socket.TcpServer
   handler : async (@transport.StreamConnection) -> Result[Unit, Error]
   authorize_peer : (@types.Endpoint) -> Result[Unit, @transport.PolicyError]
+  mut shutdown : @service.ServerShutdown?
   mut closed : Bool
 }
 
@@ -53,6 +54,7 @@ pub async fn[P : @transport.NetworkPolicy] NativeTcpListener::bind(
     authorize_peer: fn(peer) {
       @transport.NetworkPolicy::authorize(policy, peer, Accept)
     },
+    shutdown: None,
     closed: false,
   })
 }
@@ -194,5 +196,12 @@ pub impl @server_api.Listener for NativeTcpListener with fn close(self) {
   if !self.closed {
     self.closed = true
     self.server.close()
+  }
+}
+
+///|
+pub impl @server_api.Listener for NativeTcpListener with fn begin_drain(self) {
+  if self.shutdown is Some(signal) {
+    signal.begin()
   }
 }

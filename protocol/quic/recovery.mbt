@@ -95,6 +95,7 @@ pub(all) struct QuicRecovery {
   // is optional RTT history and must never consume a recovery admission slot.
   priv recent_untracked : Map[(PacketNumberSpace, Int64), QuicSentPacket]
   priv timers : (QuicSpaceTimer, QuicSpaceTimer, QuicSpaceTimer)
+  priv mut negotiated_idle_ms : Int64?
   priv mut restart_idle_on_send : Bool
   mut bytes_in_flight : Int64
   mut largest_initial_sent : Int64
@@ -143,6 +144,7 @@ pub fn QuicRecovery::new(
       QuicSpaceTimer::new(),
       QuicSpaceTimer::new(),
     ),
+    negotiated_idle_ms: None,
     restart_idle_on_send: true,
     bytes_in_flight: 0L,
     largest_initial_sent: -1L,

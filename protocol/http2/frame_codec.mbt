@@ -141,6 +141,14 @@ fn h2_header_fragment_bounds(
 }
 
 ///|
+pub fn encode_ping(payload : Array[Byte]) -> Result[Bytes, H2ProtocolError] {
+  if payload.length() != 8 {
+    return Err(ConnectionError(FrameSizeError, "PING payload must be 8 bytes"))
+  }
+  Ok(Bytes::from_array(build_ping_frame(payload, false)))
+}
+
+///|
 pub fn encode_ping_ack(payload : Array[Byte]) -> Result[Bytes, H2ProtocolError] {
   if payload.length() != 8 {
     return Err(ConnectionError(FrameSizeError, "PING payload must be 8 bytes"))

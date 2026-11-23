@@ -565,14 +565,21 @@ pub fn HttpCache::lookup(
   request : @types.Request[Unit],
   now_seconds : Int64,
 ) -> Result[CacheLookup, CacheError] {
-  let key = match cache_base_key(request) {
-    Ok(value) => value
-    Err(_) => return Ok(CacheMiss)
-  }
   let request_control = match
     cache_request_control(request, self.config.limits.max_directives) {
     Ok(value) => value
     Err(error) => return Err(error)
+  }
+  let key = match cache_base_key(request) {
+    Ok(value) => value
+    Err(_) =>
+      return Ok(
+        if request_control.only_if_cached {
+          OnlyIfCachedMiss
+        } else {
+          CacheMiss
+        },
+      )
   }
   if request.headers.get_string("range") is Some(_) ||
     request.headers.get_string("if-range") is Some(_) {
@@ -639,14 +646,14 @@ pub fn HttpCache::lookup(
       ),
     )
   }
-  if entry.etag is Some(_) || entry.last_modified is Some(_) {
+  if request_control.only_if_cached {
+    Ok(OnlyIfCachedMiss)
+  } else if entry.etag is Some(_) || entry.last_modified is Some(_) {
     Ok(
       CacheRevalidate(
         cache_entry_hit(entry, request, age, stale, allow_error_fallback),
       ),
     )
-  } else if request_control.only_if_cached {
-    Ok(OnlyIfCachedMiss)
   } else {
     Ok(CacheMiss)
   }

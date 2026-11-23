@@ -9,6 +9,8 @@ priv enum StreamState {
 pub struct StreamConnection {
   priv read_fn : async (Int32) -> Result[Bytes?, TransportError]
   priv write_fn : async (Bytes) -> Result[Unit, TransportError]
+  priv stop_write_fn : () -> Unit
+  priv mut write_stopped : Bool
   priv close_fn : () -> Unit
   priv finish_fn : async () -> Result[Unit, TransportError]
   priv endpoint : Endpoint
@@ -21,9 +23,12 @@ pub fn StreamConnection::new(
   read : async (Int32) -> Result[Bytes?, TransportError],
   write : async (Bytes) -> Result[Unit, TransportError],
   close : () -> Unit,
+  stop_writing~ : () -> Unit = fn() {  },
   finish~ : async () -> Result[Unit, TransportError] = fn() { Ok(()) },
 ) -> StreamConnection {
   {
+    stop_write_fn: stop_writing,
+    write_stopped: false,
     read_fn: read,
     write_fn: write,
     close_fn: close,
@@ -63,8 +68,12 @@ pub async fn StreamConnection::write(
   bytes : Bytes,
 ) -> Result[Unit, TransportError] {
   guard self.state is Open else { return Err(Closed) }
-  errdefer self.close()
+  guard !self.write_stopped else { return Err(Closed) }
+  errdefer (if !self.write_stopped { self.close() })
   let result = (self.write_fn)(bytes)
+  if self.write_stopped {
+    return result
+  }
   match result {
     Err(error) => {
       self.close()
@@ -87,6 +96,9 @@ pub async fn StreamConnection::finish(
     Open => self.state = Finishing
   }
   defer self.close()
+  if self.write_stopped {
+    return Ok(())
+  }
   match (self.finish_fn)() {
     Ok(_) if self.state is Closed => Err(Closed)
     result => result
@@ -117,4 +129,15 @@ pub(open) trait StreamConnector {
     StreamConnection,
     TransportError,
   ]
+}
+
+///|
+/// Permanently retire the write half before cancelling a pending write.
+/// A protocol with an early final response may still consume buffered or
+/// incoming bytes. The owner must close the stream after that response.
+pub fn StreamConnection::stop_writing(self : StreamConnection) -> Unit {
+  if !self.write_stopped {
+    self.write_stopped = true
+    (self.stop_write_fn)()
+  }
 }

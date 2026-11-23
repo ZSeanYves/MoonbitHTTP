@@ -236,8 +236,9 @@ pub fn StreamConnection::close(Self) -> Unit
 pub fn StreamConnection::endpoint(Self) -> @types.Endpoint
 pub async fn StreamConnection::finish(Self) -> Result[Unit, TransportError]
 pub fn StreamConnection::is_closed(Self) -> Bool
-pub fn StreamConnection::new(@types.Endpoint, async (Int32) -> Result[Bytes?, TransportError], async (Bytes) -> Result[Unit, TransportError], () -> Unit, finish? : async () -> Result[Unit, TransportError]) -> Self
+pub fn StreamConnection::new(@types.Endpoint, async (Int32) -> Result[Bytes?, TransportError], async (Bytes) -> Result[Unit, TransportError], () -> Unit, stop_writing? : () -> Unit, finish? : async () -> Result[Unit, TransportError]) -> Self
 pub async fn StreamConnection::read(Self, Int32) -> Result[Bytes?, TransportError]
+pub fn StreamConnection::stop_writing(Self) -> Unit
 pub async fn StreamConnection::write(Self, Bytes) -> Result[Unit, TransportError]
 
 #derive(Eq, @debug.Debug)

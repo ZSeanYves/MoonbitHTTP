@@ -4,10 +4,11 @@ MoonbitHTTP provides portable HTTP/1.1, HTTP/2, HTTP/3, QUIC, TLS, streaming
 body, and policy building blocks for MoonBit. `0.7.0` is a breaking alpha
 architecture line; APIs may change before `1.0.0`.
 
-The protocol packages are capability-free state machines. Network access,
-resolution, clocks, entropy, TLS, and authorization are supplied explicitly by
-the host. This keeps portable packages usable on Native, Wasm, Wasm-GC, and
-JavaScript without pretending that every target has the same network runtime.
+HTTP codecs and connection state machines consume bytes and events. The QUIC
+driver also provides adapters for a caller-supplied datagram socket. Native
+QUIC packet protection uses OpenSSL 3 EVP, and the Native TLS handshake for
+HTTP/3 requires OpenSSL 3.5 or later. Wasm and JS packet protection uses the
+experimental portable crypto implementation.
 
 ## Installation
 
@@ -93,7 +94,7 @@ implemented.
 | Capability | Native | Wasm / Wasm-GC | JavaScript |
 | --- | --- | --- | --- |
 | Core, codec, protocol, policy | Compile and use | Compile and use | Compile and use |
-| HTTP/1.1 and HTTP/2 service interfaces | Available through an adapter | Available with host capabilities | Available with host capabilities |
+| HTTP/1.1 and HTTP/2 service interfaces | Available through an adapter | Wasm with host capabilities. Wasm-GC compile only | Available with host capabilities |
 | Native TCP/UDP/DNS/OpenSSL adapters | Supported | Unsupported | Unsupported |
 | HTTP/3/QUIC protocol state | Streaming client sessions and supervised UDP listeners | Compile and use; host datagram/TLS required | Compile and use; host datagram/TLS required |
 | HTTP/3 network TLS | OpenSSL 3.5+ QUIC TLS provider | Host supplied | Host supplied |
@@ -104,6 +105,8 @@ and JavaScript consumers must provide the required host capabilities and must
 not import `adapter/native/*`.
 
 ## Examples
+
+The [streaming client guide](docs/guide/getting-started.md#streaming-get-and-cancellable-upload) runs GET and cancellable uploads over all three HTTP versions.
 
 - [`examples/cmd/smoke_server`](examples/cmd/smoke_server/README.md) — bounded
   Native HTTP/1.1 and h2c service smoke fixture.

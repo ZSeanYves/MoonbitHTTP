@@ -99,6 +99,19 @@ with PING to elicit an ACK. An ACK-eliciting server Initial is padded to at
 least 1,200 bytes and must pass path amplification admission.
 [RFC 9000 section 13.2.7](https://www.rfc-editor.org/rfc/rfc9000.html#section-13.2.7)
 
+## Packet protection backends
+
+Native uses OpenSSL 3 EVP for AES-128/256-GCM, AES header masks, HKDF with
+SHA-256/384, Retry integrity and Retry token authentication. Packet protection
+and the TLS provider share a process-wide OpenSSL selection. Missing EVP
+support produces an error. Wasm, Wasm-GC and JavaScript use
+`mizchi/experimental_crypto@0.0.2`. These targets have protocol-vector coverage
+and no production packet-crypto approval.
+
+The driver applies the smaller nonzero advertised idle timeout. Both endpoints
+advertising zero disables expiration. Once negotiated, the idle interval is
+at least three probe timeouts computed from current RTT estimates.
+
 ## Dependency audit on 2026-10-01
 
 The checked versions were `mizchi/experimental_crypto@0.0.2` and

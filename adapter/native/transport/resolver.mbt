@@ -1,8 +1,5 @@
 ///|
-/// Native hostname resolver. The async socket API exposes the first address
-/// for each requested family, so this adapter returns at most one IPv4 and one
-/// IPv6 address while still enforcing the caller's result bound.
-/// If neither family resolves, the original first failure is returned.
+/// Resolves all representable unscoped addresses in system preference order.
 pub struct NativeResolver(Unit)
 
 ///|
@@ -11,65 +8,85 @@ pub fn NativeResolver::new() -> NativeResolver {
 }
 
 ///|
-async fn resolve_family(
-  host : String,
-  protocol : @socket.IpProtocolPreference,
-) -> Result[@types.IpAddress, @transport_api.TransportError] {
-  let address = @socket.Addr::resolve(host, port=0, protocol~) catch {
-    error => return Err(native_transport_error(Resolve, error))
-  }
-  match ip_from_socket_addr(address) {
-    Some(address) => Ok(address)
-    None => Err(Failed(Resolve, "resolved address cannot be represented"))
-  }
-}
+priv type Lookup
 
 ///|
-fn append_unique_address(
-  addresses : Array[@types.IpAddress],
-  candidate : @types.IpAddress,
+#borrow(host)
+extern "C" fn lookup_start(host : Bytes) -> Lookup = "moon_http_lookup_start"
+
+///|
+#borrow(self)
+extern "C" fn Lookup::status(self : Lookup) -> Int32 = "moon_http_lookup_status"
+
+///|
+#borrow(self)
+extern "C" fn Lookup::error(self : Lookup) -> Int32 = "moon_http_lookup_error"
+
+///|
+#borrow(self)
+extern "C" fn Lookup::message(self : Lookup) -> Bytes = "moon_http_lookup_message"
+
+///|
+#borrow(self)
+extern "C" fn Lookup::next(self : Lookup) -> Bytes = "moon_http_lookup_next"
+
+///|
+#borrow(self)
+extern "C" fn Lookup::release(self : Lookup) -> Unit = "moon_http_lookup_release"
+
+///|
+fn collect_addresses(
   max_results : Int32,
-) -> Unit {
-  guard addresses.length() < max_results else { return }
-  for address in addresses {
-    if address == candidate {
-      return
+  next : () -> Bytes,
+) -> Result[Array[@types.IpAddress], @transport_api.TransportError] {
+  let addresses = []
+  while addresses.length() < max_results {
+    let bytes = next()
+    if bytes.is_empty() {
+      break
+    }
+    if @types.IpAddress::parse(@utf8.decode_lossy(bytes)) is Ok(address) &&
+      !addresses.contains(address) {
+      addresses.push(address)
     }
   }
-  addresses.push(candidate)
+  if addresses.is_empty() {
+    Err(Failed(Resolve, "hostname resolution returned no addresses"))
+  } else {
+    Ok(addresses)
+  }
 }
 
 ///|
 async fn resolve_native_host(
   host : String,
   max_results : Int32,
-  lookup~ : async (String, @socket.IpProtocolPreference) -> Result[
-    @types.IpAddress,
-    @transport_api.TransportError,
-  ],
 ) -> Result[Array[@types.IpAddress], @transport_api.TransportError] {
-  let addresses : Array[@types.IpAddress] = []
-  let mut first_failure : @transport_api.TransportError? = None
-  let protocols : Array[@socket.IpProtocolPreference] = [OnlyV4, OnlyV6]
-  for protocol in protocols {
-    if addresses.length() >= max_results {
-      break
+  let name = @utf8.encode(host)
+  let mut delay = 1
+  for ;; {
+    let job = lookup_start(name)
+    defer job.release()
+    match job.status() {
+      -2 => {
+        @async.sleep(delay)
+        delay = (delay * 2).min(16)
+        continue
+      }
+      -1 => return Err(Failed(Resolve, "could not start hostname resolution"))
+      _ => ()
     }
-    match lookup(host, protocol) {
-      Ok(address) => append_unique_address(addresses, address, max_results)
-      Err(Cancelled) => return Err(Cancelled)
-      Err(Timeout(operation)) => return Err(Timeout(operation))
-      Err(error) => if first_failure is None { first_failure = Some(error) }
+    while job.status() == 0 {
+      @async.sleep(delay)
+      delay = (delay * 2).min(16)
     }
-  }
-  if addresses.is_empty() {
-    Err(
-      first_failure.unwrap_or(
-        Failed(Resolve, "hostname resolution returned no addresses"),
-      ),
-    )
-  } else {
-    Ok(addresses)
+    let code = job.error()
+    if code != 0 {
+      return Err(
+        SystemFailure(Resolve, code, @utf8.decode_lossy(job.message())),
+      )
+    }
+    return collect_addresses(max_results, () => job.next())
   }
 }
 
@@ -89,7 +106,7 @@ pub impl @transport_api.NameResolver for NativeResolver with fn resolve(
   }
   match
     native_io(Resolve, options.timeout_ms, async fn() {
-      resolve_native_host(host, options.max_results, lookup=resolve_family)
+      resolve_native_host(host, options.max_results)
     }) {
     Ok(result) => result
     Err(error) => Err(error)

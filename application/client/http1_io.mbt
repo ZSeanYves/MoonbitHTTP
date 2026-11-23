@@ -17,6 +17,7 @@ fn Http1PooledSession::new(
       io,
       io,
       limits=options.limits,
+      on_incomplete_upload=fn() { connection.stop_writing() },
       read_size=options.limits.max_buffer_bytes.min(8192),
       request_headers_timeout_ms=options.timeouts.request_headers_ms,
       request_body_timeout_ms=options.timeouts.request_body_ms,

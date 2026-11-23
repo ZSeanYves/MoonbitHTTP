@@ -53,3 +53,28 @@ test "tls quic keys: reject invalid secrets, packet numbers, and tampering" {
     client.header_protection_mask(b"short") is Err(PacketProtectionFailed),
   )
 }
+
+///|
+/// Both negotiated packet suites must authenticate an empty payload and reject
+/// a modified tag, including the tag-only case when no output buffer is needed.
+test "QUIC packet suites authenticate tag-only packets across a key update" {
+  for
+    (suite, size) in [
+      (@transport.QuicTlsCipherSuite::TlsAes128GcmSha256, 32),
+      (TlsAes256GcmSha384, 48),
+    ] {
+    let current = @tls.derive_quic_packet_keys(Bytes::make(size, 1), suite~).unwrap()
+    let next = current.next_application_keys().unwrap()
+    let ciphertext = next.seal(0L, b"header", b"").unwrap()
+    assert_eq(ciphertext.length(), 16)
+    assert_eq(next.open(0L, b"header", ciphertext), Ok(b""))
+    assert_true(
+      current.open(0L, b"header", ciphertext) is Err(PacketAuthenticationFailed),
+    )
+    let modified = ciphertext[:15].to_owned() +
+      Bytes::from_array([ciphertext[15] ^ b'\x01'])
+    assert_true(
+      next.open(0L, b"header", modified) is Err(PacketAuthenticationFailed),
+    )
+  }
+}

@@ -26,19 +26,8 @@ pub fn quic_retry_integrity_tag(
   }
   let key = b"\xbe\x0c\x69\x0b\x9f\x66\x57\x5a\x1d\x76\x6b\x54\xe3\x68\xc8\x4e"
   let nonce = b"\x46\x15\x99\xd3\x5d\x63\x2b\xf2\x23\x98\x25\xbb"
-  let result : Result[Bytes, Error] = Ok(
-    @aead.seal(Aes128Gcm, key, nonce, pseudo.unsafe_reinterpret_as_bytes(), b""),
-  ) catch {
-    error => Err(error)
-  }
-  match result {
-    Ok(value) =>
-      if value.length() < 16 {
-        Err(PacketProtectionFailed)
-      } else {
-        Ok(value[value.length() - 16:].to_owned())
-      }
-    Err(_) => Err(PacketProtectionFailed)
+  Ok(@packet_crypto.seal(key, nonce, pseudo.unsafe_reinterpret_as_bytes(), b"")) catch {
+    _ => Err(PacketProtectionFailed)
   }
 }
 

@@ -121,6 +121,7 @@ pub struct ServerSupervisor {
   mut next_connection_id : Int32
   metrics : ServerMetrics
   connections_changed : @cond_var.Cond
+  mut drain_listener : (() -> Unit)?
   mut close_listener : (() -> Unit)?
   mut cancel_accept : (() -> Unit)?
 }
@@ -140,6 +141,7 @@ pub fn ServerSupervisor::try_acquire(Self) -> Result[Int32, ServerError]
 
 // Traits
 pub(open) trait Listener {
+  fn begin_drain(Self) -> Unit = _
   async fn accept(Self) -> Result[AcceptedConnection?, ServerError]
   fn close(Self) -> Unit
 }

@@ -12,7 +12,7 @@ import {
 ----
 
 ///|
-let baseline_revision = "77024d99398981806b9ca57fc374fd96832eec59"
+let historical_baseline = "77024d99398981806b9ca57fc374fd96832eec59"
 
 ///|
 let pair_count = 6
@@ -310,7 +310,7 @@ fn sample_for(
 }
 
 ///|
-async fn compare(directory : String, root : String, verify_only : Bool) -> Unit {
+async fn compare(directory : String, root : String, verify_only : Bool, baseline_revision : String) -> Unit {
   let baseline_source = directory + "/baseline-source"
   let current_source = directory + "/current-source"
   @fs.mkdir(baseline_source)
@@ -352,10 +352,10 @@ async fn compare(directory : String, root : String, verify_only : Bool) -> Unit 
   )
   let source = workload_source()
   let current_pkg_source = workload_package()
-  let baseline_pkg_source = current_pkg_source.replace(
+  let baseline_pkg_source = if @fs.exists(baseline_source + "/protocol/http1/moon.pkg") { current_pkg_source } else { current_pkg_source.replace(
     old="ZSeanYves/MoonbitHTTP/protocol/http1",
     new="ZSeanYves/MoonbitHTTP/http1",
-  )
+  ) }
   @fs.write_file(
     directory + "/benchmark-workload.mbt",
     source,
@@ -577,7 +577,11 @@ async fn main {
   let directory = root + "/_build/evidence/performance/" + unique
   @fs.mkdir(directory, recursive=true)
   println("Performance evidence: \{directory}")
-  compare(directory, root, verify_only) catch {
+  let baseline = @env.get_env_var("MOONBITHTTP_PERF_BASE").unwrap_or(historical_baseline)
+  guard baseline.length() == 40 && baseline.iter().all(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) else {
+    fail("MOONBITHTTP_PERF_BASE must be a full lowercase Git commit hash")
+  }
+  compare(directory, root, verify_only, baseline) catch {
     error => {
       if !@fs.exists(directory + "/result.json") {
         let failed_result : Json = {

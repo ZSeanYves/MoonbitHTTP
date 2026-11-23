@@ -320,6 +320,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
                   }
                   write_http1_body(framing, () => response.body.next_frame(), async fn(
                     bytes,
+                    _,
                   ) {
                     write_with_timeout(writer, bytes, config.write_timeout_ms)
                   })
@@ -443,6 +444,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve
             write_with_timeout(writer, encoded, config.write_timeout_ms)
             write_http1_body(framing, () => response.body.next_frame(), async fn(
               bytes,
+              _,
             ) {
               write_with_timeout(writer, bytes, config.write_timeout_ms)
             })

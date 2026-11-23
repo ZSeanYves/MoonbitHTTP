@@ -1,36 +1,4 @@
 ///|
-/// One shutdown signal can stop admission on all connections owned by a listener.
-pub struct H3ServerShutdown {
-  priv changed : @cond_var.Cond
-  priv mut started : Bool
-}
-
-///|
-pub fn H3ServerShutdown::new() -> H3ServerShutdown {
-  { changed: Cond(), started: false, }
-}
-
-///|
-pub fn H3ServerShutdown::started(self : H3ServerShutdown) -> Bool {
-  self.started
-}
-
-///|
-pub fn H3ServerShutdown::begin(self : H3ServerShutdown) -> Unit {
-  if !self.started {
-    self.started = true
-    self.changed.broadcast()
-  }
-}
-
-///|
-pub async fn H3ServerShutdown::wait(self : H3ServerShutdown) -> Unit noraise {
-  while !self.started {
-    self.changed.wait()
-  }
-}
-
-///|
 priv struct H3ServerRequest {
   incoming : H3IncomingBody
   mut task : @async.Task[Unit]?

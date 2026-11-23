@@ -263,3 +263,59 @@ async test "HTTP/2 grants a waiting upload and rejects an unsupported expectatio
   })
   assert_eq(received, [b"ok"])
 }
+
+///|
+async test "HTTP/2 drain refuses a racing stream on the wire while stream one finishes" {
+  let shutdown = @service.ServerShutdown::new()
+  let entered : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+  let finish : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+  let wire = H2LifecycleWriter::new()
+  defer wire.signal.close()
+  let incoming = @aio.MemoryReader(async fn(peer) {
+    let encoder = @http2.HpackContext::new()
+    let headers = fn(id) {
+      @http2.encode_request_headers(encoder, id, security_request(Get), true).unwrap()
+    }
+    peer.write(
+      b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" +
+      Bytes::from_array(@http2.encode_settings_frame([], false)) +
+      headers(1),
+    )
+    entered.get()
+    shutdown.begin()
+    let goaway = wire.wait_frame(@http2.H2_FRAME_GOAWAY, 0)
+    assert_eq(
+      Bytes::from_array(goaway.payload),
+      b"\x00\x00\x00\x01\x00\x00\x00\x00",
+    )
+    peer.write(headers(3))
+    let refused = wire.wait_frame(@http2.H2_FRAME_RST_STREAM, 3)
+    assert_eq(Bytes::from_array(refused.payload), b"\x00\x00\x00\x07")
+    finish.put(())
+    let response = wire.wait_frame(@http2.H2_FRAME_HEADERS, 1)
+    assert_true((response.header.flags & @http2.H2_FLAGS_END_STREAM) != 0)
+    let probe = wire.wait_frame(@http2.H2_FRAME_PING, 0)
+    peer.write(@http2.encode_ping_ack(probe.payload).unwrap())
+  })
+  defer incoming.close()
+  let mut calls = 0
+  @async.with_timeout(2000, async fn() {
+    @service.serve_http2_connection(
+      incoming,
+      test_writer(wire),
+      async fn(_) {
+        calls += 1
+        entered.put(())
+        finish.get()
+        {
+          status: 204,
+          version: Http2,
+          headers: @types.HeaderMap::new(),
+          body: @body.EmptyBody::new(),
+        }
+      },
+      shutdown=Some(shutdown),
+    )
+  })
+  assert_eq(calls, 1)
+}

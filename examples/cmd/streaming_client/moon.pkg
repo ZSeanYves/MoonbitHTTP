@@ -1,0 +1,23 @@
+import {
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/fs",
+  "moonbitlang/core/env",
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/core/body",
+  "ZSeanYves/MoonbitHTTP/application/client",
+  "ZSeanYves/MoonbitHTTP/adapter/native/client" @native_client,
+  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @native_transport,
+  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @native_tls,
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+}
+
+supported_targets = "+native"
+
+pkgtype(kind: "executable")
+
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/fs",
+  ],
+)

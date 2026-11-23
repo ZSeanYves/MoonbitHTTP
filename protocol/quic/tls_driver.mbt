@@ -377,6 +377,15 @@ pub fn QuicDatagramDriver::set_peer_transport_parameters(
     params.initial_source_connection_id,
     params.stateless_reset_token,
   )
+  let local_idle = self.connection.local_transport_params().max_idle_timeout
+  let peer_idle = params.limits.max_idle_timeout
+  self.recovery.negotiated_idle_ms = Some(
+    if local_idle == 0L || peer_idle == 0L {
+      local_idle.max(peer_idle)
+    } else {
+      local_idle.min(peer_idle)
+    },
+  )
   self.peer_parameters = Some(params)
   self.recovery.peer_max_ack_delay_ms = params.max_ack_delay.to_int64()
   Ok(())

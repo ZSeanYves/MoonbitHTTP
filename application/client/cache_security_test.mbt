@@ -122,3 +122,50 @@ async test "security: caller validators cannot revalidate a different cached bod
   }
   assert_eq(hit.etag(), Some("\"old\""))
 }
+
+///|
+async test "cache-only misses never open an upstream connection" {
+  let cache = @cache.HttpCache::new().unwrap()
+  let client = @client.Client::new(
+    cache~,
+    cache_enabled=true,
+    authorize_redirect=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
+  ).unwrap()
+  let headers = @types.HeaderMap::new()
+  headers.append_string("cache-control", "only-if-cached").unwrap()
+  let mut calls = 0
+  let executor = @client.ClosureRoundTripper::new(fn(_) {
+    calls += 1
+    Ok({
+      status: 200,
+      version: Http11,
+      headers: @types.HeaderMap::new(),
+      body: b"origin",
+    })
+  })
+  let request : @types.Request[Bytes] = {
+    http_method: Get,
+    uri: test_uri("http://example.test/read"),
+    version: Http11,
+    headers,
+    body: b"",
+  }
+  assert_eq(client.send(executor, request, 1L).unwrap().status, 504)
+  let stored = @types.HeaderMap::new()
+  stored.append_string("etag", "\"stale\"").unwrap()
+  stored.append_string("cache-control", "max-age=1").unwrap()
+  ignore(
+    cache
+    .store(
+      request.map_body(_ => ()),
+      { status: 200, version: Http11, headers: stored, body: (), },
+      b"cached",
+      1L,
+    )
+    .unwrap(),
+  )
+  assert_eq(client.send(executor, request, 1L).unwrap().body, b"cached")
+  assert_eq(client.send(executor, request, 3L).unwrap().status, 504)
+  assert_eq(calls, 0)
+}

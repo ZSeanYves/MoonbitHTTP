@@ -217,3 +217,77 @@ async test "native TLS supervisor survives stalled peer and serves existing and 
     assert_eq(supervisor.state(), Stopped)
   })
 }
+
+///|
+async test "TLS HTTP/2 supervisor drains accepted streams and refuses new requests" {
+  @async.with_timeout(5000, async fn() {
+    let (client_tls, server_tls) = listener_tls_options()
+    let endpoint = unused_tcp_endpoint()
+    let provider = @tls_native.NativeTlsProvider::new(allow_system_roots=false)
+    let supervisor = @server_api.ServerSupervisor::new().unwrap()
+    let entered : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let finish : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let mut calls = 0
+    let listener = NativeTcpListener::bind_http_tls(
+      endpoint,
+      @transport.AllowAllPolicy::new(),
+      provider,
+      { ..server_tls, alpn: ["h2"], },
+      request => {
+        calls += 1
+        entered.put(())
+        finish.get()
+        {
+          status: 200,
+          version: request.version,
+          headers: @types.HeaderMap::new(),
+          body: @body.FullBody::new(b"finished"),
+        }
+      },
+    ).unwrap()
+    defer listener.close()
+    @async.with_task_group(async fn(group) {
+      let serving = group.spawn(async fn() { supervisor.serve(listener) })
+      let tcp = @transport_native.TcpConnector::new()
+        .connect(endpoint, @transport.ConnectOptions::defaults())
+        .unwrap()
+      let secure = provider
+        .client_handshake(tcp, { ..client_tls, alpn: ["h2"], })
+        .unwrap()
+      defer secure.close()
+      let io = @service.StreamIo::new(secure.transport)
+      @service.with_h2_client_connection(io, io, async fn(client) {
+        fn request() -> @types.Request[@body.FullBody] {
+          let headers = @types.HeaderMap::new()
+          headers.append_string("host", "localhost").unwrap()
+          {
+            http_method: Get,
+            uri: @types.Uri::parse("/").unwrap(),
+            version: Http2,
+            headers,
+            body: @body.FullBody::new(b""),
+          }
+        }
+        let active = group.spawn(async fn() {
+          @body.collect(client.send(request()).body).0
+        })
+        entered.get()
+        supervisor.begin_shutdown().unwrap()
+        while client.accepts_requests() {
+          @async.pause()
+        }
+        try client.send(request()) catch {
+          _ => ()
+        } noraise {
+          _ => fail("HTTP/2 stream admitted after GOAWAY")
+        }
+        finish.put(())
+        assert_eq(active.wait(), b"finished")
+      })
+      secure.close()
+      assert_eq(serving.wait(), Ok(()))
+    })
+    assert_eq(calls, 1)
+    assert_eq(supervisor.metrics().handler_errors(), 0L)
+  })
+}

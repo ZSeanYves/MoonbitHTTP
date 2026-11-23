@@ -1,4 +1,5 @@
 import {
+  "ZSeanYves/MoonbitHTTP/internal/packet_crypto",
   "ZSeanYves/MoonbitHTTP/core/types",
   "moonbitlang/core/async",
   "moonbitlang/core/encoding/utf8",

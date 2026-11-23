@@ -10,6 +10,7 @@ pub struct ClientConnection[R, W] {
   priv request_body_timeout_ms : Int32?
   priv response_headers_timeout_ms : Int32?
   priv response_body_timeout_ms : Int32?
+  priv on_incomplete_upload : () -> Unit
   priv mut state : Http1ClientState
 }
 
@@ -65,6 +66,7 @@ pub fn[R, W] ClientConnection::new(
   request_headers_timeout_ms~ : Int32? = Some(30000),
   request_body_timeout_ms~ : Int32? = Some(30000),
   response_headers_timeout_ms~ : Int32? = Some(30000),
+  on_incomplete_upload~ : () -> Unit = fn() {  },
   response_body_timeout_ms~ : Int32? = Some(30000),
 ) -> Result[ClientConnection[R, W], ServiceConfigError] {
   let timeouts : Array[(String, Int32?)] = [
@@ -90,6 +92,7 @@ pub fn[R, W] ClientConnection::new(
         request_body_timeout_ms,
         response_headers_timeout_ms,
         response_body_timeout_ms,
+        on_incomplete_upload,
         state: Ready,
       })
     Err(error) => Err(error)
@@ -115,8 +118,12 @@ async fn[W : @aio.BinaryWriter] client_write_with_timeout(
   bytes : Bytes,
   timeout_ms : Int32?,
   phase : ClientConnectionPhase,
+  on_written~ : () -> Unit = fn() {  },
 ) -> Unit {
-  write_with_timeout(writer, bytes, timeout_ms) catch {
+  io_with_timeout(timeout_ms, async fn() {
+    writer.write(bytes)
+    on_written()
+  }) catch {
     @async.TimeoutError => raise ClientConnectionTimeout(phase)
     error => raise error
   }
@@ -151,6 +158,7 @@ async fn[R, W : @aio.BinaryWriter, B : @body.Body] ClientConnection::write_uploa
   self : ClientConnection[R, W],
   framing : @http1.BodyFraming,
   body : B,
+  on_wire_end~ : () -> Unit = fn() {  },
 ) -> Unit {
   write_http1_body(
     framing,
@@ -165,12 +173,13 @@ async fn[R, W : @aio.BinaryWriter, B : @body.Body] ClientConnection::write_uploa
         None => body.next_frame()
       }
     },
-    async fn(bytes) {
+    async fn(bytes, ends_message) {
       client_write_with_timeout(
         self.writer,
         bytes,
         self.request_body_timeout_ms,
         RequestBody,
+        on_written=fn() { if ends_message { on_wire_end() } },
       )
     },
   )
@@ -181,18 +190,17 @@ async fn[R : @aio.BinaryReader, W] ClientConnection::read_response_head(
   self : ClientConnection[R, W],
   decoder : @http1.ResponseDecoder,
   timeout_ms : Int32?,
-  stop_at_continue~ : Bool = false,
+  on_continue~ : () -> Unit = fn() {  },
 ) -> @types.Response[Unit] {
-  let mut received_continue = None
+  let mut saw_continue = false
   for ;; {
     match decoder.next().unwrap_or_error() {
       Some(ResponseHead(head)) => {
         if head.status == 101 || head.status >= 200 {
           return head
         }
-        if stop_at_continue && head.status == 100 {
-          // Prefer a final response already in this read over opening the body.
-          received_continue = Some(head)
+        if head.status == 100 {
+          saw_continue = true
         }
       }
       Some(ResponseEnd) => () // End of an informational response.
@@ -201,8 +209,9 @@ async fn[R : @aio.BinaryReader, W] ClientConnection::read_response_head(
           "body before final response head",
         )
       None => {
-        if received_continue is Some(head) {
-          return head
+        if saw_continue {
+          saw_continue = false
+          on_continue()
         }
         match
           client_read_with_timeout(
@@ -220,59 +229,98 @@ async fn[R : @aio.BinaryReader, W] ClientConnection::read_response_head(
 }
 
 ///|
-/// Keep a single pending read across the grace period. Cancelling an actual
-/// transport read on timeout would close the socket before the upload.
-async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] ClientConnection::expect_continue(
+/// One reader owns the decoder for the entire exchange, including the
+/// Continue grace period. Only the upload worker is cancelled on an early head.
+async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] ClientConnection::exchange_upload(
   self : ClientConnection[R, W],
   decoder : @http1.ResponseDecoder,
   framing : @http1.BodyFraming,
   body : B,
+  expect_continue : Bool,
 ) -> @types.Response[Unit] {
   @async_support.with_group_result(async fn(group) {
     let changed = @cond_var.Cond()
-    let mut outcome : Result[@types.Response[Unit], Error]? = None
-    group.spawn_bg(async fn() {
-      let result = Ok(
-        self.read_response_head(decoder, None, stop_at_continue=true),
-      ) catch {
-        error => Err(error)
-      }
-      outcome = Some(result)
-      changed.signal()
-    })
-    let wait_for_head = async fn() {
-      while outcome is None {
+    let mut continued = false
+    let mut head : @types.Response[Unit]? = None
+    let mut uploaded = false
+    let mut wire_complete = false
+    // Hold the reader open across the upload. A response-header deadline
+    // starts after the request has actually been written.
+    let mut failure : Error? = None
+    with_outgoing_body_scope(body, async fn() {
+      let upload = group.spawn(async fn() {
+        try {
+          if expect_continue {
+            ignore(
+              @async.with_timeout_opt(
+                self.response_headers_timeout_ms.unwrap_or(1000).min(1000),
+                async fn() {
+                  while !continued && head is None {
+                    changed.wait()
+                  }
+                },
+              ),
+            )
+          }
+          if head is None {
+            self.write_upload(framing, body, on_wire_end=fn() {
+              wire_complete = true
+            })
+            uploaded = true
+          }
+        } catch {
+          error => if head is None && failure is None { failure = Some(error) }
+        }
+        changed.broadcast()
+      })
+      group.spawn_bg(
+        async fn() {
+          try {
+            head = Some(
+              self.read_response_head(decoder, None, on_continue=fn() {
+                continued = true
+                changed.broadcast()
+              }),
+            )
+          } catch {
+            error => if failure is None { failure = Some(error) }
+          }
+          changed.broadcast()
+        },
+        no_wait=true,
+      )
+      while !uploaded && head is None && failure is None {
         changed.wait()
       }
-    }
-    with_outgoing_body_scope(body, async fn() {
-      let grace_ms = self.response_headers_timeout_ms.unwrap_or(1000).min(1000)
-      ignore(@async.with_timeout_opt(grace_ms, wait_for_head))
-      match outcome {
-        Some(Err(error)) => raise error
-        Some(Ok(head)) if head.status != 100 => {
+      if failure is Some(error) {
+        raise error
+      }
+      if !uploaded {
+        if !wire_complete {
           self.state = CloseAfterBody
-          body.cancel(@body.BodyError::Cancelled)
+          (self.on_incomplete_upload)()
         }
-        _ => self.write_upload(framing, body)
+        upload.cancel()
+        body.cancel(@body.BodyError::Cancelled)
       }
     })
-    if outcome is None {
-      match self.response_headers_timeout_ms {
-        Some(timeout) =>
-          @async.with_timeout(
-            timeout,
-            wait_for_head,
-            error=ClientConnectionTimeout(ResponseHeaders),
-          )
-        None => wait_for_head()
+    let wait = async fn() {
+      while head is None && failure is None {
+        changed.wait()
       }
+      if failure is Some(error) {
+        raise error
+      }
+      head.unwrap()
     }
-    let first_head = outcome.unwrap().unwrap_or_error()
-    if first_head.status == 100 {
-      self.read_response_head(decoder, self.response_headers_timeout_ms)
-    } else {
-      first_head
+    match self.response_headers_timeout_ms {
+      Some(ms) =>
+        @async.with_timeout(
+          ms,
+          wait,
+          error=ClientConnectionTimeout(ResponseHeaders),
+        )
+      None => wait()
     }
   })
 }
@@ -318,8 +366,8 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] Clien
     request.http_method,
     limits=self.limits,
   )
-  let head = if expect_continue {
-    self.expect_continue(decoder, framing, request.body)
+  let head = if framing != ContentLength(0) {
+    self.exchange_upload(decoder, framing, request.body, expect_continue)
   } else {
     with_outgoing_body_scope(request.body, async fn() {
       self.write_upload(framing, request.body)

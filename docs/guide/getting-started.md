@@ -45,3 +45,32 @@ own connection policy and lifecycle.
 Before relying on a feature, read [Current validation facts](../release/current.md)
 and [Release gates](../release/gates.md). Passing a local unit test does not
 prove certificate interoperability or long-duration network behavior.
+
+## Streaming GET and cancellable upload
+
+The checkout includes a Native example that selects a client pool and uses the
+same request body, response reader and timeout on all three protocols.
+A GET reads up to 1 MiB. Upload mode emits a chunk every 20 ms and cancels the
+exchange after one second. The response and producer are released on every exit.
+
+Start one fixture in a terminal at the repository root.
+
+```sh
+moon run examples/cmd/smoke_server --target native -- --echo-h1 18080
+# Or start the HTTP/2 TLS fixture
+moon run examples/cmd/smoke_server --target native -- --echo-h2 18446 adapter/native/tls/testdata/localhost.cert.pem adapter/native/tls/testdata/localhost.key.pem
+# Or start the HTTP/3 fixture
+moon run examples/cmd/h3_smoke_server --target native
+```
+
+In another terminal run the matching command. Replace `get` with `upload` to
+exercise cancellation. The PEM argument trusts the local fixture certificate
+while keeping hostname verification enabled.
+
+```sh
+moon run examples/cmd/streaming_client --target native -- h1 get http://127.0.0.1:18080/
+moon run examples/cmd/streaming_client --target native -- h2 get https://localhost:18446/ adapter/native/tls/testdata/localhost.cert.pem
+moon run examples/cmd/streaming_client --target native -- h3 get https://localhost:18443/ adapter/native/tls/testdata/localhost.cert.pem
+```
+
+The example source is in `examples/cmd/streaming_client/main.mbt` in the repository.

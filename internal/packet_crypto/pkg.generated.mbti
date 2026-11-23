@@ -1,0 +1,23 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/internal/packet_crypto"
+
+// Values
+pub fn aes_block(Bytes, Bytes) -> Bytes raise
+
+pub fn expand(Bool, Bytes, Bytes, Int32) -> Bytes raise
+
+pub fn extract(Bytes, Bytes) -> Bytes raise
+
+pub fn hmac_sha256(Bytes, Bytes) -> Bytes raise
+
+pub fn open(Bytes, Bytes, Bytes, Bytes) -> Bytes raise
+
+pub fn seal(Bytes, Bytes, Bytes, Bytes) -> Bytes raise
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

@@ -790,12 +790,35 @@ async test "pooled HTTP/1 streams an upload incrementally and transfers the resp
     writes: [],
     closes: 0,
   }
-  let executor = @client.Http1PooledRoundTripper::from_capabilities(
-    connector,
-    @transport.StaticResolver::new([]),
-    @transport.UnsupportedProvider::new(),
-    @transport.AllowAllPolicy::new(),
-    @test_support.FixedClock::new(0L, 0L),
+  let complete : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+  let executor = @client.Http1PooledRoundTripper::new(
+    (endpoint, _) => {
+      Ok(
+        @transport.StreamConnection::new(
+          endpoint,
+          async fn(_) {
+            if connector.response_index == 2 {
+              complete.get()
+            }
+            let response = connector.responses[connector.response_index]
+            connector.response_index += 1
+            Ok(Some(response))
+          },
+          async fn(bytes) {
+            connector.writes.push(bytes)
+            if bytes.has_prefix(b"0\r\n") {
+              complete.put(())
+            }
+            Ok(())
+          },
+          fn() { connector.closes += 1 },
+        ),
+      )
+    },
+    fn(_, _) { Err(Unsupported) },
+    resolve=Some(test_resolve_origin),
+    authorize=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
   ).unwrap()
   let trailers = @types.HeaderMap::new()
   trailers.append_string("x-count", "2").unwrap()
@@ -888,4 +911,64 @@ async test "an early final response cancels the unopened HTTP/1 upload and retir
   assert_eq(executor.idle_connection_count(), 0)
   assert_eq(executor.execute(base).unwrap().status, 204)
   assert_eq(connector.connect_hosts.length(), 2)
+}
+
+///|
+async test "early 413 preserves the response read half while cancelling a blocked transport write" {
+  for expect_continue in [false, true] {
+    let writing : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let blocked : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let mut reads = 0
+    let mut closes = 0
+    let pool = @client.Http1PooledRoundTripper::new(
+      (endpoint, _) => {
+        Ok(
+          @transport.StreamConnection::new(
+            endpoint,
+            async fn(_) {
+              reads += 1
+              if expect_continue && reads == 1 {
+                return Ok(Some(b"HTTP/1.1 100 Continue\r\n\r\n"))
+              }
+              if reads == (if expect_continue { 2 } else { 1 }) {
+                writing.get()
+                return Ok(
+                  Some(
+                    b"HTTP/1.1 413 Content Too Large\r\nContent-Length: 4\r\n\r\n",
+                  ),
+                )
+              }
+              Ok(Some(b"full"))
+            },
+            async fn(bytes) {
+              if bytes == b"data" {
+                writing.put(())
+                blocked.get()
+              }
+              Ok(())
+            },
+            fn() { closes += 1 },
+          ),
+        )
+      },
+      fn(_, _) { Err(Unsupported) },
+      authorize=fn(_, _) { Ok(()) },
+      now_millis=fn() { 0L },
+    ).unwrap()
+    let request = pooled_request("http://127.0.0.1/", @types.HeaderMap::new())
+    if expect_continue {
+      request.headers.append_string("expect", "100-continue").unwrap()
+    }
+    let response = @async.with_timeout(2000, async fn() {
+      pool
+      .execute_body({
+        ..request.map_body(_ => @body.FullBody::new(b"data")),
+        http_method: Post,
+      })
+      .unwrap()
+    })
+    assert_eq(response.status, 413)
+    assert_eq(@body.collect(response.body).0, b"full")
+    assert_eq((pool.connection_count(), closes), (0, 1))
+  }
 }

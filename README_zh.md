@@ -4,9 +4,10 @@ MoonbitHTTP 为 MoonBit 提供可移植的 HTTP/1.1、HTTP/2、HTTP/3、QUIC、T
 流式 Body 和策略组件。`0.7.0` 是破坏性的 alpha 架构线，`1.0.0` 之前公共
 API 可能变化。
 
-协议包是与能力无关的状态机。网络访问、解析、时钟、熵源、TLS 和授权由
-宿主显式提供，使可移植包可以在 Native、Wasm、Wasm-GC 和 JavaScript 上编译，
-同时清楚区分各目标实际拥有的网络能力。
+HTTP 编解码器与连接状态机接收字节和事件。QUIC 驱动另提供收发适配方法，
+通过调用方传入的 UDP 能力执行 I/O。Native 的 QUIC 包保护使用 OpenSSL 3 EVP，
+HTTP/3 握手要求 OpenSSL 3.5 或更新版本。Wasm 与 JS 的包保护使用实验性密码实现。
+当前工具链在 Wasm-GC 上运行同步协议测试，异步服务只验证编译。
 
 ## 安装
 
@@ -89,6 +90,8 @@ RFC 链接说明实现对照的协议契约，不表示所有可选扩展或部�
 能力，也不能导入 `adapter/native/*`。
 
 ## 示例
+
+[流式客户端指南](docs/guide/getting-started.md#streaming-get-and-cancellable-upload)提供 HTTP/1.1、HTTP/2 和 HTTP/3 的 GET 与可取消上传命令。
 
 - [`examples/cmd/smoke_server`](examples/cmd/smoke_server/README.md)：有界的
   Native HTTP/1.1 和 h2c 服务 smoke fixture。

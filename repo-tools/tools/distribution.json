@@ -17,6 +17,7 @@
     "internal/test_support/**",
     "internal/http_fields/**",
     "internal/async_support/**",
+    "internal/packet_crypto/**",
     "docs/README.md",
     "docs/concepts/**",
     "docs/development/**",

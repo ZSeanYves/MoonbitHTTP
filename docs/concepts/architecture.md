@@ -25,6 +25,8 @@ flowchart TD
   service --> h2[protocol/http2]
   service --> body[core/body]
   h3[protocol/http3] --> quic[protocol/quic]
+  quic --> crypto[internal/packet_crypto]
+  tls --> crypto
   quic --> tls[protocol/tls]
   quic --> transport
   tls --> transport
@@ -61,7 +63,9 @@ in `core/codec`; HTTP/3 does not import HTTP/2.
 - `runtime/transport` owns capability traits for streams, datagrams, resolution,
   policy, clock, entropy, stream TLS and QUIC TLS. Native adapters implement those traits and do
   not add hidden DNS, policy, or TLS fallbacks.
-- `protocol/tls` owns pure TLS handshake framing, QUIC key derivation and packet
+- `internal/packet_crypto` selects Native OpenSSL EVP or the portable experimental primitives. The Native TLS adapter uses the same loaded OpenSSL library pair.
+- `protocol/quic/datagram_io.mbt` binds driver events to the injected datagram socket. The other QUIC driver methods accept bytes, events and explicit timestamps.
+- `protocol/tls` owns TLS handshake framing, QUIC key derivation and packet
   protection primitives. `adapter/native/tls` implements the transport contracts
   using OpenSSL; credentials, peer verification, ALPN and QUIC traffic
   secrets remain behind this adapter boundary.

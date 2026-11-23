@@ -6,6 +6,7 @@ import {
   "moonbitlang/core/async/os_error",
   "moonbitlang/core/bench",
   "moonbitlang/core/env",
+  "moonbitlang/core/encoding/utf8",
   "ZSeanYves/MoonbitHTTP/runtime/transport" @transport_api,
 }
 
@@ -16,6 +17,7 @@ import {
 supported_targets = "+native"
 
 options(
+  "native-stub": [ "resolver_stub.c" ],
   "allow-experimental-packages": [
     "moonbitlang/core/async",
     "moonbitlang/core/async/os_error",

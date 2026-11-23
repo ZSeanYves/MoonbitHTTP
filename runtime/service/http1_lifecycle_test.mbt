@@ -142,7 +142,7 @@ async test "service: HTTP/1 invalid response head cancels its unpolled body" {
 
 ///|
 async test "service: HTTP/1 request body failure is cancelled once and preserves its cause" {
-  let reader = @aio.MemoryReader(fn(_writer) { () })
+  let reader = PhaseBlockingReader::new(b"")
   let writer : CaptureWriter = { bytes: [], }
   let client = @service.ClientConnection::new(reader, test_writer(writer)).unwrap()
   let cancelled : Array[Error] = []
@@ -439,4 +439,32 @@ async test "HTTP/1 and HTTP/2 finish metadata-only responses without polling the
     ])
     assert_false(wire.frames.any(f => f.header.typ == @http2.H2_FRAME_DATA))
   }
+}
+
+///|
+async test "HTTP/1 final response interrupts a pending upload" {
+  let reader = PhaseBlockingReader::new(
+    b"HTTP/1.1 413 Content Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+  )
+  let writer : CaptureWriter = { bytes: [], }
+  let conn = @service.ClientConnection::new(
+    reader,
+    test_writer(writer),
+    request_body_timeout_ms=Some(40),
+  ).unwrap()
+  let gate : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+  let body = @body.BodyStream::from_pull(
+    async fn() {
+      gate.get()
+      Some(Data(b"x"))
+    },
+    size_hint=@body.SizeHint::exact(1),
+  )
+  let response = conn.send(phase_timeout_request(body)) catch {
+    @service.ClientConnectionTimeout::@service.ClientConnectionTimeout(
+      RequestBody,
+    ) => fail("HTTP 413 was ready but send returned RequestBody timeout")
+    error => raise error
+  }
+  assert_eq(response.status, 413)
 }

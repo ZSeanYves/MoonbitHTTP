@@ -128,7 +128,21 @@ fn QuicRecovery::timer_events(
   if now_ms < 0L {
     return Err(InvalidPacket("recovery clock cannot be negative"))
   }
-  if now_ms - self.last_activity_ms >= self.config.idle_timeout_ms {
+  let idle_ms = match self.negotiated_idle_ms {
+    None => self.config.idle_timeout_ms
+    Some(0L) => 0L
+    Some(timeout) => {
+      let base = self.recovery_pto(
+        if application_confirmed {
+          Application
+        } else {
+          Handshake
+        },
+      )
+      timeout.max(quic_deadline_ms(0L, base, periods=3L))
+    }
+  }
+  if idle_ms > 0L && now_ms - self.last_activity_ms >= idle_ms {
     return Ok([IdleTimeout])
   }
   let events : Array[QuicRecoveryEvent] = []

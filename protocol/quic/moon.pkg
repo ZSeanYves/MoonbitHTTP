@@ -8,7 +8,7 @@ import {
   "moonbitlang/core/int64",
   "ZSeanYves/MoonbitHTTP/runtime/transport",
   "ZSeanYves/MoonbitHTTP/protocol/tls",
-  "cc06b/mooncry/lib" @mooncry,
+  "ZSeanYves/MoonbitHTTP/internal/packet_crypto",
 }
 
 import {

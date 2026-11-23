@@ -132,7 +132,9 @@ pub fn[C : @transport.Clock, E : @transport.Entropy] QuicRetryTokenManager::issu
     retry_token_cid_part(client_source),
     nonce.unsafe_reinterpret_as_bytes(),
   ])
-  let mac = @mooncry.hmac_sha256(self.secret, body)
+  let mac = @packet_crypto.hmac_sha256(self.secret, body) catch {
+    _ => return Err(Tls(PacketProtectionFailed))
+  }
   let token = quic_join_bytes([body, mac])
   if token.length() > retry_token_max_length {
     return Err(LimitExceeded("Retry token", retry_token_max_length))
@@ -157,7 +159,9 @@ pub fn QuicRetryTokenManager::validate_initial(
   let mac_offset = token.length() - 32
   let body = token[:mac_offset].to_owned()
   let supplied_mac = token[mac_offset:]
-  let expected_mac = @mooncry.hmac_sha256(self.secret, body)
+  let expected_mac = @packet_crypto.hmac_sha256(self.secret, body) catch {
+    _ => return Err(Tls(PacketProtectionFailed))
+  }
   if !quic_token_equal(expected_mac, supplied_mac) {
     return Err(InvalidPacket("Retry token authentication failed"))
   }

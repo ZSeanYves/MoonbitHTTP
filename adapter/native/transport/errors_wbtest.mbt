@@ -94,45 +94,16 @@ async test "native TCP: caller cancellation remains distinct from an idle timeou
 }
 
 ///|
-async test "native resolver: family fallback preserves causes and stops on cancellation" {
-  let ipv6 = @types.IpAddress::parse("::1").unwrap()
-  let mut lookups = 0
-  let resolved = resolve_native_host("v6.example", 2, lookup=fn(_, protocol) {
-    lookups += 1
-    match protocol {
-      OnlyV4 => Err(Failed(Resolve, "no IPv4 address"))
-      _ => Ok(ipv6)
-    }
+test "native resolver preserves system order and bounds unique same-family results" {
+  let candidates = [b"127.0.0.2", b"127.0.0.2", b"127.0.0.1", b"::1"]
+  let mut index = 0
+  let addresses = collect_addresses(2, fn() {
+    let bytes = candidates[index]
+    index += 1
+    bytes
   }).unwrap()
-  assert_eq(resolved, [ipv6])
-  assert_eq(lookups, 2)
-  let original : @transport_api.TransportError = SystemFailure(
-    Resolve,
-    13,
-    "resolver access denied",
-  )
-  assert_eq(
-    resolve_native_host("blocked.example", 2, lookup=fn(_, _) { Err(original) }),
-    Err(original),
-  )
-  for failure in [@transport_api.TransportError::Cancelled, Timeout(Resolve)] {
-    lookups = 0
-    assert_eq(
-      resolve_native_host("cancelled.example", 2, lookup=fn(_, _) {
-        lookups += 1
-        Err(failure)
-      }),
-      Err(failure),
-    )
-    assert_eq(lookups, 1)
-  }
-  lookups = 0
-  assert_eq(
-    resolve_native_host("bounded.example", 1, lookup=fn(_, _) {
-      lookups += 1
-      Ok(ipv6)
-    }),
-    Ok([ipv6]),
-  )
-  assert_eq(lookups, 1)
+  assert_eq(addresses.map(address => address.value()), [
+    "127.0.0.2", "127.0.0.1",
+  ])
+  assert_eq(index, 3)
 }

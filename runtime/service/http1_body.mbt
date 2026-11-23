@@ -4,7 +4,7 @@
 async fn write_http1_body(
   framing : @http1.BodyFraming,
   next_frame : async () -> @body.Frame?,
-  write : async (Bytes) -> Unit,
+  write : async (Bytes, Bool) -> Unit,
 ) -> Unit {
   let encoder = match @http1.BodyEncoder::new(framing) {
     Ok(value) => value
@@ -20,7 +20,7 @@ async fn write_http1_body(
       Err(error) => raise error
     }
     if !bytes.is_empty() {
-      write(bytes)
+      write(bytes, encoder.is_complete())
     }
   }
   let ending = match encoder.finish() {
@@ -28,6 +28,6 @@ async fn write_http1_body(
     Err(error) => raise error
   }
   if !ending.is_empty() {
-    write(ending)
+    write(ending, true)
   }
 }

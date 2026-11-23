@@ -23,6 +23,7 @@ priv struct NativeTlsSession {
   input_lock : @async.Mutex
   output_lock : @async.Mutex
   mut input_generation : Int64
+  mut write_stopped : Bool
   mut closed : Bool
 }
 
@@ -39,6 +40,7 @@ fn NativeTlsSession::new(
     input_lock: Mutex(),
     output_lock: Mutex(),
     input_generation: 0L,
+    write_stopped: false,
     closed: false,
   }
 }
@@ -86,6 +88,9 @@ async fn NativeTlsSession::flush(
   defer self.output_lock.release()
   if self.closed {
     return Err(Closed)
+  }
+  if self.write_stopped {
+    return Ok(())
   }
   for ;; {
     let bytes = self.ssl.drain()
@@ -219,7 +224,7 @@ async fn NativeTlsSession::write(
   self : NativeTlsSession,
   bytes : Bytes,
 ) -> Result[Unit, @transport.TransportError] {
-  errdefer self.close()
+  errdefer (if !self.write_stopped { self.close() })
   self.write_lock.acquire()
   defer self.write_lock.release()
   let count = Ref(0)
@@ -372,6 +377,10 @@ async fn NativeTlsProvider::handshake(
     async fn(max_bytes) { session.read(max_bytes) },
     async fn(bytes) { session.write(bytes) },
     fn() { session.close() },
+    stop_writing=fn() {
+      session.write_stopped = true
+      connection.stop_writing()
+    },
     finish=async fn() { session.send_close_notify() },
   )
   transferred = true

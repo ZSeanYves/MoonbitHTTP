@@ -32,14 +32,6 @@ fn tls_u16_be(value : Int32) -> Bytes {
 }
 
 ///|
-fn quic_hash_algorithm(suite : QuicTlsCipherSuite) -> @hkdf.HashAlg {
-  match suite {
-    TlsAes128GcmSha256 => Sha256
-    TlsAes256GcmSha384 => Sha384
-  }
-}
-
-///|
 fn quic_key_length(suite : QuicTlsCipherSuite) -> Int32 {
   match suite {
     TlsAes128GcmSha256 => 16
@@ -52,14 +44,6 @@ fn quic_secret_length(suite : QuicTlsCipherSuite) -> Int32 {
   match suite {
     TlsAes128GcmSha256 => 32
     TlsAes256GcmSha384 => 48
-  }
-}
-
-///|
-fn quic_aead_algorithm(suite : QuicTlsCipherSuite) -> @aead.Algorithm {
-  match suite {
-    TlsAes128GcmSha256 => Aes128Gcm
-    TlsAes256GcmSha384 => Aes256Gcm
   }
 }
 
@@ -80,14 +64,8 @@ fn tls13_expand_label(
     full_label,
     b"\x00",
   ])
-  let expanded : Result[Bytes, Error] = Ok(
-    @hkdf.expand(quic_hash_algorithm(suite), secret, info, length),
-  ) catch {
-    error => Err(error)
-  }
-  match expanded {
-    Ok(value) => Ok(value)
-    Err(_) => Err(InvalidTrafficSecret)
+  Ok(@packet_crypto.expand(suite == TlsAes256GcmSha384, secret, info, length)) catch {
+    _ => Err(InvalidTrafficSecret)
   }
 }
 
@@ -134,7 +112,9 @@ pub fn quic_v1_initial_keys(
     return Err(InvalidTrafficSecret)
   }
   let salt = b"\x38\x76\x2c\xf7\xf5\x59\x34\xb3\x4d\x17\x9a\xe6\xa4\xc8\x0c\xad\xcc\xbb\x7f\x0a"
-  let initial_secret = @hkdf.extract(Sha256, salt, destination_connection_id)
+  let initial_secret = @packet_crypto.extract(salt, destination_connection_id) catch {
+    _ => return Err(InvalidTrafficSecret)
+  }
   let client_secret = match
     tls13_expand_label(initial_secret, TlsAes128GcmSha256, "client in", 32) {
     Ok(value) => value
@@ -221,20 +201,8 @@ pub fn QuicPacketKeys::seal(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let output : Result[Bytes, Error] = Ok(
-    @aead.seal(
-      quic_aead_algorithm(self.suite),
-      self.key,
-      nonce,
-      header,
-      plaintext,
-    ),
-  ) catch {
-    error => Err(error)
-  }
-  match output {
-    Ok(value) => Ok(value)
-    Err(_) => Err(PacketProtectionFailed)
+  Ok(@packet_crypto.seal(self.key, nonce, header, plaintext)) catch {
+    _ => Err(PacketProtectionFailed)
   }
 }
 
@@ -249,20 +217,8 @@ pub fn QuicPacketKeys::open(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let opened : Result[Bytes, Error] = Ok(
-    @aead.open(
-      quic_aead_algorithm(self.suite),
-      self.key,
-      nonce,
-      header,
-      ciphertext,
-    ),
-  ) catch {
-    error => Err(error)
-  }
-  match opened {
-    Ok(value) => Ok(value)
-    Err(_) => Err(PacketAuthenticationFailed)
+  Ok(@packet_crypto.open(self.key, nonce, header, ciphertext)) catch {
+    _ => Err(PacketAuthenticationFailed)
   }
 }
 
@@ -274,13 +230,8 @@ pub fn QuicPacketKeys::header_protection_mask(
   if sample.length() != 16 {
     return Err(PacketProtectionFailed)
   }
-  let block : Result[Bytes, Error] = Ok(
-    @aead.aes_block_encrypt(self.hp, sample),
-  ) catch {
-    error => Err(error)
+  let block = @packet_crypto.aes_block(self.hp, sample) catch {
+    _ => return Err(PacketProtectionFailed)
   }
-  match block {
-    Ok(value) => Ok(value[:5].to_owned())
-    Err(_) => Err(PacketProtectionFailed)
-  }
+  Ok(block[:5].to_owned())
 }

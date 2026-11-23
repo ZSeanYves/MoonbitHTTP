@@ -75,3 +75,9 @@ pub fn BodyEncoder::finish(self : BodyEncoder) -> Result[Bytes, Http1Error] {
   self.ended = true
   Ok(encoded)
 }
+
+///|
+/// Whether the bytes encoded so far complete the message's wire framing.
+pub fn BodyEncoder::is_complete(self : BodyEncoder) -> Bool {
+  self.ended || self.remaining == Some(0) || self.framing is NoBody
+}

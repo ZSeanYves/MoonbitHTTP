@@ -1,255 +1,4 @@
 ///|
-priv struct H2PendingRequest {
-  http_method : @types.Method
-  uri : @types.Uri
-  headers : @types.HeaderMap
-  body : @body.BodyStream
-  credit : H2ReceiveCredit
-  mut body_bytes : Int32
-  expected_body_bytes : Int32?
-  mut dispatched : Bool
-  mut response_finished : Bool
-  mut request_ended : Bool
-}
-
-///|
-priv enum H2ServerBlockedFrame {
-  BlockedData(Bytes, Bool)
-  BlockedTrailers(@types.HeaderMap)
-}
-
-///|
-priv struct H2HandlerTask {
-  mut task : @async.Task[Unit]?
-}
-
-///|
-fn H2PendingRequest::has_expected_length(self : H2PendingRequest) -> Bool {
-  match self.expected_body_bytes {
-    Some(value) => value == self.body_bytes
-    None => true
-  }
-}
-
-///|
-fn decode_h2_request(
-  stream_id : Int32,
-  fields : Array[@http2.HpackHeader],
-  body~ : @body.BodyStream = @body.BodyStream::new().unwrap(),
-  credit~ : H2ReceiveCredit = H2ReceiveCredit::new(),
-) -> Result[H2PendingRequest, @http2.H2ProtocolError] {
-  let mut meth_text = ""
-  let mut path = ""
-  let mut scheme = ""
-  let mut authority = ""
-  let mut saw_method = false
-  let mut saw_path = false
-  let mut saw_scheme = false
-  let mut saw_authority = false
-  let mut regular_host : @types.Authority? = None
-  let mut saw_regular = false
-  let headers = @types.HeaderMap::new()
-  for field in fields {
-    if field.name.has_prefix(":") {
-      if saw_regular {
-        return Err(
-          StreamError(
-            stream_id,
-            ProtocolError,
-            "pseudo-header follows regular header",
-          ),
-        )
-      }
-      match field.name {
-        ":method" => {
-          if saw_method {
-            return Err(
-              StreamError(stream_id, ProtocolError, "duplicate :method"),
-            )
-          }
-          saw_method = true
-          meth_text = match h2_field_text(field.value) {
-            Some(value) => value
-            None =>
-              return Err(
-                StreamError(stream_id, ProtocolError, "invalid :method"),
-              )
-          }
-        }
-        ":path" => {
-          if saw_path {
-            return Err(StreamError(stream_id, ProtocolError, "duplicate :path"))
-          }
-          saw_path = true
-          path = match h2_field_text(field.value) {
-            Some(value) => value
-            None =>
-              return Err(StreamError(stream_id, ProtocolError, "invalid :path"))
-          }
-        }
-        ":scheme" => {
-          if saw_scheme {
-            return Err(
-              StreamError(stream_id, ProtocolError, "duplicate :scheme"),
-            )
-          }
-          saw_scheme = true
-          scheme = match h2_field_text(field.value) {
-            Some(value) => value
-            None =>
-              return Err(
-                StreamError(stream_id, ProtocolError, "invalid :scheme"),
-              )
-          }
-        }
-        ":authority" => {
-          if saw_authority {
-            return Err(
-              StreamError(stream_id, ProtocolError, "duplicate :authority"),
-            )
-          }
-          saw_authority = true
-          authority = match h2_field_text(field.value) {
-            Some(value) => value
-            None =>
-              return Err(
-                StreamError(stream_id, ProtocolError, "invalid :authority"),
-              )
-          }
-        }
-        _ =>
-          return Err(
-            StreamError(
-              stream_id,
-              ProtocolError,
-              "unknown request pseudo-header",
-            ),
-          )
-      }
-    } else {
-      saw_regular = true
-      if !@http_fields.Request.allows(field.name, field.value) {
-        return Err(
-          StreamError(
-            stream_id,
-            ProtocolError,
-            "forbidden HTTP/2 request field",
-          ),
-        )
-      }
-      if field.name == "host" {
-        if regular_host is Some(_) {
-          return Err(StreamError(stream_id, ProtocolError, "duplicate Host"))
-        }
-        let text = match h2_field_text(field.value) {
-          Some(value) => value
-          None =>
-            return Err(StreamError(stream_id, ProtocolError, "invalid Host"))
-        }
-        regular_host = match @types.Authority::parse_endpoint(text) {
-          Ok(value) => Some(value)
-          Err(_) =>
-            return Err(StreamError(stream_id, ProtocolError, "invalid Host"))
-        }
-        continue
-      }
-      if !append_regular_header(headers, field.name, field.value) {
-        return Err(
-          StreamError(stream_id, ProtocolError, "invalid request header"),
-        )
-      }
-    }
-  }
-  if !saw_method || meth_text == "" {
-    return Err(
-      StreamError(stream_id, ProtocolError, "missing required pseudo-header"),
-    )
-  }
-  if meth_text == "CONNECT" {
-    if !saw_authority || authority == "" || saw_path || saw_scheme {
-      return Err(
-        StreamError(stream_id, ProtocolError, "invalid CONNECT pseudo-headers"),
-      )
-    }
-  } else if !saw_path ||
-    path == "" ||
-    !saw_scheme ||
-    scheme == "" ||
-    !saw_authority ||
-    authority == "" {
-    return Err(
-      StreamError(
-        stream_id,
-        ProtocolError,
-        "missing required request pseudo-header",
-      ),
-    )
-  }
-  let parsed_authority = match @types.Authority::parse_endpoint(authority) {
-    Ok(value) => value
-    Err(_) =>
-      return Err(StreamError(stream_id, ProtocolError, "invalid :authority"))
-  }
-  if regular_host is Some(host) &&
-    (
-      host.host != parsed_authority.host ||
-      host.port != parsed_authority.port ||
-      host.ip_literal != parsed_authority.ip_literal
-    ) {
-    return Err(
-      StreamError(stream_id, ProtocolError, "Host/:authority mismatch"),
-    )
-  }
-  if meth_text != "CONNECT" && scheme != "http" && scheme != "https" {
-    return Err(StreamError(stream_id, ProtocolError, "invalid :scheme"))
-  }
-  let http_method = match @types.Method::parse(meth_text) {
-    Ok(value) => value
-    Err(_) =>
-      return Err(StreamError(stream_id, ProtocolError, "invalid :method"))
-  }
-  let uri = if http_method == Connect {
-    match @types.Uri::parse_request_target(authority, http_method) {
-      Ok(value) => value
-      Err(_) =>
-        return Err(StreamError(stream_id, ProtocolError, "invalid :authority"))
-    }
-  } else {
-    match @types.Uri::parse_request_target(path, http_method) {
-      Ok(value) if value.form == OriginForm || value.form == AsteriskForm =>
-        value
-      Err(_) =>
-        return Err(StreamError(stream_id, ProtocolError, "invalid :path"))
-      _ => return Err(StreamError(stream_id, ProtocolError, "invalid :path"))
-    }
-  }
-  match headers.append_string("host", authority) {
-    Ok(_) => ()
-    Err(_) =>
-      return Err(StreamError(stream_id, ProtocolError, "invalid :authority"))
-  }
-  let expected_body_bytes = match headers.content_length() {
-    Ok(value) => value
-    Err(_) =>
-      return Err(
-        StreamError(stream_id, ProtocolError, "invalid content-length"),
-      )
-  }
-  Ok({
-    http_method,
-    uri,
-    headers,
-    body,
-    credit,
-    body_bytes: 0,
-    expected_body_bytes,
-    dispatched: false,
-    response_finished: false,
-    request_ended: false,
-  })
-}
-
-///|
 async fn[W : @aio.BinaryWriter] write_h2_frame(
   lock : @async.Mutex,
   writer : W,
@@ -285,6 +34,8 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
   config~ : ServerConfig = ServerConfig::defaults(),
   upgraded_request~ : @types.Request[@body.BodyStream]? = None,
   upgrade_settings~ : Bytes? = None,
+  shutdown~ : ServerShutdown? = None,
+  finish_transport~ : async () -> Unit = fn() {  },
 ) -> Unit {
   match config.validate() {
     Ok(_) => ()
@@ -365,9 +116,24 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
   let control = H2ServerControl::new(connection, config.limits.max_streams)
   let window_signal = @cond_var.Cond()
   let blocked_signal : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+  let streams : H2ServerStreams = {
+    pending,
+    blocked,
+    handlers,
+    connection,
+    control,
+    write_lock,
+    window_signal,
+    blocked_signal,
+  }
   let mut initial_settings_received = false
   let mut upgrade_dispatched = false
   let mut discarded_capacity = 0
+  let mut confirming_drain = false
+  let mut drain_confirmed = false
+  let drain_payload = b"draining".to_array()
+  let finished = @cond_var.Cond()
+  let mut last_accepted = if upgraded_request is Some(_) { 1 } else { 0 }
   let mut input_ended = false
   @async.with_task_group(async fn(group) {
     group.add_defer(fn() {
@@ -395,108 +161,45 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
       },
       no_wait=true,
     )
-    let cancel_handler = async fn(stream_id : Int32) {
-      if handlers.get(stream_id) is Some(handler) && handler.task is Some(task) {
-        task.cancel()
-        // Cancellation is complete only after wait returns. The task's defer
-        // owns slot removal; unexpected failures still propagate via the group.
-        task.wait() catch {
-          _ => ()
-        }
-      }
-    }
-    let release_discarded_data = fn(amount : Int32) -> Unit raise {
-      if amount <= 0 {
-        return
-      }
-      let update = match connection.release_connection_capacity(amount) {
-        Ok(value) => value
-        Err(error) => raise error
-      }
-      control.credit(update)
-    }
-    let release_consumed_data = async fn(
-      stream_id : Int32,
-      credit : H2ReceiveCredit,
-      amount : Int32,
-    ) {
-      if amount <= 0 {
-        return
-      }
-      // Claim body credit only after acquiring the write lock. If the body is
-      // cancelled while another writer holds the lock, its on_cancel handler
-      // retires the credit and this callback becomes a no-op.
-      write_lock.acquire()
-      defer write_lock.release()
-      let claimed = credit.consume(amount)
-      if claimed == 0 {
-        return
-      }
-      let updates = match connection.release_capacity(stream_id, claimed) {
-        Ok(value) => value
-        Err(error) => raise error
-      }
-      for update in updates {
-        control.credit(update)
-      }
-      blocked_signal.put(())
-    }
-    let reset_stream_with_error = fn(
-      stream_id : Int32,
-      code : @http2.H2ErrorCode,
-      failure : Error,
-    ) raise {
-      let unread = match pending.get(stream_id) {
-        Some(value) => {
-          let amount = value.credit.retire()
-          value.body.fail(failure)
-          amount
-        }
-        None => 0
-      }
-      pending.remove(stream_id)
-      blocked.remove(stream_id)
-      ignore(connection.reset_stream(stream_id))
-      release_discarded_data(unread)
-      window_signal.broadcast()
-      let encoded = match @http2.encode_rst_stream(stream_id, code) {
-        Ok(value) => value
-        Err(error) => raise error
-      }
-      control.frame(encoded)
-    }
-    let reset_stream = async fn(stream_id : Int32, code : @http2.H2ErrorCode) {
-      reset_stream_with_error(
-        stream_id,
-        code,
-        @http2.H2ProtocolError::StreamError(
-          stream_id, code, "HTTP/2 stream reset",
-        ),
+    if shutdown is Some(signal) {
+      group.spawn_bg(
+        async fn() {
+          signal.wait()
+          write_h2_frame(
+            write_lock,
+            writer,
+            @http2.encode_goaway(last_accepted, NoError).unwrap_or_error(),
+            config.write_timeout_ms,
+          )
+          while !handlers.is_empty() ||
+                (
+                  upgraded_request is Some(_) &&
+                  !upgrade_dispatched &&
+                  !input_ended
+                ) {
+            finished.wait()
+          }
+          // Let the peer receive the last END_STREAM before closing a socket
+          // which may still contain incoming flow-control frames.
+          confirming_drain = true
+          write_h2_frame(
+            write_lock,
+            writer,
+            @http2.encode_ping(drain_payload).unwrap_or_error(),
+            config.write_timeout_ms,
+          )
+          ignore(
+            @async.with_timeout_opt(config.h2_eof_drain_timeout_ms, async fn() {
+              while !drain_confirmed && !input_ended {
+                finished.wait()
+              }
+            }),
+          )
+          finish_transport()
+          group.return_immediately()
+        },
+        no_wait=true,
       )
-      cancel_handler(stream_id)
-    }
-    let finish_response = fn(stream_id : Int32) raise {
-      match connection.finish_local_stream(stream_id) {
-        Ok(_) => ()
-        Err(error) => raise error
-      }
-      // A response body can consume the request body lazily (for example an
-      // echo/proxy service). Only discard unread input after that body ends.
-      if pending.get(stream_id) is Some(value) {
-        value.response_finished = true
-        let unread = value.credit.retire()
-        if unread > 0 {
-          // A service may finish its response without reading all of the
-          // request. Reclaim that connection credit exactly once.
-          value.body.cancel(@body.BodyError::Cancelled)
-          blocked.remove(stream_id)
-          release_discarded_data(unread)
-        }
-        if value.request_ended {
-          pending.remove(stream_id)
-          blocked.remove(stream_id)
-        }
-      }
     }
     let send_response = async fn(
       stream_id : Int32,
@@ -539,7 +242,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
         config.write_timeout_ms,
       )
       if suppressed {
-        finish_response(stream_id)
+        streams.finish_response(stream_id)
         response.body.cancel(@body.BodyError::Cancelled)
         return ()
       }
@@ -577,7 +280,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
           )
         },
       )
-      finish_response(stream_id)
+      streams.finish_response(stream_id)
     }
     let dispatch = fn(stream_id : Int32) {
       guard pending.get(stream_id) is Some(value) else { return }
@@ -596,10 +299,13 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
       handlers.set(stream_id, handler)
       handler.task = Some(
         group.spawn(async fn() {
-          defer handlers.remove(stream_id)
+          defer {
+            handlers.remove(stream_id)
+            finished.broadcast()
+          }
           // This cleanup runs inside the handler; it must not join itself.
           errdefer (if pending.contains(stream_id) {
-            reset_stream_with_error(
+            streams.reset_stream_with_error(
               stream_id,
               Cancel,
               @http2.H2ProtocolError::StreamError(
@@ -635,7 +341,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
               config.write_timeout_ms,
             )
             if rejected {
-              finish_response(stream_id)
+              streams.finish_response(stream_id)
               return
             }
           }
@@ -655,7 +361,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
           capacity=config.body_queue_capacity,
           on_data_consumed=async fn(amount) {
             errdefer (if pending.contains(stream_id) {
-              reset_stream_with_error(
+              streams.reset_stream_with_error(
                 stream_id,
                 Cancel,
                 @http2.H2ProtocolError::StreamError(
@@ -667,7 +373,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
                 _ => ()
               }
             })
-            release_consumed_data(stream_id, credit, amount)
+            streams.release_consumed_data(stream_id, credit, amount)
           },
           on_cancel=fn(_) {
             if credit.retired {
@@ -695,7 +401,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
       }
       if discarded_header_code is Some(code) {
         discarded_header_code = None
-        reset_stream(stream_id, code)
+        streams.reset_stream(stream_id, code)
         return
       }
       if pending.get(stream_id) is Some(request) {
@@ -703,11 +409,11 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
           // A request trailers block already carried END_STREAM.  A second
           // HEADERS block on the same stream is a protocol error, even if
           // the handler has not finished its response yet.
-          reset_stream(stream_id, ProtocolError)
+          streams.reset_stream(stream_id, ProtocolError)
           return
         }
         if !end_stream {
-          reset_stream(stream_id, ProtocolError)
+          streams.reset_stream(stream_id, ProtocolError)
           return
         }
         let trailers = @types.HeaderMap::new()
@@ -715,12 +421,12 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
           if field.name.has_prefix(":") ||
             !@http_fields.Trailers.allows(field.name, field.value) ||
             !append_regular_header(trailers, field.name, field.value) {
-            reset_stream(stream_id, ProtocolError)
+            streams.reset_stream(stream_id, ProtocolError)
             return
           }
         }
         if !request.has_expected_length() {
-          reset_stream(stream_id, ProtocolError)
+          streams.reset_stream(stream_id, ProtocolError)
           return
         }
         request.request_ended = true
@@ -740,24 +446,26 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
         dispatch(stream_id)
         return
       }
-      if pending.length() >= config.limits.max_concurrent_requests ||
+      if (shutdown is Some(signal) && signal.started()) ||
+        pending.length() >= config.limits.max_concurrent_requests ||
         handlers.length() >= config.limits.max_concurrent_requests {
-        reset_stream(stream_id, RefusedStream)
+        streams.reset_stream(stream_id, RefusedStream)
         return
       }
       let (body, credit) = make_body(stream_id)
       let request = match decode_h2_request(stream_id, fields, body~, credit~) {
         Ok(value) => value
         Err(StreamError(error_stream, code, _)) => {
-          reset_stream(error_stream, code)
+          streams.reset_stream(error_stream, code)
           return
         }
         Err(error) => raise error
       }
+      last_accepted = last_accepted.max(stream_id)
       pending.set(stream_id, request)
       request.request_ended = end_stream
       if end_stream && !request.has_expected_length() {
-        reset_stream(stream_id, ProtocolError)
+        streams.reset_stream(stream_id, ProtocolError)
         return
       }
       dispatch(stream_id)
@@ -808,7 +516,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
           }
           let amount = discarded_capacity
           discarded_capacity = 0
-          release_discarded_data(amount)
+          streams.release_discarded_data(amount)
           drain_blocked()
         }
       },
@@ -833,12 +541,13 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
         request_ended: true,
       })
     }
-    while read_some_with_timeout(
-            reader,
-            config.read_size,
-            config.read_timeout_ms,
-          )
-          is Some(bytes) {
+    let read_frames = async fn() {
+      read_some_with_timeout(reader, config.read_size, config.read_timeout_ms) catch {
+        _ if confirming_drain => None
+        error => raise error
+      }
+    }
+    while read_frames() is Some(bytes) {
       match frames.feed(bytes) {
         Ok(_) => ()
         Err(error) => raise error
@@ -864,10 +573,17 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
             for update in updates {
               control.credit(update)
             }
-            reset_stream(stream_id, code)
+            streams.reset_stream(stream_id, code)
             []
           }
           Err(error) => raise error
+        }
+        if confirming_drain &&
+          frame.header.typ == @http2.H2_FRAME_PING &&
+          (frame.header.flags & @http2.H2_FLAGS_ACK) != 0 &&
+          frame.payload == drain_payload {
+          drain_confirmed = true
+          finished.broadcast()
         }
         for action in actions {
           match action {
@@ -943,8 +659,8 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
             }
             DataReceived(stream_id, data, end_stream, flow_size) => {
               guard pending.get(stream_id) is Some(request) else {
-                release_discarded_data(flow_size)
-                reset_stream(stream_id, ProtocolError)
+                streams.release_discarded_data(flow_size)
+                streams.reset_stream(stream_id, ProtocolError)
                 continue
               }
               if request.request_ended {
@@ -952,8 +668,8 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
                 // trailers) must not be admitted to the body or its blocked
                 // queue.  Return the receive credit before resetting the
                 // stream so the connection cannot leak flow-control window.
-                release_discarded_data(flow_size)
-                reset_stream(stream_id, ProtocolError)
+                streams.release_discarded_data(flow_size)
+                streams.reset_stream(stream_id, ProtocolError)
                 continue
               }
               let exceeds_limit = request.body_bytes >
@@ -976,8 +692,8 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
                 request.expected_body_bytes is Some(expected) &&
                 next_body_bytes != expected
               if exceeds_limit || exceeds_declared || ends_short {
-                release_discarded_data(flow_size)
-                reset_stream(
+                streams.release_discarded_data(flow_size)
+                streams.reset_stream(
                   stream_id,
                   if exceeds_limit {
                     EnhanceYourCalm
@@ -1058,8 +774,8 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
               }
               pending.remove(stream_id)
               blocked.remove(stream_id)
-              release_discarded_data(unread)
-              cancel_handler(stream_id)
+              streams.release_discarded_data(unread)
+              streams.cancel_handler(stream_id)
               window_signal.broadcast()
             }
             _ => ()
@@ -1070,6 +786,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
           !upgrade_dispatched {
           upgrade_dispatched = true
           dispatch(1)
+          finished.broadcast()
         }
       }
     }
@@ -1085,6 +802,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
     // EOF makes further WINDOW_UPDATE impossible. Responses with available
     // credit may still finish after a read-side close, but no sender may wait.
     input_ended = true
+    finished.broadcast()
     window_signal.broadcast()
     for value in pending.values() {
       value.body.fail(
@@ -1119,6 +837,8 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve
   config~ : ServerConfig = ServerConfig::defaults(),
   upgraded_request~ : @types.Request[@body.BodyStream]? = None,
   upgrade_settings~ : Bytes? = None,
+  shutdown~ : ServerShutdown? = None,
+  finish_transport~ : async () -> Unit = fn() {  },
 ) -> Unit {
   run_connection_scope(
     () => {
@@ -1129,6 +849,8 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve
         config=config.without_close_callback(),
         upgraded_request~,
         upgrade_settings~,
+        shutdown~,
+        finish_transport~,
       )
     },
     config.close_callback,

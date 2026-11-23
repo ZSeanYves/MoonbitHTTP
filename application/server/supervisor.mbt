@@ -7,6 +7,7 @@ pub struct ServerSupervisor {
   mut next_connection_id : Int32
   metrics : ServerMetrics
   connections_changed : @async.Cond
+  mut drain_listener : (() -> Unit)?
   mut close_listener : (() -> Unit)?
   mut cancel_accept : (() -> Unit)?
 }
@@ -25,6 +26,7 @@ pub fn ServerSupervisor::new(
         next_connection_id: 0,
         metrics: ServerMetrics::new(),
         connections_changed: Cond(),
+        drain_listener: None,
         close_listener: None,
         cancel_accept: None,
       })
@@ -119,6 +121,10 @@ pub fn ServerSupervisor::record_accept_error(
 pub fn ServerSupervisor::begin_shutdown(
   self : ServerSupervisor,
 ) -> Result[Unit, ServerError] {
+  if self.drain_listener is Some(drain) {
+    self.drain_listener = None
+    drain()
+  }
   // A pending Windows AcceptEx needs the listening handle until its
   // cancellation completion is delivered. The accept loop closes it after
   // joining the task. Repeated shutdown calls follow the same ordering.
@@ -163,6 +169,7 @@ pub async fn[L : Listener] ServerSupervisor::serve(
     Err(error) => return Err(error)
   }
   self.close_listener = Some(fn() { listener.close() })
+  self.drain_listener = Some(fn() { listener.begin_drain() })
   let cleanups : Map[Int32, () -> Unit] = Map([])
   let mut pending_accept : AcceptedConnection? = None
   defer {

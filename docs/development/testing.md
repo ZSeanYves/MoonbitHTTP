@@ -45,13 +45,13 @@ moon coverage clean
 moon coverage analyze -- -f cobertura -o coverage.xml
 ```
 
-The four-target matrix covers Wasm, Wasm-GC, JavaScript and Native. Native-only
+The pinned compiler runs async driver tests on Wasm, JavaScript and Native. Wasm-GC builds the portable services and executes synchronous codec and state tests. The CI command `moon run repo-tools/tools/check_runtime_tests.mbtx` verifies an executed test count for each supported runtime. Native-only
 adapters and commands have no canonical Wasm interface; expected interface
 differences are recorded by `moon info --target all` and must not be mistaken
 for generated-interface drift.
 
 `repo-tools/tools/check_architecture.mbtx` reads every local `moon.pkg`, distinguishes
-main, test and wbtest imports, checks the layer rules, and compares the result
+main, test and wbtest imports, checks direct external imports for the protocol layers and their foundations, and compares the result
 with the [generated dependency graph](../reference/generated/dependencies.md).
 After an intentional manifest change, regenerate the graph with
 `moon run repo-tools/tools/check_architecture.mbtx --write`, then review it as part of the

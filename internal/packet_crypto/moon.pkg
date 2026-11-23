@@ -1,0 +1,15 @@
+import {
+  "mizchi/experimental_crypto/aead",
+  "mizchi/experimental_crypto/hkdf",
+}
+// These imports are used by the portable implementation only.
+
+warnings = "-unused_package"
+
+options(
+  "native-stub": [ "openssl_loader.c", "openssl_packet.c" ],
+  targets: {
+    "native.mbt": [ "native", "llvm" ],
+    "portable.mbt": [ "wasm", "wasm-gc", "js" ],
+  },
+)

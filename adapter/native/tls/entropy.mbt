@@ -8,12 +8,8 @@ pub fn NativeEntropy::new() -> NativeEntropy {
 }
 
 ///|
-#borrow(buffer)
-extern "C" fn random_fill(buffer : FixedArray[Byte]) -> Bool = "moon_http_random_fill"
-
-///|
 pub impl @transport.Entropy for NativeEntropy with fn fill(_self, buffer) {
-  if random_fill(buffer) {
+  if @packet_crypto.random_fill(buffer) {
     Ok(())
   } else {
     Err(Failed("OpenSSL RAND_bytes failed"))

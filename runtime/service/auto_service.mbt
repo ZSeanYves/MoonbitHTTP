@@ -4,6 +4,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_aut
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   config~ : ServerConfig = ServerConfig::defaults(),
+  shutdown~ : ServerShutdown? = None,
 ) -> Unit {
   let detector = @auto.Detector::new()
   let prefix : Array[Byte] = []
@@ -38,6 +39,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_aut
         writer,
         service,
         config=config.without_close_callback(),
+        shutdown~,
       )
     Detected(Http1) =>
       serve_http1_or_h2c_connection(
@@ -45,6 +47,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_aut
         writer,
         service,
         config=config.without_close_callback(),
+        shutdown~,
       )
     Detected(Http2Upgrade) =>
       serve_http1_or_h2c_connection(
@@ -52,6 +55,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_aut
         writer,
         service,
         config=config.without_close_callback(),
+        shutdown~,
       )
     Undetermined =>
       raise @http1.Http1Error::InvalidStartLine(
@@ -66,6 +70,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   config~ : ServerConfig = ServerConfig::defaults(),
+  shutdown~ : ServerShutdown? = None,
 ) -> Unit {
   run_connection_scope(
     () => {
@@ -74,6 +79,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve
         writer,
         service,
         config=config.without_close_callback(),
+        shutdown~,
       )
     },
     config.close_callback,

@@ -1,8 +1,7 @@
 import {
   "ZSeanYves/MoonbitHTTP/runtime/transport",
   "moonbitlang/core/encoding/utf8",
-  "mizchi/experimental_crypto/aead",
-  "mizchi/experimental_crypto/hkdf",
+  "ZSeanYves/MoonbitHTTP/internal/packet_crypto",
 }
 
 options(

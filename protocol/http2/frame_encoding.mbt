@@ -200,3 +200,23 @@ fn build_data_frames(
   }
   out
 }
+
+///|
+/// Encode GOAWAY without optional diagnostic data.
+pub fn encode_goaway(
+  last_stream_id : Int32,
+  code : H2ErrorCode,
+) -> Result[Bytes, H2ProtocolError] {
+  if last_stream_id < 0 {
+    return Err(ConnectionError(ProtocolError, "invalid GOAWAY stream id"))
+  }
+  let payload : Array[Byte] = []
+  for value in [last_stream_id, h2_error_code_value(code)] {
+    for shift in [24, 16, 8, 0] {
+      payload.push((value >> shift).to_byte())
+    }
+  }
+  let frame = []
+  append_frame(frame, H2_FRAME_GOAWAY, 0, 0, payload)
+  Ok(Bytes::from_array(frame))
+}

@@ -26,6 +26,7 @@ pub async fn[
   }
   let allow_http1 = alpn.contains("http/1.1")
   let allow_h2 = alpn.contains("h2")
+  let shutdown = @service.ServerShutdown::new()
   NativeTcpListener::bind_tls(
     endpoint,
     policy,
@@ -35,7 +36,16 @@ pub async fn[
       let io = @service.StreamIo::new(connection.transport)
       match connection.alpn() {
         Some("h2") if allow_h2 =>
-          @service.serve_http2_connection(io, io, handler, config~)
+          @service.serve_http2_connection(
+            io,
+            io,
+            handler,
+            config~,
+            shutdown=Some(shutdown),
+            finish_transport=async fn() {
+              connection.finish().unwrap_or_error()
+            },
+          )
         Some("http/1.1") | None if allow_http1 =>
           @service.serve_http1_connection(io, io, handler, config~)
         _ =>
@@ -51,5 +61,8 @@ pub async fn[
     shutdown_timeout_ms~,
     dual_stack~,
     reuse_addr~,
-  )
+  ).map(listener => {
+    listener.shutdown = Some(shutdown)
+    listener
+  })
 }

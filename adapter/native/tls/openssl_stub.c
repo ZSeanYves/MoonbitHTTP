@@ -137,128 +137,19 @@ typedef struct {
 #define DECLARE_SYMBOL(ret, name, args) static ret (*p_##name) args;
 TLS_SYMBOLS(DECLARE_SYMBOL)
 #undef DECLARE_SYMBOL
+extern void *moon_http_tls_symbol(const char *);
 #ifdef _WIN32
 static INIT_ONCE tls_once = INIT_ONCE_STATIC_INIT;
-typedef HMODULE TlsModule;
 #else
 static pthread_once_t tls_once = PTHREAD_ONCE_INIT;
-typedef void *TlsModule;
 #endif
-static TlsModule tls_library = NULL;
-static TlsModule crypto_library = NULL;
 static int tls_available = 0;
 
-static void close_modules(TlsModule ssl, TlsModule crypto) {
-#ifdef _WIN32
-  if (ssl) FreeLibrary(ssl);
-  if (crypto) FreeLibrary(crypto);
-#else
-  if (ssl) dlclose(ssl);
-  if (crypto) dlclose(crypto);
-#endif
-}
-
-static void *find_symbol(TlsModule ssl, TlsModule crypto, const char *name) {
-#ifdef _WIN32
-  void *symbol = (void *)GetProcAddress(ssl, name);
-  return symbol ? symbol : (void *)GetProcAddress(crypto, name);
-#else
-  void *symbol = dlsym(ssl, name);
-  return symbol ? symbol : dlsym(crypto, name);
-#endif
-}
-
-#ifdef _WIN32
-static int load_module_pair(const wchar_t *ssl_path, const wchar_t *crypto_path,
-                            DWORD flags, TlsModule *ssl, TlsModule *crypto) {
-  /* Windows does not search dependency DLL exports in GetProcAddress. Both
-   * modules must be loaded, from the same explicitly selected installation. */
-  *crypto = LoadLibraryExW(crypto_path, NULL, flags);
-  *ssl = *crypto ? LoadLibraryExW(ssl_path, NULL, flags) : NULL;
-  if (*ssl) return 1;
-  close_modules(*ssl, *crypto); *ssl = NULL; *crypto = NULL;
-  return 0;
-}
-
-static int load_modules(TlsModule *ssl, TlsModule *crypto) {
-  const wchar_t *ssl_names[] = { L"libssl-3-x64.dll", L"libssl-3-arm64.dll", L"libssl-3.dll", NULL };
-  const wchar_t *crypto_names[] = { L"libcrypto-3-x64.dll", L"libcrypto-3-arm64.dll", L"libcrypto-3.dll", NULL };
-  DWORD length = GetEnvironmentVariableW(L"OPENSSL_ROOT_DIR", NULL, 0);
-  if (length) {
-    wchar_t *root = malloc(((size_t)length + 1) * sizeof(wchar_t));
-    wchar_t *ssl_path = malloc(((size_t)length + 64) * sizeof(wchar_t));
-    wchar_t *crypto_path = malloc(((size_t)length + 64) * sizeof(wchar_t));
-    if (!root || !ssl_path || !crypto_path) { free(root); free(ssl_path); free(crypto_path); return 0; }
-    DWORD actual = GetEnvironmentVariableW(L"OPENSSL_ROOT_DIR", root, length + 1);
-    int absolute = actual >= 3 && ((root[1] == L':' && (root[2] == L'\\' || root[2] == L'/')) || (root[0] == L'\\' && root[1] == L'\\'));
-    int loaded = 0;
-    if (actual && actual <= length && absolute) {
-      for (int i = 0; ssl_names[i] && !loaded; ++i) {
-        swprintf(ssl_path, (size_t)length + 64, L"%ls\\bin\\%ls", root, ssl_names[i]);
-        swprintf(crypto_path, (size_t)length + 64, L"%ls\\bin\\%ls", root, crypto_names[i]);
-        loaded = load_module_pair(ssl_path, crypto_path,
-          LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32, ssl, crypto);
-      }
-    }
-    free(root); free(ssl_path); free(crypto_path);
-    return loaded; /* Explicit selection never silently falls back. */
-  }
-  for (int i = 0; ssl_names[i]; ++i) {
-    if (load_module_pair(ssl_names[i], crypto_names[i], LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, ssl, crypto)) return 1;
-  }
-  return 0;
-}
-#else
-static int load_module_pair(const char *ssl_path, const char *crypto_path,
-                            TlsModule *ssl, TlsModule *crypto) {
-  *crypto = dlopen(crypto_path, RTLD_NOW | RTLD_LOCAL);
-  *ssl = *crypto ? dlopen(ssl_path, RTLD_NOW | RTLD_LOCAL) : NULL;
-  if (*ssl) return 1;
-  close_modules(*ssl, *crypto); *ssl = NULL; *crypto = NULL;
-  return 0;
-}
-
-static int load_modules(TlsModule *ssl, TlsModule *crypto) {
-  const char *root = getenv("OPENSSL_ROOT_DIR");
-#ifdef __APPLE__
-  const char *ssl_name = "libssl.3.dylib", *crypto_name = "libcrypto.3.dylib";
-#else
-  const char *ssl_name = "libssl.so.3", *crypto_name = "libcrypto.so.3";
-#endif
-  if (root && root[0]) {
-    if (root[0] != '/') return 0;
-    size_t capacity = strlen(root) + 64;
-    char *ssl_path = malloc(capacity), *crypto_path = malloc(capacity);
-    if (!ssl_path || !crypto_path) { free(ssl_path); free(crypto_path); return 0; }
-    const char *directories[] = { "lib", "lib64", NULL };
-    int loaded = 0;
-    for (int i = 0; directories[i] && !loaded; ++i) {
-      snprintf(ssl_path, capacity, "%s/%s/%s", root, directories[i], ssl_name);
-      snprintf(crypto_path, capacity, "%s/%s/%s", root, directories[i], crypto_name);
-      loaded = load_module_pair(ssl_path, crypto_path, ssl, crypto);
-    }
-    free(ssl_path); free(crypto_path);
-    return loaded;
-  }
-#ifdef __APPLE__
-  if (load_module_pair("/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib", "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib", ssl, crypto)) return 1;
-  if (load_module_pair("/usr/local/opt/openssl@3/lib/libssl.3.dylib", "/usr/local/opt/openssl@3/lib/libcrypto.3.dylib", ssl, crypto)) return 1;
-#endif
-  return load_module_pair(ssl_name, crypto_name, ssl, crypto);
-}
-#endif
-
 static void load_tls(void) {
-  TlsModule library = NULL, crypto = NULL;
-  if (!load_modules(&library, &crypto)) return;
-#define LOAD_SYMBOL(ret, name, args) p_##name = (ret (*) args)find_symbol(library, crypto, #name); if (!p_##name) { close_modules(library, crypto); return; }
+#define LOAD_SYMBOL(ret, name, args) p_##name = (ret (*) args)moon_http_tls_symbol(#name); if (!p_##name) return;
   TLS_SYMBOLS(LOAD_SYMBOL)
 #undef LOAD_SYMBOL
-  if (p_OpenSSL_version_num() < 0x30000000UL) { close_modules(library, crypto); return; }
-  tls_library = library;
-  crypto_library = crypto;
   tls_available = 1;
-  /* Keep the library loaded for the lifetime of handles and finalizers. */
 }
 
 #ifdef _WIN32
@@ -271,20 +162,6 @@ static void ensure_tls_loaded(void) { InitOnceExecuteOnce(&tls_once, load_tls_on
 #else
 static void ensure_tls_loaded(void) { pthread_once(&tls_once, load_tls); }
 #endif
-
-MOONBIT_FFI_EXPORT void *moon_http_tls_symbol(const char *name) {
-  ensure_tls_loaded();
-  if (!tls_library) return NULL;
-  return find_symbol(tls_library, crypto_library, name);
-}
-
-MOONBIT_FFI_EXPORT int moon_http_random_fill(uint8_t *buffer) {
-  int length = Moonbit_array_length(buffer);
-  if (length == 0) return 1;
-  typedef int (*RandomBytes)(unsigned char *, int);
-  RandomBytes generate = (RandomBytes)moon_http_tls_symbol("RAND_bytes");
-  return generate != NULL && generate(buffer, length) == 1;
-}
 
 static void capture_error(HttpTls *self, const char *fallback) {
   self->error_code = p_ERR_get_error();
@@ -659,10 +536,6 @@ MOONBIT_FFI_EXPORT int moon_http_tls_check_ocsp(HttpTls *self, int require) {
 
 MOONBIT_FFI_EXPORT int moon_http_tls_ready(HttpTls *self) { return self->initialized == 1; }
 MOONBIT_FFI_EXPORT void *moon_http_tls_ssl_handle(HttpTls *self) { return self->ssl; }
-MOONBIT_FFI_EXPORT void *moon_http_tls_library_handle(void) {
-  ensure_tls_loaded();
-  return tls_library;
-}
 MOONBIT_FFI_EXPORT int moon_http_tls_available(HttpTls *self) { return self->initialized >= 0; }
 MOONBIT_FFI_EXPORT void moon_http_tls_close(HttpTls *self) { release_tls(self); }
 MOONBIT_FFI_EXPORT uint64_t moon_http_tls_error_code(HttpTls *self) { return self->error_code; }

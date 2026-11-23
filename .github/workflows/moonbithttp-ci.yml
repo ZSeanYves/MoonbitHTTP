@@ -106,6 +106,9 @@ jobs:
       - name: Run Native QUIC suite
         run: moon test protocol/quic --target native --no-parallelize --deny-warn --warn-list +73
 
+      - name: Run Native packet protection vectors and resolver suite
+        run: moon test protocol/tls adapter/native/transport --target native --no-parallelize --deny-warn --warn-list +73
+
       - name: Run Native TLS suite
         run: moon test adapter/native/tls --target native --no-parallelize --deny-warn --warn-list +73
 
@@ -125,6 +128,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Setup MoonBit
         uses: hustcer/setup-moonbit@9199da0ab63ea0c0bab1dc15f03d76e17ed4f75f # v1.22
@@ -172,8 +176,8 @@ jobs:
       - name: Run tests
         run: moon test --target all --no-parallelize --deny-warn --warn-list +73
 
-      - name: Run async integration tests
-        run: moon test runtime/service core/body internal/test_support adapter/uv --target native --no-parallelize --deny-warn --warn-list +73
+      - name: Verify executed async tests on Native, Wasm and JS and synchronous QUIC on Wasm-GC
+        run: moon run repo-tools/tools/check_runtime_tests.mbtx
 
       - name: Run socket interoperability checks
         run: moon run repo-tools/tools/interoperability.mbtx
@@ -192,8 +196,13 @@ jobs:
       - name: Execute native release benchmarks
         run: moon run repo-tools/tools/benchmarks.mbtx
 
-      - name: Prepare Go net/http H1/H2 external reference
-        run: moon run repo-tools/tools/go_net_http_reference.mbtx
+      - name: Gate HTTP/1 decoder performance against the reviewed baseline
+        env:
+          MOONBITHTTP_PERF_BASE: b098720de9294a05f102ab51643e0f0931d0e99e
+        run: moon run repo-tools/tools/performance_comparison.mbtx
+
+      - name: Compare Go and MoonBit H1/H2 with the same probe
+        run: moon run repo-tools/tools/go_net_http_reference.mbtx -- --compare
 
       - name: Verify frozen package and release evidence
         run: moon run repo-tools/tools/release_evidence.mbtx

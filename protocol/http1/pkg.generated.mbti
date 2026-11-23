@@ -34,6 +34,7 @@ pub struct BodyEncoder {
 }
 pub fn BodyEncoder::data(Self, Bytes) -> Result[Bytes, Http1Error]
 pub fn BodyEncoder::finish(Self) -> Result[Bytes, Http1Error]
+pub fn BodyEncoder::is_complete(Self) -> Bool
 pub fn BodyEncoder::new(BodyFraming) -> Result[Self, Http1Error]
 pub fn BodyEncoder::trailers(Self, @types.HeaderMap) -> Result[Bytes, Http1Error]
 

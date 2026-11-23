@@ -140,6 +140,7 @@ pub fn AcceptedConnection::new(
 
 ///|
 pub(open) trait Listener {
+  fn begin_drain(Self) -> Unit = _
   async fn accept(Self) -> Result[AcceptedConnection?, ServerError]
   fn close(Self) -> Unit
 }
@@ -187,4 +188,9 @@ pub fn ServerConfig::with_error_responder(
   responder : (Error) -> Unit,
 ) -> ServerConfig {
   { ..self, error_responder: responder, }
+}
+
+///|
+impl Listener with fn begin_drain(_self) {
+  ()
 }

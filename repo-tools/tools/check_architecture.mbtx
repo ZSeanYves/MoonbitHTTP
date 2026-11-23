@@ -14,7 +14,7 @@ struct Dependency {
 }
 
 ///|
-fn local_imports(source : String, package_name : String) -> Array[Dependency] raise {
+fn manifest_imports(source : String, package_name : String) -> Array[Dependency] raise {
   let prefix = "ZSeanYves/MoonbitHTTP/"
   let dependencies : Array[Dependency] = []
   let block : Array[String] = []
@@ -48,7 +48,7 @@ fn local_imports(source : String, package_name : String) -> Array[Dependency] ra
     let path = parts[1]
     if path.has_prefix(prefix) {
       block.push(path[prefix.length():].to_owned())
-    }
+    } else { block.push("external:" + path.to_owned()) }
   }
   guard !importing else { fail("\{package_name}/moon.pkg: unterminated import block") }
   dependencies
@@ -70,7 +70,12 @@ fn check_edge(edge : Dependency) -> Unit raise {
     "core/types" | "core/codec" => true
     "core/body" => target != "core/types"
     "runtime/transport" | "runtime/detection" => target != "core/types"
-    "protocol/tls" => target != "runtime/transport"
+    "internal/packet_crypto" => true
+    "protocol/tls" => target != "runtime/transport" && target != "internal/packet_crypto"
+    "protocol/http1" | "protocol/http2" | "protocol/http3" | "protocol/quic" if edge.kind == "main" =>
+      !(target == "core/codec" || target == "core/types" || target == "internal/http_fields" ||
+        (source == "protocol/http3" && target == "protocol/quic") ||
+        (source == "protocol/quic" && (target == "protocol/tls" || target == "runtime/transport" || target == "internal/packet_crypto")))
     "policy/auth" | "policy/cookie" | "policy/cache" | "policy/content_coding" =>
       protocol_or_driver(target)
     _ => false
@@ -128,7 +133,22 @@ async fn main {
     let id = node_id(package_name)
     guard identities.get(id) is None else { fail("ambiguous graph node: \{package_name}") }
     identities[id] = package_name
-    for edge in local_imports(@fs.read_file(package_name + "/moon.pkg").text(), package_name) {
+    for edge in manifest_imports(@fs.read_file(package_name + "/moon.pkg").text(), package_name) {
+      if edge.target.has_prefix("external:") {
+        let target = edge.target[9:].to_owned()
+        if edge.kind == "main" && (package_name.has_prefix("protocol/") || package_name == "core/types" ||
+            package_name == "core/codec" || package_name == "internal/http_fields" || package_name == "internal/packet_crypto" || package_name == "runtime/transport") {
+          let allowed = match target {
+            "moonbitlang/core/bench" | "moonbitlang/core/buffer" | "moonbitlang/core/debug" | "moonbitlang/core/deque" |
+            "moonbitlang/core/encoding/utf8" | "moonbitlang/core/int" | "moonbitlang/core/int64" | "moonbitlang/core/string" => true
+            "moonbitlang/core/async" => package_name == "runtime/transport"
+            "mizchi/experimental_crypto/hkdf" | "mizchi/experimental_crypto/aead" => package_name == "internal/packet_crypto"
+            _ => false
+          }
+          guard allowed else { fail("unreviewed external protocol dependency: \{package_name} -> \{target}") }
+        }
+        continue
+      }
       guard packages.contains(edge.target) else { fail("missing local package: \{package_name} -> \{edge.target}") }
       check_edge(edge)
       edges[edge.source + ":" + edge.target + ":" + edge.kind] = edge
@@ -138,7 +158,7 @@ async fn main {
   output.write_string("# Generated local package dependencies\n\n")
   output.write_string("Generated from every repository `moon.pkg` by `repo-tools/tools/check_architecture.mbtx`.\n")
   output.write_string("Solid arrows are main imports; dotted arrows are test-only imports, labeled by target.\n")
-  output.write_string("Architecture boundary checks apply to both. External dependencies are omitted.\n\n```mermaid\nflowchart TD\n")
+  output.write_string("Main protocol dependencies also use an external allowlist. External edges are omitted from this graph.\n\n```mermaid\nflowchart TD\n")
   for package_name in packages { output.write_string("  \{node_id(package_name)}[\"\{package_name}\"]\n") }
   let keys = edges.keys().to_array()
   keys.sort()
