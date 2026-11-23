@@ -232,7 +232,7 @@ test "http3 runtime: invalid frame order and content length are rejected" {
   connection.accept_request_stream(0L).unwrap()
   assert_true(
     connection.receive_request_frame(0L, H3Data(b"early"))
-    is Err(Http3StreamError(0L, H3FrameUnexpected, _)),
+    is Err(Http3ConnectionError(H3FrameUnexpected, _)),
   )
   let connection = @http3.Http3Connection::new(H3Server).unwrap()
   h3_test_receive_settings(connection)

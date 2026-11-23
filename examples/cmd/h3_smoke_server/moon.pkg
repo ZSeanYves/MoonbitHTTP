@@ -2,8 +2,6 @@ import {
   "moonbitlang/async",
   "moonbitlang/async/fs",
   "moonbitlang/async/stdio",
-  "moonbitlang/core/debug",
-  "moonbitlang/core/deque",
   "ZSeanYves/MoonbitHTTP/core/types",
   "ZSeanYves/MoonbitHTTP/runtime/transport",
   "ZSeanYves/MoonbitHTTP/adapter/native/transport" @transport_native,

@@ -87,3 +87,15 @@ pub extend H3DriverAction with Eq::{equal, not_equal}
 
 ///|
 pub extend H3DriverAction with @debug.Debug::{to_repr}
+
+///|
+pub extend Http3SessionAction with Eq::{equal, not_equal}
+
+///|
+pub extend Http3SessionAction with @debug.Debug::{to_repr}
+
+///|
+pub extend Http3SessionError with Eq::{equal, not_equal}
+
+///|
+pub extend Http3SessionError with @debug.Debug::{to_repr}

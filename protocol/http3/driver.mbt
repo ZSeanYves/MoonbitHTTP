@@ -383,6 +383,11 @@ fn Http3Driver::h3_driver_handle_uni(
         output.push(QpackStreamReady(stream))
         let replayed = match self.h3_driver_replay_blocked(stream) {
           Ok(value) => value
+          Err(Http3StreamError(id, code, _)) =>
+            match self.abort_request(id, code) {
+              Ok(actions) => actions
+              Err(error) => return Err(error)
+            }
           Err(error) => return Err(error)
         }
         output.append(replayed)
@@ -413,6 +418,21 @@ pub fn Http3Driver::on_stream_data(
   if self.failure is Some(error) {
     return Err(error)
   }
+  match self.receive_fragment(stream_id, bytes, fin) {
+    Err(Http3UnexpectedEof(detail)) =>
+      self.h3_driver_fail(Http3ConnectionError(H3FrameError, detail))
+    Err(Http3ConnectionError(_, _) as error) => self.h3_driver_fail(error)
+    result => result
+  }
+}
+
+///|
+fn Http3Driver::receive_fragment(
+  self : Http3Driver,
+  stream_id : Int64,
+  bytes : Bytes,
+  fin : Bool,
+) -> Result[Array[H3DriverAction], Http3Error] {
   if stream_id < 0L {
     return self.h3_driver_fail(
       Http3ConnectionError(H3StreamCreationError, "negative stream ID"),
@@ -523,14 +543,28 @@ fn Http3Driver::discard_request_input(
   self : Http3Driver,
   stream_id : Int64,
 ) -> Result[H3DriverAction, Http3Error] {
-  let instruction = match self.connection.cancel_request_stream(stream_id) {
+  let instruction = match qpack_stream_cancellation(stream_id) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
+  if (stream_id & 3L) != 0L {
+    return Err(
+      Http3ConnectionError(H3StreamCreationError, "invalid request stream ID"),
+    )
+  }
+  self.forget_request_input(stream_id)
+  Ok(SendOnStream(self.local_qpack_decoder_stream, instruction, false))
+}
+
+///|
+fn Http3Driver::forget_request_input(
+  self : Http3Driver,
+  stream_id : Int64,
+) -> Unit {
+  self.connection.forget_request_input(stream_id)
   ignore(self.take_blocked_frames(stream_id))
   self.pending_fin.remove(stream_id)
   self.decoders.remove(stream_id)
-  Ok(SendOnStream(self.local_qpack_decoder_stream, instruction, false))
 }
 
 ///|
@@ -539,14 +573,19 @@ pub fn Http3Driver::cancel_request_stream(
   self : Http3Driver,
   stream_id : Int64,
 ) -> Result[Array[H3DriverAction], Http3Error] {
+  self.abort_request(stream_id, H3RequestCancelled)
+}
+
+///|
+fn Http3Driver::abort_request(
+  self : Http3Driver,
+  stream_id : Int64,
+  code : H3ErrorCode,
+) -> Result[Array[H3DriverAction], Http3Error] {
   self
   .discard_request_input(stream_id)
   .map(instruction => {
-    [
-      ResetStream(stream_id, H3RequestCancelled),
-      StopSending(stream_id, H3RequestCancelled),
-      instruction,
-    ]
+    [ResetStream(stream_id, code), StopSending(stream_id, code), instruction]
   })
 }
 

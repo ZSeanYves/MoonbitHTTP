@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Add a transport-driven HTTP/3 client/server session with streaming messages, bounded write queues, cancellation and per-request QPACK replay isolation. The native interoperability server now uses this public API.
+
 - Coalesce HTTP/2 receive credit while the server writer is busy. In-flight window updates for finished streams are ignored, and a valid upload burst no longer consumes the control queue with repeated credit notifications.
 
 - Collect body chunks with bulk copies and deliver each collection failure to its producer once, preserving the original cause.

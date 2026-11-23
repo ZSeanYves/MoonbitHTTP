@@ -30,11 +30,9 @@ test "h3 blocked replay releases ownership once on semantic failure and cancella
     let frame = encode_http3_frame(H3Headers(section)).unwrap()
     assert_eq(driver.on_stream_data(id, frame, true), Ok([]))
     assert_eq(driver.blocked_bytes, 4)
-    assert_true(
-      driver.on_stream_data(6L, b"\x41x\x01v", false)
-      is Err(Http3StreamError(id2, H3MessageError, _)) &&
-      id2 == id,
-    )
+    let actions = driver.on_stream_data(6L, b"\x41x\x01v", false).unwrap()
+    assert_true(actions.contains(ResetStream(id, H3MessageError)))
+    assert_eq(driver.connection.stream_phase(id), None)
     assert_eq(driver.blocked_bytes, 0)
     assert_eq(driver.blocked_frames.length(), 0)
     ignore(driver.cancel_request_stream(id).unwrap())

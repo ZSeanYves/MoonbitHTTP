@@ -89,6 +89,11 @@ pub struct QuicDatagramDriver {
 }
 
 ///|
+pub fn QuicDatagramDriver::role(self : QuicDatagramDriver) -> QuicRole {
+  self.role
+}
+
+///|
 pub fn QuicDatagramDriver::state(
   self : QuicDatagramDriver,
 ) -> QuicConnectionState {

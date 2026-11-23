@@ -90,8 +90,7 @@ fn H3RequestStreamState::receive_headers(
     }
   } else {
     Err(
-      Http3StreamError(
-        self.id,
+      Http3ConnectionError(
         H3FrameUnexpected,
         "HEADERS received after trailers or completion",
       ),
@@ -107,8 +106,7 @@ fn H3RequestStreamState::receive_data(
 ) -> Result[Unit, Http3Error] {
   if self.phase != H3OpenBody {
     return Err(
-      Http3StreamError(
-        self.id,
+      Http3ConnectionError(
         H3FrameUnexpected,
         "DATA received outside message body",
       ),

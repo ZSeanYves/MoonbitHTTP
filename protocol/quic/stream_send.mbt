@@ -188,7 +188,8 @@ pub fn QuicDatagramDriver::send_stream_prefix(
 }
 
 ///|
-fn QuicError::send_blocked(self : QuicError) -> Bool {
+/// True when a later ACK, credit update or path validation can unblock a send.
+pub fn QuicError::send_blocked(self : QuicError) -> Bool {
   match self {
     AmplificationBlocked
     | FlowControl(_, _)
@@ -285,4 +286,17 @@ pub fn QuicConnection::acknowledge_stream_frame(
     }
     _ => Ok(())
   }
+}
+
+///|
+/// Whether the local sending direction can accept another application write.
+/// Flow control and congestion are checked when a write is submitted.
+pub fn QuicConnection::stream_writable(
+  self : QuicConnection,
+  id : Int64,
+) -> Bool {
+  self.state == Established &&
+  ((id & 2L) == 0L || self.locally_initiated(id)) &&
+  self.streams.get(id) is Some(stream) &&
+  stream.send_state is Writable
 }

@@ -3,6 +3,7 @@ package "ZSeanYves/MoonbitHTTP/protocol/http3"
 
 import {
   "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/protocol/quic",
   "moonbitlang/core/debug",
   "moonbitlang/core/set",
 }
@@ -63,6 +64,14 @@ pub(all) suberror Http3Error {
 pub fn Http3Error::equal(Self, Self) -> Bool
 pub fn Http3Error::not_equal(Self, Self) -> Bool
 pub fn Http3Error::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror Http3SessionError {
+  Http3Protocol(Http3Error)
+  Http3Transport(@quic.QuicError)
+} derive(Eq, @debug.Debug)
+pub fn Http3SessionError::equal(Self, Self) -> Bool
+pub fn Http3SessionError::not_equal(Self, Self) -> Bool
+pub fn Http3SessionError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub(all) enum H3Action {
@@ -284,6 +293,29 @@ pub fn Http3FrameDecoder::feed(Self, BytesView) -> Result[Unit, Http3Error]
 pub fn Http3FrameDecoder::finish(Self) -> Result[Unit, Http3Error]
 pub fn Http3FrameDecoder::new(max_buffer_bytes? : Int, max_payload_bytes? : Int) -> Result[Self, Http3Error]
 pub fn Http3FrameDecoder::next(Self) -> Result[Http3Frame?, Http3Error]
+
+pub struct Http3Session {
+  // private fields
+}
+pub fn Http3Session::advance(Self, Array[@quic.QuicDriverAction], Int64) -> Array[Http3SessionAction]
+pub fn Http3Session::can_write(Self, Int64) -> Bool
+pub fn Http3Session::cancel(Self, Int64) -> Result[Unit, Http3Error]
+pub fn Http3Session::ended(Self) -> Bool
+pub fn Http3Session::finish(Self, Int64) -> Result[Unit, Http3Error]
+pub fn[P] Http3Session::new(@quic.QuicTlsDriver[P], limits? : @types.Limits, qpack_limits? : QpackLimits, max_pending_writes? : Int) -> Result[Self, Http3Error]
+pub fn Http3Session::send_data(Self, Int64, Bytes, fin? : Bool) -> Result[Unit, Http3Error]
+pub fn Http3Session::send_headers(Self, Int64, Array[QpackField], fin? : Bool) -> Result[Unit, Http3Error]
+pub fn Http3Session::start_request(Self, Array[QpackField], fin? : Bool) -> Result[Int64, Http3SessionError]
+
+pub(all) enum Http3SessionAction {
+  Transport(@quic.QuicDriverAction)
+  Message(H3Action)
+  StreamFailed(Int64, H3ErrorCode)
+  Failed(Http3SessionError)
+} derive(Eq, @debug.Debug)
+pub fn Http3SessionAction::equal(Self, Self) -> Bool
+pub fn Http3SessionAction::not_equal(Self, Self) -> Bool
+pub fn Http3SessionAction::to_repr(Self) -> @debug.Repr
 
 pub(all) enum QpackDecodeResult {
   QpackDecoded(Array[QpackField], Bool)

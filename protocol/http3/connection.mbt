@@ -112,6 +112,18 @@ pub fn Http3Connection::open_request_stream(
   self : Http3Connection,
   request_method? : String? = None,
 ) -> Result[Int64, Http3Error] {
+  self
+  .next_request_id()
+  .map(id => {
+    self.register_request(id, request_method)
+    id
+  })
+}
+
+///|
+fn Http3Connection::next_request_id(
+  self : Http3Connection,
+) -> Result[Int64, Http3Error] {
   if self.role != H3Client {
     return Err(
       Http3ConnectionError(
@@ -142,13 +154,20 @@ pub fn Http3Connection::open_request_stream(
       ),
     )
   }
-  let id = self.next_request_stream_id
+  Ok(self.next_request_stream_id)
+}
+
+///|
+fn Http3Connection::register_request(
+  self : Http3Connection,
+  id : Int64,
+  request_method : String?,
+) -> Unit {
   self.next_request_stream_id += 4L
   self.streams.set(
     id,
     H3RequestStreamState::new(id, H3IncomingResponse(request_method)),
   )
-  Ok(id)
 }
 
 ///|
@@ -259,8 +278,7 @@ pub fn Http3Connection::receive_request_frame(
     H3Unknown(typ, _) => actions.push(H3UnknownFrameIgnored(typ))
     _ =>
       return Err(
-        Http3StreamError(
-          stream_id,
+        Http3ConnectionError(
           H3FrameUnexpected,
           "frame type is not permitted on an HTTP/3 request stream",
         ),
@@ -307,10 +325,18 @@ pub fn Http3Connection::cancel_request_stream(
     Ok(bytes) => bytes
     Err(error) => return Err(error)
   }
+  self.forget_request_input(stream_id)
+  Ok(instruction)
+}
+
+///|
+fn Http3Connection::forget_request_input(
+  self : Http3Connection,
+  stream_id : Int64,
+) -> Unit {
   self.decoder.cancel_stream(stream_id)
   self.blocked_sections.remove(stream_id)
   self.streams.remove(stream_id)
-  Ok(instruction)
 }
 
 ///|
@@ -372,6 +398,15 @@ pub fn Http3Connection::encode_headers_frame(
       Err(error) => return Err(error)
     }
   }
+  self.encode_validated_headers(stream_id, fields)
+}
+
+///|
+fn Http3Connection::encode_validated_headers(
+  self : Http3Connection,
+  stream_id : Int64,
+  fields : Array[QpackField],
+) -> Result[Bytes, Http3Error] {
   let section = match self.encoder.encode_field_section(stream_id, fields) {
     Ok(result) => result
     Err(error) => return Err(error)

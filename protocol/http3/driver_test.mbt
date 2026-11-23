@@ -91,10 +91,10 @@ test "http3 driver: request can complete before the peer control stream arrives"
 }
 
 ///|
-test "http3 driver: blocked QPACK headers replay after encoder instructions" {
+test "http3 driver: QPACK replay delivers a ready sibling when another message fails" {
   let qpack_limits = @http3.QpackLimits::new(
     max_table_capacity=220,
-    max_blocked_streams=1,
+    max_blocked_streams=2,
   ).unwrap()
   let driver = @http3.Http3Driver::new(H3Server, qpack_limits~).unwrap()
   let settings = @http3.encode_http3_frame(H3SettingsFrame([])).unwrap()
@@ -106,6 +106,27 @@ test "http3 driver: blocked QPACK headers replay after encoder instructions" {
   let section = b"\x03\x81" + static_prefix[2:].to_owned() + b"\x10\x11"
   let request_frame = @http3.encode_http3_frame(H3Headers(section)).unwrap()
   assert_eq(driver.on_stream_data(0L, request_frame, true), Ok([]))
+  // Both sections wait for the same encoder update. One request declares
+  // a one-byte body and ends without it; the other request is complete.
+  let bad_prefix = @http3.qpack_encode_static([
+    qpack_test_field(":method", "POST"),
+    qpack_test_field(":scheme", "https"),
+  ]).unwrap()
+  let length_field = @http3.qpack_encode_static([
+    qpack_test_field("content-length", "1"),
+  ]).unwrap()
+  let bad_section = b"\x03\x81" +
+    bad_prefix[2:].to_owned() +
+    b"\x10\x11" +
+    length_field[2:].to_owned()
+  assert_eq(
+    driver.on_stream_data(
+      4L,
+      @http3.encode_http3_frame(H3Headers(bad_section)).unwrap(),
+      true,
+    ),
+    Ok([]),
+  )
   let instructions = b"\x3f\xbd\x01\xc0\x0fwww.example.com\xc1\x0c/sample/path"
   let actions = driver
     .on_stream_data(6L, b"\x02" + instructions, false)
@@ -116,6 +137,9 @@ test "http3 driver: blocked QPACK headers replay after encoder instructions" {
       action is Event(H3HeadersReceived(0L, _, false, false))
     }),
   )
+  assert_true(actions.contains(Event(H3MessageFinished(0L))))
+  assert_true(actions.contains(ResetStream(4L, H3MessageError)))
+  assert_eq(driver.connection().stream_phase(4L), None)
   assert_eq(driver.connection().stream_phase(0L), None)
 }
 

@@ -4,12 +4,8 @@
 struct SmokeConnection {
   tls : @quic.QuicTlsDriver[@tls_native.NativeQuicTlsProvider]
   provider : @tls_native.NativeQuicTlsProvider
-  h3 : @http3.Http3Driver
+  h3 : @http3.Http3Session
   post_bodies : Map[Int64, Array[Byte]]
-  writes : Map[Int64, @deque.Deque[PendingWrite]]
-  mut queued_bytes : Int
-  mut queued_writes : Int
-  mut initialized : Bool
   mut last_received_ms : Int64
 }
 
@@ -22,214 +18,86 @@ fn[T, E : Error] checked(result : Result[T, E]) -> T raise E {
 }
 
 ///|
-struct PendingWrite {
-  bytes : Bytes
-  fin : Bool
-  mut offset : Int
-}
-
-///|
-fn SmokeConnection::enqueue(
+fn SmokeConnection::advance(
   self : SmokeConnection,
-  stream : Int64,
-  bytes : Bytes,
-  fin : Bool,
-) -> Unit raise {
-  if self.queued_writes >= 1024 ||
-    bytes.length() > 1024 * 1024 - self.queued_bytes {
-    fail("smoke response queue limit exceeded")
-  }
-  self.writes
-  .get_or_init(stream, fn() { @deque.from_array([]) })
-  .push_back({ bytes, fin, offset: 0, })
-  self.queued_writes += 1
-  self.queued_bytes += bytes.length()
-}
-
-///|
-fn SmokeConnection::flush_writes(
-  self : SmokeConnection,
+  actions : Array[@quic.QuicDriverAction],
+  now_ms : Int64,
   output : Array[@quic.QuicDriverAction],
-  now_ms : Int64,
-) -> Result[Unit, @quic.QuicError] {
-  let finished : Array[Int64] = []
-  for id, queue in self.writes {
-    guard queue.front() is Some(write) else { continue }
-    match
-      self.tls
-      .datagram_driver()
-      .send_stream_prefix(id, write.bytes[write.offset:], write.fin, now_ms) {
-      Ok(Some((count, packet))) => {
-        output.push(packet)
-        write.offset += count
-        if write.offset == write.bytes.length() {
-          ignore(queue.pop_front())
-          self.queued_writes -= 1
-          self.queued_bytes -= write.bytes.length()
-        }
-      }
-      Ok(None) => ()
-      Err(StreamClosed(_)) =>
-        // A stop can reach us before the peer finishes sending its request.
-        // A response enqueued after that point has no writable stream.
-        while queue.pop_front() is Some(pending) {
-          self.queued_bytes -= pending.bytes.length()
-          self.queued_writes -= 1
-        }
-      Err(error) => return Err(error)
-    }
-    if queue.is_empty() {
-      finished.push(id)
-    }
-  }
-  for id in finished {
-    self.writes.remove(id)
-  }
-  Ok(())
-}
-
-///|
-fn SmokeConnection::h3_actions(
-  self : SmokeConnection,
-  actions : Array[@http3.H3DriverAction],
-  now_ms : Int64,
-) -> Array[@quic.QuicDriverAction] raise {
-  let output : Array[@quic.QuicDriverAction] = []
-  for action in actions {
-    match action {
-      SendOnStream(id, bytes, fin) => self.enqueue(id, bytes, fin)
-      Event(H3HeadersReceived(id, fields, false, false)) =>
-        if fields.any(field => field.name == ":method" && field.value == b"POST") {
-          self.post_bodies[id] = []
-        }
-      Event(H3DataReceived(id, bytes)) =>
-        if self.post_bodies.get(id) is Some(body) {
-          if bytes.length() > 65536 - body.length() {
-            fail("smoke body limit exceeded")
+) -> Unit raise {
+  let mut pending = self.h3.advance(actions, now_ms)
+  while !pending.is_empty() {
+    let mut wrote = false
+    for action in pending {
+      match action {
+        Message(H3HeadersReceived(id, fields, false, false)) => {
+          if !self.h3.can_write(id) {
+            continue
           }
-          for byte in bytes {
-            body.push(byte)
+          if fields.any(f => f.name == ":method" && f.value == b"HEAD") {
+            checked(
+              self.h3.send_headers(
+                id,
+                [@http3.QpackField::from_strings(":status", "200").unwrap()],
+                fin=true,
+              ),
+            )
+            wrote = true
+          } else if fields.any(f => f.name == ":method" && f.value == b"POST") {
+            self.post_bodies[id] = []
           }
         }
-      Event(H3MessageFinished(id)) => {
-        let body = match self.post_bodies.get(id) {
-          Some(bytes) => Bytes::from_array(bytes)
-          None => b"MoonbitHTTP HTTP/3 smoke\n"
+        Message(H3DataReceived(id, bytes)) =>
+          if self.post_bodies.get(id) is Some(body) {
+            if bytes.length() > 65536 - body.length() {
+              self.post_bodies.remove(id)
+              checked(self.h3.cancel(id))
+              wrote = true
+              continue
+            }
+            for byte in bytes {
+              body.push(byte)
+            }
+          }
+        Message(H3MessageFinished(id)) => {
+          let body = match self.post_bodies.get(id) {
+            Some(bytes) => Bytes::from_array(bytes)
+            None => b"MoonbitHTTP HTTP/3 smoke\n"
+          }
+          self.post_bodies.remove(id)
+          if !self.h3.can_write(id) {
+            continue
+          }
+          let fields = [
+            @http3.QpackField::from_strings(":status", "200").unwrap(),
+            @http3.QpackField::from_strings("content-type", "text/plain").unwrap(),
+            @http3.QpackField::from_strings(
+              "content-length",
+              body.length().to_string(),
+            ).unwrap(),
+          ]
+          checked(self.h3.send_headers(id, fields))
+          checked(self.h3.send_data(id, body, fin=true))
+          wrote = true
         }
-        self.post_bodies.remove(id)
-        let fields = [
-          @http3.QpackField::from_strings(":status", "200").unwrap(),
-          @http3.QpackField::from_strings("content-type", "text/plain").unwrap(),
-          @http3.QpackField::from_strings(
-            "content-length",
-            body.length().to_string(),
-          ).unwrap(),
-        ]
-        let (headers, _) = checked(self.h3.encode_headers(id, fields))
-        let (data, _) = checked(self.h3.encode_data(body, fin=true))
-        self.enqueue(id, headers + data, true)
-      }
-      ResetStream(id, code) =>
-        output.push(
-          checked(
-            self.tls
-            .datagram_driver()
-            .reset_stream(id, code.wire_value(), now_ms),
-          ),
-        )
-      StopSending(id, code) =>
-        if checked(
-            self.tls
-            .datagram_driver()
-            .stop_sending(id, code.wire_value(), now_ms),
-          )
-          is Some(packet) {
-          output.push(packet)
+        Transport(StreamReset(id, _)) => {
+          self.post_bodies.remove(id)
+          if self.h3.can_write(id) {
+            checked(self.h3.cancel(id))
+            wrote = true
+          }
         }
-      CloseConnection(code) =>
-        output.push(
-          checked(
-            self.tls
-            .datagram_driver()
-            .send_frames(
-              Application,
-              [ConnectionClose(true, code.wire_value(), 0L, b"")],
-              now_ms,
-            ),
-          ),
-        )
-      _ => ()
-    }
-  }
-  output
-}
-
-///|
-fn SmokeConnection::dispatch_h3(
-  self : SmokeConnection,
-  result : Result[Array[@http3.H3DriverAction], @http3.Http3Error],
-  now_ms : Int64,
-) -> Array[@quic.QuicDriverAction] raise {
-  let actions = match result {
-    Ok(value) => value
-    Err(Http3ConnectionError(code, _)) => [CloseConnection(code)]
-    Err(error) => raise error
-  }
-  self.h3_actions(actions, now_ms)
-}
-
-///|
-fn SmokeConnection::receive(
-  self : SmokeConnection,
-  source : @types.Endpoint,
-  payload : Bytes,
-  now_ms : Int64,
-) -> Array[@quic.QuicDriverAction] raise {
-  let actions = match self.tls.on_datagram(source, payload, now_ms) {
-    Ok(value) => value
-    Err(error) => {
-      println(@debug.to_string(error))
-      raise error
-    }
-  }
-  let output : Array[@quic.QuicDriverAction] = []
-  if !self.initialized && self.tls.datagram_driver().state() == Established {
-    for expected in [3L, 7L, 11L] {
-      let id = checked(self.tls.datagram_driver().open_unidirectional_stream())
-      if id != expected {
-        fail("HTTP/3 critical stream allocation mismatch")
+        Transport(SendStopped(id, _)) | StreamFailed(id, _) =>
+          self.post_bodies.remove(id)
+        Transport(packet) => output.push(packet)
+        Failed(error) => println("h3 session: \{Repr(error)}")
+        _ => ()
       }
     }
-    output.append(
-      self.h3_actions(checked(self.h3.initial_stream_actions()), now_ms),
-    )
-    self.initialized = true
-  }
-  for action in actions {
-    match action {
-      StreamData(id, bytes, fin) => {
-        let result = self.h3.on_stream_data(id, bytes, fin)
-        output.append(self.dispatch_h3(result, now_ms))
-        checked(
-          self.tls
-          .datagram_driver()
-          .connection()
-          .consume_stream_data(id, bytes.length()),
-        )
-      }
-      SendStopped(id, _) =>
-        output.append(self.dispatch_h3(self.h3.on_stop_sending(id), now_ms))
-      StreamReset(id, _) => {
-        self.post_bodies.remove(id)
-        output.append(self.dispatch_h3(self.h3.on_stream_reset(id), now_ms))
-      }
-      _ => output.push(action)
+    if !wrote {
+      break
     }
+    pending = self.h3.advance([], now_ms)
   }
-  if self.h3.failure() is None {
-    checked(self.flush_writes(output, now_ms))
-  }
-  output
 }
 
 ///|
@@ -270,22 +138,19 @@ async fn main {
           let output : Array[@quic.QuicDriverAction] = []
           for key, connection in connections {
             let driver = connection.tls.datagram_driver()
-            if connection.h3.failure() is Some(_) ||
+            if connection.h3.ended() ||
               driver.state() == Closed ||
               driver.state() == Draining ||
               now_ms - connection.last_received_ms >= 30000L {
               expired.push(key)
             } else {
-              let progress = connection.tls
-                .poll(now_ms)
-                .bind(actions => {
-                  output.append(actions)
-                  connection.flush_writes(output, now_ms)
-                })
-              match progress {
-                Ok(_) => ()
-                Err(error) => {
-                  println("h3 timer \{key}: \{Repr(error)}")
+              connection.advance(
+                checked(connection.tls.poll(now_ms)),
+                now_ms,
+                output,
+              ) catch {
+                error => {
+                  println("h3 timer \{key}: \{error}")
                   expired.push(key)
                 }
               }
@@ -373,12 +238,8 @@ async fn main {
           let connection = {
             tls,
             provider,
-            h3: @http3.Http3Driver::new(H3Server).unwrap(),
+            h3: checked(@http3.Http3Session::new(tls)),
             post_bodies: Map([]),
-            writes: Map([]),
-            queued_bytes: 0,
-            queued_writes: 0,
-            initialized: false,
             last_received_ms: now_ms,
           }
           connections.set(key, connection)
@@ -387,7 +248,13 @@ async fn main {
       }
       connection.last_received_ms = now_ms
       try {
-        for action in connection.receive(source, payload, now_ms) {
+        let output = []
+        connection.advance(
+          checked(connection.tls.on_datagram(source, payload, now_ms)),
+          now_ms,
+          output,
+        )
+        for action in output {
           if action is SendDatagram(destination, bytes) {
             checked(socket.send(destination, bytes))
           }

@@ -88,6 +88,7 @@ pub(all) suberror QuicError {
 } derive(Eq, @debug.Debug)
 pub fn QuicError::equal(Self, Self) -> Bool
 pub fn QuicError::not_equal(Self, Self) -> Bool
+pub fn QuicError::send_blocked(Self) -> Bool
 pub fn QuicError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
@@ -190,6 +191,7 @@ pub fn QuicConnection::send_stream(Self, Int64, Bytes, Bool) -> Result[QuicFrame
 pub fn QuicConnection::set_peer_transport_params(Self, QuicTransportParams) -> Result[Unit, QuicError]
 pub fn QuicConnection::state(Self) -> QuicConnectionState
 pub fn QuicConnection::stop_sending(Self, Int64, Int64) -> Result[QuicFrame?, QuicError]
+pub fn QuicConnection::stream_writable(Self, Int64) -> Bool
 pub fn QuicConnection::take_credit_updates(Self) -> Array[QuicFrame]
 
 pub(all) struct QuicConnectionId {
@@ -257,6 +259,7 @@ pub fn QuicDatagramDriver::peer_connection_id(Self) -> ConnectionId
 pub fn QuicDatagramDriver::poll(Self, Int64) -> Result[Array[QuicDriverAction], QuicError]
 pub async fn[S : @transport.DatagramSocket] QuicDatagramDriver::receive_once(Self, S, Int, Int64) -> Result[Array[QuicDriverAction], QuicError]
 pub fn QuicDatagramDriver::reset_stream(Self, Int64, Int64, Int64) -> Result[QuicDriverAction, QuicError]
+pub fn QuicDatagramDriver::role(Self) -> QuicRole
 pub async fn[S : @transport.DatagramSocket] QuicDatagramDriver::send_action(Self, S, QuicDriverAction) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::send_frames(Self, PacketNumberSpace, Array[QuicFrame], Int64) -> Result[QuicDriverAction, QuicError]
 pub fn[C : @transport.Clock, E : @transport.Entropy] QuicDatagramDriver::send_retry_validated(Self, @types.Endpoint, C, E) -> Result[QuicDriverAction, QuicError]
