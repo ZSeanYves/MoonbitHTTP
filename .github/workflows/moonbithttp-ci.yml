@@ -153,7 +153,7 @@ jobs:
       - name: Check formatting
         run: moon fmt --check
 
-      - name: Check architecture boundaries and generated dependency graph
+      - name: Check package boundaries and dependency snapshot
         run: moon run repo-tools/tools/check_architecture.mbtx
 
       - name: Check code (deny warnings)

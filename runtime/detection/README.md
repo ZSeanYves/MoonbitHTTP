@@ -21,6 +21,4 @@ Feed fragments to one Detector and preserve buffered bytes for the selected serv
 Detection is bounded and non-consuming. It does not validate a complete exchange, select HTTP/3, or open a socket.
 
 ## Canonical docs
-- [Package map](../../docs/concepts/packages.md)
-- [Architecture](../../docs/concepts/architecture.md)
 - [Root guide](../../README.md)

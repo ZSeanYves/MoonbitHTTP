@@ -40,8 +40,6 @@ reader task、body queue、流控释放、deadline、取消和 close 均受 serv
 
 ## 规范文档
 - [中文总览](../../README_zh.md)
-- [包地图](../../docs/concepts/packages.md)
-- [架构](../../docs/concepts/architecture.md)
 
 `H2Client::send` 等待本地容量和对端的并发流额度。SETTINGS 提高额度后可恢复等待的请求。GOAWAY 或连接关闭会唤醒等待者并返回错误。请求头已写出时，取消等待响应头的任务会复位对应的流。
 

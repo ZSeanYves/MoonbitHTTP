@@ -22,5 +22,3 @@ Last reviewed: 2026-10-01
 
 ## 规范文档
 - [中文总览](../../README_zh.md)
-- [包地图](../../docs/concepts/packages.md)
-- [架构](../../docs/concepts/architecture.md)

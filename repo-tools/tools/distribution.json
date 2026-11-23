@@ -17,27 +17,9 @@
     "internal/test_support/**",
     "internal/http_fields/**",
     "internal/async_support/**",
-    "internal/packet_crypto/**",
-    "docs/README.md",
-    "docs/concepts/**",
-    "docs/development/**",
-    "docs/guide/**",
-    "docs/protocols/**",
-    "docs/reference/generated/**",
-    "docs/history/timeline.md",
-    "docs/release/current.md",
-    "docs/release/gates.md",
-    "docs/release/packaging.md",
-    "docs/release/roadmap.zh-CN.md"
+    "internal/packet_crypto/**"
   ],
   "exclude": [
-    "docs/archive/**",
-    "docs/maintenance-plan.md",
-    "docs/performance-v1.md",
-    "docs/release-evidence-2026-09-22.md",
-    "docs/task-handoff-2026-09-22.zh-CN.md",
-    "docs/v1-baseline-2026-09-29.md",
-    "docs/v1-evidence-2026-09-30.md",
     "adapter/native/tls/testdata/**"
   ],
   "required": [

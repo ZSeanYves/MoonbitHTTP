@@ -21,6 +21,4 @@ Use FullBody for known bytes, QueueBody for finite frames, and bounded BodyStrea
 The stream preserves Data, Trailers, completion, cancellation, and terminal errors. Queue and collection limits are enforced; framing stays in protocol packages.
 
 ## Canonical docs
-- [Package map](../../docs/concepts/packages.md)
-- [Architecture](../../docs/concepts/architecture.md)
 - [Root guide](../../README.md)

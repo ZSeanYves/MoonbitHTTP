@@ -23,7 +23,5 @@ UdpSocket 只接受数字单播目标，IPv4-mapped IPv6 中的组播地址也�
 
 ## 规范文档
 - [中文总览](../../../README_zh.md)
-- [包地图](../../../docs/concepts/packages.md)
-- [架构](../../../docs/concepts/architecture.md)
 
 `NativeResolver` 按系统 `getaddrinfo` 顺序返回去重后的 IPv4 与无作用域 IPv6 地址，上限为 `max_results`。解析在事件循环之外执行。调用超时后即可返回，尚未完成的系统查询继续占用工作线程，进程内最多同时执行 16 个查询。

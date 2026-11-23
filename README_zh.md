@@ -20,9 +20,7 @@ moon add ZSeanYves/MoonbitHTTP@0.7.0
 当前源码请直接 clone 仓库并使用项目锁定的 MoonBit 工具链；发布前的源码验证
 以仓库 CI 和 release 检查为准。
 
-包地图和依赖边界见
-[`docs/concepts/packages.md`](docs/concepts/packages.md)。各包的 API 说明
-放在包目录旁，生成的 `.mbti` 文件仍是规范接口表面。
+包目录下的 README 介绍用法，`pkg.generated.mbti` 列出公开 API。
 
 当前未发布源码提供 `with_http2_client`，可向多个源站发起流式 HTTP/2
 请求并复用连接。Native 服务端可用 `NativeTcpListener::bind_http_tls` 在同一
@@ -91,7 +89,7 @@ RFC 链接说明实现对照的协议契约，不表示所有可选扩展或部�
 
 ## 示例
 
-[流式客户端指南](docs/guide/getting-started.md#streaming-get-and-cancellable-upload)提供 HTTP/1.1、HTTP/2 和 HTTP/3 的 GET 与可取消上传命令。
+`streaming_client` 示例接受 `h1`、`h2` 或 `h3`，支持 `get` 和 `upload`。访问本地 HTTP/1.1 服务可运行 `moon run examples/cmd/streaming_client --target native -- h1 get http://127.0.0.1:18080/`。
 
 - [`examples/cmd/smoke_server`](examples/cmd/smoke_server/README.md)：有界的
   Native HTTP/1.1 和 h2c 服务 smoke fixture。
@@ -120,9 +118,7 @@ Native TLS 套件、HTTP/3/QUIC 互操作，以及受控 Native 性能/参考运
 开发和 loopback 验证，不单独证明公网容量、长时间可靠性、跨平台部署覆盖或完整的
 独立安全审计。
 
-见 [`docs/release/current.md`](docs/release/current.md) 的证据摘要、
-[`docs/release/gates.md`](docs/release/gates.md) 的发布条件，以及
-[`CHANGELOG.md`](CHANGELOG.md) 的版本记录。
+各版本的变化见[更新日志](CHANGELOG.md)。
 
 ## 注意事项
 

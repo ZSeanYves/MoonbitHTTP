@@ -21,6 +21,4 @@ The interoperability runner uses the default streaming handler. The paired Go co
 This fixture does not define another protocol implementation or production configuration surface.
 
 ## Canonical docs
-- [Package map](../../../docs/concepts/packages.md)
-- [Architecture](../../../docs/concepts/architecture.md)
 - [Root guide](../../../README.md)

@@ -21,6 +21,4 @@ Translate callback offsets and lengths exactly, close when the host transport cl
 Closed transports reject further operations and callback failures remain at the I/O boundary. It does not select protocol, resolver, TLS, or policy.
 
 ## Canonical docs
-- [Package map](../../docs/concepts/packages.md)
-- [Architecture](../../docs/concepts/architecture.md)
 - [Root guide](../../README.md)

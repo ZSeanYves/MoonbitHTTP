@@ -21,6 +21,4 @@ Give Buffer an explicit maximum and feed arbitrary fragments; translate CodecErr
 Buffer growth is bounded. Huffman decoding rejects invalid codes, EOS in data, and invalid padding; HTTP field rules remain in protocol packages.
 
 ## Canonical docs
-- [Package map](../../docs/concepts/packages.md)
-- [Architecture](../../docs/concepts/architecture.md)
 - [Root guide](../../README.md)

@@ -41,8 +41,6 @@ new field, or use `..ServerConfig::defaults()`.
 `serve_http3_connection(io, handler)` dispatches one task per admitted request. The handler shares the HTTP/1 and HTTP/2 streaming request/response signature. An individual handler failure resets its stream. After an early response it stops the upload with `STOP_SENDING(H3_NO_ERROR)`. Supply `on_request_error` to observe individual handler errors. `with_h3_client` uses the same I/O scope for concurrent typed client requests. It keeps completed response bodies readable while the application finishes consuming them.
 
 ## Canonical docs
-- [Package map](../../docs/concepts/packages.md)
-- [Architecture](../../docs/concepts/architecture.md)
 - [Root guide](../../README.md)
 
 `H2Client::send` waits for both local capacity and the peer's concurrent-stream allowance. A SETTINGS increase can resume a waiting request. GOAWAY or connection shutdown wakes waiters with an error, and cancelling a request while waiting for response headers resets its open stream.

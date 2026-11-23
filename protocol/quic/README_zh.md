@@ -30,5 +30,3 @@ packet space、frame legality、amplification、路径验证、Retry、丢包、
 
 ## 规范文档
 - [中文总览](../../README_zh.md)
-- [包地图](../../docs/concepts/packages.md)
-- [架构](../../docs/concepts/architecture.md)

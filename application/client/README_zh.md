@@ -28,5 +28,3 @@ Last reviewed: 2026-11-23
 
 ## 规范文档
 - [中文总览](../../README_zh.md)
-- [包地图](../../docs/concepts/packages.md)
-- [架构](../../docs/concepts/architecture.md)

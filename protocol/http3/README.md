@@ -36,6 +36,4 @@ Use `Http3Session::send_goaway(first_rejected)` on a server control stream. Choo
 
 ## Canonical docs
 
-- [Package map](../../docs/concepts/packages.md)
-- [Architecture](../../docs/concepts/architecture.md)
 - [Root guide](../../README.md)

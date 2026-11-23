@@ -21,6 +21,4 @@ Inject a fixture into a codec, driver, or capability contract and assert observa
 Fixtures are deterministic and bounded. ZeroEntropy and in-memory sockets are never production security or network providers.
 
 ## Canonical docs
-- [Package map](../../docs/concepts/packages.md)
-- [Architecture](../../docs/concepts/architecture.md)
 - [Root guide](../../README.md)

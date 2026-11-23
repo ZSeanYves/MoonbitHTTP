@@ -21,6 +21,4 @@ Feed arbitrary fragments, consume every event, preserve over-read bytes, and sel
 Ambiguous lengths, illegal trailers, request-smuggling combinations, and invalid method/target/header forms are rejected. Lifecycle belongs to service or client.
 
 ## Canonical docs
-- [Package map](../../docs/concepts/packages.md)
-- [Architecture](../../docs/concepts/architecture.md)
 - [Root guide](../../README.md)

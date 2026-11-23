@@ -21,6 +21,4 @@ Construct through validating constructors and propagate typed errors. Keep the b
 Header names, URI authorities, IP literals, methods, and limits are validated at construction. No framing, socket, TLS, resolver, or policy implementation lives here.
 
 ## Canonical docs
-- [Package map](../../docs/concepts/packages.md)
-- [Architecture](../../docs/concepts/architecture.md)
 - [Root guide](../../README.md)

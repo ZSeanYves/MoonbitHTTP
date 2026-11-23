@@ -1,0 +1,149 @@
+[packages]
+core/body
+adapter/uv
+core/codec
+core/types
+policy/auth
+policy/cache
+protocol/tls
+policy/cookie
+protocol/quic
+protocol/http1
+protocol/http2
+protocol/http3
+runtime/service
+runtime/detection
+runtime/transport
+adapter/native/tls
+application/client
+application/server
+internal/http_fields
+adapter/native/client
+adapter/native/server
+internal/test_support
+policy/content_coding
+internal/async_support
+internal/packet_crypto
+adapter/native/transport
+examples/cmd/smoke_server
+examples/cmd/h3_smoke_client
+examples/cmd/h3_smoke_server
+examples/cmd/streaming_client
+internal/test_support/native_tls_revocation
+
+[imports: source kind target]
+core/body main core/types
+policy/auth main core/types
+policy/cache main core/types
+policy/cookie main core/types
+protocol/quic main core/types
+protocol/http1 main core/codec
+protocol/http1 main core/types
+protocol/http2 main core/codec
+protocol/http2 main core/types
+protocol/http3 main core/codec
+protocol/http3 main core/types
+runtime/service main core/body
+protocol/quic main protocol/tls
+runtime/service main core/types
+runtime/service test adapter/uv
+application/client main core/body
+protocol/http3 main protocol/quic
+runtime/detection main core/types
+runtime/transport main core/types
+adapter/native/tls main core/types
+application/client main core/types
+runtime/service main protocol/quic
+application/client main policy/auth
+protocol/tls main runtime/transport
+runtime/service main protocol/http1
+runtime/service main protocol/http2
+runtime/service main protocol/http3
+adapter/native/server main core/body
+application/client main policy/cache
+internal/http_fields main core/types
+policy/content_coding main core/body
+protocol/quic main runtime/transport
+adapter/native/client main core/types
+adapter/native/server main core/types
+application/client main policy/cookie
+internal/test_support test core/types
+policy/content_coding main core/types
+adapter/native/tls wbtest protocol/tls
+application/client main protocol/http1
+application/client main protocol/http2
+runtime/service main runtime/detection
+runtime/service main runtime/transport
+adapter/native/tls wbtest protocol/quic
+application/client main runtime/service
+adapter/native/client main protocol/quic
+adapter/native/server main protocol/quic
+adapter/native/transport main core/types
+examples/cmd/smoke_server main core/body
+protocol/http2 main internal/http_fields
+protocol/http3 main internal/http_fields
+protocol/quic test internal/test_support
+protocol/tls main internal/packet_crypto
+adapter/native/client main protocol/http3
+adapter/native/server main protocol/http3
+adapter/native/tls main runtime/transport
+application/client main runtime/transport
+application/server main runtime/transport
+examples/cmd/smoke_server main core/types
+internal/test_support test protocol/http1
+protocol/quic main internal/packet_crypto
+runtime/service main internal/http_fields
+adapter/native/client main runtime/service
+adapter/native/server main runtime/service
+examples/cmd/h3_smoke_client main core/body
+examples/cmd/h3_smoke_server main core/body
+runtime/service main internal/async_support
+adapter/native/client main runtime/transport
+adapter/native/server main runtime/transport
+examples/cmd/h3_smoke_client main core/types
+examples/cmd/h3_smoke_server main core/types
+examples/cmd/streaming_client main core/body
+internal/test_support main runtime/transport
+adapter/native/client main adapter/native/tls
+adapter/native/client main application/client
+adapter/native/server main adapter/native/tls
+adapter/native/server main application/server
+application/client main policy/content_coding
+application/client test internal/test_support
+examples/cmd/smoke_server main protocol/http2
+examples/cmd/streaming_client main core/types
+adapter/native/tls main internal/packet_crypto
+application/client main internal/async_support
+examples/cmd/smoke_server main runtime/service
+adapter/native/server wbtest application/server
+adapter/native/tls wbtest internal/test_support
+adapter/native/transport main runtime/transport
+examples/cmd/h3_smoke_client main protocol/quic
+examples/cmd/h3_smoke_server main protocol/quic
+adapter/native/client main policy/content_coding
+adapter/native/tls wbtest internal/async_support
+examples/cmd/smoke_server main runtime/transport
+adapter/native/server main internal/async_support
+adapter/native/transport wbtest runtime/transport
+examples/cmd/h3_smoke_client main runtime/service
+examples/cmd/h3_smoke_server main runtime/service
+examples/cmd/smoke_server main adapter/native/tls
+examples/cmd/smoke_server main application/server
+adapter/native/server wbtest adapter/native/client
+adapter/native/client main adapter/native/transport
+adapter/native/server main adapter/native/transport
+examples/cmd/h3_smoke_client main runtime/transport
+examples/cmd/h3_smoke_server main runtime/transport
+adapter/native/transport main internal/async_support
+examples/cmd/h3_smoke_server main application/server
+examples/cmd/smoke_server main adapter/native/server
+examples/cmd/streaming_client main runtime/transport
+examples/cmd/streaming_client main adapter/native/tls
+examples/cmd/streaming_client main application/client
+examples/cmd/h3_smoke_client main adapter/native/client
+examples/cmd/h3_smoke_server main adapter/native/server
+examples/cmd/streaming_client main adapter/native/client
+examples/cmd/h3_smoke_client main adapter/native/transport
+examples/cmd/streaming_client main adapter/native/transport
+adapter/native/tls wbtest internal/test_support/native_tls_revocation
+internal/test_support/native_tls_revocation main internal/packet_crypto

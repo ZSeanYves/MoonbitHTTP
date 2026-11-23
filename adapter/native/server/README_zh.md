@@ -30,5 +30,3 @@ policy 拒绝必须先于 socket 创建或 handler；adapter 负责 socket close
 
 ## 规范文档
 - [中文总览](../../../README_zh.md)
-- [包地图](../../../docs/concepts/packages.md)
-- [架构](../../../docs/concepts/architecture.md)

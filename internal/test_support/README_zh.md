@@ -22,5 +22,3 @@ fixture 必须确定且有界；ZeroEntropy 和内存 socket 绝不可作为生�
 
 ## 规范文档
 - [中文总览](../../README_zh.md)
-- [包地图](../../docs/concepts/packages.md)
-- [架构](../../docs/concepts/architecture.md)

@@ -289,7 +289,7 @@ async fn main {
     "dependency_snapshot": "resolved-dependencies.json",
     "dependency_lock": "moon has no committed lockfile here; pinned moon.mod plus resolved dependency snapshot are evidence, not a resolver lock",
     "distribution_manifest_sha256": digest(@utf8.encode(distribution_manifest)),
-    "release_gate_assessment": "not assessed by packaging tool; consult docs/release/roadmap.zh-CN.md",
+    "release_gate_assessment": "outside the scope of package verification",
   }
   @fs.write_file(
     directory + "/evidence.json",

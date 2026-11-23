@@ -8,5 +8,4 @@
 does not own sockets, framing or connection lifecycle. Use it from a client or
 server policy layer; keep credentials outside protocol state.
 
-See [package map](../../docs/concepts/packages.md) and the generated interface
-for the current declarations.
+See the [public interface](pkg.generated.mbti) for the available authentication types and helpers.

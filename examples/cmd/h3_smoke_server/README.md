@@ -25,6 +25,4 @@ Let the repository runner start and stop this executable. Never use its checked-
 Connection, body, stream, and UDP work stays bounded; results are interoperability evidence, not pressure or performance guarantees.
 
 ## Canonical docs
-- [Package map](../../../docs/concepts/packages.md)
-- [Architecture](../../../docs/concepts/architecture.md)
 - [Root guide](../../../README.md)

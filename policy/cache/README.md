@@ -8,4 +8,4 @@
 perform I/O or implement protocol framing. Enable it explicitly in an
 application client.
 
-See [package map](../../docs/concepts/packages.md) for dependency boundaries.
+See the [public interface](pkg.generated.mbti) for cache lookup and storage operations.

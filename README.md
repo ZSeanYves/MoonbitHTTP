@@ -22,10 +22,7 @@ For the current source checkout, clone the repository and use its pinned
 MoonBit toolchain; the repository's CI and release checks are the authoritative
 way to validate a checkout before publication.
 
-The package map and dependency boundaries are documented in
-[`docs/concepts/packages.md`](docs/concepts/packages.md). Package-level API
-documentation is kept beside each package; generated `.mbti` files remain the
-canonical interface surface.
+Package READMEs describe usage. The generated `pkg.generated.mbti` files list the public APIs.
 
 The source checkout adds `with_http2_client` for pooled streaming requests to
 direct HTTP/2 origins. Native servers can use `NativeTcpListener::bind_http_tls`
@@ -106,7 +103,7 @@ not import `adapter/native/*`.
 
 ## Examples
 
-The [streaming client guide](docs/guide/getting-started.md#streaming-get-and-cancellable-upload) runs GET and cancellable uploads over all three HTTP versions.
+The `streaming_client` example accepts `h1`, `h2` or `h3` and either `get` or `upload`. To fetch a page from a local HTTP/1.1 server, run `moon run examples/cmd/streaming_client --target native -- h1 get http://127.0.0.1:18080/`.
 
 - [`examples/cmd/smoke_server`](examples/cmd/smoke_server/README.md) — bounded
   Native HTTP/1.1 and h2c service smoke fixture.
@@ -138,9 +135,7 @@ development and loopback validations. They do not by themselves establish
 public-network capacity, long-duration reliability, cross-platform deployment
 coverage, or a complete independent security assessment.
 
-See [`docs/release/current.md`](docs/release/current.md) for the current
-evidence summary, [`docs/release/gates.md`](docs/release/gates.md) for release
-conditions, and [`CHANGELOG.md`](CHANGELOG.md) for version history.
+See the [changelog](CHANGELOG.md) for changes by version.
 
 ## Caveats
 

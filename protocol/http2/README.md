@@ -21,6 +21,4 @@ Create a connection with explicit role and limits, feed frames, and apply return
 Frame size, stream IDs, pseudo-fields, SETTINGS roles, HPACK bounds, and both flow-control windows are checked before state changes.
 
 ## Canonical docs
-- [Package map](../../docs/concepts/packages.md)
-- [Architecture](../../docs/concepts/architecture.md)
 - [Root guide](../../README.md)

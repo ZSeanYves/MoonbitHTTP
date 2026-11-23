@@ -25,5 +25,3 @@ HTTP/3 的 `with_http3_client` 接受主机名。通过 `resolver=Some(resolver)
 
 ## 规范文档
 - [中文总览](../../../README_zh.md)
-- [包地图](../../../docs/concepts/packages.md)
-- [架构](../../../docs/concepts/architecture.md)

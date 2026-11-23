@@ -15,6 +15,6 @@ After accepting bytes from a `StreamData` event, call `consume_stream_data(strea
 
 For nonblocking writes, `QuicDatagramDriver::send_stream_prefix` returns the accepted byte count and its datagram. Keep the remaining bytes until a later receive or timer callback. A blocked write preserves its offset and a final write carries FIN only on the last portion.
 
-See [the QUIC/TLS boundary](../../docs/protocols/quic-tls.md).
+The [TLS package](../tls/README.md) provides the handshake and packet keys used by QUIC.
 
 Use `stop_sending` to relinquish unread input. It suppresses further data delivery for that half while still accounting for in-flight bytes and the final size. A peer stop produces `SendStopped(id, code)`. Drop queued output for that stream. The datagram driver sends the reset in `poll()` and retains it across congestion and packet loss. Custom transports must discard obsolete STREAM retransmissions and reliably send the accompanying `SendFrame(ResetStream(...))`.
