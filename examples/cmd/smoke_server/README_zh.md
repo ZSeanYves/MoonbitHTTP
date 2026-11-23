@@ -24,3 +24,5 @@ Last reviewed: 2026-10-01
 - [中文总览](../../../README_zh.md)
 - [包地图](../../../docs/concepts/packages.md)
 - [架构](../../../docs/concepts/architecture.md)
+
+Go 成对对照使用 `--echo-h1 PORT` 与 `--echo-h2 PORT CERT KEY`。两种模式均在回环地址接收请求、读取有大小上限的正文并原样返回。HTTP/2 模式使用仓库测试证书协商 TLS。

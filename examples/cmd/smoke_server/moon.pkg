@@ -1,4 +1,11 @@
 import {
+  "moonbitlang/core/env",
+  "moonbitlang/core/string",
+  "moonbitlang/async/fs",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/MoonbitHTTP/adapter/native/server" @native_server,
+  "ZSeanYves/MoonbitHTTP/application/server" @server_api,
+  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @tls_native,
   "moonbitlang/async",
   "moonbitlang/async/socket",
   "ZSeanYves/MoonbitHTTP/runtime/service",

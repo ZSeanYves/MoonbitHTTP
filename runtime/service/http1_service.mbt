@@ -125,12 +125,15 @@ fn expects_request_body(request : @types.Request[Unit]) -> Bool {
 }
 
 ///|
-fn[A] should_keep_alive(request : @types.Request[A]) -> Bool {
-  match request.version {
-    Http11 => !header_has_token(request.headers, "connection", "close")
-    Http10 => header_has_token(request.headers, "connection", "keep-alive")
-    Http2 | Http3 => true
-  }
+fn http1_allows_persistence(
+  version : @types.Version,
+  headers : @types.HeaderMap,
+) -> Bool {
+  !header_has_token(headers, "connection", "close") &&
+  (
+    version == Http11 ||
+    (version == Http10 && header_has_token(headers, "connection", "keep-alive"))
+  )
 }
 
 ///|
@@ -182,7 +185,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
   let mut active : @async.Task[Unit]? = None
   let mut active_stream : @body.BodyStream? = None
   let mut handler_done = false
-  let mut connection_upgraded = false
+  let mut finish_after_response = false
   @async.with_task_group(async fn(group) {
     group.add_defer(fn() {
       if active_stream is Some(stream) && !handler_done {
@@ -198,203 +201,174 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
     }
     let drive_result : Result[Unit, Error] = try {
       let decoder = @http1.RequestDecoder::new(limits=config.limits)
-      while read_some_with_timeout(
-              reader,
-              config.read_size,
-              config.read_timeout_ms,
-            )
-            is Some(bytes) {
-        match decoder.feed(bytes) {
-          Ok(_) => ()
+      let mut eof = false
+      for ;; {
+        let event = match decoder.next() {
+          Ok(Some(event)) => event
           Err(error) => raise error
-        }
-        while true {
-          let event = match decoder.next() {
-            Ok(Some(value)) => value
-            Ok(None) => break
-            Err(error) => raise error
-          }
-          match event {
-            RequestHead(request) => {
-              if has_unsupported_expectation(request.headers) {
-                let response_head : @types.Response[Unit] = {
-                  status: 417,
-                  version: request.version,
-                  headers: @types.HeaderMap::new(),
-                  body: (),
-                }
-                let encoded = match
-                  @http1.encode_response_head(
-                    response_head,
-                    request.http_method,
-                    NoBody,
-                  ) {
-                  Ok(value) => value
+          Ok(None) if eof => break
+          Ok(None) => {
+            match
+              read_some_with_timeout(
+                reader,
+                config.read_size,
+                config.read_timeout_ms,
+              ) {
+              Some(bytes) =>
+                match decoder.feed(bytes) {
+                  Ok(_) => ()
                   Err(error) => raise error
                 }
-                write_with_timeout(writer, encoded, config.write_timeout_ms)
-                return ()
+              None => {
+                eof = true
+                decoder.finish_input()
               }
-              if request.version == Http11 &&
-                header_has_token(request.headers, "expect", "100-continue") &&
-                expects_request_body(request) {
-                write_with_timeout(
-                  writer,
-                  b"HTTP/1.1 100 Continue\r\n\r\n",
-                  config.write_timeout_ms,
-                )
+            }
+            continue
+          }
+        }
+        match event {
+          RequestHead(_) if eof =>
+            raise @http1.Http1Error::UnexpectedEof("request body")
+          RequestHead(request) => {
+            if has_unsupported_expectation(request.headers) {
+              let response_head : @types.Response[Unit] = {
+                status: 417,
+                version: request.version,
+                headers: @types.HeaderMap::new(),
+                body: (),
               }
-              handler_done = false
-              let stream = match
-                @body.BodyStream::new(capacity=config.body_queue_capacity) {
+              let encoded = match
+                @http1.encode_response_head(
+                  response_head,
+                  request.http_method,
+                  NoBody,
+                ) {
                 Ok(value) => value
                 Err(error) => raise error
               }
-              active_stream = Some(stream)
-              let request = request.map_body(fn(_) { stream })
-              active = Some(
-                group.spawn(async fn() {
-                  defer {
-                    handler_done = true
-                    // The outgoing body may consume request input lazily.
-                    // Once it ends, wake any producer blocked on unread input.
-                    stream.cancel(@body.BodyError::Cancelled)
-                  }
-                  let response = service(request)
-                  with_outgoing_body_scope(response.body, async fn() {
-                    let request_method = request.http_method
-                    let version = request.version
-                    let mut framing = @http1.NoBody
-                    if response.status != 101 &&
-                      @types.response_allows_body(
-                        request_method,
-                        response.status,
-                      ) {
-                      match response.body.size_hint().exact_size() {
-                        Some(size) => framing = ContentLength(size)
-                        None =>
-                          framing = if version == Http11 {
-                            Chunked
-                          } else {
-                            CloseDelimited
-                          }
-                      }
-                    }
-                    if response.status == 101 {
-                      connection_upgraded = true
-                      framing = NoBody
-                    }
-                    if !response.headers.get_all_string("upgrade").is_empty() {
-                      connection_upgraded = true
-                    }
-                    if !should_keep_alive(request) || framing == CloseDelimited {
-                      let name = match @types.HeaderName::parse("connection") {
-                        Ok(value) => value
-                        Err(error) => raise error
-                      }
-                      let value = match
-                        @types.HeaderValue::from_string("close") {
-                        Ok(value) => value
-                        Err(error) => raise error
-                      }
-                      response.headers.set(name, value)
-                    }
-                    let response_head : @types.Response[Unit] = {
-                      status: response.status,
-                      version,
-                      headers: response.headers,
-                      body: (),
-                    }
-                    let encoded_head = match
-                      @http1.encode_response_head(
-                        response_head, request_method, framing,
-                      ) {
-                      Ok(value) => value
-                      Err(error) => raise error
-                    }
-                    write_with_timeout(
-                      writer,
-                      encoded_head,
-                      config.write_timeout_ms,
-                    )
-                    write_http1_body(
-                      framing,
-                      () => response.body.next_frame(),
-                      async fn(bytes) {
-                        write_with_timeout(
-                          writer,
-                          bytes,
-                          config.write_timeout_ms,
-                        )
-                      },
-                    )
-                  })
-                }),
+              write_with_timeout(writer, encoded, config.write_timeout_ms)
+              return ()
+            }
+            if request.version == Http11 &&
+              header_has_token(request.headers, "expect", "100-continue") &&
+              expects_request_body(request) {
+              write_with_timeout(
+                writer,
+                b"HTTP/1.1 100 Continue\r\n\r\n",
+                config.write_timeout_ms,
               )
             }
-            RequestData(data) =>
-              if !handler_done && active_stream is Some(stream) {
-                stream.push(Data(data)) catch {
-                  @body.BodyError::Cancelled if handler_done => ()
-                  error => raise error
-                }
-              }
-            RequestTrailers(trailers) =>
-              if !handler_done && active_stream is Some(stream) {
-                stream.push(Trailers(trailers)) catch {
-                  @body.BodyError::Cancelled if handler_done => ()
-                  error => raise error
-                }
-              }
-            RequestEnd => {
-              finish_handler()
-              guard active is Some(task) else {
-                raise @http1.InvalidFraming(
-                  "request ended without request head",
-                )
-              }
-              task.wait()
-              active = None
-              active_stream = None
-              if connection_upgraded {
-                return ()
-              }
+            handler_done = false
+            let stream = match
+              @body.BodyStream::new(capacity=config.body_queue_capacity) {
+              Ok(value) => value
+              Err(error) => raise error
             }
+            active_stream = Some(stream)
+            let request = request.map_body(fn(_) { stream })
+            active = Some(
+              group.spawn(async fn() {
+                defer {
+                  handler_done = true
+                  // The outgoing body may consume request input lazily.
+                  // Once it ends, wake any producer blocked on unread input.
+                  stream.cancel(@body.BodyError::Cancelled)
+                }
+                let response = service(request)
+                with_outgoing_body_scope(response.body, async fn() {
+                  let request_method = request.http_method
+                  let version = request.version
+                  let mut framing = @http1.NoBody
+                  if response.status != 101 &&
+                    @types.response_allows_body(request_method, response.status) {
+                    match response.body.size_hint().exact_size() {
+                      Some(size) => framing = ContentLength(size)
+                      None =>
+                        framing = if version == Http11 {
+                          Chunked
+                        } else {
+                          CloseDelimited
+                        }
+                    }
+                  }
+                  let close = !http1_allows_persistence(
+                      version,
+                      request.headers,
+                    ) ||
+                    framing == CloseDelimited ||
+                    header_has_token(response.headers, "connection", "close")
+                  finish_after_response = close ||
+                    response.status == 101 ||
+                    !response.headers.get_all_string("upgrade").is_empty()
+                  if close {
+                    response.headers.set(
+                      @types.HeaderName::parse("connection").unwrap(),
+                      @types.HeaderValue::from_string("close").unwrap(),
+                    )
+                  } else if version == Http10 &&
+                    !header_has_token(
+                      response.headers,
+                      "connection",
+                      "keep-alive",
+                    ) {
+                    ignore(
+                      response.headers.append_string("connection", "keep-alive"),
+                    )
+                  }
+                  let response_head : @types.Response[Unit] = {
+                    status: response.status,
+                    version,
+                    headers: response.headers,
+                    body: (),
+                  }
+                  let encoded_head = match
+                    @http1.encode_response_head(
+                      response_head, request_method, framing,
+                    ) {
+                    Ok(value) => value
+                    Err(error) => raise error
+                  }
+                  write_with_timeout(
+                    writer,
+                    encoded_head,
+                    config.write_timeout_ms,
+                  )
+                  write_http1_body(framing, () => response.body.next_frame(), async fn(
+                    bytes,
+                  ) {
+                    write_with_timeout(writer, bytes, config.write_timeout_ms)
+                  })
+                })
+              }),
+            )
           }
-        }
-      }
-      decoder.finish_input()
-      while true {
-        match decoder.next() {
-          Err(error) => raise error
-          Ok(None) => break
-          Ok(Some(RequestData(data))) =>
+          RequestData(data) =>
             if !handler_done && active_stream is Some(stream) {
               stream.push(Data(data)) catch {
                 @body.BodyError::Cancelled if handler_done => ()
                 error => raise error
               }
             }
-          Ok(Some(RequestTrailers(trailers))) =>
+          RequestTrailers(trailers) =>
             if !handler_done && active_stream is Some(stream) {
               stream.push(Trailers(trailers)) catch {
                 @body.BodyError::Cancelled if handler_done => ()
                 error => raise error
               }
             }
-          Ok(Some(RequestEnd)) => {
+          RequestEnd => {
             finish_handler()
             guard active is Some(task) else {
-              raise @http1.Http1Error::InvalidFraming(
-                "request ended without request head",
-              )
+              raise @http1.InvalidFraming("request ended without request head")
             }
             task.wait()
             active = None
             active_stream = None
+            if finish_after_response {
+              return ()
+            }
           }
-          Ok(Some(RequestHead(_))) =>
-            raise @http1.Http1Error::UnexpectedEof("request body")
         }
       }
       Ok(())

@@ -3,11 +3,95 @@ import {
   "moonbitlang/async@0.22.4/fs",
   "moonbitlang/async@0.22.4/process",
   "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/async@0.22.4/socket",
+  "moonbitlang/x@0.5.5/crypto",
+}
+
+///|
+async fn recorded(directory : String, name : String, program : String, args : Array[String], timeout_ms? : Int = 60000) -> String {
+  let (code, out, err) = @async.with_timeout(timeout_ms, async fn() { @process.collect_output(program, args) })
+  @fs.write_file(directory + "/" + name + ".stdout", out.binary(), create_mode=CreateNew)
+  @fs.write_file(directory + "/" + name + ".stderr", err.binary(), create_mode=CreateNew)
+  guard code == 0 else { fail("\{name} failed with status \{code}: \{err.text()}") }
+  out.text()
+}
+
+///|
+async fn compare_window(directory : String, go_binary : String, moon_server : String, arm : String, protocol : String, index : Int) -> Json {
+  let reservation = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+  let address = reservation.addr
+  reservation.close()
+  let port = address.port().to_string()
+  let cert = "adapter/native/tls/testdata/localhost.cert.pem"
+  let key = "adapter/native/tls/testdata/localhost.key.pem"
+  let (executable, args) = if arm == "Go" {
+    (go_binary, ["--mode", "server", "--protocol", protocol, "--listen", address.to_string(), "--cert", cert, "--key", key])
+  } else if protocol == "h1" {
+    (moon_server, ["--echo-h1", port])
+  } else {
+    (moon_server, ["--echo-h2", port, cert, key])
+  }
+  let name = "\{protocol}-\{index}-\{arm}"
+  let url = (if protocol == "h2" { "https://" } else { "http://" }) + address.to_string() + "/echo"
+  @async.with_task_group(async fn(group) {
+    let server = @process.spawn(group, executable, args,
+      stdout=@process.redirect_to_file(directory + "/" + name + ".server.stdout", create_mode=CreateNew),
+      stderr=@process.redirect_to_file(directory + "/" + name + ".server.stderr", create_mode=CreateNew),
+      cancel_handler=@process.graceful_cancel(timeout=1000), no_wait=true)
+    defer server.cancel()
+    @async.with_timeout(10000, async fn() {
+      for ;; {
+        guard server.try_wait() is None else { fail("\{name}: server exited before readiness") }
+        let ready = try { let tcp = @socket.Tcp::connect(address); tcp.close(); true } catch { _ => false }
+        if ready { break }
+        @async.sleep(25)
+      }
+    })
+    let probe = ["--mode", "probe", "--target", url, "--protocol", protocol, "--payload-bytes", "65536", "--concurrency", "4", "--cacert", cert]
+    ignore(recorded(directory, name + ".warmup", go_binary, probe + ["--duration-seconds", "1"]))
+    let value = @json.parse(recorded(directory, name, go_binary, probe + ["--duration-seconds", "10"]))
+    guard server.try_wait() is None else { fail("\{name}: server exited during the probe") }
+    let row : Json = { "server": arm, "window": index, "protocol": protocol, "result": value }
+    println("Passed \{name}")
+    row
+  })
+}
+
+///|
+async fn compare(directory : String, binary : String) -> Unit {
+  ignore(recorded(directory, "build-moon-server", "moon", ["build", "examples/cmd/smoke_server", "--release", "--target", "native", "--deny-warn", "--warn-list", "+73"], timeout_ms=300000))
+  let moon_server = "_build/native/release/build/examples/cmd/smoke_server/smoke_server.exe"
+  let version = recorded(directory, "go-version", "go", ["version"])
+  let toolchain = recorded(directory, "moon-version", "moon", ["version", "--all"])
+  let platform = recorded(directory, "platform", "uname", ["-a"])
+  let revision = recorded(directory, "revision", "git", ["rev-parse", "HEAD"])
+  let status = recorded(directory, "source-status", "git", ["status", "--porcelain", "--untracked-files=normal"])
+  let windows : Array[Json] = []
+  for protocol in ["h1", "h2"] {
+    for index, arm in ["Go", "MoonBit", "MoonBit", "Go"] {
+      windows.push(compare_window(directory, binary, moon_server, arm, protocol, index))
+    }
+  }
+  let result : Json = {
+    "status": "measured", "comparison": "paired", "revision": revision.trim().to_owned(),
+    "source_status": status, "go_version": version, "moon_version": toolchain, "platform": platform,
+    "go_binary_sha256": @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file(binary).binary())),
+    "moon_server_sha256": @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file(moon_server).binary())),
+    "payload_bytes": 65536, "concurrency": 4, "warmup_seconds": 1, "duration_seconds": 10,
+    "windows": windows, "scope": "loopback server comparison on this host",
+  }
+  @fs.write_file(directory + "/result.json", result, create_mode=CreateNew)
+  println("Paired Go/MoonBit HTTP/1.1 and HTTP/2 windows passed. Evidence: \{directory}")
 }
 
 ///|
 async fn main {
-  ignore(@env.args())
+  let paired = match @env.args() {
+    [_] => false
+    [_, "--compare"] => true
+    _ => fail("usage: go_net_http_reference.mbtx [--compare]")
+  }
   let temporary = @fs.tmpdir(prefix="moonbithttp-go-reference")
   let unique = temporary.split("/").to_array().last().unwrap().to_owned()
   @fs.rmdir(temporary)
@@ -16,6 +100,7 @@ async fn main {
   @fs.write_file(directory + "/source.txt", "repo-tools/tools/go_net_http_reference/main.go\n", create_mode=CreateNew)
   let go_probe = @process.run("sh", ["-c", "command -v go >/dev/null 2>&1"])
   if go_probe != 0 {
+    if paired { fail("paired comparison requires go") }
     let result : Json = {
       "status": "not_run",
       "reason": "go executable unavailable in the validation environment",
@@ -30,6 +115,10 @@ async fn main {
   let binary = directory + "/go-net-http-reference"
   let build = @process.run("go", ["build", "-o", binary, "repo-tools/tools/go_net_http_reference/main.go"])
   guard build == 0 else { fail("Go reference build failed; evidence: \{directory}") }
+  if paired {
+    compare(directory, binary)
+    return
+  }
   let reference = @async.with_timeout(180000, async fn() {
     @process.collect_output(binary, ["--mode", "reference", "--duration-seconds", "10", "--concurrency", "4", "--payload-bytes", "65536"])
   })

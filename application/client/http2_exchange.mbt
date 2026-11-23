@@ -1,7 +1,7 @@
 ///|
 fn http2_client_error(failure : Error) -> ClientError raise {
   match failure {
-    ClientStreamError(error) => ClientTransport(error)
+    @service.StreamIoError::StreamIoError(error) => ClientTransport(error)
     @http2.H2ProtocolError::ConnectionError(code, detail) =>
       ClientHttp2(ConnectionError(code, detail))
     @http2.H2ProtocolError::StreamError(id, code, detail) =>

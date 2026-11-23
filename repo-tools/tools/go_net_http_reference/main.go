@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -22,6 +23,8 @@ import (
 )
 
 type summary struct {
+	ElapsedSec   float64 `json:"elapsed_seconds"`
+	Samples      int     `json:"latency_samples"`
 	Status       string  `json:"status"`
 	Protocol     string  `json:"protocol"`
 	Target       string  `json:"target"`
@@ -73,19 +76,25 @@ func percentile(values []float64, p float64) float64 {
 	return values[index]
 }
 
-func probe(protocol, target string, payloadBytes, concurrency, durationSec int) summary {
-	transport := &http.Transport{ForceAttemptHTTP2: protocol == "h2"}
+func probe(protocol, target string, payloadBytes, concurrency, durationSec int, roots *x509.CertPool) summary {
+	major, maxConnections := 1, concurrency
 	if protocol == "h2" {
-		// The reference server is an in-process loopback httptest fixture with a
-		// self-signed certificate; this is never a production client setting.
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS13}
+		major, maxConnections = 2, 1
 	}
+	transport := &http.Transport{
+		ForceAttemptHTTP2: protocol == "h2", MaxConnsPerHost: maxConnections,
+		MaxIdleConnsPerHost: maxConnections,
+		TLSClientConfig:     &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS13},
+	}
+	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 10 * time.Second}
 	payload := bytes.Repeat([]byte{'x'}, payloadBytes)
-	deadline := time.Now().Add(time.Duration(durationSec) * time.Second)
+	windowStart := time.Now()
+	deadline := windowStart.Add(time.Duration(durationSec) * time.Second)
 	latencies := make([]float64, 0, 100000)
 	var mu sync.Mutex
 	var requests, errors int64
+	var firstFailure sync.Once
 	var wg sync.WaitGroup
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
@@ -102,12 +111,13 @@ func probe(protocol, target string, payloadBytes, concurrency, durationSec int) 
 						var got []byte
 						got, err = io.ReadAll(resp.Body)
 						_ = resp.Body.Close()
-						if resp.StatusCode != http.StatusOK || !bytes.Equal(got, payload) {
-							err = fmt.Errorf("oracle mismatch: status=%d bytes=%d", resp.StatusCode, len(got))
+						if resp.ProtoMajor != major || resp.StatusCode != http.StatusOK || !bytes.Equal(got, payload) {
+							err = fmt.Errorf("oracle mismatch: protocol=%s status=%d bytes=%d", resp.Proto, resp.StatusCode, len(got))
 						}
 					}
 				}
 				if err != nil {
+					firstFailure.Do(func() { log.Printf("probe request failed: %v", err) })
 					atomic.AddInt64(&errors, 1)
 					continue
 				}
@@ -121,13 +131,17 @@ func probe(protocol, target string, payloadBytes, concurrency, durationSec int) 
 		}()
 	}
 	wg.Wait()
-	elapsed := float64(durationSec)
+	elapsed := time.Since(windowStart).Seconds()
+	status := "measured"
+	if errors != 0 || requests == 0 {
+		status = "failed"
+	}
 	return summary{
-		Status: "measured", Protocol: protocol, Target: target,
+		Status: status, ElapsedSec: elapsed, Samples: len(latencies), Protocol: protocol, Target: target,
 		PayloadBytes: payloadBytes, Concurrency: concurrency, DurationSec: durationSec,
 		Requests: requests, Errors: errors, Throughput: float64(requests) / elapsed,
 		P50Ms: percentile(latencies, .50), P95Ms: percentile(latencies, .95),
-		Oracle: "POST response body and HTTP 200 verified for every successful request",
+		Oracle: "HTTP version, HTTP 200 and exact POST echo verified for every successful request",
 	}
 }
 
@@ -138,9 +152,11 @@ func reference(payloadBytes, concurrency, durationSec int) map[string]summary {
 	h2.EnableHTTP2 = true
 	h2.StartTLS()
 	defer h2.Close()
+	roots := x509.NewCertPool()
+	roots.AddCert(h2.Certificate())
 	return map[string]summary{
-		"h1": probe("h1", h1.URL+"/echo", payloadBytes, concurrency, durationSec),
-		"h2": probe("h2", h2.URL+"/echo", payloadBytes, concurrency, durationSec),
+		"h1": probe("h1", h1.URL+"/echo", payloadBytes, concurrency, durationSec, nil),
+		"h2": probe("h2", h2.URL+"/echo", payloadBytes, concurrency, durationSec, roots),
 	}
 }
 
@@ -154,7 +170,11 @@ func main() {
 	payload := flag.Int("payload-bytes", 65536, "POST payload size")
 	concurrency := flag.Int("concurrency", 4, "probe workers")
 	duration := flag.Int("duration-seconds", 10, "probe duration")
+	caFile := flag.String("cacert", "", "PEM trust anchors for the probe")
 	flag.Parse()
+	if *payload < 0 || *payload > 1<<20 {
+		log.Fatal("payload must fit the 1 MiB echo limit")
+	}
 	if *mode == "server" {
 		if err := serve(*protocol, *listen, *cert, *key); err != nil {
 			log.Fatal(err)
@@ -165,15 +185,30 @@ func main() {
 		if *duration <= 0 || *concurrency <= 0 {
 			log.Fatal("reference requires positive duration and concurrency")
 		}
-		_ = json.NewEncoder(os.Stdout).Encode(reference(*payload, *concurrency, *duration))
+		results := reference(*payload, *concurrency, *duration)
+		_ = json.NewEncoder(os.Stdout).Encode(results)
+		if results["h1"].Status != "measured" || results["h2"].Status != "measured" {
+			os.Exit(1)
+		}
 		return
 	}
 	if *target == "" || (*protocol != "h1" && *protocol != "h2") || *duration <= 0 || *concurrency <= 0 {
 		log.Fatal("probe requires target, h1/h2 protocol, positive duration and concurrency")
 	}
-	value := probe(*protocol, *target, *payload, *concurrency, *duration)
-	if value.Errors > 0 || value.Requests == 0 {
-		value.Status = "failed"
+	var roots *x509.CertPool
+	if *caFile != "" {
+		pem, err := os.ReadFile(*caFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		roots = x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(pem) {
+			log.Fatal("invalid probe trust anchors")
+		}
 	}
+	value := probe(*protocol, *target, *payload, *concurrency, *duration, roots)
 	_ = json.NewEncoder(os.Stdout).Encode(value)
+	if value.Status != "measured" {
+		os.Exit(1)
+	}
 }

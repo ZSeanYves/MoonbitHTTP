@@ -109,19 +109,6 @@ fn ClientDialer::timeout_error(
 }
 
 ///|
-fn client_stream_from_secure(
-  secure : @transport.SecureConnection,
-  endpoint : @types.Endpoint,
-) -> @transport.StreamConnection {
-  @transport.StreamConnection::new(
-    endpoint,
-    async fn(max_bytes) { secure.read(max_bytes) },
-    async fn(bytes) { secure.write(bytes) },
-    fn() { secure.close() },
-  )
-}
-
-///|
 async fn ClientDialer::secure_stream(
   self : ClientDialer,
   connection : @transport.StreamConnection,
@@ -166,9 +153,8 @@ async fn ClientDialer::secure_stream(
     secure.close()
     return Err(ClientProtocol("TLS did not negotiate " + alpn))
   }
-  let stream = client_stream_from_secure(secure, endpoint)
   transferred = true
-  Ok(stream)
+  Ok(secure.transport)
 }
 
 ///|

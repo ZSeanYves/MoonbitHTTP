@@ -5,6 +5,7 @@ import {
   "ZSeanYves/MoonbitHTTP/core/body",
   "ZSeanYves/MoonbitHTTP/core/types",
   "ZSeanYves/MoonbitHTTP/protocol/http1",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
   "moonbitlang/async/io",
   "moonbitlang/core/debug",
 }
@@ -51,6 +52,11 @@ pub(all) suberror ServiceConfigError {
 pub fn ServiceConfigError::equal(Self, Self) -> Bool
 pub fn ServiceConfigError::not_equal(Self, Self) -> Bool
 pub fn ServiceConfigError::to_repr(Self) -> @debug.Repr
+
+pub(all) suberror StreamIoError {
+  StreamIoError(@transport.TransportError)
+} derive(@debug.Debug)
+pub fn StreamIoError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub struct ClientConnection[R, W] {
@@ -106,6 +112,24 @@ pub(all) struct ServerConfig {
 }
 pub fn ServerConfig::defaults() -> Self
 pub fn ServerConfig::validate(Self) -> Result[Unit, ServiceConfigError]
+
+pub struct StreamIo {
+  // private fields
+}
+pub async fn StreamIo::_direct_read(Self, FixedArray[Byte], offset~ : Int, max_len~ : Int) -> Int
+pub fn StreamIo::_get_internal_buffer(Self) -> @io.ReaderBuffer
+pub async fn StreamIo::drop(Self, Int) -> Int
+pub fn StreamIo::new(@transport.StreamConnection) -> Self
+pub async fn StreamIo::read(Self, FixedArray[Byte], offset? : Int, max_len? : Int) -> Int
+pub async fn StreamIo::read_all(Self) -> &@io.Data
+pub async fn StreamIo::read_exactly(Self, Int) -> Bytes
+pub async fn StreamIo::read_some(Self, max_len? : Int) -> Bytes?
+pub async fn StreamIo::read_until(Self, StringView) -> String?
+pub async fn StreamIo::write(Self, &@io.Data) -> Unit
+pub async fn StreamIo::write_once(Self, Bytes, offset~ : Int, len~ : Int) -> Int
+pub async fn StreamIo::write_reader(Self, &@io.Reader) -> Unit
+pub impl @io.Reader for StreamIo
+pub impl @io.Writer for StreamIo
 
 // Type aliases
 

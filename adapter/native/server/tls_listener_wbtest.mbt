@@ -37,21 +37,25 @@ async fn listener_tls_options() -> (
 }
 
 ///|
-async test "native TLS listener invokes secure handler only after authenticated handshake" {
+async test "native TLS HTTP listener serves HTTP/1.1 over an authenticated channel" {
   let (client_options, server_options) = listener_tls_options()
   let provider = @tls_native.NativeTlsProvider::new(allow_system_roots=false)
   let endpoint = unused_tcp_endpoint()
   let mut handled = false
-  let listener = NativeTcpListener::bind_tls(
+  let listener = NativeTcpListener::bind_http_tls(
     endpoint,
     @transport.AllowAllPolicy::new(),
     provider,
     server_options,
-    async fn(secure) {
-      assert_eq(secure.alpn(), Some("http/1.1"))
-      secure.write(b"secure").unwrap()
+    request => {
+      assert_eq(request.version, Http11)
       handled = true
-      Ok(())
+      {
+        status: 200,
+        version: request.version,
+        headers: @types.HeaderMap::new(),
+        body: @body.FullBody::new(b"secure"),
+      }
     },
   ).unwrap()
   defer listener.close()
@@ -70,7 +74,21 @@ async test "native TLS listener invokes secure handler only after authenticated 
       let secure = provider.client_handshake(stream, client_options).unwrap()
       defer secure.close()
       assert_true(secure.is_authenticated())
-      assert_eq(secure.read(32).unwrap(), Some(b"secure"))
+      assert_eq(secure.alpn(), Some("http/1.1"))
+      let io = @service.StreamIo::new(secure.transport)
+      let client = @service.ClientConnection::new(io, io).unwrap()
+      let headers = @types.HeaderMap::new()
+      headers.append_string("host", "localhost").unwrap()
+      headers.append_string("connection", "close").unwrap()
+      let response = client.send({
+        http_method: Get,
+        version: Http11,
+        headers,
+        uri: @types.Uri::parse("/").unwrap(),
+        body: @body.EmptyBody::new(),
+      })
+      let (bytes, _) = @body.collect(response.body)
+      assert_eq((response.status, bytes), (200, b"secure"))
     })
   })
   assert_true(handled)

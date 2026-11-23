@@ -28,7 +28,7 @@ async fn[T] Http1PooledRoundTripper::exchange_result(
   run : async () -> T,
 ) -> Result[T, ClientError] {
   Ok(run()) catch {
-    ClientStreamError(error) => Err(ClientTransport(error))
+    @service.StreamIoError::StreamIoError(error) => Err(ClientTransport(error))
     @service.ClientConnectionError::ConnectionClosed =>
       Err(ClientConnection(ConnectionClosed))
     @service.ClientConnectionError::RequestInProgress =>

@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Serve HTTP/1.1 and HTTP/2 through a native TLS listener selected by ALPN. HTTP/1 servers now finish a closing exchange before processing another request and explicitly acknowledge HTTP/1.0 persistence.
+
 - Add a bounded, origin-managed HTTP/2 client for streaming and byte requests, including a native TCP entry point. It shares DNS, policy and TLS dialing with HTTP/1, requires `h2` for HTTPS, and drains accepted streams after GOAWAY.
 
 - Queue HTTP/2 client requests when the peer lowers its concurrent stream allowance. Resume them on capacity changes and release queued or active uploads on cancellation or shutdown.

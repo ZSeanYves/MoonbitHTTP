@@ -263,3 +263,47 @@ async test "service: cancelling HTTP/1 error response closes once and cancels it
   assert_eq(cancelled.map(http1_lifecycle_error_label), ["cancelled"])
   assert_eq(closed, [true])
 }
+
+///|
+async test "HTTP/1 stops after a closing exchange and honors explicit HTTP/1.0 persistence" {
+  for
+    (first, response_closes, expected_calls, expected_connection) in [
+      (
+        b"GET / HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n", false, 1,
+        "close",
+      ),
+      (b"GET / HTTP/1.1\r\nHost: local\r\n\r\n", true, 1, "close"),
+      (
+        b"GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n", false, 2, "keep-alive",
+      ),
+      (
+        b"GET / HTTP/1.0\r\nConnection: keep-alive, close\r\n\r\n", false, 1, "close",
+      ),
+    ] {
+    let reader = @aio.MemoryReader(async fn(writer) {
+      writer.write(
+        first +
+        b"GET /second HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n",
+      )
+    })
+    defer reader.close()
+    let writer : CaptureWriter = { bytes: [], }
+    let mut calls = 0
+    @service.serve_http1_connection(reader, writer, request => {
+      calls += 1
+      let headers = @types.HeaderMap::new()
+      if response_closes {
+        headers.append_string("connection", "close").unwrap()
+      }
+      {
+        status: 200,
+        version: request.version,
+        headers,
+        body: @body.FullBody::new(b"ok"),
+      }
+    })
+    assert_eq(calls, expected_calls)
+    let wire = @utf8.decode_lossy(Bytes::from_array(writer.bytes)).to_lower()
+    assert_true(wire.contains("connection: " + expected_connection + "\r\n"))
+  }
+}

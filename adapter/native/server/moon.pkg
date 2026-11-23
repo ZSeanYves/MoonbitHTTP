@@ -1,5 +1,7 @@
 import {
   "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/core/body",
+  "ZSeanYves/MoonbitHTTP/runtime/service",
   "moonbitlang/async",
   "moonbitlang/async/socket",
   "ZSeanYves/MoonbitHTTP/application/server" @server_api,

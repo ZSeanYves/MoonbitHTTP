@@ -148,31 +148,31 @@ conclusion. An incomplete or noisy run does not close the performance gate.
 
 ## Go `net/http` external reference
 
-`repo-tools/tools/go_net_http_reference.mbtx` prepares a standard-library Go
-fixture at `repo-tools/tools/go_net_http_reference/main.go`. The fixture serves
-the same bounded POST echo workload over HTTP/1.1 cleartext and HTTP/2 TLS with
-ALPN, and its probe reports throughput, p50/p95 latency and a response-body
-oracle. Use the same payload size, connection reuse, concurrency, request
-count/duration, CPU environment and toolchain metadata for both implementations;
-run the H1 and H2 windows in AB/BA order when MoonBitHTTP endpoints are supplied.
-
-The fixture is an external reference, not a release threshold and not an HTTP/3
-comparison. The runner keeps the binary, raw windows and logs in the ephemeral
-local/CI evidence directory. If `go` is unavailable it writes an explicit
-`not_run` result; a missing Go toolchain must never be silently reported as a
-passing comparison. The current service layer does not provide a generic H3
-service, so H3 remains outside this reference workload.
-
-Run it from a checkout with Go installed:
+Run the standard-library Go baseline or the paired server comparison with:
 
 ```text
 moon run repo-tools/tools/go_net_http_reference.mbtx
+moon run repo-tools/tools/go_net_http_reference.mbtx -- --compare
 ```
 
-When Go is available, the runner measures a Go H1/H2 baseline with an in-process
-`httptest` server and records a concentrated JSON summary. A comparison is
-valid only when a caller also runs the same probe against MoonBitHTTP H1/H2
-endpoints, uses the same workload in AB/BA order and both behavior oracles pass.
+The paired mode builds the native MoonBit server in release mode and the Go
+fixture with the installed Go toolchain. The same Go probe sends 64 KiB POST
+bodies through four concurrent workers to both servers on loopback. Each
+request checks the HTTP version, status 200 and exact echoed body. HTTP/1.1
+uses cleartext with connection reuse. HTTP/2 uses one multiplexed connection,
+TLS 1.3, h2 ALPN and a trusted local test certificate.
+
+Each protocol runs four windows in Go, MoonBit, MoonBit, Go order. Each
+window starts its own server, warms it with a one-second probe, then runs a
+ten-second measurement with a fresh client. Throughput uses elapsed time
+through the last completed request. The result records request and error
+counts, the number of latency samples, p50/p95, compiler versions, kernel,
+binary digests and source revision/status. Keep the full result and logs
+when a window fails. The baseline-only mode records `not_run` if Go is
+unavailable. Paired mode requires a working Go toolchain and all eight
+windows. These measurements describe the loopback workload and carry no
+release performance threshold.
+
 CPU, RSS and cancellation measurements remain separate metrics and must be
 reported as unavailable when the harness does not collect them.
 

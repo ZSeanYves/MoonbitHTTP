@@ -155,7 +155,7 @@ async fn Http2Client::drive(
     }
   }
   defer connection.close()
-  let io = ClientStreamIo::new(connection)
+  let io = @service.StreamIo::new(connection)
   @service.with_h2_client_connection(
     io,
     io,

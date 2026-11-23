@@ -1,7 +1,7 @@
 ///|
 priv struct Http1PooledSession {
   connection : @transport.StreamConnection
-  protocol : @service.ClientConnection[ClientStreamIo, ClientStreamIo]
+  protocol : @service.ClientConnection[@service.StreamIo, @service.StreamIo]
   proxy_target : @types.Endpoint?
 }
 
@@ -11,7 +11,7 @@ fn Http1PooledSession::new(
   options : RequestOptions,
   proxy_target? : @types.Endpoint? = None,
 ) -> Result[Http1PooledSession, ClientError] {
-  let io = ClientStreamIo::new(connection)
+  let io = @service.StreamIo::new(connection)
   let protocol = match
     @service.ClientConnection::new(
       io,

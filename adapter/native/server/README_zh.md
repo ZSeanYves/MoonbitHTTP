@@ -3,13 +3,13 @@
 Status: canonical
 Scope: public Native TCP listener adapter
 Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+Last reviewed: 2026-11-23
 
 ## 用途
 为通用 server.Listener 提供有 network policy 的 Native TCP bind、accept 和可选 TLS listener。
 
 ## 入口
-入口是 NativeTcpListener::bind 与 bind_tls，显式传入 TLS、timeout 和 policy。
+使用 `NativeTcpListener::bind` 接收 TCP 连接，使用 `bind_tls` 接收完成握手的连接，或使用 `bind_http_tls` 直接处理 HTTP 请求。`bind_http_tls` 按 ALPN 选择 HTTP/1.1 或 HTTP/2，配置允许 HTTP/1.1 时也可接受未协商 ALPN 的客户端。将监听器交给 `ServerSupervisor::serve` 管理并发和关闭。
 
 ## 依赖与目标
 依赖 server、transport、types 和 Native async socket，仅支持 native。

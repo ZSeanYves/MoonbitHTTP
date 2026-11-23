@@ -165,11 +165,10 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection:
   }
   // Reserve the connection before the first suspension, including header writes.
   errdefer self.close()
-  let request_closes = header_has_token(request.headers, "connection", "close") ||
-    (
-      request.version == Http10 &&
-      !header_has_token(request.headers, "connection", "keep-alive")
-    )
+  let request_closes = !http1_allows_persistence(
+    request.version,
+    request.headers,
+  )
   with_outgoing_body_scope(request.body, async fn() {
     let framing = match request.body.size_hint().exact_size() {
       Some(size) => @http1.BodyFraming::ContentLength(size)
@@ -234,12 +233,8 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection:
           ()
         } else {
           if value.status == 101 ||
-            header_has_token(value.headers, "connection", "close") ||
+            !http1_allows_persistence(value.version, value.headers) ||
             request_closes ||
-            (
-              value.version == Http10 &&
-              !header_has_token(value.headers, "connection", "keep-alive")
-            ) ||
             !value.headers.get_all_string("upgrade").is_empty() {
             self.state = CloseAfterBody
           }
