@@ -372,11 +372,7 @@ fn QuicDatagramDriver::on_packet(
       Err(error) => return Err(error)
     }
     if (space == Initial && self.initial_receive_keys is None) ||
-      (
-        space == Handshake &&
-        self.handshake_receive_keys is None &&
-        self.key_update.confirmed
-      ) {
+      (space == Handshake && self.handshake_receive_keys is None) {
       return Ok([PacketIgnored])
     }
     let keys = match self.quic_driver_space_keys(space, false) {
@@ -408,17 +404,17 @@ fn QuicDatagramDriver::on_packet(
         ),
       )
     }
+    // RFC 9001 §5.7: 1-RTT packets can overtake the TLS Finished. The
+    // transport can recover these packets after handshake completion.
+    if self.state() != Established {
+      return Ok([PacketIgnored])
+    }
     let (opened, advance) = match
       self.open_application_packet(packet, offset, now_ms) {
       Ok(value) => value
       Err(error) => return Err(self.record_authentication_failure(error))
     }
     (space, opened, None, advance)
-  }
-  if space == Application && self.state() != Established {
-    return Err(
-      Unsupported("application packets require an established connection"),
-    )
   }
   if self.quic_driver_seen(space, opened.packet_number()) {
     return Ok([PacketIgnored])

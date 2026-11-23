@@ -40,10 +40,7 @@ test "http3 QPACK: fragmented long literals preserve state and incomplete suffix
     .unwrap()
   // A complete capacity instruction followed by a partial literal leaves
   // exactly the incomplete instruction available for the next feed.
-  let prefix = driver_join([
-    encoder.set_capacity(9000).unwrap(),
-    instruction[:3].to_owned(),
-  ])
+  let prefix = encoder.set_capacity(9000).unwrap() + instruction[:3].to_owned()
   decoder.feed_encoder_stream(prefix).unwrap()
   assert_eq(decoder.total_inserts(), 0L)
   for index in 3..<instruction.length() {
@@ -63,9 +60,7 @@ test "http3 QPACK: fragmented long literals preserve state and incomplete suffix
 test "http3 push: reject ungranted promises before QPACK and reject push streams" {
   let driver = @http3.Http3Driver::new(H3Client).unwrap()
   let settings = @http3.encode_http3_frame(H3SettingsFrame([])).unwrap()
-  ignore(
-    driver.on_stream_data(3L, driver_join([b"\x00", settings]), false).unwrap(),
-  )
+  ignore(driver.on_stream_data(3L, b"\x00" + settings, false).unwrap())
   let request = driver.open_request_stream().unwrap()
   // Deliberately malformed QPACK: the push authorization gate must fire first.
   let promise = @http3.encode_http3_frame(H3PushPromise(0L, b"invalid")).unwrap()

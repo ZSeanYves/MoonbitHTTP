@@ -4,6 +4,7 @@ package "ZSeanYves/MoonbitHTTP/protocol/http3"
 import {
   "ZSeanYves/MoonbitHTTP/core/types",
   "moonbitlang/core/debug",
+  "moonbitlang/core/set",
 }
 
 // Values
@@ -70,6 +71,7 @@ pub(all) enum H3Action {
   H3SendQpackDecoderInstruction(Bytes)
   H3HeadersReceived(Int64, Array[QpackField], Bool, Bool)
   H3DataReceived(Int64, Bytes)
+  H3MessageFinished(Int64)
   H3PushPromiseReceived(Int64, Int64, Array[QpackField])
   H3CancelPushReceived(Int64)
   H3MaxPushIdReceived(Int64)
@@ -231,10 +233,10 @@ pub struct Http3Driver {
   connection : Http3Connection
   decoders : Map[Int64, Http3FrameDecoder]
   kinds : Map[Int64, H3UnidirectionalStream]
-  prefixes : Map[Int64, Array[Byte]]
+  prefixes : Map[Int64, Bytes]
   blocked_frames : Map[Int64, Array[Http3Frame]]
   mut blocked_bytes : Int
-  pending_fin : Map[Int64, Bool]
+  pending_fin : @set.Set[Int64]
   mut failure : Http3Error?
   local_control_stream : Int64
   local_qpack_encoder_stream : Int64

@@ -258,6 +258,7 @@ pub async fn[S : @transport.DatagramSocket] QuicDatagramDriver::send_action(Self
 pub fn QuicDatagramDriver::send_frames(Self, PacketNumberSpace, Array[QuicFrame], Int64) -> Result[QuicDriverAction, QuicError]
 pub fn[C : @transport.Clock, E : @transport.Entropy] QuicDatagramDriver::send_retry_validated(Self, @types.Endpoint, C, E) -> Result[QuicDriverAction, QuicError]
 pub fn QuicDatagramDriver::send_stream(Self, Int64, Bytes, Bool, Int64) -> Result[QuicDriverAction, QuicError]
+pub fn QuicDatagramDriver::send_stream_prefix(Self, Int64, BytesView, Bool, Int64) -> Result[(Int, QuicDriverAction)?, QuicError]
 pub fn QuicDatagramDriver::set_peer_transport_parameters(Self, QuicTransportParameters) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::state(Self) -> QuicConnectionState
 

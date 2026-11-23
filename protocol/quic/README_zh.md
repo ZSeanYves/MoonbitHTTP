@@ -24,6 +24,8 @@ packet space、frame legality、amplification、路径验证、Retry、丢包、
 
 `QuicDatagramDriver::poll()` 负责发送窗口更新，驱动收到包确认后会释放发送端对应字节的额度。自定义传输层在握手中通告 `local_transport_params()`，可靠发送 `take_credit_updates()` 返回的帧，并通过 `acknowledge_stream_data(stream_id, offset, length)` 报告已确认的 STREAM 字节区间。
 
+非阻塞发送可用 `QuicDatagramDriver::send_stream_prefix`。调用方发出返回的数据报，按返回的字节数推进游标，保留余下的数据，在后续收包或计时器回调时续写。发送受阻时偏移保持不变，只有最后一段携带 FIN。
+
 ## 规范文档
 - [中文总览](../../README_zh.md)
 - [包地图](../../docs/concepts/packages.md)

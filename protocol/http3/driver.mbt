@@ -10,31 +10,14 @@ pub(all) enum H3DriverAction {
 } derive(Eq, Debug)
 
 ///|
-fn h3_driver_join(parts : Array[Bytes]) -> Bytes {
-  let mut length = 0
-  for part in parts {
-    length += part.length()
-  }
-  let output = FixedArray::make(length, b'\x00')
-  let mut offset = 0
-  for part in parts {
-    for byte in part {
-      output[offset] = byte
-      offset += 1
-    }
-  }
-  output.unsafe_reinterpret_as_bytes()
-}
-
-///|
 pub struct Http3Driver {
   connection : Http3Connection
   decoders : Map[Int64, Http3FrameDecoder]
   kinds : Map[Int64, H3UnidirectionalStream]
-  prefixes : Map[Int64, Array[Byte]]
+  prefixes : Map[Int64, Bytes]
   blocked_frames : Map[Int64, Array[Http3Frame]]
   mut blocked_bytes : Int
-  pending_fin : Map[Int64, Bool]
+  pending_fin : Set[Int64]
   mut failure : Http3Error?
   local_control_stream : Int64
   local_qpack_encoder_stream : Int64
@@ -68,7 +51,7 @@ pub fn Http3Driver::new(
     prefixes: Map([]),
     blocked_frames: Map([]),
     blocked_bytes: 0,
-    pending_fin: Map([]),
+    pending_fin: Set([]),
     failure: None,
     local_control_stream: control,
     local_qpack_encoder_stream: encoder,
@@ -121,12 +104,11 @@ fn Http3Driver::h3_driver_fail(
 }
 
 ///|
-fn Http3Driver::h3_driver_push_actions(
+fn Http3Driver::append_events(
   self : Http3Driver,
-  stream_id : Int64,
+  output : Array[H3DriverAction],
   actions : Array[H3Action],
-) -> Result[Array[H3DriverAction], Http3Error] {
-  let output : Array[H3DriverAction] = []
+) -> Unit {
   for action in actions {
     output.push(Event(action))
     match action {
@@ -137,8 +119,6 @@ fn Http3Driver::h3_driver_push_actions(
       _ => ()
     }
   }
-  ignore(stream_id)
-  Ok(output)
 }
 
 ///|
@@ -172,15 +152,14 @@ fn Http3Driver::h3_driver_replay_blocked(
       }
       return Ok(output)
     }
-    let converted = match self.h3_driver_push_actions(stream_id, actions) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    output.append(converted)
+    self.append_events(output, actions)
   }
-  if self.pending_fin.get(stream_id) is Some(_) {
+  if self.pending_fin.contains(stream_id) {
     match self.connection.finish_request_stream(stream_id) {
-      Ok(_) => self.pending_fin.remove(stream_id)
+      Ok(_) => {
+        self.pending_fin.remove(stream_id)
+        output.push(Event(H3MessageFinished(stream_id)))
+      }
       Err(error) => return Err(error)
     }
   }
@@ -282,30 +261,26 @@ fn Http3Driver::h3_driver_queue_blocked(
 }
 
 ///|
-fn Http3Driver::h3_driver_new_decoder(
-  self : Http3Driver,
-) -> Result[Http3FrameDecoder, Http3Error] {
-  Http3FrameDecoder::new(
-    max_buffer_bytes=self.connection.limits.max_buffer_bytes,
-    max_payload_bytes=self.connection.limits.max_header_bytes,
-  )
-}
-
-///|
 fn Http3Driver::h3_driver_feed_decoder(
   self : Http3Driver,
   stream_id : Int64,
   bytes : BytesView,
   fin : Bool,
 ) -> Result[Array[Http3Frame], Http3Error] {
-  guard self.decoders.get(stream_id) is Some(decoder) else {
-    return Err(
-      Http3StreamError(
-        stream_id,
-        H3StreamCreationError,
-        "stream decoder is missing",
-      ),
-    )
+  let decoder = match self.decoders.get(stream_id) {
+    Some(value) => value
+    None => {
+      let decoder = match
+        Http3FrameDecoder::new(
+          max_buffer_bytes=self.connection.limits.max_buffer_bytes,
+          max_payload_bytes=self.connection.limits.max_header_bytes,
+        ) {
+        Ok(value) => value
+        Err(error) => return Err(error)
+      }
+      self.decoders[stream_id] = decoder
+      decoder
+    }
   }
   match decoder.feed(bytes) {
     Ok(_) => ()
@@ -338,59 +313,44 @@ fn Http3Driver::h3_driver_handle_uni(
   bytes : Bytes,
   fin : Bool,
 ) -> Result[Array[H3DriverAction], Http3Error] {
-  let prefix = match self.prefixes.get(stream_id) {
-    Some(value) => value
-    None => []
-  }
-  for byte in bytes {
-    prefix.push(byte)
-  }
-  let prefix_bytes = Bytes::from_array(prefix)
-  let registered = match self.kinds.get(stream_id) {
-    Some(kind) => Some((kind, 0))
-    None =>
-      match
-        self.connection.register_remote_unidirectional(stream_id, prefix_bytes) {
-        Ok(value) => Some(value)
+  let (kind, consumed) = match self.kinds.get(stream_id) {
+    Some(kind) => (kind, 0)
+    None => {
+      let previous = self.prefixes.get(stream_id).unwrap_or(b"")
+      let prefix = if previous.is_empty() {
+        bytes[:]
+      } else {
+        let take = bytes.length().min(8 - previous.length())
+        (previous + bytes[:take].to_owned())[:]
+      }
+      match self.connection.register_remote_unidirectional(stream_id, prefix) {
+        Ok((kind, used)) => {
+          self.prefixes.remove(stream_id)
+          self.kinds[stream_id] = kind
+          (kind, used - previous.length())
+        }
         Err(Http3NeedMoreInput) => {
+          // RFC 9114 §6.2 permits closure before the stream type is known.
           if fin {
-            return self.h3_driver_fail(
-              Http3UnexpectedEof("unidirectional stream type is truncated"),
-            )
+            self.prefixes.remove(stream_id)
+          } else if !prefix.is_empty() {
+            self.prefixes[stream_id] = prefix.to_owned()
           }
-          self.prefixes.set(stream_id, prefix)
           return Ok([])
         }
         Err(error) => return Err(error)
       }
+    }
   }
-  let (kind, consumed) = match registered {
-    Some(value) => value
-    None => return Ok([])
+  let decoder_bytes = bytes[consumed:]
+  if fin {
+    match self.connection.remote_unidirectional_closed(stream_id) {
+      Err(error) => return self.h3_driver_fail(error)
+      Ok(_) => self.kinds.remove(stream_id)
+    }
   }
-  self.kinds.set(stream_id, kind)
-  let decoder_bytes = if self.prefixes.get(stream_id) is Some(_) {
-    prefix_bytes[consumed:].to_owned()
-  } else if consumed == 0 {
-    bytes
-  } else {
-    prefix_bytes[consumed:].to_owned()
-  }
-  self.prefixes.remove(stream_id)
   match kind {
     H3ControlStream => {
-      let decoder = match self.decoders.get(stream_id) {
-        Some(value) => value
-        None => {
-          let value = match self.h3_driver_new_decoder() {
-            Ok(result) => result
-            Err(error) => return Err(error)
-          }
-          self.decoders.set(stream_id, value)
-          value
-        }
-      }
-      ignore(decoder)
       let frames = match
         self.h3_driver_feed_decoder(stream_id, decoder_bytes, fin) {
         Ok(value) => value
@@ -402,17 +362,7 @@ fn Http3Driver::h3_driver_handle_uni(
           Ok(value) => value
           Err(error) => return Err(error)
         }
-        let converted = match self.h3_driver_push_actions(stream_id, actions) {
-          Ok(value) => value
-          Err(error) => return Err(error)
-        }
-        output.append(converted)
-      }
-      if fin {
-        match self.connection.remote_unidirectional_closed(stream_id) {
-          Ok(_) => ()
-          Err(error) => return Err(error)
-        }
+        self.append_events(output, actions)
       }
       Ok(output)
     }
@@ -431,14 +381,6 @@ fn Http3Driver::h3_driver_handle_uni(
         }
         output.append(replayed)
       }
-      if fin {
-        return self.h3_driver_fail(
-          Http3ConnectionError(
-            H3ClosedCriticalStream,
-            "peer closed QPACK encoder stream",
-          ),
-        )
-      }
       Ok(output)
     }
     H3QpackDecoderStream => {
@@ -446,32 +388,16 @@ fn Http3Driver::h3_driver_handle_uni(
         Ok(_) => ()
         Err(error) => return Err(error)
       }
-      if fin {
-        return self.h3_driver_fail(
-          Http3ConnectionError(
-            H3ClosedCriticalStream,
-            "peer closed QPACK decoder stream",
-          ),
-        )
-      }
       Ok([])
     }
-    H3PushStream(_) | H3UnknownStream(_) => {
-      // Completed non-critical unidirectional streams do not need a registry
-      // entry after their bytes have been ignored. Retaining every historical
-      // unknown stream would turn a long-lived connection into an unbounded
-      // stream-ID map.
-      if fin {
-        self.kinds.remove(stream_id)
-      }
-      Ok([])
-    }
+    H3PushStream(_) | H3UnknownStream(_) => Ok([])
   }
 }
 
 ///|
 /// Feeds one QUIC stream fragment into the HTTP/3 state machine. Input may be
-/// arbitrarily fragmented; a FIN verifies that no partial frame remains.
+/// arbitrarily fragmented. Event(H3MessageFinished(id)) signals validated EOF,
+/// including when FIN precedes the QPACK instructions needed to decode trailers.
 pub fn Http3Driver::on_stream_data(
   self : Http3Driver,
   stream_id : Int64,
@@ -494,13 +420,6 @@ pub fn Http3Driver::on_stream_data(
       Ok(_) => ()
       Err(error) => return Err(error)
     }
-  }
-  if self.decoders.get(stream_id) is None {
-    let decoder = match self.h3_driver_new_decoder() {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    self.decoders.set(stream_id, decoder)
   }
   let frames = match self.h3_driver_feed_decoder(stream_id, bytes, fin) {
     Ok(value) => value
@@ -525,19 +444,15 @@ pub fn Http3Driver::on_stream_data(
         Err(error) => return Err(error)
       }
     } else {
-      let converted = match self.h3_driver_push_actions(stream_id, actions) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      output.append(converted)
+      self.append_events(output, actions)
     }
   }
   if fin {
     if self.blocked_frames.get(stream_id) is Some(_) {
-      self.pending_fin.set(stream_id, true)
+      self.pending_fin.add(stream_id)
     } else {
       match self.connection.finish_request_stream(stream_id) {
-        Ok(_) => ()
+        Ok(_) => output.push(Event(H3MessageFinished(stream_id)))
         Err(error) => return Err(error)
       }
     }
@@ -591,11 +506,7 @@ pub fn Http3Driver::initial_stream_actions(
       )
   }
   Ok([
-    SendOnStream(
-      self.local_control_stream,
-      h3_driver_join([control_type, control]),
-      false,
-    ),
+    SendOnStream(self.local_control_stream, control_type + control, false),
     SendOnStream(self.local_qpack_encoder_stream, encoder_type, false),
     SendOnStream(self.local_qpack_decoder_stream, decoder_type, false),
   ])

@@ -39,7 +39,9 @@ fn QuicDatagramDriver::application_payload_limit(
   self : QuicDatagramDriver,
 ) -> Int {
   let header_size = 1 + self.peer_connection_id.bytes().length() + 4 + 16
-  (self.send_datagram_limit() - header_size).min(self.limits.max_frame_payload)
+  (self.send_datagram_limit().min(self.limits.max_packet_size) - header_size).min(
+    self.limits.max_frame_payload,
+  )
 }
 
 ///|
@@ -104,9 +106,7 @@ fn QuicDatagramDriver::flush_retirements(
         self.consume_pending_retirements(count)
         actions.push(action)
       }
-      Err(AmplificationBlocked) | Err(FlowControl(0L, _)) => break
-      Err(LimitExceeded("QUIC retransmission queue", _)) => break
-      Err(LimitExceeded("QUIC recovery packet queue", _)) => break
+      Err(error) if error.send_blocked() => break
       Err(error) => return Err(error)
     }
   }

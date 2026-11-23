@@ -15,7 +15,7 @@ Last reviewed: 2026-10-01
 依赖 types、codec、quic；协议核心面向四目标，联网仍需宿主 adapter。
 
 ## 使用边界
-显式设置 role/settings/limits，输入所属 QUIC stream event 并执行 action。
+将 QUIC 流片段传给 `Http3Driver::on_stream_data`，按顺序处理返回的动作。收到 `Event(H3MessageFinished(id))` 后再结束对应 HTTP 消息。如果请求 FIN 先于所需的 QPACK 指令到达，驱动会在编码流回调中解出剩余字段，并通知原请求已完成。请求流先于对端控制流到达时使用初始设置。
 
 ## 不变量与范围
 统一检查 critical stream、重复字段、CONNECT gate、QPACK、body 长度和 request 生命周期；不做 socket。

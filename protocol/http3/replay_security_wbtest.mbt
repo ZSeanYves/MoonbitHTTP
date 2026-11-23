@@ -73,13 +73,11 @@ test "h3 blocked streams preserve DATA trailers FIN and repeated blocking order"
     QpackField::from_strings(":authority", "example.com").unwrap(),
     QpackField::from_strings(":path", "/").unwrap(),
   ]).unwrap()
-  let initial = h3_driver_join([b"\x02\x00", fields[2:].to_owned(), b"\x80"])
-  let frames = h3_driver_join([
-    encode_http3_frame(H3Headers(initial)).unwrap(),
-    encode_http3_frame(H3Data(b"ok")).unwrap(),
-    encode_http3_frame(H3Unknown(0x21L, b"extension")).unwrap(),
-    encode_http3_frame(H3Headers(b"\x03\x00\x80")).unwrap(),
-  ])
+  let initial = b"\x02\x00" + fields[2:].to_owned() + b"\x80"
+  let frames = encode_http3_frame(H3Headers(initial)).unwrap() +
+    encode_http3_frame(H3Data(b"ok")).unwrap() +
+    encode_http3_frame(H3Unknown(0x21L, b"extension")).unwrap() +
+    encode_http3_frame(H3Headers(b"\x03\x00\x80")).unwrap()
   assert_eq(driver.on_stream_data(0L, frames, true), Ok([]))
   let actions = driver.on_stream_data(6L, b"\x41x\x01v", false).unwrap()
   let delivered : Array[String] = []
@@ -88,6 +86,7 @@ test "h3 blocked streams preserve DATA trailers FIN and repeated blocking order"
       Event(H3HeadersReceived(0L, _, false, false)) => delivered.push("headers")
       Event(H3DataReceived(0L, b"ok")) => delivered.push("data")
       Event(H3UnknownFrameIgnored(0x21L)) => delivered.push("extension")
+      Event(H3MessageFinished(_)) => delivered.push("finished")
       _ => ()
     }
   }
@@ -101,6 +100,7 @@ test "h3 blocked streams preserve DATA trailers FIN and repeated blocking order"
       action is Event(H3HeadersReceived(0L, _, true, false))
     }),
   )
+  assert_eq(actions.last(), Some(Event(H3MessageFinished(0L))))
   assert_eq(driver.connection.stream_phase(0L), None)
   assert_eq(driver.blocked_bytes, 0)
   assert_false(driver.pending_fin.contains(0L))

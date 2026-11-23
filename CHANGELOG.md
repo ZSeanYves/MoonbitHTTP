@@ -13,6 +13,8 @@ in local or CI workspaces and are not part of this file.
 - Accept a server's HTTP/2 ENABLE_PUSH setting of zero. Ignore undefined frame flags and reserved stream-ID bits. Share header-fragment validation across frame and connection decoding.
 - Slide active QUIC byte windows as applications consume data and packets are acknowledged. Receive resets release their final-size credit, and completed streams return their stream-count credit. Custom transports can exchange the same limits and credit updates as the built-in datagram driver.
 - Advance stream send offsets only after datagram admission. Local stream resets now use the recorded final size.
+- Expose partial QUIC stream writes, preserve pending HTTP/3 responses through congestion, and wait for handshake completion before processing received 1-RTT packets.
+- Accept HTTP/3 requests ahead of peer SETTINGS and emit a validated message completion event after any blocked QPACK fields have been decoded.
 - Verify a 4 KiB HTTP/3 upload across a 256-byte stream window and 256 requests on one connection with an initial eight-stream allowance using aioquic.
 
 ## 0.7.0 — 2026-10-07

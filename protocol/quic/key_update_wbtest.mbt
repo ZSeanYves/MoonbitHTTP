@@ -35,11 +35,17 @@ fn key_limit_driver_pair(
     QuicTransportParameters::new(
       server_id,
       original_destination_connection_id=Some(server_id),
+      limits=server.connection().local_transport_params(),
     ),
   )
   .unwrap()
   server
-  .set_peer_transport_parameters(QuicTransportParameters::new(client_id))
+  .set_peer_transport_parameters(
+    QuicTransportParameters::new(
+      client_id,
+      limits=client.connection().local_transport_params(),
+    ),
+  )
   .unwrap()
   client.establish().unwrap()
   server.establish().unwrap()

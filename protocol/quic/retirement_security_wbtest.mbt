@@ -64,6 +64,26 @@ fn retirement_security_server_packet(
 }
 
 ///|
+test "QUIC delays receiving 1-RTT until handshake completion even with installed keys" {
+  let endpoint = @types.Endpoint::new("udp", "peer.test", 443).unwrap()
+  let (client, server) = retirement_security_pair()
+  client.establish().unwrap()
+  let id = client.connection().open_bidirectional_stream().unwrap()
+  guard client.send_stream(id, b"request", true, 0L).unwrap()
+    is SendDatagram(_, packet) else {
+    fail("expected an application packet")
+  }
+  assert_eq(server.on_datagram(endpoint, packet, 1L), Ok([PacketIgnored]))
+  server.establish().unwrap()
+  assert_true(
+    server
+    .on_datagram(endpoint, packet, 2L)
+    .unwrap()
+    .contains(StreamData(id, b"request", true)),
+  )
+}
+
+///|
 test "quic standalone establishment rejects late Initial close CRYPTO and negotiation" {
   let endpoint = @types.Endpoint::new("udp", "peer.test", 443).unwrap()
   let (client, server) = retirement_security_pair()

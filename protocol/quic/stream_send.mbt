@@ -1,6 +1,6 @@
 ///|
 priv enum StreamWrite {
-  Data(Bytes, Bool)
+  Data(BytesView, Bool, Int?)
   Reset(Int64)
 }
 
@@ -11,7 +11,7 @@ fn[T] QuicConnection::write_stream(
   self : QuicConnection,
   id : Int64,
   write : StreamWrite,
-  emit : (QuicFrame) -> Result[T, QuicError],
+  emit : (QuicFrame, Int) -> Result[T, QuicError],
 ) -> Result[T, QuicError] {
   match self.state {
     Closed | Draining =>
@@ -38,27 +38,63 @@ fn[T] QuicConnection::write_stream(
       }
       (QuicFrame::ResetStream(id, code, stream.send_offset), 0L, true)
     }
-    Data(data, fin) => {
-      if data.length() > self.limits.max_frame_payload {
-        return Err(LimitExceeded("stream frame", self.limits.max_frame_payload))
+    Data(data, fin, packet_budget) => {
+      let offered = match packet_budget {
+        None => {
+          if data.length() > self.limits.max_frame_payload {
+            return Err(
+              LimitExceeded("stream frame", self.limits.max_frame_payload),
+            )
+          }
+          data.length()
+        }
+        Some(budget) => {
+          // STREAM is encoded with explicit offset and length. Reserve a length
+          // varint wide enough for any payload fitting the current packet.
+          let room = budget -
+            1 -
+            quic_encoded_varint_size(id) -
+            quic_encoded_varint_size(stream.send_offset)
+          let available = room -
+            quic_encoded_varint_size(room.max(0).to_int64())
+          if available < 0 || (available == 0 && !data.is_empty()) {
+            return Err(LimitExceeded("QUIC STREAM packet budget", budget))
+          }
+          data.length().min(available)
+        }
       }
-      let length = data.length().to_int64()
-      if length > stream.send_max - stream.send_offset ||
-        length > self.limits.max_stream_data - stream.outstanding.bytes {
+      let stream_credit = (stream.send_max - stream.send_offset).min(
+        self.limits.max_stream_data - stream.outstanding.bytes,
+      )
+      let connection_credit = (self.peer_max_data - self.connection_send_offset).min(
+        self.limits.max_connection_data - self.retained_send_bytes,
+      )
+      let required = (if packet_budget is Some(_) {
+        offered.min(1)
+      } else {
+        offered
+      }).to_int64()
+      if required > stream_credit {
         return Err(FlowControl(id, "stream send window exhausted"))
       }
-      if length > self.peer_max_data - self.connection_send_offset ||
-        length > self.limits.max_connection_data - self.retained_send_bytes {
+      if required > connection_credit {
         return Err(FlowControl(0L, "connection send window exhausted"))
       }
+      let length = offered.to_int64().min(stream_credit).min(connection_credit)
+      let finished = fin && length == data.length().to_int64()
       (
-        Stream({ stream_id: id, offset: stream.send_offset, data, fin, }),
+        Stream({
+          stream_id: id,
+          offset: stream.send_offset,
+          data: data[:length.to_int()].to_owned(),
+          fin: finished,
+        }),
         length,
-        fin,
+        finished,
       )
     }
   }
-  let result = match emit(frame) {
+  let result = match emit(frame, length.to_int()) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
@@ -80,7 +116,7 @@ pub fn QuicConnection::send_stream(
   data : Bytes,
   fin : Bool,
 ) -> Result[QuicFrame, QuicError] {
-  self.write_stream(stream_id, Data(data, fin), fn(frame) { Ok(frame) })
+  self.write_stream(stream_id, Data(data, fin, None), fn(frame, _) { Ok(frame) })
 }
 
 ///|
@@ -90,7 +126,7 @@ pub fn QuicConnection::reset_stream(
   stream_id : Int64,
   code : Int64,
 ) -> Result[QuicFrame, QuicError] {
-  self.write_stream(stream_id, Reset(code), fn(frame) { Ok(frame) })
+  self.write_stream(stream_id, Reset(code), fn(frame, _) { Ok(frame) })
 }
 
 ///|
@@ -103,9 +139,45 @@ pub fn QuicDatagramDriver::send_stream(
   fin : Bool,
   now_ms : Int64,
 ) -> Result[QuicDriverAction, QuicError] {
-  self.connection.write_stream(stream_id, Data(data, fin), fn(frame) {
+  self.connection.write_stream(stream_id, Data(data, fin, None), fn(frame, _) {
     self.send_frames(Application, [frame], now_ms)
   })
+}
+
+///|
+/// Send a prefix that fits the packet and both flow-control windows. The count
+/// advances only when the returned datagram is handed to recovery. Retry the
+/// remaining view after ACKs, credit updates or a timer. None means temporarily
+/// blocked. An empty view with fin=true can send a zero-byte FIN.
+pub fn QuicDatagramDriver::send_stream_prefix(
+  self : QuicDatagramDriver,
+  stream_id : Int64,
+  data : BytesView,
+  fin : Bool,
+  now_ms : Int64,
+) -> Result[(Int, QuicDriverAction)?, QuicError] {
+  let write = Data(data, fin, Some(self.application_payload_limit()))
+  match
+    self.connection.write_stream(stream_id, write, fn(frame, count) {
+      self
+      .send_frames(Application, [frame], now_ms)
+      .map(action => (count, action))
+    }) {
+    Ok(sent) => Ok(Some(sent))
+    Err(error) if error.send_blocked() => Ok(None)
+    Err(error) => Err(error)
+  }
+}
+
+///|
+fn QuicError::send_blocked(self : QuicError) -> Bool {
+  match self {
+    AmplificationBlocked
+    | FlowControl(_, _)
+    | LimitExceeded("QUIC retransmission queue", _)
+    | LimitExceeded("QUIC recovery packet queue", _) => true
+    _ => false
+  }
 }
 
 ///|
@@ -116,7 +188,7 @@ pub fn QuicDatagramDriver::reset_stream(
   code : Int64,
   now_ms : Int64,
 ) -> Result[QuicDriverAction, QuicError] {
-  self.connection.write_stream(stream_id, Reset(code), fn(frame) {
+  self.connection.write_stream(stream_id, Reset(code), fn(frame, _) {
     self.send_frames(Application, [frame], now_ms)
   })
 }

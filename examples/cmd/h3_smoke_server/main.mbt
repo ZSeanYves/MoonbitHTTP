@@ -5,8 +5,10 @@ struct SmokeConnection {
   tls : @quic.QuicTlsDriver[@tls_native.NativeQuicTlsProvider]
   provider : @tls_native.NativeQuicTlsProvider
   h3 : @http3.Http3Driver
-  post_streams : Map[Int64, Bool]
-  bodies : Map[Int64, Array[Byte]]
+  post_bodies : Map[Int64, Array[Byte]]
+  writes : Map[Int64, @deque.Deque[PendingWrite]]
+  mut queued_bytes : Int
+  mut queued_writes : Int
   mut initialized : Bool
   mut last_received_ms : Int64
 }
@@ -20,35 +22,63 @@ fn[T, E : Error] checked(result : Result[T, E]) -> T raise E {
 }
 
 ///|
-fn SmokeConnection::send_stream(
+struct PendingWrite {
+  bytes : Bytes
+  fin : Bool
+  mut offset : Int
+}
+
+///|
+fn SmokeConnection::enqueue(
   self : SmokeConnection,
   stream : Int64,
   bytes : Bytes,
   fin : Bool,
+) -> Unit raise {
+  if self.queued_writes >= 1024 ||
+    bytes.length() > 1024 * 1024 - self.queued_bytes {
+    fail("smoke response queue limit exceeded")
+  }
+  self.writes
+  .get_or_init(stream, fn() { @deque.from_array([]) })
+  .push_back({ bytes, fin, offset: 0, })
+  self.queued_writes += 1
+  self.queued_bytes += bytes.length()
+}
+
+///|
+fn SmokeConnection::flush_writes(
+  self : SmokeConnection,
+  output : Array[@quic.QuicDriverAction],
   now_ms : Int64,
-) -> Array[@quic.QuicDriverAction] raise {
-  let packets = self.tls.datagram_driver()
-  let output : Array[@quic.QuicDriverAction] = []
-  // Small chunks keep smoke payloads below both packet and path MTU bounds.
-  let mut cursor = 0
-  while cursor < bytes.length() {
-    let end = (cursor + 1000).min(bytes.length())
-    output.push(
-      checked(
-        packets.send_stream(
-          stream,
-          bytes[cursor:end].to_owned(),
-          fin && end == bytes.length(),
-          now_ms,
-        ),
-      ),
-    )
-    cursor = end
+) -> Result[Unit, @quic.QuicError] {
+  let finished : Array[Int64] = []
+  for id, queue in self.writes {
+    guard queue.front() is Some(write) else { continue }
+    match
+      self.tls
+      .datagram_driver()
+      .send_stream_prefix(id, write.bytes[write.offset:], write.fin, now_ms) {
+      Ok(Some((count, packet))) => {
+        output.push(packet)
+        write.offset += count
+        if write.offset == write.bytes.length() {
+          ignore(queue.pop_front())
+          self.queued_writes -= 1
+          self.queued_bytes -= write.bytes.length()
+        }
+      }
+      Ok(None) => ()
+      Err(error) => return Err(error)
+    }
+    if queue.is_empty() {
+      finished.push(id)
+    }
   }
-  if bytes.is_empty() && fin {
-    output.push(checked(packets.send_stream(stream, b"", true, now_ms)))
+  for id in finished {
+    self.writes.remove(id)
   }
-  output
+  Ok(())
 }
 
 ///|
@@ -60,25 +90,37 @@ fn SmokeConnection::h3_actions(
   let output : Array[@quic.QuicDriverAction] = []
   for action in actions {
     match action {
-      SendOnStream(id, bytes, fin) =>
-        output.append(self.send_stream(id, bytes, fin, now_ms))
-      Event(H3HeadersReceived(id, fields, false, _)) => {
-        self.bodies.set(id, [])
-        self.post_streams.set(
-          id,
-          fields.any(fn(field) {
-            field.name == ":method" && field.value == b"POST"
-          }),
-        )
-      }
-      Event(H3DataReceived(id, bytes)) => {
-        let body = self.bodies.get_or_init(id, fn() { [] })
-        if bytes.length() > 65536 - body.length() {
-          fail("smoke body limit exceeded")
+      SendOnStream(id, bytes, fin) => self.enqueue(id, bytes, fin)
+      Event(H3HeadersReceived(id, fields, false, false)) =>
+        if fields.any(field => field.name == ":method" && field.value == b"POST") {
+          self.post_bodies[id] = []
         }
-        for byte in bytes {
-          body.push(byte)
+      Event(H3DataReceived(id, bytes)) =>
+        if self.post_bodies.get(id) is Some(body) {
+          if bytes.length() > 65536 - body.length() {
+            fail("smoke body limit exceeded")
+          }
+          for byte in bytes {
+            body.push(byte)
+          }
         }
+      Event(H3MessageFinished(id)) => {
+        let body = match self.post_bodies.get(id) {
+          Some(bytes) => Bytes::from_array(bytes)
+          None => b"MoonbitHTTP HTTP/3 smoke\n"
+        }
+        self.post_bodies.remove(id)
+        let fields = [
+          @http3.QpackField::from_strings(":status", "200").unwrap(),
+          @http3.QpackField::from_strings("content-type", "text/plain").unwrap(),
+          @http3.QpackField::from_strings(
+            "content-length",
+            body.length().to_string(),
+          ).unwrap(),
+        ]
+        let (headers, _) = checked(self.h3.encode_headers(id, fields))
+        let (data, _) = checked(self.h3.encode_data(body, fin=true))
+        self.enqueue(id, headers + data, true)
       }
       ResetStream(id, code) =>
         output.push(
@@ -148,32 +190,11 @@ fn SmokeConnection::receive(
           .connection()
           .consume_stream_data(id, bytes.length()),
         )
-        if fin && (id & 2L) == 0L {
-          let body = if self.post_streams.get(id).unwrap_or(false) {
-            Bytes::from_array(self.bodies.get(id).unwrap_or([]))
-          } else {
-            b"MoonbitHTTP HTTP/3 smoke\n"
-          }
-          let fields = [
-            @http3.QpackField::from_strings(":status", "200").unwrap(),
-            @http3.QpackField::from_strings("content-type", "text/plain").unwrap(),
-            @http3.QpackField::from_strings(
-              "content-length",
-              body.length().to_string(),
-            ).unwrap(),
-          ]
-          let (headers, _) = checked(self.h3.encode_headers(id, fields))
-          output.append(self.send_stream(id, headers, false, now_ms))
-          let (data, _) = checked(self.h3.encode_data(body, fin=true))
-          output.append(self.send_stream(id, data, true, now_ms))
-          self.bodies.remove(id)
-          self.post_streams.remove(id)
-          println("h3 response stream=\{id} bytes=\{body.length()}")
-        }
       }
       _ => output.push(action)
     }
   }
+  checked(self.flush_writes(output, now_ms))
   output
 }
 
@@ -220,8 +241,14 @@ async fn main {
               now_ms - connection.last_received_ms >= 30000L {
               expired.push(key)
             } else {
-              match connection.tls.poll(now_ms) {
-                Ok(actions) => output.append(actions)
+              let progress = connection.tls
+                .poll(now_ms)
+                .bind(actions => {
+                  output.append(actions)
+                  connection.flush_writes(output, now_ms)
+                })
+              match progress {
+                Ok(_) => ()
                 Err(error) => {
                   println("h3 timer \{key}: \{Repr(error)}")
                   expired.push(key)
@@ -312,8 +339,10 @@ async fn main {
             tls,
             provider,
             h3: @http3.Http3Driver::new(H3Server).unwrap(),
-            post_streams: Map([]),
-            bodies: Map([]),
+            post_bodies: Map([]),
+            writes: Map([]),
+            queued_bytes: 0,
+            queued_writes: 0,
             initialized: false,
             last_received_ms: now_ms,
           }

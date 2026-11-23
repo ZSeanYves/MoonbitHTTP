@@ -11,6 +11,7 @@ pub(all) enum H3Action {
   H3SendQpackDecoderInstruction(Bytes)
   H3HeadersReceived(Int64, Array[QpackField], Bool, Bool)
   H3DataReceived(Int64, Bytes)
+  H3MessageFinished(Int64)
   H3PushPromiseReceived(Int64, Int64, Array[QpackField])
   H3CancelPushReceived(Int64)
   H3MaxPushIdReceived(Int64)
@@ -189,13 +190,8 @@ pub fn Http3Connection::receive_request_frame(
   stream_id : Int64,
   frame : Http3Frame,
 ) -> Result[Array[H3Action], Http3Error] {
-  if !self.settings_received {
-    return Err(
-      Http3ConnectionError(
-        H3MissingSettings,
-        "request stream data arrived before SETTINGS",
-      ),
-    )
+  if self.failure is Some(error) {
+    return Err(error)
   }
   let stream = match self.streams.get(stream_id) {
     Some(result) => result

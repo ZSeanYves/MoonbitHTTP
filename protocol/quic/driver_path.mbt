@@ -137,10 +137,7 @@ pub fn QuicDatagramDriver::poll(
           self.connection.commit_credit_updates(frames)
           output.push(action)
         }
-        Err(AmplificationBlocked)
-        | Err(FlowControl(0L, _))
-        | Err(LimitExceeded("QUIC retransmission queue", _))
-        | Err(LimitExceeded("QUIC recovery packet queue", _)) => ()
+        Err(error) if error.send_blocked() => ()
         Err(error) => return Err(error)
       }
     }

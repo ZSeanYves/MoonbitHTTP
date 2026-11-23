@@ -9,23 +9,6 @@ fn driver_request_fields() -> Array[@http3.QpackField] {
 }
 
 ///|
-fn driver_join(parts : Array[Bytes]) -> Bytes {
-  let mut length = 0
-  for part in parts {
-    length += part.length()
-  }
-  let output = FixedArray::make(length, b'\x00')
-  let mut offset = 0
-  for part in parts {
-    for byte in part {
-      output[offset] = byte
-      offset += 1
-    }
-  }
-  output.unsafe_reinterpret_as_bytes()
-}
-
-///|
 test "http3 driver: fragmented control and request streams" {
   let driver = @http3.Http3Driver::new(H3Server).unwrap()
   let settings = @http3.encode_http3_frame(H3SettingsFrame([])).unwrap()
@@ -47,9 +30,16 @@ test "http3 driver: fragmented control and request streams" {
 }
 
 ///|
-test "http3 driver: truncated unidirectional prefix is a protocol error" {
+test "http3 driver: a peer can finish before identifying a unidirectional stream" {
   let driver = @http3.Http3Driver::new(H3Server).unwrap()
-  assert_true(driver.on_stream_data(2L, b"", true) is Err(_))
+  assert_eq(driver.on_stream_data(2L, b"", true), Ok([]))
+  assert_eq(driver.on_stream_data(6L, b"\x40", false), Ok([]))
+  assert_eq(driver.on_stream_data(6L, b"", true), Ok([]))
+  assert_eq(driver.failure(), None)
+  assert_true(
+    driver.on_stream_data(10L, b"\x00", true)
+    is Err(Http3ConnectionError(H3ClosedCriticalStream, _)),
+  )
 }
 
 ///|
@@ -69,13 +59,22 @@ test "http3 driver: critical streams and cancellation produce QUIC actions" {
 }
 
 ///|
-test "http3 driver: request bytes before SETTINGS are rejected" {
+test "http3 driver: request can complete before the peer control stream arrives" {
   let driver = @http3.Http3Driver::new(H3Server).unwrap()
   let header_section = @http3.qpack_encode_static(driver_request_fields()).unwrap()
   let request_frame = @http3.encode_http3_frame(H3Headers(header_section)).unwrap()
+  let actions = driver.on_stream_data(0L, request_frame, true).unwrap()
   assert_true(
-    driver.on_stream_data(0L, request_frame, true)
-    is Err(Http3ConnectionError(H3MissingSettings, _)),
+    actions
+    is [
+      Event(H3HeadersReceived(0L, _, false, false)),
+      Event(H3MessageFinished(0L)),
+    ],
+  )
+  let settings = @http3.encode_http3_frame(H3SettingsFrame([])).unwrap()
+  assert_true(
+    driver.on_stream_data(2L, b"\x00" + settings, false).unwrap()
+    is [Event(H3PeerSettingsReceived(_))],
   )
 }
 
@@ -87,23 +86,17 @@ test "http3 driver: blocked QPACK headers replay after encoder instructions" {
   ).unwrap()
   let driver = @http3.Http3Driver::new(H3Server, qpack_limits~).unwrap()
   let settings = @http3.encode_http3_frame(H3SettingsFrame([])).unwrap()
-  ignore(
-    driver.on_stream_data(2L, driver_join([b"\x00", settings]), false).unwrap(),
-  )
+  ignore(driver.on_stream_data(2L, b"\x00" + settings, false).unwrap())
   let static_prefix = @http3.qpack_encode_static([
     qpack_test_field(":method", "GET"),
     qpack_test_field(":scheme", "https"),
   ]).unwrap()
-  let section = driver_join([
-    b"\x03\x81",
-    static_prefix[2:].to_owned(),
-    b"\x10\x11",
-  ])
+  let section = b"\x03\x81" + static_prefix[2:].to_owned() + b"\x10\x11"
   let request_frame = @http3.encode_http3_frame(H3Headers(section)).unwrap()
   assert_eq(driver.on_stream_data(0L, request_frame, true), Ok([]))
   let instructions = b"\x3f\xbd\x01\xc0\x0fwww.example.com\xc1\x0c/sample/path"
   let actions = driver
-    .on_stream_data(6L, driver_join([b"\x02", instructions]), false)
+    .on_stream_data(6L, b"\x02" + instructions, false)
     .unwrap()
   assert_true(actions.any(fn(action) { action is QpackStreamReady(0L) }))
   assert_true(
@@ -133,9 +126,7 @@ test "http3 driver: blocked QPACK frame bytes are bounded and reclaimed" {
   ).unwrap()
   let driver = @http3.Http3Driver::new(H3Server, limits~, qpack_limits~).unwrap()
   let settings = @http3.encode_http3_frame(H3SettingsFrame([])).unwrap()
-  ignore(
-    driver.on_stream_data(2L, driver_join([b"\x00", settings]), false).unwrap(),
-  )
+  ignore(driver.on_stream_data(2L, b"\x00" + settings, false).unwrap())
   // Required Insert Count 1, Base 0, with no field lines: the section is
   // valid but remains blocked until the encoder inserts an entry.
   let blocked_frame = @http3.encode_http3_frame(H3Headers(b"\x02\x00")).unwrap()

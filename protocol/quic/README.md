@@ -13,4 +13,6 @@ After accepting bytes from a `StreamData` event, call `consume_stream_data(strea
 
 `QuicDatagramDriver::poll()` sends pending window updates, and the driver releases outstanding send bytes on packet acknowledgement. A custom transport advertises `local_transport_params()` during the handshake, reliably sends frames from `take_credit_updates()` and reports acknowledged STREAM ranges with `acknowledge_stream_data(stream_id, offset, length)`.
 
+For nonblocking writes, `QuicDatagramDriver::send_stream_prefix` returns the accepted byte count and its datagram. Keep the remaining bytes until a later receive or timer callback. A blocked write preserves its offset and a final write carries FIN only on the last portion.
+
 See [the QUIC/TLS boundary](../../docs/protocols/quic-tls.md).

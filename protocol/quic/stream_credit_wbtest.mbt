@@ -8,19 +8,21 @@ test "QUIC driver retains blocked credit and releases stream bytes on packet ACK
   }
   let (client, server) = key_limit_driver_pair(endpoint, endpoint, limits~)
   let id = client.connection().open_bidirectional_stream().unwrap()
-  guard client.send_stream(id, b"12345678", false, 0L).unwrap()
-    is SendDatagram(_, packet) else {
+  let body = b"12345678abcdefgh"
+  guard client.send_stream_prefix(id, body, true, 0L).unwrap()
+    is Some((8, SendDatagram(_, packet))) else {
     fail("expected stream packet")
   }
   let received = server.on_datagram(endpoint, packet, 1L).unwrap()
   assert_true(received.contains(StreamData(id, b"12345678", false)))
-  assert_true(client.send_stream(id, b"x", false, 2L) is Err(FlowControl(_, _)))
+  assert_eq(client.send_stream_prefix(id, body[8:], true, 2L), Ok(None))
   for action in received {
     if action is SendDatagram(_, ack) {
       ignore(client.on_datagram(endpoint, ack, 3L).unwrap())
     }
   }
   assert_eq(client.connection().retained_send_bytes, 0L)
+  assert_eq(client.send_stream_prefix(id, body[8:], true, 3L), Ok(None))
   let connection = server.connection()
   connection.consume_stream_data(id, 8).unwrap()
   server.recovery.bytes_in_flight = server.recovery.congestion_window
@@ -36,15 +38,15 @@ test "QUIC driver retains blocked credit and releases stream bytes on packet ACK
   }
   assert_eq(connection.local_max_data, 16L)
   assert_eq(connection.take_credit_updates(), [])
-  guard client.send_stream(id, b"abcdefgh", false, 7L).unwrap()
-    is SendDatagram(_, next) else {
+  guard client.send_stream_prefix(id, body[8:], true, 7L).unwrap()
+    is Some((8, SendDatagram(_, next))) else {
     fail("expected second stream packet")
   }
   assert_true(
     server
     .on_datagram(endpoint, next, 8L)
     .unwrap()
-    .contains(StreamData(id, b"abcdefgh", false)),
+    .contains(StreamData(id, b"abcdefgh", true)),
   )
 }
 
