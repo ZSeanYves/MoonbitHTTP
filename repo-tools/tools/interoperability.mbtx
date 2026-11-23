@@ -96,8 +96,13 @@ async fn main {
     require_equal("curl HTTP/1.1 GET", get,
       "MoonbitHTTP smoke\n\n__status:200;http:1.1\n")
     let (post, _) = run_logged(directory, "curl-post", "curl",
-      curl_common + ["--data-binary", "roundtrip", url + "echo"])
+      curl_common + ["--header", "Expect: 100-continue", "--dump-header", directory + "/curl-post.headers",
+        "--data-binary", "roundtrip", url + "echo"])
     require_equal("curl HTTP/1.1 POST", post, "roundtrip\n__status:200;http:1.1\n")
+    let post_headers = @fs.read_file(directory + "/curl-post.headers").text().replace(old="\r\n", new="\n")
+    guard post_headers.has_prefix("HTTP/1.1 100 Continue\n\nHTTP/1.1 200 ") else {
+      fail("curl POST did not receive 100 Continue before its final response")
+    }
     let wget_common = ["--server-response", "--output-document=-", "--no-proxy",
       "--timeout=5", "--tries=1"]
     let (wget_get, wget_headers) = run_logged(directory, "wget-get", "wget", wget_common + [url])
@@ -128,7 +133,7 @@ async fn main {
       "worktree_dirty": !status.is_empty(),
       "server_sha256": server_digest,
       "server_origin": if arguments.length() == 1 { "built-from-current-worktree" } else { "caller-supplied-executable" },
-      "cases": ["curl-http1-get", "curl-http1-post", "wget-http1-get", "wget-http1-post",
+      "cases": ["curl-http1-get", "curl-http1-post-continue", "wget-http1-get", "wget-http1-post",
         "nghttp-http2-prior-knowledge", "nghttp-h2c-upgrade"],
       "http3_interoperability": "covered-by-repo-tools/tools/http3_interoperability.mbtx",
       "tls_interoperability": "covered-by-moon-test-adapter/native/tls",

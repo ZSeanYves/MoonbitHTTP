@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Honor explicit `Expect: 100-continue` on HTTP/1.1 uploads with a bounded wait, body cancellation on early final responses and safe pool eviction. HTTP/1 and h2c servers share expectation handling and preserve buffered body bytes when selecting a protocol. HTTP/1-only connections accept read buffers below the HTTP/2 initial receive window.
+
 - Recognize QUIC stateless resets on active paths and release HTTP/3 requests and UDP routes. Pooled requests retain the transport error when the connection worker exits. Accept larger peer datagrams during the handshake while retaining the default 1,200-byte outgoing path budget.
 
 - Issue and rotate local QUIC connection IDs on native HTTP/3 clients and listeners. Keep one spare, retain the old route until peer retirement, and continue active streams on the replacement. The portable driver accepts explicit entropy and route callbacks. Its lifetime issuance budget defaults to 256 IDs.

@@ -72,21 +72,11 @@ pub fn[R, W] ClientConnection::new(
   ]
   for entry in timeouts {
     let (name, timeout) = entry
-    if timeout is Some(value) && value <= 0 {
-      return Err(InvalidTimeout(name, value))
+    if validate_timeout(name, timeout) is Err(error) {
+      return Err(error)
     }
   }
-  let config = ServerConfig::{
-    ..ServerConfig::defaults(),
-    limits,
-    read_size,
-    body_queue_capacity: 1,
-    h2_receive_window_bytes: 65535,
-    read_timeout_ms: response_headers_timeout_ms,
-    write_timeout_ms: request_headers_timeout_ms,
-    close_callback: None,
-  }
-  match config.validate() {
+  match validate_read_limits(limits, read_size) {
     Ok(_) =>
       Ok({
         reader,
@@ -154,6 +144,137 @@ pub fn[R, W] ClientConnection::is_closed(self : ClientConnection[R, W]) -> Bool 
 }
 
 ///|
+async fn[R, W : @aio.Writer, B : @body.Body] ClientConnection::write_upload(
+  self : ClientConnection[R, W],
+  framing : @http1.BodyFraming,
+  body : B,
+) -> Unit {
+  write_http1_body(
+    framing,
+    async fn() {
+      match self.request_body_timeout_ms {
+        Some(timeout) =>
+          @async.with_timeout(
+            timeout,
+            () => body.next_frame(),
+            error=ClientConnectionTimeout(RequestBody),
+          )
+        None => body.next_frame()
+      }
+    },
+    async fn(bytes) {
+      client_write_with_timeout(
+        self.writer,
+        bytes,
+        self.request_body_timeout_ms,
+        RequestBody,
+      )
+    },
+  )
+}
+
+///|
+async fn[R : @aio.Reader, W] ClientConnection::read_response_head(
+  self : ClientConnection[R, W],
+  decoder : @http1.ResponseDecoder,
+  timeout_ms : Int?,
+  stop_at_continue? : Bool = false,
+) -> @types.Response[Unit] {
+  let mut received_continue = None
+  for ;; {
+    match decoder.next().unwrap_or_error() {
+      Some(ResponseHead(head)) => {
+        if head.status == 101 || head.status >= 200 {
+          return head
+        }
+        if stop_at_continue && head.status == 100 {
+          // Prefer a final response already in this read over opening the body.
+          received_continue = Some(head)
+        }
+      }
+      Some(ResponseEnd) => () // End of an informational response.
+      Some(ResponseData(_)) | Some(ResponseTrailers(_)) =>
+        raise @http1.Http1Error::InvalidFraming(
+          "body before final response head",
+        )
+      None => {
+        if received_continue is Some(head) {
+          return head
+        }
+        match
+          client_read_with_timeout(
+            self.reader,
+            self.read_size,
+            timeout_ms,
+            ResponseHeaders,
+          ) {
+          Some(bytes) => decoder.feed(bytes).unwrap_or_error()
+          None => raise @http1.Http1Error::UnexpectedEof("final response head")
+        }
+      }
+    }
+  }
+}
+
+///|
+/// Keep a single pending read across the grace period. Cancelling an actual
+/// transport read on timeout would close the socket before the upload.
+async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection::expect_continue(
+  self : ClientConnection[R, W],
+  decoder : @http1.ResponseDecoder,
+  framing : @http1.BodyFraming,
+  body : B,
+) -> @types.Response[Unit] {
+  @async.with_task_group(async fn(group) {
+    let changed = @cond_var.Cond()
+    let mut outcome : Result[@types.Response[Unit], Error]? = None
+    group.spawn_bg(async fn() {
+      let result = Ok(
+        self.read_response_head(decoder, None, stop_at_continue=true),
+      ) catch {
+        error => Err(error)
+      }
+      outcome = Some(result)
+      changed.signal()
+    })
+    let wait_for_head = async fn() {
+      while outcome is None {
+        changed.wait()
+      }
+    }
+    with_outgoing_body_scope(body, async fn() {
+      let grace_ms = self.response_headers_timeout_ms.unwrap_or(1000).min(1000)
+      ignore(@async.with_timeout_opt(grace_ms, wait_for_head))
+      match outcome {
+        Some(Err(error)) => raise error
+        Some(Ok(head)) if head.status != 100 => {
+          self.state = CloseAfterBody
+          body.cancel(@body.BodyError::Cancelled)
+        }
+        _ => self.write_upload(framing, body)
+      }
+    })
+    if outcome is None {
+      match self.response_headers_timeout_ms {
+        Some(timeout) =>
+          @async.with_timeout(
+            timeout,
+            wait_for_head,
+            error=ClientConnectionTimeout(ResponseHeaders),
+          )
+        None => wait_for_head()
+      }
+    }
+    let first_head = outcome.unwrap().unwrap_or_error()
+    if first_head.status == 100 {
+      self.read_response_head(decoder, self.response_headers_timeout_ms)
+    } else {
+      first_head
+    }
+  })
+}
+
+///|
 pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection::send(
   self : ClientConnection[R, W],
   request : @types.Request[B],
@@ -163,157 +284,87 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection:
     Active => raise RequestInProgress
     Closed | CloseAfterBody => raise ConnectionClosed
   }
-  // Reserve the connection before the first suspension, including header writes.
   errdefer self.close()
   let request_closes = !http1_allows_persistence(
     request.version,
     request.headers,
   )
-  with_outgoing_body_scope(request.body, async fn() {
+  let (framing, expect_continue) = with_outgoing_body_scope(request.body, async fn() {
     let framing = match request.body.size_hint().exact_size() {
       Some(size) => @http1.BodyFraming::ContentLength(size)
+      None if request.version == Http11 => Chunked
       None =>
-        if request.version == Http11 {
-          Chunked
-        } else {
-          raise @http1.Http1Error::InvalidFraming(
-            "HTTP/1.0 requests require an exact body size",
-          )
-        }
+        raise @http1.Http1Error::InvalidFraming(
+          "HTTP/1.0 requests require an exact body size",
+        )
     }
-    let request_head : @types.Request[Unit] = {
-      http_method: request.http_method,
-      uri: request.uri,
-      version: request.version,
-      headers: request.headers,
-      body: (),
-    }
-    let encoded_head = match @http1.encode_request_head(request_head, framing) {
-      Ok(bytes) => bytes
-      Err(error) => raise error
-    }
+    let request_head = request.map_body(fn(_) { () })
+    let encoded_head = @http1.encode_request_head(request_head, framing).unwrap_or_error()
+    let expect_continue = request.version == Http11 &&
+      framing != ContentLength(0) &&
+      @http1.RequestExpectations::from_headers(request.headers).continue_requested
     client_write_with_timeout(
       self.writer,
       encoded_head,
       self.request_headers_timeout_ms,
       RequestHeaders,
     )
-    write_http1_body(
-      framing,
-      async fn() {
-        match self.request_body_timeout_ms {
-          Some(timeout) if timeout > 0 =>
-            @async.with_timeout(
-              timeout,
-              () => request.body.next_frame(),
-              error=ClientConnectionTimeout(RequestBody),
-            )
-          _ => request.body.next_frame()
-        }
-      },
-      async fn(bytes) {
-        client_write_with_timeout(
-          self.writer,
-          bytes,
-          self.request_body_timeout_ms,
-          RequestBody,
-        )
-      },
-    )
+    (framing, expect_continue)
   })
   let decoder = @http1.ResponseDecoder::new(
     request.http_method,
     limits=self.limits,
   )
-  for ;; {
-    match decoder.next() {
-      Err(error) => raise error
-      Ok(Some(ResponseHead(value))) =>
-        if value.status >= 100 && value.status < 200 && value.status != 101 {
-          ()
-        } else {
-          if value.status == 101 ||
-            !http1_allows_persistence(value.version, value.headers) ||
-            request_closes ||
-            !value.headers.get_all_string("upgrade").is_empty() {
-            self.state = CloseAfterBody
-          }
-          let stream = @body.BodyStream::from_pull(
-            async fn() {
-              for ;; {
-                match decoder.next() {
-                  Err(error) => {
-                    self.close()
-                    raise error
-                  }
-                  Ok(Some(ResponseData(data))) => return Some(Data(data))
-                  Ok(Some(ResponseTrailers(value))) => {
-                    // Trailers are terminal for the body abstraction. The
-                    // decoder's following ResponseEnd carries no wire bytes.
-                    self.finish_response()
-                    return Some(Trailers(value))
-                  }
-                  Ok(Some(ResponseEnd)) => {
-                    self.finish_response()
-                    return None
-                  }
-                  Ok(Some(ResponseHead(_))) => ()
-                  Ok(None) =>
-                    match
-                      client_read_with_timeout(
-                        self.reader,
-                        self.read_size,
-                        self.response_body_timeout_ms,
-                        ResponseBody,
-                      ) {
-                      Some(bytes) =>
-                        match decoder.feed(bytes) {
-                          Ok(_) => ()
-                          Err(error) => {
-                            self.close()
-                            raise error
-                          }
-                        }
-                      None => {
-                        self.close()
-                        decoder.finish_input()
-                      }
-                    }
-                }
-              }
-            },
-            on_terminate=fn(error) { if error is Some(_) { self.close() } },
-          )
-          return value.map_body(fn(_) { stream })
-        }
-      Ok(Some(ResponseData(_))) | Ok(Some(ResponseTrailers(_))) =>
-        raise @http1.Http1Error::InvalidFraming(
-          "response body event arrived before final response head",
-        )
-      // Informational responses have no body and therefore emit an end marker
-      // before the final response. The decoder guarantees that this marker
-      // follows a corresponding 1xx head.
-      Ok(Some(ResponseEnd)) => ()
-      Ok(None) =>
-        match
-          client_read_with_timeout(
-            self.reader,
-            self.read_size,
-            self.response_headers_timeout_ms,
-            ResponseHeaders,
-          ) {
-          Some(bytes) =>
-            match decoder.feed(bytes) {
-              Ok(_) => ()
-              Err(error) => raise error
-            }
-          None => {
-            self.close()
-            raise @http1.Http1Error::UnexpectedEof("final response head")
-          }
-        }
-    }
-  } nobreak {
-    raise @http1.Http1Error::UnexpectedEof("client response loop ended")
+  let head = if expect_continue {
+    self.expect_continue(decoder, framing, request.body)
+  } else {
+    with_outgoing_body_scope(request.body, async fn() {
+      self.write_upload(framing, request.body)
+    })
+    self.read_response_head(decoder, self.response_headers_timeout_ms)
   }
+  if request_closes ||
+    !http1_allows_persistence(head.version, head.headers) ||
+    head.status == 101 ||
+    (request.http_method == Connect && head.status >= 200 && head.status < 300) ||
+    head.headers.get_string("upgrade") is Some(_) {
+    self.state = CloseAfterBody
+  }
+  let stream = @body.BodyStream::from_pull(
+    async fn() {
+      for ;; {
+        match decoder.next().unwrap_or_error() {
+          Some(ResponseData(data)) => return Some(Data(data))
+          Some(ResponseTrailers(trailers)) => {
+            self.finish_response()
+            return Some(Trailers(trailers))
+          }
+          Some(ResponseEnd) => {
+            self.finish_response()
+            return None
+          }
+          Some(ResponseHead(_)) =>
+            raise @http1.Http1Error::InvalidFraming(
+              "response head inside response body",
+            )
+          None =>
+            match
+              client_read_with_timeout(
+                self.reader,
+                self.read_size,
+                self.response_body_timeout_ms,
+                ResponseBody,
+              ) {
+              Some(bytes) => decoder.feed(bytes).unwrap_or_error()
+              None => {
+                self.close()
+                decoder.finish_input()
+              }
+            }
+        }
+      }
+    },
+    on_terminate=fn(error) { if error is Some(_) { self.close() } },
+  )
+  head.map_body(fn(_) { stream })
 }

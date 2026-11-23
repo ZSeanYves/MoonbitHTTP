@@ -307,3 +307,66 @@ async test "HTTP/1 stops after a closing exchange and honors explicit HTTP/1.0 p
     assert_true(wire.contains("connection: " + expected_connection + "\r\n"))
   }
 }
+
+///|
+async test "HTTP/1 selection preserves a coalesced body and the next request" {
+  let reader = @aio.MemoryReader(async fn(peer) {
+    peer.write(b"POST /one HTTP/1.1\r\nHost: example.test\r\nContent-Len")
+    peer.write(
+      b"gth: 4\r\n\r\ndataGET /two HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n\r\n",
+    )
+  })
+  defer reader.close()
+  let writer : CaptureWriter = { bytes: [], }
+  let seen : Array[(String, Bytes)] = []
+  @service.serve_http1_or_h2c_connection(reader, writer, async fn(request) {
+    let (data, _) = @body.collect(request.body)
+    seen.push((request.uri.value, data))
+    {
+      status: 200,
+      version: Http11,
+      headers: @types.HeaderMap::new(),
+      body: @body.FullBody::new(data),
+    }
+  })
+  assert_eq(seen, [("/one", b"data"), ("/two", b"")])
+}
+
+///|
+async test "HTTP/1 and h2c reject an unsupported expectation before dispatch" {
+  for
+    head in [
+      b"HEAD / HTTP/1.1\r\nHost: example.test\r\nExpect: custom\r\n\r\n", b"POST / HTTP/1.1\r\nHost: example.test\r\nConnection: Upgrade, HTTP2-Settings\r\nUpgrade: h2c\r\nHTTP2-Settings: AAQAAP__\r\nContent-Length: 8\r\nExpect: 100-continue, custom\r\n\r\n",
+    ] {
+    let reader = @aio.MemoryReader(async fn(peer) { peer.write(head) })
+    defer reader.close()
+    let writer : CaptureWriter = { bytes: [], }
+    @service.serve_http1_or_h2c_connection(reader, writer, _ => {
+      (
+        fail("unsupported expectation reached the handler") :
+        @types.Response[@body.EmptyBody])
+    })
+    let wire = Bytes::from_array(writer.bytes)
+    assert_true(wire.has_prefix(b"HTTP/1.1 417 Expectation Failed\r\n"))
+    assert_true(wire.find(b"connection: close\r\n") is Some(_))
+  }
+}
+
+///|
+async test "a successful CONNECT leaves the sequential HTTP/1 connection" {
+  let reader = @aio.MemoryReader(async fn(peer) {
+    peer.write(b"HTTP/1.1 200 OK\r\n\r\ntunnel")
+  })
+  defer reader.close()
+  let client = @service.ClientConnection::new(reader, CaptureWriter::{
+    bytes: [],
+  }).unwrap()
+  let base = phase_timeout_request(@body.EmptyBody::new())
+  let response = client.send({
+    ..base,
+    http_method: Connect,
+    uri: @types.Uri::parse_request_target("example.test:443", Connect).unwrap(),
+  })
+  assert_eq(@body.collect(response.body).0, b"")
+  assert_true(client.is_closed())
+}

@@ -34,7 +34,7 @@ Only the new readiness request should reach the restarted application.
 the Native smoke server, rejects a pre-existing listener on the test port,
 then checks:
 
-- HTTP/1.1 GET and POST with both `curl` and `wget`.
+- HTTP/1.1 GET and POST with both `curl` and `wget`. The curl upload uses `Expect: 100-continue` and checks the order of the interim and final responses.
 - HTTP/2 prior knowledge and h2c upgrade with `nghttp`.
 
 Each case verifies status, headers and body. The runner records the selected

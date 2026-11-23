@@ -98,3 +98,61 @@ async test "HTTP/3 tries the next UDP address after a silent handshake" {
   })
   assert_true(count >= 1200)
 }
+
+///|
+async test "a partial HTTP/1 response survives the continue timeout on a pooled TCP connection" {
+  let listener = @socket.TcpServer(@socket.Addr::new(0x7f000001U, 0))
+  defer listener.close()
+  let client = @client.new_http1_client(
+    @transport_native.NativeResolver::new(),
+    @transport.AllowAllPolicy::new(),
+    @transport_native.NativeClock::new(),
+    @tls_native.NativeTlsProvider::new(),
+    options={
+      ..@client_api.RequestOptions::defaults(),
+      timeouts: {
+        ..@client_api.ClientTimeouts::defaults(),
+        response_headers_ms: Some(250),
+      },
+    },
+  ).unwrap()
+  defer client.close()
+  @async.with_timeout(5000, async fn() {
+    @async.with_task_group(async fn(group) {
+      group.spawn_bg(async fn() {
+        let (peer, _) = listener.accept()
+        defer peer.close()
+        let head = peer.read_until("\r\n\r\n").unwrap()
+        assert_true(head.contains("expect: 100-continue"))
+        peer.write(b"HTTP/1.1 103 Early Hints\r\n\r\nHTTP/1.")
+        assert_eq(peer.read_exactly(4), b"data")
+        peer.write(b"1 200 OK\r\ncontent-length: 3\r\n\r\nyes")
+        assert_true(peer.read_until("\r\n\r\n").unwrap().has_prefix("GET / "))
+        peer.write(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+      })
+      let headers = @types.HeaderMap::new()
+      headers.append_string("expect", "100-continue").unwrap()
+      let request : @types.Request[Bytes] = {
+        http_method: Post,
+        version: Http11,
+        headers,
+        uri: @types.Uri::parse("http://" + listener.addr.to_string() + "/").unwrap(),
+        body: b"data",
+      }
+      let response = client.send(request).unwrap()
+      assert_eq(response.status, 200)
+      assert_eq(response.body, b"yes")
+      assert_eq(client.idle_connection_count(), 1)
+      let next = client
+        .send({
+          ..request,
+          http_method: Get,
+          headers: @types.HeaderMap::new(),
+          body: b"",
+        })
+        .unwrap()
+      assert_eq(next.status, 204)
+      assert_eq(client.connection_count(), 0)
+    })
+  })
+}

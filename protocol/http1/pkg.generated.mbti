@@ -62,6 +62,12 @@ pub(all) enum RequestEvent {
   RequestEnd
 }
 
+pub struct RequestExpectations {
+  continue_requested : Bool
+  unsupported : Bool
+}
+pub fn RequestExpectations::from_headers(@types.HeaderMap) -> Self
+
 pub struct ResponseDecoder {
   // private fields
 }

@@ -71,6 +71,10 @@ pub fn encode_request_head(
     Ok(_) => ()
     Err(error) => return Err(error)
   }
+  if (framing is NoBody || framing is ContentLength(0)) &&
+    RequestExpectations::from_headers(request.headers).continue_requested {
+    return Err(InvalidHeader("100-continue requires request content"))
+  }
   let out : Array[Byte] = []
   push_text(
     out,
@@ -98,6 +102,7 @@ fn default_reason(status : Int) -> String {
     400 => "Bad Request"
     404 => "Not Found"
     413 => "Payload Too Large"
+    417 => "Expectation Failed"
     500 => "Internal Server Error"
     502 => "Bad Gateway"
     503 => "Service Unavailable"

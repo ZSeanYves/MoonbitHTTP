@@ -19,6 +19,8 @@ Last reviewed: 2026-11-23
 
 将 `Request[B]`（`B : Body`）传给 `Http1PooledRoundTripper::execute_body`，可执行一次流式上传并流式读取响应。HTTP/1.1 请求大小未知时使用 chunked 编码，可发送 trailers。每帧写完才拉取下一帧，读完或取消响应体会释放连接池租约。自动重试、重定向和缓存由字节接口 `Http1Client::send` 提供。
 
+为 HTTP/1.1 上传设置 `Expect: 100-continue` 后，客户端先发送首部。收到 100 时开始上传。提前收到最终响应时，客户端取消尚未读取的请求体，读完响应体后退出这条连接。等待上限为一秒，若响应首部超时更短则使用该值。等待到期后开始上传，已读取的部分响应仍由同一个解码器处理。调用方可以检查 417 响应，再决定是否能移除该字段并重发请求。
+
 ## 不变量与范围
 每次建连前都对 DNS 返回的数字地址授权。`with_http2_client` 按源站共享建连及 HTTP/2 会话，收到对端初始 SETTINGS 后才调度请求。HTTPS 要求协商 `h2`，明文连接使用 prior knowledge。`Http2PoolOptions.max_connections` 限制物理连接总数，含正在建连和收到 GOAWAY 后仍在完成请求的连接。`execute` 返回有大小上限的字节响应，`execute_body` 支持流式上传和响应。在作用域内读完或取消响应体，退出时连接和后台任务统一回收。
 

@@ -198,6 +198,14 @@ test "http1 conformance: outgoing framing fits the selected version and header f
     @http1.encode_request_head({ ..request, version: Http10, }, Chunked)
     is Err(InvalidFraming(_)),
   )
+  headers.append_string("expect", "extension=\"one,100-continue,two\"").unwrap()
+  assert_true(@http1.encode_request_head(request, ContentLength(0)) is Ok(_))
+  headers.append_string("expect", "\t100-CoNtInUe ,").unwrap()
+  for framing in [@http1.NoBody, ContentLength(0)] {
+    assert_true(
+      @http1.encode_request_head(request, framing) is Err(InvalidHeader(_)),
+    )
+  }
   headers.append_string("content-length", "4").unwrap()
   assert_true(
     @http1.encode_request_head(request, NoBody) is Err(InvalidFraming(_)),

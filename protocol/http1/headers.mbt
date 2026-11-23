@@ -100,3 +100,45 @@ fn http1_validate_request_headers(
   }
   Ok(())
 }
+
+///|
+pub struct RequestExpectations {
+  continue_requested : Bool
+  unsupported : Bool
+}
+
+///|
+/// Classifies all Expect lines. Commas inside quoted extension values are
+/// data. Only a bare, case-insensitive 100-continue requests the handshake.
+pub fn RequestExpectations::from_headers(
+  headers : @types.HeaderMap,
+) -> RequestExpectations {
+  let mut continue_requested = false
+  let mut unsupported = false
+  for value in headers.get_all_string("expect") {
+    let text = value.to_string_lossy()
+    let mut start = 0
+    let mut quoted = false
+    let mut escaped = false
+    for i in 0..<=text.length() {
+      if i == text.length() || (!quoted && text[i] == ',') {
+        let item = text[start:i].trim(chars=" \t")
+        if !item.is_empty() {
+          if item.to_lower() == "100-continue" {
+            continue_requested = true
+          } else {
+            unsupported = true
+          }
+        }
+        start = i + 1
+      } else if escaped {
+        escaped = false
+      } else if quoted && text[i] == '\\' {
+        escaped = true
+      } else if text[i] == '"' {
+        quoted = !quoted
+      }
+    }
+  }
+  { continue_requested, unsupported, }
+}

@@ -122,18 +122,26 @@ async test "service: HTTP/1 runs on official async Reader/Writer" {
     )
   })
   let writer : CaptureWriter = { bytes: [], }
-  @service.serve_http1_connection(reader, writer, async fn(request) {
-    @async.pause()
-    assert_eq(request.uri.value, "/")
-    let headers = @types.HeaderMap::new()
-    assert_eq(headers.append_string("content-type", "text/plain"), Ok(()))
-    {
-      status: 200,
-      version: Http11,
-      headers,
-      body: @body.FullBody::new(b"hello"),
-    }
-  })
+  @service.serve_http1_connection(
+    reader,
+    writer,
+    async fn(request) {
+      @async.pause()
+      assert_eq(request.uri.value, "/")
+      let headers = @types.HeaderMap::new()
+      assert_eq(headers.append_string("content-type", "text/plain"), Ok(()))
+      {
+        status: 200,
+        version: Http11,
+        headers,
+        body: @body.FullBody::new(b"hello"),
+      }
+    },
+    config={
+      ..@service.ServerConfig::defaults(),
+      limits: @types.Limits::new(max_buffer_bytes=8192).unwrap(),
+    },
+  )
   assert_eq(
     Bytes::from_array(writer.bytes).find(b"HTTP/1.1 200 OK") is Some(_),
     true,
@@ -486,22 +494,21 @@ async test "service: HTTP/2 client multiplexes two response streams" {
 }
 
 ///|
-async test "service: h2c upgrade streams request body into stream one" {
-  let input : Array[Byte] = []
-  for
-    byte in b"POST /upgrade HTTP/1.1\r\nHost: example.test\r\nConnection: Upgrade, HTTP2-Settings\r\nUpgrade: h2c\r\nHTTP2-Settings: AAQAAP__\r\nContent-Length: 4\r\n\r\nabcd" {
-    input.push(byte)
-  }
-  for byte in b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" {
-    input.push(byte)
-  }
-  for byte in @http2.encode_settings_frame([], false) {
-    input.push(byte)
-  }
-  let reader = @aio.MemoryReader(async fn(writer) {
-    writer.write(Bytes::from_array(input))
+async test "service: h2c grants a waiting upload before switching stream one" {
+  let signal : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+  let writer : SignalingCaptureWriter = { bytes: [], signal, }
+  let reader = @aio.MemoryReader(async fn(peer) {
+    peer.write(
+      b"POST /upgrade HTTP/1.1\r\nHost: example.test\r\nConnection: Upgrade, HTTP2-Settings\r\nUpgrade: h2c\r\nHTTP2-Settings: AAQAAP__\r\nContent-Length: 4\r\nExpect: 100-continue\r\n\r\n",
+    )
+    @async.with_timeout(1000, () => signal.get())
+    assert_eq(Bytes::from_array(writer.bytes), b"HTTP/1.1 100 Continue\r\n\r\n")
+    peer.write(
+      b"abcdPRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" +
+      Bytes::from_array(@http2.encode_settings_frame([], false)),
+    )
   })
-  let writer : CaptureWriter = { bytes: [], }
+  defer reader.close()
   let mut request_body = b""
   @service.serve_http1_or_h2c_connection(reader, writer, async fn(request) {
     let (data, _) = @body.collect(request.body)
@@ -518,7 +525,7 @@ async test "service: h2c upgrade streams request body into stream one" {
   assert_eq(request_body, b"abcd")
   assert_eq(
     Bytes::from_array(writer.bytes).has_prefix(
-      b"HTTP/1.1 101 Switching Protocols\r\n",
+      b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 101 Switching Protocols\r\n",
     ),
     true,
   )
@@ -532,9 +539,14 @@ async test "service: HTTP/1 reserves connection before waiting for response head
   let client = @service.ClientConnection::new(reader, writer).unwrap()
   @async.with_timeout(1000, async fn() {
     @async.with_task_group(async fn(group) {
-      let first = group.spawn(async fn() {
-        ignore(client.send(phase_timeout_request(@body.EmptyBody::new())))
-      })
+      let cancelled : Array[Error] = []
+      let body : Http1LifecycleBody = {
+        failure: Some(Http1LifecycleFailure("unexpected pull")),
+        cancelled,
+      }
+      let request = phase_timeout_request(body)
+      request.headers.append_string("expect", "100-continue").unwrap()
+      let first = group.spawn(async fn() { ignore(client.send(request)) })
       signal.get()
       assert_true(!client.is_reusable())
       let bytes_written = writer.bytes.length()
@@ -552,6 +564,7 @@ async test "service: HTTP/1 reserves connection before waiting for response head
       } noraise {
         _ => fail("blocked first request completed normally")
       }
+      assert_eq(cancelled.map(http1_lifecycle_error_label), ["cancelled"])
       assert_true(client.is_closed())
     })
   })

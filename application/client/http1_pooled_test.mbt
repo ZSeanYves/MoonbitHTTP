@@ -782,7 +782,9 @@ async test "pooled HTTP/1: close does not publish an in-flight session" {
 ///|
 async test "pooled HTTP/1 streams an upload incrementally and transfers the response lease" {
   let connector : FacadeTestConnector = {
-    responses: [b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"],
+    responses: [
+      b"HTTP/1.1 103 Early Hints\r\n\r\n", b"HTTP/1.1 100 Continue\r\n\r\n", b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
+    ],
     response_index: 0,
     connect_hosts: [],
     writes: [],
@@ -800,6 +802,7 @@ async test "pooled HTTP/1 streams an upload incrementally and transfers the resp
   let mut pulls = 0
   let upload = @body.BodyStream::from_pull(() => {
     // Each preceding frame reaches the transport before the next pull.
+    assert_eq(connector.response_index, 2)
     pulls += 1
     assert_eq(connector.writes.length(), pulls)
     match pulls {
@@ -810,6 +813,7 @@ async test "pooled HTTP/1 streams an upload incrementally and transfers the resp
     }
   })
   let base = pooled_request("http://127.0.0.1/upload", @types.HeaderMap::new())
+  base.headers.append_string("expect", "100-Continue").unwrap()
   let request = { ..base.map_body(fn(_) { upload }), http_method: Post, }
   let response = executor.execute_body(request).unwrap()
   assert_eq(pulls, 3)
@@ -835,4 +839,53 @@ async test "pooled HTTP/1 streams an upload incrementally and transfers the resp
     is Err(ClientCancelled(_)),
   )
   assert_eq(cancelled, 1)
+}
+
+///|
+async test "an early final response cancels the unopened HTTP/1 upload and retires its lease" {
+  let connector : FacadeTestConnector = {
+    responses: [
+      b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 413 Content Too Large\r\nContent-Length: 4\r\n\r\n",
+      b"full", b"HTTP/1.1 204 No Content\r\n\r\n",
+    ],
+    response_index: 0,
+    connect_hosts: [],
+    writes: [],
+    closes: 0,
+  }
+  let executor = @client.Http1PooledRoundTripper::from_capabilities(
+    connector,
+    @transport.StaticResolver::new([]),
+    @transport.UnsupportedProvider::new(),
+    @transport.AllowAllPolicy::new(),
+    @test_support.FixedClock::new(0L, 0L),
+    options={
+      ..@client.RequestOptions::defaults(),
+      limits: @types.Limits::new(max_buffer_bytes=8192).unwrap(),
+    },
+  ).unwrap()
+  defer executor.close()
+  let base = pooled_request("http://127.0.0.1/upload", @types.HeaderMap::new())
+  let headers = base.headers.copy()
+  headers.append_string("expect", "100-continue").unwrap()
+  let cancelled : Array[Bool] = []
+  let upload = @body.BodyStream::from_pull(
+    () => fail("polled a rejected upload"),
+    on_cancel=fn(cause) { cancelled.push(cause is @body.BodyError::Cancelled) },
+  )
+  let response = executor
+    .execute_body({
+      ..base.map_body(fn(_) { upload }),
+      http_method: Post,
+      headers,
+    })
+    .unwrap()
+  assert_eq(response.status, 413)
+  assert_eq(cancelled, [true])
+  assert_eq(connector.writes.length(), 1)
+  assert_eq(@body.collect(response.body).0, b"full")
+  assert_eq(connector.closes, 1)
+  assert_eq(executor.idle_connection_count(), 0)
+  assert_eq(executor.execute(base).unwrap().status, 204)
+  assert_eq(connector.connect_hosts.length(), 2)
 }

@@ -15,6 +15,14 @@ pulls the next frame after the previous write completes. Read the response to
 completion or cancel its body to release the pool lease. Automatic redirect,
 retry and cache policy belong to the byte-oriented `Http1Client::send` API.
 
+Set `Expect: 100-continue` on an HTTP/1.1 upload to send the headers before
+opening the body. A 100 response starts the upload. An early final response
+cancels the unopened producer and retires the connection after the response
+body is consumed. The client waits up to one second, capped by the configured
+response-header timeout, before proceeding with a silent peer. The same reader
+preserves partial responses across this wait. The caller can inspect a 417
+response and decide whether it can replay the upload without the expectation.
+
 Use `with_http2_client` to send requests to direct HTTP/2 origins. The pool
 shares one opening or active session per origin and waits for the peer's
 initial SETTINGS before admitting requests. HTTPS requires negotiated `h2`.
