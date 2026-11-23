@@ -10,7 +10,8 @@ priv enum OriginSessionState[S] {
 priv struct OriginSession[S] {
   origin : String
   mut state : OriginSessionState[S]
-  mut retiring : Bool
+  // A burst for one origin needs only one idle connection to make room.
+  mut retiring_for : String?
   // Includes callers waiting for a handshake or for a peer stream slot.
   mut users : Int
   mut worker : @async.Task[Unit]?
@@ -73,7 +74,7 @@ fn[S] OriginPool::close(self : OriginPool[S]) -> Unit {
   }
   self.closed = true
   for entry in self.sessions {
-    entry.retiring = true
+    entry.retiring_for = Some(entry.origin)
     match entry.state {
       Ready(client) if (self.idle)(client) && entry.users == 0 => ()
       _ => if entry.worker is Some(worker) { worker.cancel() }
@@ -104,10 +105,13 @@ async fn[S] OriginPool::drive(
       entry.state = Ready(client)
       self.changed.broadcast()
       // After GOAWAY, retain accepted streams until their bodies are released.
-      while !entry.retiring && ((self.accepts)(client) || !(self.idle)(client)) {
+      while entry.retiring_for is None &&
+            ((self.accepts)(client) || !(self.idle)(client)) {
         self.changed.wait()
       }
-      entry.retiring = true
+      if entry.retiring_for is None {
+        entry.retiring_for = Some(entry.origin)
+      }
     },
     () => self.changed.broadcast(),
   )
@@ -128,8 +132,10 @@ async fn[S] OriginPool::reserve(
 ) -> OriginSession[S]? {
   while !self.closed {
     let mut evict : OriginSession[S]? = None
+    let mut replacement_pending = false
     for entry in self.sessions {
-      if entry.retiring {
+      if entry.retiring_for is Some(origin) {
+        replacement_pending = replacement_pending || origin == endpoint.origin
         continue
       }
       match entry.state {
@@ -154,7 +160,7 @@ async fn[S] OriginPool::reserve(
         origin: endpoint.origin,
         state: Opening,
         users: 1,
-        retiring: false,
+        retiring_for: None,
         worker: None,
       }
       self.sessions.push(entry)
@@ -170,8 +176,8 @@ async fn[S] OriginPool::reserve(
       )
       return Some(entry)
     }
-    if evict is Some(entry) {
-      entry.retiring = true
+    if !replacement_pending && evict is Some(entry) {
+      entry.retiring_for = Some(endpoint.origin)
       self.changed.broadcast()
     }
     self.changed.wait()
@@ -200,7 +206,7 @@ async fn[S, B : @body.Body, X] OriginPool::exchange(
     entry.users -= 1
     if entry.users == 0 {
       if entry.state is Opening && entry.worker is Some(worker) {
-        entry.retiring = true
+        entry.retiring_for = Some(entry.origin)
         worker.cancel()
       }
       self.changed.broadcast()

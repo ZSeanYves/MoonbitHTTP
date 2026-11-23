@@ -310,3 +310,33 @@ async test "managed h2 rejects a peer that acknowledges settings before sending 
     })
   })
 }
+
+///|
+async test "one burst to a new origin evicts only one idle connection from a full pool" {
+  let connector = H2PoolConnector::new()
+  with_pool_peer(
+    connector,
+    async fn(client) {
+      let headers = @types.HeaderMap::new()
+      for port in [8001, 8002, 8003] {
+        let request = pooled_request(
+          "http://first.test:" + port.to_string() + "/",
+          headers,
+        )
+        assert_eq(client.execute(request).unwrap().status, 200)
+      }
+      let next = pooled_request("http://second.test/", headers)
+      @async.with_task_group(fn(group) {
+        for _ in 0..<8 {
+          group.spawn_bg(async fn() {
+            assert_eq(client.execute(next).unwrap().status, 200)
+          })
+        }
+      })
+      assert_eq(connector.peers.length(), 4)
+      assert_eq(connector.peers.filter(peer => peer.closed).length(), 1)
+      assert_eq(client.connection_count(), 3)
+    },
+    max_connections=3,
+  )
+}
