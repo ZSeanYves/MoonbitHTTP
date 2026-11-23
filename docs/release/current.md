@@ -14,6 +14,51 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## Native HTTP/3 hostname connections at `e1b4445`
+
+The typed native client accepts an injected resolver for a UDP hostname.
+HTTP/1, HTTP/2 and HTTP/3 use the same bounded candidate selection and DNS
+deadline. The QUIC client attempts numeric peers in resolver order using one
+handshake time budget. The HTTP origin and TLS identity retain their configured
+hostname. A policy-denied lookup stops before DNS. A silent first peer can
+use its share of the handshake budget and leave time for the next address.
+
+One real-socket test resolves a transport name that differs from the TLS
+identity, skips a policy-denied first address, and completes a response with
+an unfinished upload. A second connection returns a transport-shaped error
+from the application. The callback runs once and its exact error reaches the
+caller. The case passed 16 additional times across four macOS processes.
+The independent client fixture uses the native resolver for `localhost`.
+`with_http3_connection` remains the lower-level numeric-peer entry point.
+
+| Check at `e1b4445` | macOS arm64 | Ubuntu 24.04 arm64 VM |
+| --- | --- | --- |
+| Strict check, build and full suite | Wasm 503/503, Wasm-GC 361/361, JS 503/503, Native 572/572 | Native 572/572 |
+| Native QUIC, TLS, client and listener packages, included above | 183/183 | 183/183 |
+| curl, wget and nghttp real-socket H1/H2/h2c cases | 6/6 | 6/6 |
+| Fresh authenticated connections to the MoonBit server during the impaired aioquic window | 58 in 121.159 s | 59 in 120.036 s |
+
+Each OS also passed 256 requests on one connection and eight concurrent
+requests. Across the VM gateway the Ubuntu ngtcp2/nghttp3 GnuTLS client
+verified a byte-exact 4,096-byte echo, GOAWAY(4) and application close
+0x100 from the macOS server. With the application roles reversed, the Ubuntu MoonBit
+client resolved `localhost` using the native resolver. A UDP relay kept a
+stable source port per connection and carried the traffic to macOS aioquic.
+Concurrent echo and download matched all 4,096 and 131,072 bytes respectively.
+The client rejected a mismatched certificate identity, and the independent
+qlog recorded the expected application close.
+
+The architecture check covered 28 manifests and 97 local dependency edges.
+All 33 macOS native TLS ASan cases passed with leak detection disabled and
+both input hashes restored. The 428-file frozen archive matched its Git
+revision, passed the extracted four-target check, and had SHA-256
+`1c7e6ec2a9ac9386d022f7cfc131075b585dbe708b4ae9c952a7737496b7f77e`.
+
+The typed HTTP/3 client still serves one origin per scope. Multi-origin
+pooling and local QUIC connection ID rotation remain implementation gaps.
+The Windows candidate run, sustained traffic between separate physical hosts
+and independent release-revision security review remain open.
+
 ## QUIC recovery under packet-tracking pressure at `0cb54c9`
 
 With one ordinary tracking slot occupied by Initial CRYPTO, the previous
@@ -60,9 +105,8 @@ and passed its extracted four-target check. Its SHA-256 was
 `9c9a5ecc3ee1c69aabc0677013cdc078f5ef4092ad08a6415f2ca7833f3c0979`.
 
 Current Windows coverage, a sustained run between separate physical hosts,
-and independent review of the release revision remain open. Native HTTP/3
-clients accept a numeric endpoint and serve one authenticated origin per
-scope. Local QUIC connection ID issuance and rotation remain unsupported.
+and independent review of the release revision remained open. The following
+revision added [HTTP/3 hostname connections](#native-http3-hostname-connections-at-e1b4445).
 
 ## QUIC recovery timers at `5e0f172`
 
