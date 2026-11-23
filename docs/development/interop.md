@@ -43,8 +43,10 @@ The HTTP/3 runner uses the Native smoke server, an aioquic client and OpenSSL
 3.5 or newer for the QUIC TLS callback provider. Positive cases cover verified
 GET and POST, authenticated requests, key update and concurrent request
 streams. The built-in server starts POST requests with a 256-byte stream window
-and a 1024-byte connection window. The runner verifies a 4096-byte echo and
-checks the client's qlog for both window updates on the receive path.
+and a 1024-byte connection window. The runner verifies a 4096-byte echo.
+In the same client qlog it checks both window updates, a destination CID
+change during the upload, request-body bytes sent on the replacement CID,
+retirement of the initial CID and the server's next spare advertisement.
 One aioquic process also sends 256 requests over a single connection with an
 initial allowance of eight bidirectional streams. The runner checks each response
 and counts the connection traces. The duration window uses fresh connections

@@ -14,11 +14,26 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
-## QUIC connection ID rotation at `fc5317f`
+## QUIC frame decoding and CID rotation at `015ae0c`
 
-Native HTTP/3 clients and listeners advertise one spare connection ID after
-the handshake. During rotation the listener reserves the new UDP route before
-sending the advertisement. Both routes accept traffic until the peer retires
+Packet receive and retirement batching use the immutable limits checked at
+connection creation. Direct callers of the public frame codec still have their
+configuration validated on every call. One bounded reader now advances through
+frame fields and propagates the original typed errors. Tests cover both ways
+of encoding STREAM and DATAGRAM lengths, nonminimal field varints, invalid
+configuration and the payload limit.
+
+On macOS, the same Native release fixture decoded a 1,113-byte payload
+400,000 times. Each payload contained one ACK with two ranges and ECN counts,
+sixteen MAX_STREAM_DATA frames and one STREAM with 1,000 data bytes. All
+twelve runs returned 7,200,000 frames. Six alternating AB/BA pairs gave
+median wall times of 0.86 s at `fc5317f` (range 0.83–1.03 s) and 0.64 s
+at `015ae0c` (0.63–0.88 s). These timings cover the public in-memory
+decoder in one process per run.
+
+Since `fc5317f`, native HTTP/3 clients and listeners advertise one spare
+connection ID after the handshake. During rotation the listener reserves the new
+UDP route before sending the advertisement. Both routes accept traffic until the peer retires
 the old ID. The default lifetime budget covers 256 IDs including the initial
 one. Existing streams continue on the final route after that budget runs out.
 
@@ -27,6 +42,40 @@ route reservation rollback under backpressure, retirement of an unused spare
 and late packets on a retired route. A native listener test rotates two peers
 independently during shutdown, delivers both 8 KiB responses and checks that
 the routing tables are empty after close.
+
+Strict checks and builds passed on all four macOS targets. Tests passed with
+509 Wasm, 365 Wasm-GC, 509 JS and 579 Native. Ubuntu arm64 passed 579 Native
+tests. The focused QUIC, TLS and native client/server suites passed 188 cases
+on each OS. The architecture check covered 28 manifests and 98 local edges.
+macOS ASan passed 33 native TLS tests and restored its inputs. The system
+toolchain ran with leak detection disabled.
+
+Each OS passed six HTTP/1.1, HTTP/2 and h2c socket cases. For both impaired
+aioquic uploads, the client qlog recorded request-stream offsets 256 through
+4136 on the replacement CID, totaling 3,881 distinct bytes after deduplicating
+retransmissions. The client retired sequence zero, received a new spare
+at sequence two and checked the complete 4,096-byte echo.
+
+Each impaired run served 256 requests on one connection and eight concurrent
+requests on another. Fresh connections completed 58 exchanges in 120.672 s
+on macOS and 59 in 121.758 s on Ubuntu. Each reverse aioquic trace recorded
+the MoonBit client's normal application close.
+
+Across the VM gateway, the ngtcp2/nghttp3 GnuTLS client also retired sequence
+zero and received spare two. It verified the binary echo, GOAWAY(4) and
+application close 0x100. In the reverse direction the Ubuntu MoonBit pool
+exchanged a 4,096-byte echo and a 131,072-byte download with macOS aioquic
+through a UDP relay and rejected a mismatched hostname. Both operating
+systems ran on the same physical Mac.
+
+The frozen 434-file source archive at `015ae0c` passed its extracted
+four-target check. Its SHA-256 is
+`8db6af31593d9639e3dc01ddb98e5eb9286c0cc54ce6f1c351d994c208ae4198`.
+
+Windows at the candidate revision, sustained traffic between separate
+physical machines and independent release-revision security review remain
+open. These CID exchanges used a fixed network path. Peer stateless-reset
+handling is tracked in the [CID support notes](../../protocol/quic/CID-SUPPORT.md).
 
 ## HTTP/3 origin pooling at `a30dcf8`
 
