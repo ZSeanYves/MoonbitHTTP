@@ -1,4 +1,36 @@
 ///|
+/// One shutdown signal can stop admission on all connections owned by a listener.
+pub struct H3ServerShutdown {
+  priv changed : @cond_var.Cond
+  priv mut started : Bool
+}
+
+///|
+pub fn H3ServerShutdown::new() -> H3ServerShutdown {
+  { changed: Cond(), started: false, }
+}
+
+///|
+pub fn H3ServerShutdown::started(self : H3ServerShutdown) -> Bool {
+  self.started
+}
+
+///|
+pub fn H3ServerShutdown::begin(self : H3ServerShutdown) -> Unit {
+  if !self.started {
+    self.started = true
+    self.changed.broadcast()
+  }
+}
+
+///|
+pub async fn H3ServerShutdown::wait(self : H3ServerShutdown) -> Unit noraise {
+  while !self.started {
+    self.changed.wait()
+  }
+}
+
+///|
 priv struct H3ServerRequest {
   incoming : H3IncomingBody
   mut task : @async.Task[Unit]?
@@ -121,7 +153,29 @@ pub async fn[B : @body.Body] serve_http3_connection(
 ) -> Unit {
   io.session.defer_body_credit()
   let active : Map[Int64, H3ServerRequest] = Map([])
+  let finished = @cond_var.Cond()
+  // A late lower stream ID can arrive after a higher one has finished.
+  let mut first_unprocessed = 0L
   @async.with_task_group(async fn(group) {
+    if io.server_shutdown is Some(shutdown) {
+      group.spawn_bg(
+        async fn() {
+          shutdown.wait()
+          // If the last possible client request ID was processed, no further
+          // request is possible and the next boundary cannot be encoded.
+          if first_unprocessed <= @quic.QUIC_MAX_VARINT {
+            io.write_when_ready(fn() {
+              io.session.send_goaway(first_unprocessed)
+            })
+          }
+          while !active.is_empty() {
+            finished.wait()
+          }
+          group.return_immediately(())
+        },
+        no_wait=true,
+      )
+    }
     fn cancel(id : Int64) -> Unit {
       if active.get(id) is Some(request) {
         request.cancelled = true
@@ -139,10 +193,12 @@ pub async fn[B : @body.Body] serve_http3_connection(
             if !io.session.can_write(id) {
               continue
             }
-            if active.length() >= io.limits.max_concurrent_requests {
-              (io.cancel_request)(id)
+            if (io.server_shutdown is Some(shutdown) && shutdown.started()) ||
+              active.length() >= io.limits.max_concurrent_requests {
+              (io.cancel_request)(id, H3RequestRejected)
               continue
             }
+            first_unprocessed = first_unprocessed.max(id + 4L)
             let incoming = H3IncomingBody::new(io, id)
             let request = { incoming, task: None, cancelled: false, }
             active[id] = request
@@ -151,6 +207,9 @@ pub async fn[B : @body.Body] serve_http3_connection(
                 defer {
                   active.remove(id)
                   incoming.discard()
+                  if active.is_empty() {
+                    finished.signal()
+                  }
                 }
                 try {
                   let body = @body.BodyStream::from_pull(
@@ -175,7 +234,7 @@ pub async fn[B : @body.Body] serve_http3_connection(
                     }
                     // A handler or body failure terminates only its own exchange.
                     on_request_error(id, err)
-                    (io.cancel_request)(id)
+                    (io.cancel_request)(id, H3InternalError)
                   }
                 }
               }),
@@ -185,7 +244,7 @@ pub async fn[B : @body.Body] serve_http3_connection(
             if active.get(id) is Some({ incoming, .. }) &&
               incoming.failure is None {
               if !incoming.offer(bytes) {
-                (io.cancel_request)(id)
+                (io.cancel_request)(id, H3RequestCancelled)
                 cancel(id)
               }
             } else {

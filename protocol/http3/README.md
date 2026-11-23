@@ -32,7 +32,10 @@ Critical streams, duplicate fields, CONNECT settings gates, QPACK bounds, body l
 
 `Http3WriteBlocked` permits retry after further transport progress. A frame larger than the entire write budget raises `Http3LimitExceeded`. Call `defer_body_credit` for a pull-driven consumer and `consume_body(id, bytes_read)` as it reads or discards DATA. QUIC framing and the critical streams continue to receive credit.
 
+Use `Http3Session::send_goaway(first_rejected)` on a server control stream. Choose a client bidirectional stream ID above all requests the application might have processed. A subsequent frame may lower the boundary. The peer stops opening requests after the first GOAWAY. Already-open requests below the boundary can finish. [HTTP/3 connection shutdown](https://www.rfc-editor.org/rfc/rfc9114.html#section-5.2)
+
 ## Canonical docs
+
 - [Package map](../../docs/concepts/packages.md)
 - [Architecture](../../docs/concepts/architecture.md)
 - [Root guide](../../README.md)

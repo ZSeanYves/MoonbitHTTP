@@ -14,10 +14,11 @@ fn session_peer(
   destination : @quic.ConnectionId,
   queue_limit : Int,
   stream_window? : Int64 = 1048576L,
+  request_slots? : Int64 = 1L,
 ) -> SessionPeer {
   let params = {
     ..@quic.QuicTransportParams::defaults(),
-    initial_max_streams_bidi: 1L,
+    initial_max_streams_bidi: request_slots,
     initial_max_stream_data_bidi_remote: stream_window,
   }
   let packets = @quic.QuicDatagramDriver::new(
@@ -55,6 +56,7 @@ fn pump_sessions(
   client : SessionPeer,
   server : SessionPeer,
   now : Int64,
+  poll_server? : Bool = true,
 ) -> Unit raise {
   let queue : Array[(Bool, @quic.QuicDriverAction)] = []
   fn collect(
@@ -72,7 +74,9 @@ fn pump_sessions(
     }
   }
   collect(client, true, client.packets.poll(now).unwrap())
-  collect(server, false, server.packets.poll(now).unwrap())
+  if poll_server {
+    collect(server, false, server.packets.poll(now).unwrap())
+  }
   for index = 0; index < queue.length(); index = index + 1 {
     guard index < 512 else { fail("session exchange did not quiesce") }
     let (to_server, packet) = queue[index]
@@ -194,4 +198,78 @@ test "http3 session: body consumption returns only the requested amount of recei
   }
   assert_eq(delivered(), 512)
   assert_true(server.events.contains(Message(H3MessageFinished(id))))
+}
+
+///|
+test "http3 session: GOAWAY rejects a crossing request and preserves the accepted response" {
+  let endpoint = @types.Endpoint::new("udp", "localhost", 443).unwrap()
+  let c = @quic.ConnectionId::new(b"clientid").unwrap()
+  let s = @quic.ConnectionId::new(b"serverid").unwrap()
+  let client = session_peer(Client, endpoint, c, s, s, 8, request_slots=2L)
+  let server = session_peer(Server, endpoint, s, c, s, 1, request_slots=2L)
+  pump_sessions(client, server, 0L)
+  let accepted = client.session
+    .start_request(driver_request_fields(), fin=true)
+    .unwrap()
+  pump_sessions(client, server, 10L)
+  assert_true(server.events.contains(Message(H3MessageFinished(accepted))))
+  let late = client.session
+    .start_request(driver_request_fields(), fin=true)
+    .unwrap()
+  assert_true(
+    server.session.send_goaway(1L) is Err(Http3ConnectionError(H3IdError, _)),
+  )
+  server.session.send_goaway(12L).unwrap()
+  server.session.send_goaway(8L).unwrap()
+  server.session.send_goaway(late).unwrap()
+  server.session.send_goaway(late).unwrap()
+  assert_true(
+    server.session.send_goaway(12L) is Err(Http3ConnectionError(H3IdError, _)),
+  )
+  server.session
+  .send_headers(accepted, [qpack_test_field(":status", "204")], fin=true)
+  .unwrap()
+  // Receive the late request before the server can empty its three control
+  // queue entries. Its cancellation must survive that backpressure.
+  pump_sessions(client, server, 11L, poll_server=false)
+  for tick in 1..<15 {
+    pump_sessions(client, server, tick.to_int64() * 25L)
+  }
+  let cutoffs = client.events.filter_map(fn(event) {
+    if event is Message(H3GoawayReceived(first)) {
+      Some(first)
+    } else {
+      None
+    }
+  })
+  assert_eq(cutoffs, [12L, 8L, late])
+  assert_true(client.events.contains(Message(H3MessageFinished(accepted))))
+  assert_true(client.events.contains(Transport(StreamReset(late, 0x10bL))))
+  assert_false(
+    server.events.any(event => {
+      event is Message(H3HeadersReceived(id, _, _, _)) && id == late
+    }),
+  )
+  assert_true(
+    client.session.start_request(driver_request_fields())
+    is Err(Http3Protocol(Http3StreamError(_, H3RequestRejected, _))),
+  )
+  guard server.session.close(500L).unwrap() is Some(SendDatagram(_, bytes)) else {
+    fail("server did not send a closing packet")
+  }
+  ignore(client.packets.on_datagram(endpoint, bytes, 500L).unwrap())
+  assert_eq(
+    client.packets.connection().peer_close(),
+    Some(ApplicationClose(0x100L, "")),
+  )
+  assert_true(@http3.peer_closed_normally(client.packets.connection()))
+  // The same number in the transport error space denotes a TLS alert.
+  ignore(
+    server.packets
+    .connection()
+    .receive_frame(ConnectionClose(true, 0x100L, 0L, b"alert"))
+    .unwrap(),
+  )
+  assert_false(@http3.peer_closed_normally(server.packets.connection()))
+  assert_eq(server.packets.connection().close_reason(), Some((0x100L, "alert")))
 }

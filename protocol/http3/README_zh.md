@@ -32,6 +32,8 @@ Last reviewed: 2026-11-23
 
 写队列暂时已满时会返回 `Http3WriteBlocked`，传输取得进展后可原样重试。单帧超过整个队列容量时返回 `Http3LimitExceeded`。按需读取正文时调用 `defer_body_credit`，在读取或丢弃 DATA 后调用 `consume_body(id, bytes_read)`，帧头和关键流的流控额度会继续归还。
 
+服务端通过 `Http3Session::send_goaway(first_rejected)` 在控制流上发送停机边界。调用方选择一个高于所有可能已处理请求的客户端双向流 ID，后续 GOAWAY 可以降低边界。收到第一帧后，客户端停止创建请求，边界以下已打开的流仍可完成。[HTTP/3 连接停机](https://www.rfc-editor.org/rfc/rfc9114.html#section-5.2)
+
 ## 规范文档
 - [中文总览](../../README_zh.md)
 - [包地图](../../docs/concepts/packages.md)

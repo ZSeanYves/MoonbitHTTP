@@ -11,6 +11,8 @@ Last reviewed: 2026-10-01
 ## 入口
 由 repo-tools/tools/http3_interoperability.mbtx 启动，绑定 127.0.0.1:18443 并提供有限 GET/POST。
 
+传入 `--once` 后，第一个请求进入处理器时立即触发 supervisor 停机。服务端发出 GOAWAY，继续收完上传、发完响应后退出，独立客户端可据此验证停机期间的传输。
+
 ## 依赖与目标
 使用 `NativeHttp3Listener::bind_http`、连接 supervisor 和流式请求处理器。实际收发依赖原生 UDP 和 OpenSSL QUIC TLS provider。
 

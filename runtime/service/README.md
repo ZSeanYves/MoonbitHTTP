@@ -20,6 +20,9 @@ Give each service explicit Reader, Writer, handler, and validated config. Handle
 `with_http3_connection` owns the socket and calls the application after the authenticated handshake. Submit requests or responses through `io.session`, and read ordered application event batches with `io.next_events()`. `io.flush()` sends pending writes. The scope runs a receiver and a recovery timer, and keeps at most one unread batch in its delivery queue. On a normal return, the scope waits for queued stream writes and their QUIC acknowledgments, sends HTTP/3 close and releases the socket. `shutdown_timeout_ms` bounds the drain and final send. An orderly peer close preserves already delivered batches. The next read after the last batch reports the close. The caller owns the TLS provider.
 
 ## Invariants and scope
+
+For portable server shutdown, share an `H3ServerShutdown` across calls to `with_http3_connection` through the `server_shutdown` argument. Calling `begin()` stops admission in each typed handler loop and sends GOAWAY. The caller owns the grace deadline. A failing established scope attempts to send an HTTP/3 application close within `shutdown_timeout_ms`.
+
 Reader tasks, body queues, flow-control release, deadlines, cancellation, and close are scoped to the service call.
 
 After the read loop observes HTTP/2 peer EOF, finite responses may finish using available send credit.

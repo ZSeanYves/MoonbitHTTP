@@ -102,7 +102,17 @@ pub fn QuicConnection::open_unidirectional_stream(
 
 ///|
 pub fn QuicConnection::close_reason(self : QuicConnection) -> (Int64, String)? {
-  self.close_error
+  self.peer_close.map(fn(close) {
+    match close {
+      TransportClose(code, reason) | ApplicationClose(code, reason) =>
+        (code, reason)
+    }
+  })
+}
+
+///|
+pub fn QuicConnection::peer_close(self : QuicConnection) -> QuicPeerClose? {
+  self.peer_close
 }
 
 ///|

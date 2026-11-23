@@ -116,6 +116,12 @@ pub extend QuicConnectionState with Eq::{equal, not_equal}
 pub extend QuicConnectionState with @debug.Debug::{to_repr}
 
 ///|
+pub extend QuicPeerClose with Eq::{equal, not_equal}
+
+///|
+pub extend QuicPeerClose with @debug.Debug::{to_repr}
+
+///|
 pub extend QuicAction with Eq::{equal, not_equal}
 
 ///|

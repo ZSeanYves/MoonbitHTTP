@@ -49,7 +49,7 @@ fn H3Client::fail_request(
     task.cancel()
   }
   if reset {
-    (self.io.cancel_request)(id)
+    (self.io.cancel_request)(id, H3RequestCancelled)
   }
   self.io.write_changed.broadcast()
 }
@@ -69,7 +69,9 @@ fn H3Client::close(
   error : Error,
   preserve_complete~ : Bool,
 ) -> Unit {
-  self.terminal = Some(error)
+  if self.terminal is None {
+    self.terminal = Some(error)
+  }
   for id in self.streams.keys().to_array() {
     if preserve_complete &&
       self.streams.get(id) is Some(stream) &&
@@ -128,6 +130,10 @@ async fn H3Client::open(
         Ok(id) => return id
         Err(Http3Protocol(Http3WriteBlocked))
         | Err(Http3Transport(FlowControl(_, _))) => ()
+        Err(Http3Protocol(Http3StreamError(_, H3RequestRejected, _))) if self.io.session.peer_goaway()
+          is Some(first) =>
+          // Transport progress can wake a sender before read() receives the event.
+          raise H3ClientError::Goaway(first)
         Err(error) => raise error
       }
     }

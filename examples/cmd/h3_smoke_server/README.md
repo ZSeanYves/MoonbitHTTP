@@ -11,6 +11,8 @@ Provides a bounded loopback UDP fixture for HTTP/3 and QUIC interoperability. It
 ## Entry points
 Run through repo-tools/tools/http3_interoperability.mbtx; it binds 127.0.0.1:18443 and serves bounded GET/POST cases.
 
+Pass `--once` to initiate supervisor shutdown as soon as the first handler starts. The fixture then finishes that exchange over HTTP/3 and exits. This allows an independent peer to observe GOAWAY while its upload is still in flight.
+
 ## Dependencies and targets
 Uses `NativeHttp3Listener::bind_http`, the connection supervisor and a streaming request handler. Native UDP and the OpenSSL QUIC TLS provider supply network I/O.
 

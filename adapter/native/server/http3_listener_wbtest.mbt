@@ -446,3 +446,178 @@ async test "HTTP/3 typed client: a complete response survives peer close during 
     })
   })
 }
+
+///|
+async test "HTTP/3 supervisor sends each peer its GOAWAY boundary and drains a live response" {
+  @async.with_timeout(8000, async fn() {
+    let endpoint = unused_udp_endpoint()
+    let (ct, st) = listener_tls_options()
+    let tls = { ..ct, alpn: ["h3"], }
+    let policy = @transport.AllowAllPolicy::new()
+    let idle_ready : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let entered : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let release : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let mut handled = 0
+    let payload = Bytes::from_array(FixedArray::make(32768, b'k'))
+    let listener = NativeHttp3Listener::bind_http(
+      endpoint,
+      policy,
+      { ..st, alpn: ["h3"], },
+      async fn(_) {
+        handled += 1
+        entered.put(())
+        release.get()
+        {
+          status: 200,
+          version: Http3,
+          headers: @types.HeaderMap::new(),
+          body: @body.FullBody::new(payload),
+        }
+      },
+      transport_params={
+        ..@quic.QuicTransportParams::defaults(),
+        initial_max_streams_bidi: 1L,
+      },
+    ).unwrap()
+    defer listener.close()
+    let supervisor = @server_api.ServerSupervisor::new().unwrap()
+    @async.with_task_group(async fn(group) {
+      let serving = group.spawn(async fn() { listener.serve(supervisor) })
+      let idle = group.spawn(async fn() {
+        @client_native.with_http3_connection(endpoint, policy, tls, async fn(
+          io,
+        ) {
+          idle_ready.put(())
+          let mut goaway = false
+          while true {
+            let events = io.next_events() catch {
+              @quic.QuicError::ConnectionClosed(0x100L, _) => break
+              error => raise error
+            }
+            if events.contains(Message(H3GoawayReceived(0L))) {
+              goaway = true
+            }
+          }
+          assert_true(goaway)
+        })
+      })
+      @client_native.with_http3_client(endpoint, policy, tls, async fn(client) {
+        fn request() -> @types.Request[@body.FullBody] {
+          {
+            http_method: Get,
+            uri: @types.Uri::parse("/").unwrap(),
+            version: Http3,
+            headers: @types.HeaderMap::new(),
+            body: @body.FullBody::new(b""),
+          }
+        }
+        @async.with_task_group(async fn(requests) {
+          let first = requests.spawn(async fn() { client.send(request()) })
+          entered.get()
+          idle_ready.get()
+          let waiting = requests.spawn(async fn() {
+            ignore(client.send(request())) catch {
+              @service.H3ClientError::Goaway(first) => return first
+              error => raise error
+            }
+            fail("request admitted after shutdown")
+          })
+          supervisor.begin_shutdown().unwrap()
+          supervisor.begin_shutdown().unwrap()
+          assert_eq(waiting.wait(), 4L)
+          idle.wait()
+          assert_eq(handled, 1)
+          release.put(())
+          let response = first.wait()
+          let (bytes, _) = @body.collect(
+            response.body,
+            max_bytes=payload.length(),
+          )
+          assert_eq(response.status, 200)
+          assert_eq(bytes, payload)
+          assert_eq(serving.wait(), Ok(()))
+          try ignore(client.send(request())) catch {
+            @service.H3ClientError::Goaway(4L) => ()
+            error => raise error
+          } noraise {
+            _ => fail("closed peer admitted another request")
+          }
+        })
+      })
+      assert_eq(supervisor.metrics().completed(), 2L)
+      assert_eq(supervisor.metrics().handler_errors(), 0L)
+      assert_eq(listener.routes.length(), 0)
+    })
+  })
+}
+
+///|
+async test "HTTP/3 shutdown deadline joins a suspended handler and releases its UDP route" {
+  @async.with_timeout(8000, async fn() {
+    let endpoint = unused_udp_endpoint()
+    let (ct, st) = listener_tls_options()
+    let policy = @transport.AllowAllPolicy::new()
+    let entered : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let suspended = @async.CondVar::Cond()
+    let mut cleaned = 0
+    let listener = NativeHttp3Listener::bind_http(
+      endpoint,
+      policy,
+      { ..st, alpn: ["h3"], },
+      async fn(request) {
+        defer {
+          cleaned += 1
+        }
+        entered.put(())
+        suspended.wait()
+        {
+          status: 200,
+          version: Http3,
+          headers: @types.HeaderMap::new(),
+          body: request.body,
+        }
+      },
+    ).unwrap()
+    defer listener.close()
+    let supervisor = @server_api.ServerSupervisor::new(
+      config=@server_api.ServerConfig::defaults().with_limits({
+        ..@server_api.ServerLimits::defaults(),
+        graceful_timeout_ms: Some(300),
+      }),
+    ).unwrap()
+    @async.with_task_group(async fn(group) {
+      let serving = group.spawn(async fn() { listener.serve(supervisor) })
+      @client_native.with_http3_connection(
+        endpoint,
+        policy,
+        { ..ct, alpn: ["h3"], },
+        async fn(io) {
+          let fields = [
+            (":method", "GET"),
+            (":scheme", "https"),
+            (":authority", "localhost"),
+            (":path", "/"),
+          ].map(p => @http3.QpackField::from_strings(p.0, p.1).unwrap())
+          h3_listener_value(io.session.start_request(fields, fin=true))
+          |> ignore
+          io.flush()
+          entered.get()
+          supervisor.begin_shutdown().unwrap()
+          while !io.next_events().contains(Message(H3GoawayReceived(4L))) {
+            continue
+          }
+          while true {
+            ignore(io.next_events())
+          }
+        },
+      ) catch {
+        @quic.QuicError::ConnectionClosed(0x102L, _) => ()
+        error => raise error
+      }
+      assert_eq(serving.wait(), Err(ShutdownTimeout))
+      assert_eq(cleaned, 1)
+      assert_eq(supervisor.active_connections(), 0)
+      assert_true(listener.routes.is_empty() && listener.initials.is_empty())
+    })
+  })
+}

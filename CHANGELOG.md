@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Drain typed HTTP/3 servers with GOAWAY on supervisor shutdown. Idle connections close, previously admitted responses finish, and new requests receive a retryable rejection. Preserve the distinction between QUIC transport and application close codes, including the HTTP/3 normal close and bounded failure notification on cancellation.
+
 - Add a typed, multiplexed HTTP/3 client bound to one verified HTTPS origin. HTTP/2 and HTTP/3 clients share request target and pseudo-field construction. A server can end an upload with `STOP_SENDING(H3_NO_ERROR)` after an early response. Cancelling a duplex exchange releases its slot while the connection continues serving other requests.
 
 - Serve streaming `Request[BodyStream]` and `Response[B]` through the HTTP/3 listener. Receive credit follows application consumption, and `Http3WriteBlocked` distinguishes queue backpressure from a frame that can never fit.

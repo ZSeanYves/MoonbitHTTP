@@ -31,7 +31,7 @@ pub async fn[R : @io.Reader, W : @io.Writer, X] with_h2_client_connection(R, W, 
 
 pub async fn[X] with_h3_client(H3ConnectionIo, async (H3Client) -> X, origin_port? : Int?) -> X
 
-pub async fn[P : @transport.QuicTlsProvider, S : @transport.DatagramSocket, K : @transport.Clock, X] with_http3_connection(@quic.QuicTlsDriver[P], S, K, @transport.TlsOptions, async (H3ConnectionIo) -> X, limits? : @types.Limits, qpack_limits? : @http3.QpackLimits, handshake_timeout_ms? : Int, shutdown_timeout_ms? : Int) -> X
+pub async fn[P : @transport.QuicTlsProvider, S : @transport.DatagramSocket, K : @transport.Clock, X] with_http3_connection(@quic.QuicTlsDriver[P], S, K, @transport.TlsOptions, async (H3ConnectionIo) -> X, server_shutdown? : H3ServerShutdown?, limits? : @types.Limits, qpack_limits? : @http3.QpackLimits, handshake_timeout_ms? : Int, shutdown_timeout_ms? : Int) -> X
 
 // Errors
 pub(all) suberror ClientConnectionError {
@@ -130,6 +130,14 @@ pub struct H3ConnectionIo {
 }
 pub async fn H3ConnectionIo::flush(Self) -> Unit
 pub async fn H3ConnectionIo::next_events(Self) -> Array[@http3.Http3SessionAction]
+
+pub struct H3ServerShutdown {
+  // private fields
+}
+pub fn H3ServerShutdown::begin(Self) -> Unit
+pub fn H3ServerShutdown::new() -> Self
+pub fn H3ServerShutdown::started(Self) -> Bool
+pub async fn H3ServerShutdown::wait(Self) -> Unit noraise
 
 pub(all) struct ServerConfig {
   limits : @types.Limits

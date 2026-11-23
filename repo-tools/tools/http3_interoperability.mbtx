@@ -609,10 +609,12 @@ async fn reverse_client_case(directory : String, python : String, source : Strin
   reservation.close()
   @async.with_task_group(async fn(group) {
     let fixture = "adapter/native/tls/testdata/localhost"
+    let traces = directory + "/reverse-server-qlog"
+    @fs.mkdir(traces)
     let server_args = [
       "-X", "dev", script, "--host", "127.0.0.1", "--port", "18444",
       "--certificate", fixture + ".cert.pem", "--private-key", fixture + ".key.pem",
-      "--verbose",
+      "--verbose", "--quic-log", traces,
     ]
     let peer = @process.spawn(group, python, server_args,
       stdout=@process.redirect_to_file(directory + "/reverse-server.stdout", create_mode=CreateNew),
@@ -628,8 +630,30 @@ async fn reverse_client_case(directory : String, python : String, source : Strin
     let log = record(directory, "reverse-client", "./" + binary, [])
     if !log.contains("PASS HTTP/3 client:") { fail("client did not verify the reverse exchange") }
     let server_log = @fs.read_file(directory + "/reverse-server.stderr").text()
-    if !server_log.contains("HTTP request GET /131072") || !server_log.contains("HTTP request POST /echo") || !server_log.contains("Connection close received (code 0x100") {
-      fail("independent peer did not confirm both requests and HTTP/3 shutdown")
+    if !server_log.contains("HTTP request GET /131072") || !server_log.contains("HTTP request POST /echo") {
+      fail("independent peer did not confirm both requests")
+    }
+    // The text log prints only the numeric code. QUIC transport code 0x100
+    // is a TLS alert, while application code 0x100 is H3_NO_ERROR.
+    let deadline = @env.now() + 5000UL
+    while true {
+      let mut verified = false
+      for name in @fs.readdir(traces) {
+        if !name.has_suffix(".qlog") { continue }
+        let data = @json.parse(@fs.read_file(traces + "/" + name).text()) catch { _ => continue }
+        if data is { "traces": [{ "events": Array(events), .. }], .. } {
+          verified = events.any(event => {
+            event is { "name": "transport:packet_received", "data": { "frames": Array(frames), .. }, .. } &&
+            frames.any(f => f is { "frame_type": "connection_close", "error_space": "application", "error_code": 256, .. })
+          })
+          if verified { break }
+        }
+      }
+      if verified { break }
+      if peer.try_wait() is Some(_) || @env.now() >= deadline {
+        fail("independent qlog did not confirm H3_NO_ERROR in the application error space")
+      }
+      @async.sleep(25)
     }
   })
   {
@@ -640,6 +664,7 @@ async fn reverse_client_case(directory : String, python : String, source : Strin
     "echo_bytes": 4096,
     "download_bytes": 131072,
     "hostname_mismatch_rejected": true,
+    "application_close_verified_from_qlog": true,
   }
 }
 

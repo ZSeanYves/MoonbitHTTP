@@ -23,6 +23,8 @@ pub struct Http3Session {
   priv control : H3WriteQueue
   priv resets : Map[Int64, H3ErrorCode]
   priv stops : Map[Int64, H3ErrorCode]
+  priv decoder_cancellations : Map[Int64, Bytes]
+  priv mut sent_goaway : Int64?
   priv mut withheld : Map[Int64, Int]?
   priv mut initialized : Bool
   priv mut ended : Bool
@@ -56,6 +58,8 @@ pub fn[P] Http3Session::new(
     ),
     resets: Map([]),
     stops: Map([]),
+    decoder_cancellations: Map([]),
+    sent_goaway: None,
     withheld: None,
     initialized: false,
     ended: false,
@@ -65,6 +69,26 @@ pub fn[P] Http3Session::new(
 ///|
 pub fn Http3Session::ended(self : Http3Session) -> Bool {
   self.ended
+}
+
+///|
+/// Latest boundary received on the peer's control stream.
+pub fn Http3Session::peer_goaway(self : Http3Session) -> Int64? {
+  self.driver.connection.goaway_id
+}
+
+///|
+pub fn peer_closed_normally(connection : @quic.QuicConnection) -> Bool {
+  match connection.peer_close() {
+    Some(TransportClose(0L, _)) => true
+    Some(ApplicationClose(code, _)) => code == H3NoError.wire_value()
+    _ => false
+  }
+}
+
+///|
+fn H3ErrorCode::close_frame(self : H3ErrorCode) -> @quic.QuicFrame {
+  ConnectionClose(false, self.wire_value(), 0L, b"")
 }
 
 ///|
@@ -107,6 +131,13 @@ fn Http3Session::record(
   if self.driver.connection.role == H3Server &&
     event is H3HeadersReceived(id, fields, false, false) &&
     self.quic.connection().stream_writable(id) {
+    if self.sent_goaway is Some(first) && id >= first {
+      raise Http3StreamError(
+        id,
+        H3RequestRejected,
+        "request arrived after GOAWAY",
+      )
+    }
     if self.messages.length() >=
       self.driver.connection.limits.max_concurrent_requests {
       raise Http3StreamError(
@@ -133,21 +164,23 @@ fn h3_response_method(fields : Array[QpackField]) -> String? {
 }
 
 ///|
-fn Http3Session::stop_input(
+fn Http3Session::discard_input(
   self : Http3Session,
   id : Int64,
-  code : H3ErrorCode,
 ) -> Unit raise Http3Error {
-  // Cancellation can be retried after control backpressure clears. Check the
-  // exact QPACK instruction size before releasing receive state.
-  let bytes = h3_value(qpack_stream_cancellation(id))
-  self.control.admit(bytes.length())
+  // Cancelling a request must release its resources even when the critical
+  // stream has no write slots. Retain one small decoder instruction per ID.
+  if !self.decoder_cancellations.contains(id) {
+    let limit = self.driver.connection.limits.max_streams
+    if self.decoder_cancellations.length() >= limit {
+      raise Http3LimitExceeded("HTTP/3 pending stream cancellations", limit)
+    }
+    self.decoder_cancellations[id] = h3_value(qpack_stream_cancellation(id))
+  }
   if self.withheld is Some(credit) {
     credit.remove(id)
   }
   self.driver.forget_request_input(id)
-  self.control.push(self.driver.local_qpack_decoder_stream, bytes, false)
-  self.stops[id] = code
 }
 
 ///|
@@ -161,7 +194,8 @@ pub fn Http3Session::stop_reading(
     return Ok(())
   }
   try {
-    self.stop_input(id, H3NoError)
+    self.discard_input(id)
+    self.stops[id] = H3NoError
     Ok(())
   } catch {
     error => Err(error)
@@ -175,7 +209,8 @@ fn Http3Session::abort_stream(
   code : H3ErrorCode,
 ) -> Unit raise Http3Error {
   if !self.stops.contains(id) {
-    self.stop_input(id, code)
+    self.discard_input(id)
+    self.stops[id] = code
   }
   self.writes.drop(id)
   self.messages.remove(id)
@@ -187,6 +222,7 @@ fn Http3Session::abort_stream(
 pub fn Http3Session::cancel(
   self : Http3Session,
   id : Int64,
+  code? : H3ErrorCode = H3RequestCancelled,
 ) -> Result[Unit, Http3Error] {
   if self.ended ||
     (
@@ -199,7 +235,7 @@ pub fn Http3Session::cancel(
     )
   }
   try {
-    self.abort_stream(id, H3RequestCancelled)
+    self.abort_stream(id, code)
     Ok(())
   } catch {
     error => Err(error)
@@ -262,6 +298,14 @@ fn Http3Session::receive(
     StreamData(id, bytes, fin) => {
       let result = if self.stops.contains(id) {
         Ok([])
+      } else if (id & 3L) == 0L &&
+        self.sent_goaway is Some(first) &&
+        id >= first {
+        self.abort_stream(id, H3RequestRejected) catch {
+          error => raise Http3Protocol(error)
+        }
+        out.push(StreamFailed(id, H3RequestRejected))
+        Ok([])
       } else {
         self.driver.on_stream_data(id, bytes, fin)
       }
@@ -288,10 +332,13 @@ fn Http3Session::receive(
       result
     }
     StreamReset(id, _) => {
-      if self.withheld is Some(credit) {
-        credit.remove(id)
-      }
       out.push(Transport(action))
+      if (id & 2L) == 0L {
+        self.discard_input(id) catch {
+          error => raise Http3Protocol(error)
+        }
+        return
+      }
       self.driver.on_stream_reset(id)
     }
     SendStopped(id, _) => {
@@ -390,6 +437,25 @@ pub fn Http3Session::advance(
       return out
     }
     if self.initialized {
+      if !self.decoder_cancellations.is_empty() {
+        // Snapshot only the IDs moved into the write queue this turn.
+        let queued = []
+        for id, bytes in self.decoder_cancellations {
+          self.control.admit(bytes.length()) catch {
+            Http3WriteBlocked => break
+            error => raise Http3Protocol(error)
+          }
+          self.control.push(
+            self.driver.local_qpack_decoder_stream,
+            bytes,
+            false,
+          )
+          queued.push(id)
+        }
+        for id in queued {
+          self.decoder_cancellations.remove(id)
+        }
+      }
       self.flush(out, now_ms) catch {
         error => raise Http3Transport(error)
       }
@@ -405,11 +471,7 @@ pub fn Http3Session::advance(
         _ => H3InternalError
       }
       if self.quic.state() == Established &&
-        self.quic.send_frames(
-          Application,
-          [ConnectionClose(true, code.wire_value(), 0L, b"")],
-          now_ms,
-        )
+        self.quic.send_frames(Application, [code.close_frame()], now_ms)
         is Ok(packet) {
         out.push(Transport(packet))
       }
@@ -422,9 +484,11 @@ pub fn Http3Session::advance(
 ///|
 /// Terminate this session and reject further application writes. When keys are
 /// available the owner sends the returned application CONNECTION_CLOSE.
+/// The default code reports an orderly HTTP/3 shutdown.
 pub fn Http3Session::close(
   self : Http3Session,
   now_ms : Int64,
+  code? : H3ErrorCode = H3NoError,
 ) -> Result[@quic.QuicDriverAction?, @quic.QuicError] {
   if self.ended {
     return Ok(None)
@@ -434,11 +498,7 @@ pub fn Http3Session::close(
     return Ok(None)
   }
   self.quic
-  .send_frames(
-    Application,
-    [ConnectionClose(true, H3NoError.wire_value(), 0L, b"")],
-    now_ms,
-  )
+  .send_frames(Application, [code.close_frame()], now_ms)
   .map(packet => Some(packet))
 }
 
@@ -446,6 +506,7 @@ pub fn Http3Session::close(
 /// Include queued frames and writes handed to QUIC but still unacknowledged.
 pub fn Http3Session::writes_pending(self : Http3Session) -> Bool {
   self.writes.count != 0 ||
+  !self.decoder_cancellations.is_empty() ||
   self.control.count != 0 ||
   !self.stops.is_empty() ||
   !self.resets.is_empty() ||

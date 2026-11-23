@@ -44,24 +44,24 @@ impl @transport.DatagramSocket for H3PeerSocket with fn close(self) {
 ///|
 priv struct H3Admissions {
   pending : @aqueue.Queue[@server_api.AcceptedConnection]
-  mut closed : Bool
+  shutdown : @service.H3ServerShutdown
 }
 
 ///|
 impl @server_api.Listener for H3Admissions with fn accept(self) {
-  if self.closed {
+  if self.shutdown.started() {
     return Ok(None)
   }
   let result = self.pending.get() catch {
-    err => if self.closed { return Ok(None) } else { raise err }
+    err => if self.shutdown.started() { return Ok(None) } else { raise err }
   }
   Ok(Some(result))
 }
 
 ///|
 impl @server_api.Listener for H3Admissions with fn close(self) {
-  if !self.closed {
-    self.closed = true
+  if !self.shutdown.started() {
+    self.shutdown.begin()
     let queued = self.pending.try_get() catch { _ => None }
     if queued is Some(peer) {
       (peer.close)()
@@ -141,6 +141,7 @@ pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
     Err(error) => return Err(AcceptFailed("\{Repr(error)}"))
   }
   let clock = @transport_native.NativeClock::new()
+  let shutdown = @service.H3ServerShutdown::new()
   let run_peer = async fn(peer, source, original, local_id, remote_id) {
     let packets = h3_listener_value(
       @quic.QuicDatagramDriver::new(
@@ -159,25 +160,30 @@ pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
     let provider = @tls_native.NativeQuicTlsProvider::new(server=true)
     defer provider.close()
     let tls = h3_listener_value(@quic.QuicTlsDriver::new(packets, provider))
+    let mut authenticated = false
     @service.with_http3_connection(
       tls,
       peer,
       clock,
       options,
-      async fn(io) { handler(source, io) },
+      async fn(io) {
+        authenticated = true
+        handler(source, io)
+      },
+      server_shutdown=Some(shutdown),
       limits~,
       qpack_limits~,
       handshake_timeout_ms~,
       shutdown_timeout_ms~,
     ) catch {
-      @quic.QuicError::ConnectionClosed(0L | 0x100L, _) if packets.state() ==
-        Draining => ()
+      @quic.QuicError::ConnectionClosed(_, _) if authenticated &&
+        @http3.peer_closed_normally(packets.connection()) => ()
       err => raise err
     }
   }
   Ok({
     socket,
-    admissions: { pending: Queue(kind=Blocking(1)), closed: false, },
+    admissions: { pending: Queue(kind=Blocking(1)), shutdown, },
     routes: Map([]),
     initials: Map([]),
     run_peer,
@@ -221,7 +227,7 @@ fn NativeHttp3Listener::route(
       match self.initials.get(key) {
         Some(peer) => peer
         None => {
-          if self.admissions.closed {
+          if self.admissions.shutdown.started() {
             return
           }
           let mut issued : Bytes? = None
@@ -294,7 +300,7 @@ pub async fn NativeHttp3Listener::serve(
   if self.serving {
     return Err(AlreadyRunning)
   }
-  if self.admissions.closed {
+  if self.admissions.shutdown.started() {
     return Err(Closed)
   }
   self.serving = true

@@ -7,6 +7,13 @@ pub(all) enum QuicConnectionState {
 } derive(Eq, Debug)
 
 ///|
+/// A peer's transport and application close codes occupy separate namespaces.
+pub(all) enum QuicPeerClose {
+  TransportClose(Int64, String)
+  ApplicationClose(Int64, String)
+} derive(Eq, Debug)
+
+///|
 priv enum StreamSendState {
   Writable
   FinSent(Bool) // Whether the packet carrying FIN was acknowledged.
@@ -92,7 +99,7 @@ pub struct QuicConnection {
   priv mut peer_max_streams_uni : Int64
   priv mut next_stream_id : Int64
   priv mut next_uni_stream_id : Int64
-  priv mut close_error : (Int64, String)?
+  priv mut peer_close : QuicPeerClose?
 }
 
 ///|
@@ -154,7 +161,7 @@ pub fn QuicConnection::new(
     next_uni_stream_id: first_stream + 2L,
     peer_max_streams_bidi: 0L,
     peer_max_streams_uni: 0L,
-    close_error: None,
+    peer_close: None,
   })
 }
 
@@ -349,10 +356,16 @@ pub fn QuicConnection::receive_frame(
       actions.push(StreamReset(id, code))
       self.retire_if_finished(id, stream)
     }
-    ConnectionClose(_, code, _, reason) => {
+    ConnectionClose(transport_error, code, _, reason) => {
       self.state = Draining
       let text = @utf8.decode_lossy(reason)
-      self.close_error = Some((code, text))
+      self.peer_close = Some(
+        if transport_error {
+          TransportClose(code, text)
+        } else {
+          ApplicationClose(code, text)
+        },
+      )
       actions.push(ConnectionError(code, text))
     }
     _ => ()

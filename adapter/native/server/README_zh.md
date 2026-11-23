@@ -26,6 +26,8 @@ policy 拒绝必须先于 socket 创建或 handler；adapter 负责 socket close
 
 `NativeHttp3Listener::bind_http` 接受与 TCP 监听器相同签名的请求处理器。请求包含 HTTP/3 版本、解析后的目标和 Host 字段。处理器可把请求正文和尾部字段直接作为流式响应返回。每条流的缓冲都有上限，读取正文才会归还相应的 QUIC 流控额度。
 
+调用 `supervisor.begin_shutdown()` 后，每条连接会收到由其已接纳请求决定的 GOAWAY 边界，空闲连接收到零。已运行的处理器仍能按流控发送响应。宽限期届满，supervisor 会取消余下的处理器并释放对应的 UDP 路由。
+
 ## 规范文档
 - [中文总览](../../../README_zh.md)
 - [包地图](../../../docs/concepts/packages.md)

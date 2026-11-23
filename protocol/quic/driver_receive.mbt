@@ -583,9 +583,11 @@ fn QuicDatagramDriver::on_packet(
             SendFrame(ResetStream(_, _, _) as reset) =>
               self.pending_resets.push_back(reset)
             SendFrame(reply) => responses.push(reply)
+            // A peer close enters draining. Discard any pending replies and
+            // ignore subsequent frames in this packet.
             ConnectionError(code, reason) => {
               actions.push(ConnectionClosed(code, reason))
-              responses.push(ConnectionClose(true, code, 0L, b""))
+              return Ok(actions)
             }
             PeerAck(_) => ()
             PacketIgnored => actions.push(PacketIgnored)

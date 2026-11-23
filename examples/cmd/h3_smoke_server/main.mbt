@@ -31,6 +31,11 @@ fn echo(
 
 ///|
 async fn main {
+  let once = match @env.args() {
+    [_] => false
+    [_, "--once"] => true
+    _ => fail("usage: h3_smoke_server [--once]")
+  }
   let endpoint = @types.Endpoint::new("udp", "127.0.0.1", 18443).unwrap()
   let certificate = @fs.read_file(
     "adapter/native/tls/testdata/localhost.cert.pem",
@@ -45,12 +50,24 @@ async fn main {
     server_certificate: Some(certificate),
     server_private_key: Some(private_key),
   }
+  let config = @server_api.ServerConfig::defaults()
+    .with_limits({
+      ..@server_api.ServerLimits::defaults(),
+      max_connections: 16,
+    })
+    .with_error_responder(error => println("HTTP/3 peer: \{error}"))
+  let supervisor = checked(@server_api.ServerSupervisor::new(config~))
   let listener = checked(
     @server_native.NativeHttp3Listener::bind_http(
       endpoint,
       @transport.AllowAllPolicy::new(),
       options,
-      request => echo(request),
+      request => {
+        if once {
+          checked(supervisor.begin_shutdown())
+        }
+        echo(request)
+      },
       limits={ ..@types.Limits::defaults(), max_body_bytes: 65536, },
       transport_params={
         ..@quic.QuicTransportParams::defaults(),
@@ -61,13 +78,6 @@ async fn main {
     ),
   )
   defer listener.close()
-  let config = @server_api.ServerConfig::defaults()
-    .with_limits({
-      ..@server_api.ServerLimits::defaults(),
-      max_connections: 16,
-    })
-    .with_error_responder(error => println("HTTP/3 peer: \{error}"))
-  let supervisor = checked(@server_api.ServerSupervisor::new(config~))
   @stdio.stdout.write("HTTP/3 smoke listening on https://localhost:18443\n")
   checked(listener.serve(supervisor))
 }

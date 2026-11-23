@@ -65,6 +65,11 @@ test "http3 runtime: SETTINGS is first and unique; GOAWAY only decreases" {
   let empty_settings : @http3.Http3Frame = H3SettingsFrame([])
   ignore(connection.receive_control_frame(empty_settings).unwrap())
   assert_true(connection.receive_control_frame(H3Goaway(12L)) is Ok(_))
+  // A high initial cutoff still prohibits opening a new request.
+  assert_true(
+    connection.open_request_stream()
+    is Err(Http3StreamError(0L, H3RequestRejected, _)),
+  )
   assert_true(connection.receive_control_frame(H3Goaway(8L)) is Ok(_))
   assert_true(
     connection.receive_control_frame(H3Goaway(16L))

@@ -108,7 +108,7 @@ fn Http3Connection::next_request_id(
       ),
     )
   }
-  if self.goaway_id is Some(limit) && self.next_request_stream_id >= limit {
+  if self.goaway_id is Some(_) {
     return Err(
       Http3StreamError(
         self.next_request_stream_id,

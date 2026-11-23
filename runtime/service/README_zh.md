@@ -20,6 +20,9 @@ HTTP/3 使用可移植的 HTTP/3 与 QUIC 驱动、专用数据报套接字、�
 `with_http3_connection` 接管套接字，在认证握手完成后调用应用。通过 `io.session` 收发请求和响应，通过 `io.next_events()` 读取事件批次，`io.flush()` 可立即发送待写数据。接收任务和恢复计时器独立运行，交付队列最多保留一个待读批次。回调正常返回后，先等待排队的流数据和 QUIC 确认，再发送关闭包并释放套接字。`shutdown_timeout_ms` 限制等待和最后一次发送的时间，对端正常关闭后，已交付的事件仍可读，消费完后再次读取才收到关闭通知。TLS provider 由调用方管理。
 
 ## 不变量与范围
+
+可移植服务端可将同一个 `H3ServerShutdown` 作为 `server_shutdown` 传入各个 `with_http3_connection`。调用 `begin()` 后，各连接的流式处理循环停止接纳请求并发送 GOAWAY。调用方管理宽限期限。已建立的连接因错误或取消退出时，会在 `shutdown_timeout_ms` 内尝试发送 HTTP/3 应用层关闭帧。
+
 reader task、body queue、流控释放、deadline、取消和 close 均受 service 作用域管理。
 
 读取循环观测到 HTTP/2 对端 EOF 后，正常响应可使用已有发送窗口完成。

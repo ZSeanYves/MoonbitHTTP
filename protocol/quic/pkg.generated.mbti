@@ -186,6 +186,7 @@ pub fn QuicConnection::local_transport_params(Self) -> QuicTransportParams
 pub fn QuicConnection::new(QuicRole, limits? : QuicLimits, transport_params? : QuicTransportParams) -> Result[Self, QuicError]
 pub fn QuicConnection::open_bidirectional_stream(Self) -> Result[Int64, QuicError]
 pub fn QuicConnection::open_unidirectional_stream(Self) -> Result[Int64, QuicError]
+pub fn QuicConnection::peer_close(Self) -> QuicPeerClose?
 pub fn QuicConnection::receive_frame(Self, QuicFrame) -> Result[Array[QuicAction], QuicError]
 pub fn QuicConnection::reset_stream(Self, Int64, Int64) -> Result[QuicFrame, QuicError]
 pub fn QuicConnection::send_stream(Self, Int64, Bytes, Bool) -> Result[QuicFrame, QuicError]
@@ -402,6 +403,14 @@ pub(all) enum QuicPathStatus {
 pub fn QuicPathStatus::equal(Self, Self) -> Bool
 pub fn QuicPathStatus::not_equal(Self, Self) -> Bool
 pub fn QuicPathStatus::to_repr(Self) -> @debug.Repr
+
+pub(all) enum QuicPeerClose {
+  TransportClose(Int64, String)
+  ApplicationClose(Int64, String)
+} derive(Eq, @debug.Debug)
+pub fn QuicPeerClose::equal(Self, Self) -> Bool
+pub fn QuicPeerClose::not_equal(Self, Self) -> Bool
+pub fn QuicPeerClose::to_repr(Self) -> @debug.Repr
 
 pub(all) struct QuicRecovery {
   config : QuicRecoveryConfig

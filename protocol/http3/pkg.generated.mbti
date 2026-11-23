@@ -43,6 +43,8 @@ pub fn decode_http3_frame(BytesView, max_payload_bytes? : Int) -> Result[(Http3F
 
 pub fn encode_http3_frame(Http3Frame) -> Result[Bytes, Http3Error]
 
+pub fn peer_closed_normally(@quic.QuicConnection) -> Bool
+
 pub fn qpack_encode_static(Array[QpackField], max_field_section_bytes? : Int, max_field_count? : Int, use_huffman? : Bool) -> Result[Bytes, Http3Error]
 
 pub fn qpack_insert_count_increment(Int64) -> Result[Bytes, Http3Error]
@@ -299,14 +301,16 @@ pub struct Http3Session {
 }
 pub fn Http3Session::advance(Self, Array[@quic.QuicDriverAction], Int64) -> Array[Http3SessionAction]
 pub fn Http3Session::can_write(Self, Int64) -> Bool
-pub fn Http3Session::cancel(Self, Int64) -> Result[Unit, Http3Error]
-pub fn Http3Session::close(Self, Int64) -> Result[@quic.QuicDriverAction?, @quic.QuicError]
+pub fn Http3Session::cancel(Self, Int64, code? : H3ErrorCode) -> Result[Unit, Http3Error]
+pub fn Http3Session::close(Self, Int64, code? : H3ErrorCode) -> Result[@quic.QuicDriverAction?, @quic.QuicError]
 pub fn Http3Session::consume_body(Self, Int64, Int) -> Result[Unit, @quic.QuicError]
 pub fn Http3Session::defer_body_credit(Self) -> Unit
 pub fn Http3Session::ended(Self) -> Bool
 pub fn Http3Session::finish(Self, Int64) -> Result[Unit, Http3Error]
 pub fn[P] Http3Session::new(@quic.QuicTlsDriver[P], limits? : @types.Limits, qpack_limits? : QpackLimits, max_pending_writes? : Int) -> Result[Self, Http3Error]
+pub fn Http3Session::peer_goaway(Self) -> Int64?
 pub fn Http3Session::send_data(Self, Int64, Bytes, fin? : Bool) -> Result[Unit, Http3Error]
+pub fn Http3Session::send_goaway(Self, Int64) -> Result[Unit, Http3Error]
 pub fn Http3Session::send_headers(Self, Int64, Array[QpackField], fin? : Bool) -> Result[Unit, Http3Error]
 pub fn Http3Session::start_request(Self, Array[QpackField], fin? : Bool) -> Result[Int64, Http3SessionError]
 pub fn Http3Session::stop_reading(Self, Int64) -> Result[Unit, Http3Error]

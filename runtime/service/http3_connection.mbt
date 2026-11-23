@@ -4,11 +4,12 @@
 /// running while application code handles a batch.
 pub struct H3ConnectionIo {
   session : @http3.Http3Session
+  priv server_shutdown : H3ServerShutdown?
   priv authenticated_origin : @types.Endpoint?
   priv limits : @types.Limits
   priv write_changed : @cond_var.Cond
   priv events : @aqueue.Queue[Array[@http3.Http3SessionAction]]
-  priv cancel_request : (Int64) -> Unit
+  priv cancel_request : (Int64, @http3.H3ErrorCode) -> Unit
   priv flush_writes : async () -> Unit
 }
 
@@ -54,6 +55,7 @@ pub async fn[
   clock : K,
   options : @transport.TlsOptions,
   run : async (H3ConnectionIo) -> X,
+  server_shutdown? : H3ServerShutdown? = None,
   limits? : @types.Limits = @types.Limits::defaults(),
   qpack_limits? : @http3.QpackLimits = @http3.QpackLimits::defaults(),
   handshake_timeout_ms? : Int = 10000,
@@ -84,42 +86,31 @@ pub async fn[
   let mut peer_close : @quic.QuicError? = None
   let mut connected = false
   let packets = tls.datagram_driver()
-  let pending_resets : Set[Int64] = Set([])
   let mut reset_error : @http3.Http3Error? = None
-  fn cancel_request(id : Int64) -> Unit {
-    match session.cancel(id) {
-      Ok(_) | Err(Http3StreamError(_, H3RequestCancelled, _)) =>
-        pending_resets.remove(id)
-      Err(Http3WriteBlocked) =>
-        if !pending_resets.contains(id) &&
-          pending_resets.length() >= limits.max_streams {
-          reset_error = Some(
-            Http3LimitExceeded(
-              "HTTP/3 pending cancellations",
-              limits.max_streams,
-            ),
-          )
-        } else {
-          pending_resets.add(id)
-        }
+  fn cancel_request(id : Int64, code : @http3.H3ErrorCode) -> Unit {
+    match session.cancel(id, code~) {
+      Ok(_) | Err(Http3StreamError(_, H3RequestCancelled, _)) => ()
       Err(error) => reset_error = Some(error)
     }
   }
-  // Invalidate escaped session handles on cancellation or application errors.
+  // A failing scope still owns the socket until its defers finish. Give
+  // the peer a bounded close notification before dropping its UDP route.
   defer {
-    ignore(session.close(clock.monotonic_millis()))
     events.close()
+    if session.close(clock.monotonic_millis(), code=H3InternalError)
+      is Ok(Some(packet)) {
+      @async.protect_from_cancel(async fn() {
+        @async.with_timeout(shutdown_timeout_ms, async fn() {
+          ignore(packets.send_action(socket, packet))
+        }) catch {
+          _ => ()
+        }
+      })
+    }
   }
   async fn dispatch(actions : Array[@quic.QuicDriverAction]) -> Unit {
     if closing || peer_close is Some(_) {
       return
-    }
-    // Synchronous body cancellation also wakes blocked producers. A full
-    // QPACK output queue delays the wire reset until the next transport turn.
-    if !pending_resets.is_empty() {
-      for id in pending_resets.to_array() {
-        cancel_request(id)
-      }
     }
     if reset_error is Some(error) {
       raise error
@@ -136,9 +127,7 @@ pub async fn[
         Failed(error) => raise error
         Transport(ConnectionClosed(code, reason)) => {
           let error = @quic.QuicError::ConnectionClosed(code, reason)
-          if !connected ||
-            packets.state() != Draining ||
-            (code != 0L && code != 0x100L) {
+          if !connected || !@http3.peer_closed_normally(packets.connection()) {
             raise error
           }
           // Preserve previously delivered batches, including a final response.
@@ -182,6 +171,7 @@ pub async fn[
   }
   let io = {
     authenticated_origin,
+    server_shutdown,
     cancel_request,
     session,
     limits,
