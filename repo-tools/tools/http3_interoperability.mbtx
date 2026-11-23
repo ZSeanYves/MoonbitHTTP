@@ -1066,8 +1066,6 @@ async fn main {
       proxy_summaries,
       include_headers=true,
     )
-    let mut long_completed = 0
-    let mut concurrent_completed = 0
     if concurrent_requests > 0 {
       let paths : Array[String] = []
       for request_id in 0..<concurrent_requests {
@@ -1084,15 +1082,13 @@ async fn main {
         impair,
         proxy_summaries,
       )
-      concurrent_completed = concurrent_requests
     }
     let window_start = @env.now()
     let window_deadline = window_start + duration_seconds.to_uint64() * 1000UL
-    let mut window_completed = 0
-    let mut window_index = 0
-    while window_index < long_requests ||
+    let mut completed = 0
+    while completed < long_requests ||
           (duration_seconds > 0 && @env.now() < window_deadline) {
-      let case_name = "long-" + window_index.to_string()
+      let case_name = "long-" + completed.to_string()
       request_case(
         directory,
         case_name,
@@ -1104,14 +1100,7 @@ async fn main {
         impair,
         proxy_summaries,
       )
-      long_completed += 1
-      window_completed += 1
-      window_index += 1
-      if duration_seconds > 0 &&
-        window_index >= long_requests &&
-        @env.now() >= window_deadline {
-        break
-      }
+      completed += 1
     }
     let window_elapsed_ms = (@env.now() - window_start).reinterpret_as_int64()
     request_case(
@@ -1148,16 +1137,16 @@ async fn main {
       "moonbit_client_aioquic_server": reverse_result,
       "cases": ["http3-get", "http3-post", "http3-key-update", "http3-rolling-streams", "http3-wrong-ca"],
       "long_requests_requested": long_requests,
-      "long_requests_completed": long_completed,
+      "long_requests_completed": completed,
       "echoed_upload_bytes": upload.length(),
       "upload_credit_verified_from_qlog": build_server,
       "local_cid_rotation_verified_from_qlog": build_server,
       "single_connection_requests_completed": rolling_paths.length(),
       "concurrent_requests_requested": concurrent_requests,
-      "concurrent_requests_completed": concurrent_completed,
+      "concurrent_requests_completed": concurrent_requests,
       "duration_seconds_requested": duration_seconds,
       "duration_window_elapsed_ms": window_elapsed_ms,
-      "duration_window_requests_completed": window_completed,
+      "duration_window_requests_completed": completed,
       "impairment_enabled": impair,
       "proxy_sessions": Json::array(proxy_summaries),
       "long_request_scope": "Each duration-window invocation opens a fresh authenticated connection. The rolling and concurrent batches each use one connection.",

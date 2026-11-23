@@ -135,10 +135,16 @@ hostname, binary and trust-file hashes, command, exit status and completed
 pairs. After an established connection unwinds, the client also leaves its
 completed-pair count in `client.stdout` on failure. Keep the independent
 server's log, machine identity and aioquic
-revision beside the result. For an isolated run, the peer log should contain
-one connection identifier for every POST and GET, with each method count
-equal to `measurement.completed_pairs`. Record the placement of both
-machines when evaluating the physical-host release gate.
+revision beside the result. After the peer log is closed, reconcile an isolated
+run from either machine:
+
+```sh
+moon run repo-tools/tools/verify_http3_peer_soak.mbtx "$RUN_DIR/result.json" peer.log
+```
+
+The verifier checks one negotiated H3 connection, the exact method counts and
+the peer's received close code. It emits both input hashes. Record the
+placement of both machines when evaluating the physical-host release gate.
 
 ## Failure classification
 

@@ -1,0 +1,82 @@
+///|
+import {
+  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.4/fs",
+  "moonbitlang/core/buffer",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/x@0.5.5/crypto",
+}
+
+///|
+/// Parse and hash the same bytes, even when a UTF-8 line spans two reads.
+async fn check_log(path : String, observe : (String) -> Unit raise) -> String {
+  let peer = @fs.open(path, mode=ReadOnly)
+  defer peer.close()
+  let digest = @crypto.SHA256::new()
+  let line = @buffer.Buffer()
+  while peer.read_some(max_len=65536) is Some(chunk) {
+    digest.update(chunk)
+    let mut start = 0
+    for index in 0..<chunk.length() {
+      if chunk[index] == b'\n' {
+        line.write_bytes(chunk[start:index])
+        observe(@utf8.decode(line.to_bytes()))
+        line.reset()
+        start = index + 1
+      }
+    }
+    line.write_bytes(chunk[start:])
+  }
+  if !line.is_empty() { observe(@utf8.decode(line.to_bytes())) }
+  @crypto.bytes_to_hex_string(digest.finalize())
+}
+
+///|
+async fn main {
+  guard @env.args() is [_, client_report, server_log] else {
+    fail("usage: verify_http3_peer_soak.mbtx CLIENT_RESULT_JSON AIOQUIC_SERVER_LOG")
+  }
+  let raw = @fs.read_file(client_report)
+  guard @json.parse(raw.text()) is {
+    "status": "passed",
+    "measurement": { "completed_pairs": Number(expected, ..), .. }, ..
+  } && expected > 0.0 else { fail("expected a successful peer soak report") }
+  let mut connection : String? = None
+  let mut posts = 0L
+  let mut gets = 0L
+  let mut closed = false
+  let peer_hash = check_log(server_log, line => {
+    guard line.split_once(" INFO quic [") is Some((_, entry)) &&
+      entry.split_once("] ") is Some((id, text)) else { return }
+    let message = text.trim_end()
+    if message == "ALPN negotiated protocol h3" {
+      guard connection is None && !id.is_empty() else { fail("multiple H3 handshakes") }
+      connection = Some(id.to_owned())
+    } else if message.has_prefix("HTTP request ") || message.has_prefix("Connection close received") {
+      guard connection is Some(cid) && id == cid && !closed else {
+        fail("event outside the negotiated connection")
+      }
+      match message {
+        "HTTP request POST /echo" => posts += 1L
+        "HTTP request GET /4096" => gets += 1L
+        "Connection close received (code 0x100, reason )" => closed = true
+        _ => fail("unexpected peer event: \{message}")
+      }
+    }
+  })
+  guard closed && posts.to_double() == expected && gets == posts else {
+    fail("peer recorded \{posts} POSTs, \{gets} GETs and close=\{closed}; client reported \{expected} pairs")
+  }
+  let evidence : Json = {
+    "status": "passed",
+    "client_result_sha256": @crypto.bytes_to_hex_string(@crypto.sha256(raw.binary())),
+    "peer_log_sha256": peer_hash,
+    "peer_connection_id": connection.unwrap(),
+    "echo_posts": posts.to_double(),
+    "downloads": gets.to_double(),
+    "peer_logged_close_code": "0x100",
+  }
+  println(evidence.stringify())
+}
