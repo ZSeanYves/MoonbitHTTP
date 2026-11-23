@@ -14,6 +14,50 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## HTTP/3 origin pooling at `a30dcf8`
+
+The native pool resolves each absolute HTTPS origin and verifies its hostname.
+Opening, usable and draining connections share one capacity limit. The HTTP/2
+and HTTP/3 executors share reservation, request-body ownership, cancellation,
+idle eviction and worker shutdown. A configured TLS hostname restricts the
+HTTP/3 pool before admission or DNS.
+
+A UDP listener with a certificate for both localhost and 127.0.0.1 observed
+five requests on three connections. The first two shared a single handshake.
+At capacity one, an unread response delayed the other origin. Its response
+completed on a separate connection to the same address. After GOAWAY, the
+accepted body finished and a new connection served the next request.
+Another test cancelled two callers waiting on the same opener. The worker
+remained live for the second caller and released the slot after that caller
+cancelled. [RFC 9114 section 5.2](https://www.rfc-editor.org/rfc/rfc9114.html#section-5.2)
+
+At `e461598` a burst of eight requests for one additional origin closed all
+three idle connections in a full pool. With `a30dcf8` exactly one retires,
+and the two other connections stay reusable.
+
+Strict checks and builds passed on all four targets. Tests passed on macOS
+with 505 Wasm, 361 Wasm-GC, 505 JS and 575 Native. Ubuntu arm64 passed 575
+Native tests. The focused QUIC, TLS and native client/server suites passed
+184 cases per OS. The architecture check covered 28 manifests and 97 local
+dependency edges. macOS ASan passed 33 native TLS cases and restored both
+input hashes. Leak detection was disabled.
+
+Each OS passed six HTTP/1.1, HTTP/2 and h2c socket cases. The MoonBit HTTP/3 client and server each exchanged byte-exact traffic
+with aioquic. The reverse qlog recorded a normal application close. Each impaired run served 256 requests on one
+connection and eight concurrent requests. Over the two-minute windows,
+each OS completed 58 fresh connections (121.771 s on macOS, 120.237 s on Ubuntu). Across the
+VM gateway the independent ngtcp2/nghttp3 GnuTLS client checked a 4,096-byte
+echo, GOAWAY(4) and application close 0x100. In the reverse direction the
+Ubuntu MoonBit pool exchanged a 4,096-byte echo and 131,072-byte download
+with macOS aioquic through a UDP relay and rejected the wrong certificate
+hostname.
+
+The frozen 432-file `a30dcf8` archive passed its extracted four-target check.
+Its SHA-256 is `b06fddb9a245d7eed21d3d9894974e576d6d8d1d2a640efdbb99ccb19ad3d452`.
+Local QUIC connection ID issuance and rotation remain open. The Windows
+candidate run, sustained traffic between separate physical hosts and
+independent release-revision security review still need evidence.
+
 ## Native HTTP/3 hostname connections at `e1b4445`
 
 The typed native client accepts an injected resolver for a UDP hostname.
@@ -54,8 +98,8 @@ both input hashes restored. The 428-file frozen archive matched its Git
 revision, passed the extracted four-target check, and had SHA-256
 `1c7e6ec2a9ac9386d022f7cfc131075b585dbe708b4ae9c952a7737496b7f77e`.
 
-The typed HTTP/3 client still serves one origin per scope. Multi-origin
-pooling and local QUIC connection ID rotation remain implementation gaps.
+At `e1b4445` the typed HTTP/3 client served one origin per scope. Multi-origin
+pooling and local QUIC connection ID rotation were still open.
 The Windows candidate run, sustained traffic between separate physical hosts
 and independent release-revision security review remain open.
 
