@@ -293,6 +293,13 @@ test "quic recovery: ACK cannot acknowledge an unsent packet" {
     @quic.AckRange::new(1L, 1L).unwrap(),
   ]).unwrap()
   assert_true(recovery.on_ack(Application, forged, 1L) is Err(Protocol(_)))
+  let invalid : @quic.AckFrame = {
+    largest_acknowledged: 0L,
+    ack_delay: -1L,
+    ranges: [{ largest: 0L, smallest: 0L, }],
+    ecn_counts: None,
+  }
+  assert_true(recovery.on_ack(Application, invalid, 1L) is Err(VarIntOverflow))
   assert_eq(recovery.bytes_in_flight(), 1200L)
 }
 

@@ -173,7 +173,7 @@ fn QuicDatagramDriver::apply_recovery_ack(
     None => 3
   }
   let events = match
-    self.recovery.on_ack(
+    self.recovery.apply_ack(
       space,
       ack,
       now_ms,

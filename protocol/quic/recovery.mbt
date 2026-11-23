@@ -387,27 +387,38 @@ pub fn QuicRecovery::on_ack(
   reset_pto? : Bool = true,
   handshake_confirmed? : Bool = true,
 ) -> Result[Array[QuicRecoveryEvent], QuicError] {
-  let ranges = ack.ranges()
-  if ranges.is_empty() ||
-    now_ms < 0L ||
-    ack_delay_exponent < 0 ||
-    ack_delay_exponent > 20 {
+  ack.validate() catch {
+    error => return Err(error)
+  }
+  self.apply_ack(
+    space,
+    ack,
+    now_ms,
+    ack_delay_exponent~,
+    reset_pto~,
+    handshake_confirmed~,
+  )
+}
+
+///|
+/// Public ACKs are checked by on_ack. The packet driver has already decoded
+/// and checked each range before it advances recovery.
+fn QuicRecovery::apply_ack(
+  self : QuicRecovery,
+  space : PacketNumberSpace,
+  ack : AckFrame,
+  now_ms : Int64,
+  ack_delay_exponent~ : Int,
+  reset_pto~ : Bool,
+  handshake_confirmed~ : Bool,
+) -> Result[Array[QuicRecoveryEvent], QuicError] {
+  if now_ms < 0L || ack_delay_exponent < 0 || ack_delay_exponent > 20 {
     return Err(InvalidFrame("invalid recovery ACK"))
   }
-  if ranges[0].largest != ack.largest_acknowledged() ||
-    ack.largest_acknowledged() > self.largest_sent(space) {
+  let largest = ack.largest_acknowledged
+  if largest > self.largest_sent(space) {
     return Err(Protocol(0x0aL, "ACK acknowledges an unsent packet"))
   }
-  let mut previous_smallest = ack.largest_acknowledged() + 1L
-  for range in ranges {
-    if range.smallest < 0L ||
-      range.largest < range.smallest ||
-      range.largest >= previous_smallest {
-      return Err(InvalidFrame("ACK ranges overlap or are unordered"))
-    }
-    previous_smallest = range.smallest
-  }
-  let largest = ack.largest_acknowledged()
   if largest > self.largest_acked(space) {
     self.set_largest_acked(space, largest)
   }
@@ -418,7 +429,7 @@ pub fn QuicRecovery::on_ack(
   let mut index = self.sent.length() - 1
   while index >= 0 {
     let packet = self.sent[index]
-    if recovery_packet_matches(packet, space, ranges) {
+    if recovery_packet_matches(packet, space, ack.ranges) {
       // ACK-only packets do not provide congestion feedback.  They may be
       // retained for retransmission bookkeeping, but must not end a loss
       // recovery epoch or grow the congestion window.
