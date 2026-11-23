@@ -182,19 +182,24 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
           // Let the peer receive the last END_STREAM before closing a socket
           // which may still contain incoming flow-control frames.
           confirming_drain = true
-          write_h2_frame(
-            write_lock,
-            writer,
-            @http2.encode_ping(drain_payload).unwrap_or_error(),
-            config.write_timeout_ms,
-          )
-          ignore(
-            @async.with_timeout_opt(config.h2_eof_drain_timeout_ms, async fn() {
-              while !drain_confirmed && !streams.input_ended {
-                finished.wait()
-              }
-            }),
-          )
+          if last_accepted > 0 && !streams.input_ended {
+            // This acknowledgement protects the last response in transit.
+            // It must not hold a fully drained connection for the handler deadline.
+            let linger_ms = config.h2_eof_drain_timeout_ms.min(1000)
+            ignore(
+              @async.with_timeout_opt(linger_ms, async fn() {
+                write_h2_frame(
+                  write_lock,
+                  writer,
+                  @http2.encode_ping(drain_payload).unwrap_or_error(),
+                  config.write_timeout_ms,
+                )
+                while !drain_confirmed && !streams.input_ended {
+                  finished.wait()
+                }
+              }),
+            )
+          }
           finish_transport()
           group.return_immediately()
         },

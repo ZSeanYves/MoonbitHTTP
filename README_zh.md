@@ -80,7 +80,7 @@ RFC 链接说明实现对照的协议契约，不表示所有可选扩展或部�
 | 能力 | Native | Wasm / Wasm-GC | JavaScript |
 | --- | --- | --- | --- |
 | core、codec、protocol、policy | 可编译和使用 | 可编译和使用 | 可编译和使用 |
-| HTTP/1.1 与 HTTP/2 service 接口 | 通过 adapter 可用 | 可用，需宿主能力 | 可用，需宿主能力 |
+| HTTP/1.1 与 HTTP/2 service 接口 | 通过 adapter 可用 | Wasm 需宿主能力；Wasm-GC 仅验证编译 | 可用，需宿主能力 |
 | Native TCP/UDP/DNS/OpenSSL 适配器 | 支持 | 不支持 | 不支持 |
 | HTTP/3/QUIC 协议状态 | 流式客户端会话和受监管的 UDP 监听器 | 可编译使用，需宿主 datagram/TLS | 可编译使用，需宿主 datagram/TLS |
 | HTTP/3 网络 TLS | OpenSSL 3.5+ QUIC TLS provider | 宿主提供 | 宿主提供 |

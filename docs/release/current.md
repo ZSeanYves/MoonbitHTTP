@@ -14,6 +14,29 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## Production audit fixes at `4260e79`
+
+The macOS strict check, build and regression passed all four targets at this
+revision. Native executed 599 tests, Wasm and JavaScript 526 each, and Wasm-GC
+370. Named asynchronous HTTP/1 and HTTP/2 tests executed on Native, Wasm
+and JavaScript. The Wasm-GC test runner executes synchronous cases only.
+The architecture check covered 31 packages and 115 local dependency edges.
+AddressSanitizer passed 57 Native TLS, packet protection and transport tests
+on macOS with leak detection disabled.
+
+Six socket probes passed across HTTP/1, HTTP/2 and h2c. Both HTTP/3 roles
+exchanged data with aioquic, including eight concurrent requests and a
+61.6-second impaired run. The frozen distribution contained 459 files and
+passed extracted-package validation on all four targets.
+
+The [hosted regression](https://github.com/ZSeanYves/MoonbitHTTP/actions/runs/45160043103)
+passed the Native suites on Linux, macOS and Windows and the paired Linux
+HTTP/1 decoder gate against `b098720`. The same decoder measurement on macOS
+was inconclusive. The median decode time was 0.41% higher, and one window
+exceeded the 10% noise limit with a coefficient of variation of 10.80%.
+Independent security review and sustained testing across physical hosts
+remain open release gates.
+
 ## Development acceptance at `3ba55e4`
 
 On 2026-11-23 the implementation met the development goal for the HTTP/1,

@@ -319,3 +319,38 @@ async test "HTTP/2 drain refuses a racing stream on the wire while stream one fi
   })
   assert_eq(calls, 1)
 }
+
+///|
+async test "an idle H2 session drains without requiring a PING acknowledgement" {
+  let shutdown = @service.ServerShutdown::new()
+  let wire = H2LifecycleWriter::new()
+  defer wire.signal.close()
+  let incoming = @aio.MemoryReader(async fn(peer) {
+    peer.write(
+      b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" +
+      Bytes::from_array(@http2.encode_settings_frame([], false)),
+    )
+    ignore(wire.wait_frame(@http2.H2_FRAME_SETTINGS, 0))
+    shutdown.begin()
+    @async.sleep(60000)
+  })
+  defer incoming.close()
+  @async.with_timeout(2000, async fn() {
+    @service.serve_http2_connection(
+      incoming,
+      test_writer(wire),
+      _ => {
+        (
+          fail("idle peer dispatched a handler") :
+          @types.Response[@body.EmptyBody])
+      },
+      shutdown=Some(shutdown),
+    )
+  })
+  assert_true(
+    wire.frames.any(frame => frame.header.typ == @http2.H2_FRAME_GOAWAY),
+  )
+  assert_false(
+    wire.frames.any(frame => frame.header.typ == @http2.H2_FRAME_PING),
+  )
+}

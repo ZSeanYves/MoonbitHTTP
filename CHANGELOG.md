@@ -8,6 +8,12 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- A supervised HTTP/2 server sends GOAWAY, refuses later streams and lets admitted responses finish. HTTP/1 clients now read the response while uploading, cancel the producer on an early final response and retire connections with incomplete request framing. A cache-only miss returns 504 without contacting the origin, including for stale entries with validators.
+
+- QUIC recovery uses the negotiated idle timeout and its PTO floor. Native QUIC packet protection, key derivation and Retry protection now use OpenSSL 3 EVP. Portable packet protection still uses the experimental backend.
+
+- The native resolver returns multiple distinct addresses from each family in system order up to the configured limit. Blocking system lookups run off the event loop and callers can time out independently.
+
 - Migrate service drivers and native sockets to the experimental async packages bundled with the pinned MoonBit compiler. Stream integrations now use `moonbitlang/core/async/io.BinaryReader` and `BinaryWriter`. The migration guide covers custom streams and callback adapters.
 
 - Update the CI compiler to MoonBit `0.10.22+124d61d05` for the new derive syntax and script import format. HTTP/2 stream cancellation now retires local state synchronously and lets the connection send the wire reset.
