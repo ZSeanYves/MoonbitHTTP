@@ -190,7 +190,7 @@ async test "security lifecycle: H2 header and DATA write failures cancel owned r
 ///|
 async test "security lifecycle: H2 request header failure cancels body before upload begins" {
   let outgoing = LifecycleFrames::new([Data(b"upload")])
-  let reader = @aio.MemoryReader(async fn(_) { @async.sleep(60_000) })
+  let reader = PhaseBlockingReader::new(b"")
   @async.with_timeout(1000, async fn() {
     @service.with_h2_client_connection(
       reader,
