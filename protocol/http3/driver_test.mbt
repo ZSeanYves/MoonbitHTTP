@@ -178,3 +178,43 @@ test "http3 driver: blocked QPACK frame bytes are bounded and reclaimed" {
   // frame-byte budget, so a new request stream can be blocked normally.
   assert_true(driver.on_stream_data(4L, blocked_frame, false) is Ok(_))
 }
+
+///|
+test "http3 driver: DATA crosses buffer and header limits and a truncated FIN stays terminal" {
+  let limits = @types.Limits::new(
+    max_start_line=32,
+    max_header_line=32,
+    max_header_bytes=256,
+    max_buffer_bytes=256,
+    max_body_bytes=2048,
+  ).unwrap()
+  let qpack_limits = @http3.QpackLimits::from_http_limits(limits).unwrap()
+  let driver = @http3.Http3Driver::new(H3Server, limits~, qpack_limits~).unwrap()
+  let head = @http3.encode_http3_frame(
+    H3Headers(@http3.qpack_encode_static(driver_request_fields()).unwrap()),
+  ).unwrap()
+  let body = Bytes::from_array(FixedArray::make(1024, b'x'))
+  let data = @http3.encode_http3_frame(H3Data(body)).unwrap()
+  let first = driver
+    .on_stream_data(0L, head + data[:40].to_owned(), false)
+    .unwrap()
+  assert_true(first.any(fn(a) { a is Event(H3DataReceived(0L, _)) }))
+  let all = first.copy()
+  all.append(driver.on_stream_data(0L, data[40:].to_owned(), true).unwrap())
+  let received = []
+  for a in all {
+    if a is Event(H3DataReceived(0L, chunk)) {
+      received.append(chunk.to_array())
+    }
+  }
+  assert_eq(Bytes::from_array(received), body)
+  assert_eq(all.last(), Some(Event(H3MessageFinished(0L))))
+  assert_true(
+    driver.on_stream_data(4L, head + data[:40].to_owned(), true)
+    is Err(Http3ConnectionError(H3FrameError, _)),
+  )
+  assert_true(
+    driver.on_stream_data(8L, head, false)
+    is Err(Http3ConnectionError(H3FrameError, _)),
+  )
+}

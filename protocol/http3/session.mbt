@@ -28,14 +28,6 @@ pub struct Http3Session {
 }
 
 ///|
-fn[T, E : Error] h3_value(value : Result[T, E]) -> T raise E {
-  match value {
-    Ok(value) => value
-    Err(error) => raise error
-  }
-}
-
-///|
 /// Reserve one bounded queue for application frames and another for critical
 /// stream instructions. Each may retain at most limits.max_buffer_bytes
 /// bytes. The critical queue reserves at least three entries for startup.

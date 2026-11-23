@@ -18,6 +18,8 @@ Depends on types, codec, and quic; protocol-core builds target Native, Wasm, Was
 
 Create one `Http3Session` per `QuicTlsDriver`. Give the session exclusive use of QUIC application streams. Feed the results of TLS `start`, `on_datagram` and `poll` to `advance`. Transmit each returned `Transport(SendDatagram(...))`, including datagrams accompanying `Failed`. Continue polling while the connection is idle.
 
+Request-stream DATA is delivered incrementally. A large frame may yield multiple `H3DataReceived` events. The standalone `Http3FrameDecoder` returns complete frames.
+
 A client calls `start_request(fields, fin=true)` for a bodyless request. A server receives `Message(H3HeadersReceived(...))` and can send its response before the upload completes. Both sides can queue DATA, trailers and FIN using `send_data`, `send_headers` and `finish`. Call `advance([], now_ms)` after application writes. A full output queue preserves the stream position for retry. Stream resets and stops remain directional; `cancel` aborts both directions. The owner handles UDP routing, socket lifetime and handshake failures.
 
 ## Usage

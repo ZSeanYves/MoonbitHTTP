@@ -18,6 +18,8 @@ Last reviewed: 2026-11-23
 
 每个 `QuicTlsDriver` 创建一个 `Http3Session`，将该连接的 QUIC 应用流交给会话统一分配。把 TLS 的 `start`、`on_datagram`、`poll` 返回的动作传给 `advance`，发送所有 `Transport(SendDatagram(...))` 数据报，包括与 `Failed` 同批返回的关闭包。连接空闲时也需要驱动计时器。
 
+请求流上的 DATA 会分段交付，一个大帧可产生多个 `H3DataReceived` 事件。独立使用 `Http3FrameDecoder` 时仍然按完整帧读取。
+
 客户端用 `start_request(fields, fin=true)` 发起无正文请求。服务端收到 `Message(H3HeadersReceived(...))` 即可开始响应。两端均可通过 `send_data`、`send_headers`、`finish` 分段写正文、尾部字段和 FIN，入队后调用 `advance([], now_ms)`。队列满时可以在原位置重试。对端的复位和停止发送分别作用于对应方向，主动调用 `cancel` 会终止双向传输。调用方负责 UDP 路由、套接字生命周期及握手失败的清理。
 
 ## 使用边界

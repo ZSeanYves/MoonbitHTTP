@@ -283,11 +283,10 @@ pub fn Http3Frame::not_equal(Self, Self) -> Bool
 pub fn Http3Frame::to_repr(Self) -> @debug.Repr
 
 pub struct Http3FrameDecoder {
-  mut buffer : Array[Byte]
-  mut start : Int
   max_buffer_bytes : Int
   max_payload_bytes : Int
   mut failure : Http3Error?
+  // private fields
 }
 pub fn Http3FrameDecoder::feed(Self, BytesView) -> Result[Unit, Http3Error]
 pub fn Http3FrameDecoder::finish(Self) -> Result[Unit, Http3Error]

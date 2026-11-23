@@ -128,6 +128,14 @@ fn h3_append_bytes(output : Array[Byte], bytes : BytesView) -> Unit {
 }
 
 ///|
+fn[T, E : Error] h3_value(value : Result[T, E]) -> T raise E {
+  match value {
+    Ok(value) => value
+    Err(error) => raise error
+  }
+}
+
+///|
 fn h3_varint(value : Int64) -> Result[Bytes, Http3Error] {
   match @quic.QuicVarInt::new(value) {
     Ok(encoded) => Ok(encoded.encode())
@@ -304,22 +312,13 @@ pub fn decode_http3_frame(
   if max_payload_bytes < 0 {
     return Err(Http3LimitExceeded("frame payload", max_payload_bytes))
   }
-  let (typ, type_used) = match h3_decode_varint(input) {
-    Ok(result) => result
-    Err(error) => return Err(error)
-  }
-  let (length64, length_used) = match h3_decode_varint(input[type_used:]) {
-    Ok(result) => result
-    Err(error) => return Err(error)
-  }
-  let length = match h3_int_length(length64) {
+  let (typ, length, header_length) = match h3_frame_header(input) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
   if length > max_payload_bytes {
     return Err(Http3LimitExceeded("frame payload", max_payload_bytes))
   }
-  let header_length = type_used + length_used
   if header_length > input.length() || length > input.length() - header_length {
     return Err(Http3NeedMoreInput)
   }
@@ -332,66 +331,20 @@ pub fn decode_http3_frame(
 }
 
 ///|
-/// Parse one varint directly from the decoder's backing array. Keeping this
-/// path allocation-free lets the incremental decoder inspect a frame header
-/// without first copying the entire unread suffix.
-fn h3_decode_varint_array(
-  input : Array[Byte],
-  offset : Int,
-) -> Result[(Int64, Int), Http3Error] {
-  if offset < 0 || offset >= input.length() {
-    return Err(Http3NeedMoreInput)
-  }
-  let first = input[offset].to_int() & 0xff
-  let width = 1 << (first >> 6)
-  if input.length() - offset < width {
-    return Err(Http3NeedMoreInput)
-  }
-  let mut value : Int64 = (first & 0x3f).to_int64()
-  for index in 1..<width {
-    value = (value << 8) | (input[offset + index].to_int() & 0xff).to_int64()
-  }
-  if (width == 2 && value < 64L) ||
-    (width == 4 && value < 16384L) ||
-    (width == 8 && value < 1073741824L) {
-    return Err(
-      Http3ConnectionError(
-        H3FrameError,
-        "non-canonical HTTP/3 variable-length integer",
-      ),
-    )
-  }
-  Ok((value, width))
-}
-
-///|
-fn h3_frame_wire_length(
-  input : Array[Byte],
-  start : Int,
-  max_payload_bytes : Int,
-) -> Result[Int, Http3Error] {
-  let type_used = match h3_decode_varint_array(input, start) {
-    Ok((_, used)) => used
+fn h3_frame_header(input : BytesView) -> Result[(Int64, Int, Int), Http3Error] {
+  let (typ, type_used) = match h3_decode_varint(input) {
+    Ok(result) => result
     Err(error) => return Err(error)
   }
-  let (length64, length_used) = match
-    h3_decode_varint_array(input, start + type_used) {
-    Ok(value) => value
+  let (length64, length_used) = match h3_decode_varint(input[type_used:]) {
+    Ok(result) => result
     Err(error) => return Err(error)
   }
   let length = match h3_int_length(length64) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  if length > max_payload_bytes {
-    return Err(Http3LimitExceeded("frame payload", max_payload_bytes))
-  }
-  let header_length = type_used + length_used
-  let available = input.length() - start
-  if header_length > available || length > available - header_length {
-    return Err(Http3NeedMoreInput)
-  }
-  Ok(header_length + length)
+  Ok((typ, length, type_used + length_used))
 }
 
 ///|
@@ -493,10 +446,11 @@ pub fn encode_http3_frame(frame : Http3Frame) -> Result[Bytes, Http3Error] {
 
 ///|
 pub struct Http3FrameDecoder {
-  mut buffer : Array[Byte]
-  mut start : Int
+  priv buffer : @codec.Buffer
   max_buffer_bytes : Int
   max_payload_bytes : Int
+  priv data_chunk_limit : Int?
+  priv mut pending : (Int64, Int)?
   mut failure : Http3Error?
 }
 
@@ -510,13 +464,23 @@ pub fn Http3FrameDecoder::new(
     max_payload_bytes > max_buffer_bytes {
     return Err(Http3LimitExceeded("frame decoder buffer", max_buffer_bytes))
   }
-  Ok({
-    buffer: [],
-    start: 0,
+  Ok(Http3FrameDecoder::create(max_buffer_bytes, max_payload_bytes, None))
+}
+
+///|
+fn Http3FrameDecoder::create(
+  max_buffer_bytes : Int,
+  max_payload_bytes : Int,
+  data_chunk_limit : Int?,
+) -> Http3FrameDecoder {
+  {
+    buffer: @codec.Buffer::new(max_bytes=max_buffer_bytes),
     max_buffer_bytes,
     max_payload_bytes,
+    data_chunk_limit,
+    pending: None,
     failure: None,
-  })
+  }
 }
 
 ///|
@@ -527,30 +491,65 @@ pub fn Http3FrameDecoder::feed(
   if self.failure is Some(error) {
     return Err(error)
   }
-  let current_length = self.buffer.length() - self.start
-  if current_length > self.max_buffer_bytes ||
-    input.length() > self.max_buffer_bytes - current_length {
-    let error = Http3LimitExceeded(
-      "frame decoder buffer",
-      self.max_buffer_bytes,
-    )
-    self.failure = Some(error)
-    return Err(error)
-  }
-  if self.start == self.buffer.length() {
-    self.buffer = []
-    self.start = 0
-  } else if self.start > 0 &&
-    (self.start >= 4096 || self.start * 2 >= self.buffer.length()) {
-    let compacted : Array[Byte] = []
-    for index in self.start..<self.buffer.length() {
-      compacted.push(self.buffer[index])
+  match self.buffer.feed(input) {
+    Ok(_) => Ok(())
+    Err(_) => {
+      let error = Http3LimitExceeded(
+        "frame decoder buffer",
+        self.max_buffer_bytes,
+      )
+      self.failure = Some(error)
+      Err(error)
     }
-    self.buffer = compacted
-    self.start = 0
   }
-  h3_append_bytes(self.buffer, input)
-  Ok(())
+}
+
+///|
+fn Http3FrameDecoder::read_frame(
+  self : Http3FrameDecoder,
+) -> Http3Frame? raise Http3Error {
+  let (typ, remaining) = match self.pending {
+    Some(value) => value
+    None => {
+      if self.buffer.length() == 0 {
+        return None
+      }
+      // A QUIC type/length pair occupies at most sixteen octets.
+      let (typ, length, used) = h3_value(
+        h3_frame_header(self.buffer.peek_prefix(16)),
+      )
+      let limit = if typ == H3_FRAME_DATA {
+        self.data_chunk_limit.unwrap_or(self.max_payload_bytes)
+      } else {
+        self.max_payload_bytes
+      }
+      if length > limit {
+        raise Http3LimitExceeded("frame payload", limit)
+      }
+      ignore(self.buffer.take(used))
+      self.pending = Some((typ, length))
+      (typ, length)
+    }
+  }
+  let available = self.buffer.length()
+  let count = if typ == H3_FRAME_DATA && self.data_chunk_limit is Some(_) {
+    if available == 0 && remaining != 0 {
+      return None
+    }
+    remaining.min(available)
+  } else {
+    if available < remaining {
+      return None
+    }
+    remaining
+  }
+  let frame = h3_value(h3_decode_payload(typ, self.buffer.take(count)))
+  self.pending = if count == remaining {
+    None
+  } else {
+    Some((typ, remaining - count))
+  }
+  Some(frame)
 }
 
 ///|
@@ -560,32 +559,11 @@ pub fn Http3FrameDecoder::next(
   if self.failure is Some(error) {
     return Err(error)
   }
-  let used = match
-    h3_frame_wire_length(self.buffer, self.start, self.max_payload_bytes) {
-    Ok(value) => value
-    Err(Http3NeedMoreInput) => return Ok(None)
-    Err(error) => {
-      self.failure = Some(error)
-      return Err(error)
-    }
-  }
-  let frame_bytes : Array[Byte] = []
-  for index in self.start..<(self.start + used) {
-    frame_bytes.push(self.buffer[index])
-  }
-  match
-    decode_http3_frame(
-      Bytes::from_array(frame_bytes),
-      max_payload_bytes=self.max_payload_bytes,
-    ) {
-    Err(Http3NeedMoreInput) => Ok(None)
-    Err(error) => {
+  Ok(self.read_frame()) catch {
+    Http3NeedMoreInput => Ok(None)
+    error => {
       self.failure = Some(error)
       Err(error)
-    }
-    Ok((frame, used)) => {
-      self.start += used
-      Ok(Some(frame))
     }
   }
 }
@@ -597,7 +575,7 @@ pub fn Http3FrameDecoder::finish(
   if self.failure is Some(error) {
     return Err(error)
   }
-  if self.buffer.length() != self.start {
+  if self.pending is Some(_) || self.buffer.length() != 0 {
     let error = Http3UnexpectedEof("HTTP/3 stream ended inside a frame")
     self.failure = Some(error)
     return Err(error)

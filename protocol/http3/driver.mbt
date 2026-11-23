@@ -273,34 +273,39 @@ fn Http3Driver::h3_driver_feed_decoder(
   bytes : BytesView,
   fin : Bool,
 ) -> Result[Array[Http3Frame], Http3Error] {
-  let decoder = match self.decoders.get(stream_id) {
-    Some(value) => value
-    None => {
-      let decoder = match
-        Http3FrameDecoder::new(
-          max_buffer_bytes=self.connection.limits.max_buffer_bytes,
-          max_payload_bytes=self.connection.limits.max_header_bytes,
-        ) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      self.decoders[stream_id] = decoder
-      decoder
+  let decoder = self.decoders.get_or_init(stream_id, fn() {
+    let limits = self.connection.limits
+    let chunk_limit = if (stream_id & 2L) == 0L {
+      Some(limits.max_body_bytes)
+    } else {
+      None
     }
-  }
-  match decoder.feed(bytes) {
-    Ok(_) => ()
-    Err(error) => return Err(error)
-  }
-  let frames : Array[Http3Frame] = []
-  while true {
-    let next = match decoder.next() {
-      Ok(value) => value
+    Http3FrameDecoder::create(
+      limits.max_buffer_bytes,
+      limits.max_header_bytes.min(limits.max_buffer_bytes),
+      chunk_limit,
+    )
+  })
+  let frames = []
+  let mut offset = 0
+  while offset < bytes.length() {
+    let room = decoder.max_buffer_bytes - decoder.buffer.length()
+    if room == 0 {
+      return Err(
+        Http3LimitExceeded("frame decoder buffer", decoder.max_buffer_bytes),
+      )
+    }
+    let count = room.min(bytes.length() - offset)
+    match decoder.feed(bytes[offset:offset + count]) {
+      Ok(_) => offset += count
       Err(error) => return Err(error)
     }
-    match next {
-      Some(frame) => frames.push(frame)
-      None => break
+    while true {
+      match decoder.next() {
+        Ok(Some(frame)) => frames.push(frame)
+        Ok(None) => break
+        Err(error) => return Err(error)
+      }
     }
   }
   if fin {

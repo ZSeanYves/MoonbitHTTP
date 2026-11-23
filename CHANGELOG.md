@@ -8,6 +8,7 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Stream incoming HTTP/3 DATA in bounded chunks, accept legal wider frame varints on fragmented input, and share frame header parsing across decoder entry points. The incremental decoder now keeps its backing storage private. Its `feed`, `next` and `finish` methods retain their signatures.
 - Add a transport-driven HTTP/3 client/server session with streaming messages, bounded write queues, cancellation and per-request QPACK replay isolation. The native interoperability server now uses this public API.
 
 - Coalesce HTTP/2 receive credit while the server writer is busy. In-flight window updates for finished streams are ignored, and a valid upload burst no longer consumes the control queue with repeated credit notifications.

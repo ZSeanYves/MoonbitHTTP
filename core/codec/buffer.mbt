@@ -54,6 +54,13 @@ pub fn Buffer::peek(self : Buffer) -> Bytes {
 }
 
 ///|
+/// Copy at most the requested number of unread bytes without consuming them.
+pub fn Buffer::peek_prefix(self : Buffer, count : Int) -> Bytes {
+  let count = count.max(0).min(self.length())
+  Bytes::from_array(self.bytes[self.start:self.start + count])
+}
+
+///|
 pub fn Buffer::take(self : Buffer, count : Int) -> Bytes {
   let count = count.max(0).min(self.length())
   let start = self.start

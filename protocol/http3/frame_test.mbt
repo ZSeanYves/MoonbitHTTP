@@ -60,7 +60,19 @@ test "http3 frame: malformed lengths, settings, and reserved types are terminal"
     @http3.decode_http3_frame(b"\x02\x00")
     is Err(Http3ConnectionError(H3FrameUnexpected, _)),
   )
-  assert_eq(@http3.decode_http3_frame(b"\x40\x01\x00"), Ok((H3Headers(b""), 3)))
+  // Both the one-shot and fragmented decoder accept a legal wider varint.
+  let wide = b"\x40\x01\x40\x00"
+  assert_eq(@http3.decode_http3_frame(wide), Ok((H3Headers(b""), 4)))
+  let incremental = @http3.Http3FrameDecoder::new().unwrap()
+  for split in 0..<wide.length() {
+    incremental.feed(wide[split:split + 1]).unwrap()
+    let expected = if split == wide.length() - 1 {
+      Some(@http3.Http3Frame::H3Headers(b""))
+    } else {
+      None
+    }
+    assert_eq(incremental.next(), Ok(expected))
+  }
   let decoder = @http3.Http3FrameDecoder::new(
     max_buffer_bytes=8,
     max_payload_bytes=8,
