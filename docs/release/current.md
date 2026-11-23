@@ -14,6 +14,34 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## Sustained HTTP/3 client connection at `ecb5d62`
+
+Eight workers shared one authenticated native client connection. Each worker
+repeated a 4 KiB binary POST echo and a 4 KiB GET against the pinned aioquic
+server. The UDP address and port were configured independently from the HTTPS
+authority. The [separate-peer runner](../development/interop.md#sustained-requests-to-a-separately-managed-http3-peer)
+checked HTTP version, status and every response byte.
+
+| Client and link to macOS aioquic | Measured time | Completed POST/GET pairs | Verified response bytes |
+| --- | ---: | ---: | ---: |
+| macOS, direct loopback | 30.011 s | 10,919 | 89,448,448 |
+| Ubuntu arm64 VM, gateway with injected loss, delay and reordering | 300.747 s | 2,246 | 18,399,232 |
+
+For each row the independent server log recorded one H3 connection, matching
+counts of both methods and a received close code of 0x100. A short IPv6 relay
+run also matched all 15 pairs. The VM relay dropped 5,307 client and 4,260
+server application datagrams and emptied both delay queues. It retained the
+first 4,096 event details and counted 196,836 further events. Sixteen samples
+of the native client process from seconds 65 through 290 showed 10,768–10,896
+KiB RSS and eight open descriptors. The relay and server are separate processes.
+
+The log verifier rejected transcripts with mismatched counts, a missing close
+or a second H3 handshake. Stopping the peer during active requests produced a
+failed client report and preserved the completed-pair count. macOS passed the
+four target suites (512 Wasm, 368 Wasm-GC, 512 JS, 583 Native). The Ubuntu VM
+shares the physical Mac. Sustained operation between two physical machines,
+Windows at the candidate revision and independent release review remain open.
+
 ## HTTP/3 peer restart at `3bc9995`
 
 A quic-go v0.55.0 process accepted a readiness request and held a second

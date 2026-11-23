@@ -28,6 +28,23 @@ async fn record(
     create_mode=CreateNew,
   )
   // Redirect first so a timeout also preserves the independent client's logs.
+  let mut status = -1
+  let mut state = "interrupted"
+  defer @async.protect_from_cancel(async fn() {
+    let command_record : Json = {
+      "program": command,
+      "arguments": args,
+      "exit": status,
+      "process_state": state,
+      "timed_out": state == "timed_out",
+      "timeout_ms": timeout_ms,
+    }
+    @fs.write_file(
+      directory + "/" + name + ".command.json",
+      command_record,
+      create_mode=CreateNew,
+    )
+  })
   let exit = @async.with_timeout_opt(timeout_ms, async fn() {
     @process.run(
       command,
@@ -37,21 +54,10 @@ async fn record(
       cancel_handler=@process.graceful_cancel(timeout=1000),
     )
   })
-  let status = exit.unwrap_or(-1)
+  status = exit.unwrap_or(-1)
+  state = if exit is None { "timed_out" } else { "exited" }
   let stdout_text = @fs.read_file(directory + "/" + name + ".stdout").text()
   let stderr_text = @fs.read_file(directory + "/" + name + ".stderr").text()
-  let command_record : Json = {
-    "program": command,
-    "arguments": args,
-    "exit": status,
-    "timed_out": exit is None,
-    "timeout_ms": timeout_ms,
-  }
-  @fs.write_file(
-    directory + "/" + name + ".command.json",
-    command_record,
-    create_mode=CreateNew,
-  )
   if exit is None {
     fail("\{name} exceeded \{timeout_ms} ms; process was cancelled and reaped")
   }
