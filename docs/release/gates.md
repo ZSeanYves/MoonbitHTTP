@@ -6,7 +6,7 @@
 > Last reviewed: 2026-11-23
 
 Mooncakes published the 0.7.0 alpha on 2026-10-07. The table records the release baseline. Production approval remains open until every remaining gate below is
-closed with evidence at the release revision. The [unreleased validation record](current.md#native-http-servers-at-ffd5394) covers the current protocol changes and local macOS/Linux interoperability.
+closed with evidence at the release revision. The [unreleased validation record](current.md#streaming-and-field-handling-at-9a58bfe) covers the current protocol changes and local macOS/Linux interoperability.
 
 | Gate | State | Required evidence |
 | --- | --- | --- |
@@ -16,7 +16,7 @@ closed with evidence at the release revision. The [unreleased validation record]
 | QUIC Retry, version negotiation, loss recovery, stream concurrency | regression and bounded pressure evidence passed | Protocol tests plus 8 concurrent H3 requests; the long runs use a loopback peer and controlled impairment |
 | Certificate identity and negative suites | configured suites passed on all three OSes | Hostname, expiry, chain, trust, wildcard, mTLS and wrong-CA rejection cases |
 | Performance threshold and controlled old/new comparison | passed for the scoped socket workload | Method-v6 local/CI evidence contains six AB/BA pairs for independent 20-second HTTP/1, HTTP/2 and cancellation phases; all 8 metrics passed behavior, regression and 10% noise checks. Scope remains local Native loopback only |
-| Go `net/http` H1/H2 external reference | paired Ubuntu arm64 loopback run at `ffd5394` | All eight windows passed exact-response checks. MoonBit served 1,675–1,679 H1 and 1,110–1,221 H2 requests/s. The [validation record](current.md#native-http-servers-at-ffd5394) includes Go results, p95 and workload limits. |
+| Go `net/http` H1/H2 external reference | paired Ubuntu arm64 loopback runs at `ffd5394` and `9a58bfe` | All eight windows passed exact-response checks. MoonBit served 4,237–4,266 H1 and 3,077–3,083 H2 requests/s at the later revision. The [validation record](current.md#streaming-and-field-handling-at-9a58bfe) includes Go results, p95 and workload limits. |
 | Long-duration QUIC/TLS interoperability | historical loopback evidence passed; public cross-host evidence absent | Three requested 3600-second impaired aioquic windows passed with 8 concurrent requests; evidence came from a dirty loopback worktree; the redundant hosted loopback job was removed at the user's request |
 | Final security scan and review | known finding-index roots locally remediated; complete release-revision coverage still open | The two failed Deep Scans retained 58 overlapping records covering 25 repaired roots. Focused regressions, four-target checks and bounded H3 loopback validation passed; the three candidate-review paths were reproduced, repaired and covered by focused tests. See the [remediation index](../development/security-remediation-2026-10-06.md). The scans remain partial and earlier zero-finding scans do not close this gate for the changed tree |
 | CRL/OCSP or documented deployment limitation | passed with scoped limitation | Native OpenSSL offline CRL and stapled OCSP checks cover freshness, identity, revocation and malformed inputs; online OCSP fetching and Wasm host providers are out of scope |

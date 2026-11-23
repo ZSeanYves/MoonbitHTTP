@@ -14,6 +14,55 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## Streaming and field handling at `9a58bfe`
+
+The HTTP/1 decoder now applies line limits to the unread line and accepts
+a CRLF split at the exact limit. Both HTTP/2 and HTTP/3 use the same rules
+for regular fields in requests, responses and trailers. Native TLS sends
+`close_notify` when a server handler succeeds and bounds the final flush.
+Authenticated HTTP/1.1 chunked and HTTP/1.0 close-delimited responses both
+completed on real sockets. Abrupt TCP EOF still produced a receive error.
+A custom body producer received its original collection failure once.
+Before the repair the regression observed two cancellation callbacks.
+
+The same paired Go workload used at `ffd5394` ran on the Ubuntu arm64
+guest with the same compiler versions. Each protocol ran four ten-second
+windows in Go, MoonBit, MoonBit, Go order. All completed with zero errors.
+The probe checked status, protocol and all 65,536 response bytes on every
+request. The ranges below span the two windows per server.
+
+| Protocol and server | Successful requests | Requests/s | P95 (ms) |
+| --- | ---: | ---: | ---: |
+| HTTP/1.1 cleartext, MoonBit | 85,032 | 4,237–4,266 | 1.025–1.027 |
+| HTTP/1.1 cleartext, Go | 337,581 | 16,724–17,034 | 0.471–0.482 |
+| HTTP/2 with TLS 1.3, MoonBit | 61,605 | 3,077–3,083 | 1.846–1.852 |
+| HTTP/2 with TLS 1.3, Go | 130,156 | 6,127–6,888 | 0.973–1.232 |
+
+The previous MoonBit throughput ranges were 1,675–1,679 requests/s for
+HTTP/1.1 and 1,110–1,221 requests/s for HTTP/2. The two revisions ran in
+separate sessions. These loopback measurements include the client and server
+on the same guest. CPU cost, RSS and independent-host capacity remain
+unmeasured by this workload.
+
+The strict macOS four-target check, build and tests passed (476 Wasm, 335
+Wasm-GC, 476 JavaScript and 535 Native). Ubuntu arm64 passed its strict
+Native check, build and all 535 tests. The six independent TCP cases passed
+on each OS. All 33 macOS AddressSanitizer tests in the Native TLS package
+passed. The manifest and runtime restoration hashes matched. This macOS
+ASan run had leak detection disabled.
+
+With aioquic 1.3.0 through the impaired UDP relay, both systems completed
+256 requests on one authenticated connection, eight concurrent requests,
+a 4,096-byte flow-controlled upload, a key update and wrong-CA rejection.
+The independent 60-second loopback windows completed 30 fresh connections
+in 60.626 seconds on macOS and 28 in 60.382 seconds on Linux.
+
+The frozen package contained 412 files, passed the four-target check after
+extraction, and had SHA-256
+`126068c9fabd53863912c1a4d92aee291a50c629100c292ec9faecfe74e1bd2a`. The HTTP/3 application
+client/server API, Windows verification at the candidate revision, sustained
+independent-host capacity and final independent review remain open.
+
 ## Native HTTP servers at `ffd5394`
 
 The native listener serves HTTP/1.1 and HTTP/2 over TLS. A one-second

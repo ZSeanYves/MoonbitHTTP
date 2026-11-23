@@ -26,6 +26,11 @@ The package map and dependency boundaries are documented in
 documentation is kept beside each package; generated `.mbti` files remain the
 canonical interface surface.
 
+The source checkout adds `with_http2_client` for pooled streaming requests to
+direct HTTP/2 origins. Native servers can use `NativeTcpListener::bind_http_tls`
+to serve HTTP/1.1 and HTTP/2 on the same TLS listener.
+[Client usage](application/client/README.md) · [Server usage](adapter/native/server/README.md)
+
 ## Packages
 
 - `core/types`, `core/body`, `core/codec`: HTTP values, streaming bodies,

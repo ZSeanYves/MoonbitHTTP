@@ -174,8 +174,8 @@ release performance threshold.
 CPU, RSS and cancellation measurements remain separate metrics and must be
 reported as unavailable when the harness does not collect them.
 
-The [paired results at `ffd5394`](../release/current.md#native-http-servers-at-ffd5394)
-include all eight windows and the earlier preflight failure.
+The [paired server results](../release/current.md#streaming-and-field-handling-at-9a58bfe)
+record both revisions, the earlier preflight failure and the scope of the measurements.
 
 ## Designing additional workloads
 

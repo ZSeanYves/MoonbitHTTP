@@ -23,6 +23,11 @@ moon add ZSeanYves/MoonbitHTTP@0.7.0
 [`docs/concepts/packages.md`](docs/concepts/packages.md)。各包的 API 说明
 放在包目录旁，生成的 `.mbti` 文件仍是规范接口表面。
 
+当前未发布源码提供 `with_http2_client`，可向多个源站发起流式 HTTP/2
+请求并复用连接。Native 服务端可用 `NativeTcpListener::bind_http_tls` 在同一
+TLS 监听地址提供 HTTP/1.1 和 HTTP/2 服务。
+[客户端用法](application/client/README_zh.md) · [服务端用法](adapter/native/server/README_zh.md)
+
 ## 包
 
 - `core/types`、`core/body`、`core/codec`：HTTP 值、流式 Body、取消、背压和
