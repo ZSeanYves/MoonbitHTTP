@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Account for explicit and automatic QUIC PADDING at its full wire size. Cumulative ACKs cover received ranges and survive send backpressure. Raw and TLS drivers share coalesced datagram parsing. Congestion and path admission now run before packet encryption. Callers that build their own packets can pass `contains_padding` to `QuicRecovery::on_packet_sent`. Construct live recovery state with `QuicRecovery::new` so its bounded packet history is initialized.
+
 - Preserve a peer's orderly close when it arrives just before the HTTP/3 server starts draining. The supervisor records the connection as completed.
 
 - Send a QUIC close-only packet even when the recovery queue is full. The closing frame no longer occupies a retransmission slot or waits for an acknowledgment.

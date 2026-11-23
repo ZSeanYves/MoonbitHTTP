@@ -60,6 +60,7 @@ pub(all) struct QuicLimits {
   max_packet_size : Int
   max_datagram_size : Int
   max_frame_payload : Int
+  /// Maximum additional ACK ranges after the mandatory first range.
   max_ack_ranges : Int
   max_crypto_bytes : Int
   max_streams : Int
@@ -87,7 +88,7 @@ pub fn QuicLimits::validate(self : QuicLimits) -> Result[Unit, QuicError] {
     ("max_packet_size", self.max_packet_size, false),
     ("max_datagram_size", self.max_datagram_size, false),
     ("max_frame_payload", self.max_frame_payload, true),
-    ("max_ack_ranges", self.max_ack_ranges, false),
+    ("max_ack_ranges", self.max_ack_ranges, true),
     ("max_crypto_bytes", self.max_crypto_bytes, true),
     ("max_streams", self.max_streams, false),
   ]

@@ -32,23 +32,6 @@ pub fn QuicInitialPacketOptions::defaults(
 }
 
 ///|
-fn quic_builder_join(parts : Array[Bytes]) -> Bytes {
-  let mut length = 0
-  for part in parts {
-    length += part.length()
-  }
-  let output = FixedArray::make(length, b'\x00')
-  let mut offset = 0
-  for part in parts {
-    for byte in part {
-      output[offset] = byte
-      offset += 1
-    }
-  }
-  output.unsafe_reinterpret_as_bytes()
-}
-
-///|
 fn quic_builder_u32(value : Int) -> Bytes {
   Bytes::from_array([
     (value >> 24).to_byte(),
@@ -60,7 +43,7 @@ fn quic_builder_u32(value : Int) -> Bytes {
 
 ///|
 fn quic_builder_cid(cid : ConnectionId) -> Bytes {
-  quic_builder_join([
+  quic_join_bytes([
     Bytes::from_array([cid.bytes().length().to_byte()]),
     cid.bytes(),
   ])
@@ -88,12 +71,12 @@ pub fn quic_build_version_negotiation_packet(
     versions.push(quic_builder_u32(version))
   }
   Ok(
-    quic_builder_join([
+    quic_join_bytes([
       b"\xc0",
       quic_builder_u32(QUIC_VERSION_NEGOTIATION),
       quic_builder_cid(destination),
       quic_builder_cid(source),
-      quic_builder_join(versions),
+      quic_join_bytes(versions),
     ]),
   )
 }
@@ -115,7 +98,7 @@ pub fn quic_build_retry_packet(
     token.is_empty() {
     return Err(InvalidPacket("invalid Retry packet arguments"))
   }
-  let without_tag = quic_builder_join([
+  let without_tag = quic_join_bytes([
     b"\xf0",
     quic_builder_u32(version),
     quic_builder_cid(destination),
@@ -127,7 +110,7 @@ pub fn quic_build_retry_packet(
     Ok(value) => value
     Err(_) => return Err(InvalidPacket("Retry integrity protection failed"))
   }
-  Ok(quic_builder_join([without_tag, tag]))
+  Ok(quic_join_bytes([without_tag, tag]))
 }
 
 ///|
@@ -152,7 +135,11 @@ fn quic_builder_padding(
       (8, 1073741824L, QUIC_MAX_VARINT),
     ] {
     let fixed = prefix_length.to_int64() + width.to_int64()
-    let length = unpadded_length.max(lower).max(minimum.to_int64() - fixed)
+    // Header protection samples 16 bytes starting four bytes after the PN offset.
+    let length = unpadded_length
+      .max(20L)
+      .max(lower)
+      .max(minimum.to_int64() - fixed)
     if length <= upper && fixed + length <= maximum.to_int64() {
       return Ok((length - unpadded_length).to_int())
     }
@@ -173,80 +160,10 @@ pub fn quic_build_initial_packet(
   if options.version != QUIC_VERSION_1 {
     return Err(InvalidPacket("only QUIC version 1 is supported"))
   }
-  if options.min_datagram_size < 0 ||
-    options.max_datagram_size < options.min_datagram_size {
-    return Err(InvalidPacket("invalid Initial datagram bounds"))
-  }
-  if options.destination.bytes().length() > QUIC_MAX_CONNECTION_ID ||
-    options.source.bytes().length() > QUIC_MAX_CONNECTION_ID {
-    return Err(InvalidPacket("connection ID exceeds 20 bytes"))
-  }
   if options.token.length() > QUIC_MAX_PACKET_SIZE {
     return Err(InvalidPacket("Initial token is too large"))
   }
-  if options.packet_number < 0L ||
-    options.packet_number > QUIC_MAX_VARINT ||
-    options.packet_number_length < 1 ||
-    options.packet_number_length > 4 {
-    return Err(InvalidPacket("invalid Initial packet number"))
-  }
-  let pn_limit = match options.packet_number_length {
-    1 => 0xffL
-    2 => 0xffffL
-    3 => 0xffffffL
-    _ => 0xffffffffL
-  }
-  if options.packet_number > pn_limit {
-    return Err(InvalidPacket("packet number does not fit its wire length"))
-  }
-  let token_length = match QuicVarInt::new(options.token.length().to_int64()) {
-    Ok(value) => value
-    Err(_) => return Err(InvalidPacket("Initial token length overflows"))
-  }
-  let base_prefix = quic_builder_join([
-    Bytes::from_array([0xc0]),
-    quic_builder_u32(options.version),
-    quic_builder_cid(options.destination),
-    quic_builder_cid(options.source),
-    token_length.encode(),
-    options.token,
-  ])
-  let padding = match
-    quic_builder_padding(
-      base_prefix.length(),
-      payload.length(),
-      options.packet_number_length,
-      options.min_datagram_size,
-      options.max_datagram_size,
-    ) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  let ciphertext_length = payload.length() + padding + 16
-  let length_varint = match
-    QuicVarInt::new(
-      (options.packet_number_length + ciphertext_length).to_int64(),
-    ) {
-    Ok(value) => value
-    Err(_) => return Err(InvalidPacket("Initial payload length overflows"))
-  }
-  let header_prefix = quic_builder_join([base_prefix, length_varint.encode()])
-  let padded_payload = if padding == 0 {
-    payload
-  } else {
-    quic_builder_join([
-      payload,
-      Bytes::from_array(FixedArray::make(padding, b'\x00')),
-    ])
-  }
-  quic_protect_packet_with_keys(
-    keys,
-    header_prefix,
-    options.packet_number,
-    options.packet_number_length,
-    padded_payload,
-    true,
-  )
+  quic_long_layout(0, options, payload).bind(layout => layout.seal(keys))
 }
 
 ///|
@@ -267,91 +184,97 @@ pub fn quic_build_long_packet(
   min_datagram_size? : Int = 0,
   max_datagram_size? : Int = QUIC_MAX_PACKET_SIZE,
 ) -> Result[Bytes, QuicError] {
-  if packet_type < 0 || packet_type > 2 {
-    return Err(InvalidPacket("invalid QUIC long-header packet type"))
+  quic_long_layout(
+    packet_type,
+    {
+      version,
+      destination,
+      source,
+      token,
+      packet_number,
+      packet_number_length,
+      min_datagram_size,
+      max_datagram_size,
+    },
+    payload,
+  ).bind(layout => layout.seal(keys))
+}
+
+///|
+priv struct QuicPacketLayout {
+  prefix : Bytes
+  number : Int64
+  number_length : Int
+  payload : Bytes
+  padding : Int
+  long_header : Bool
+}
+
+///|
+fn QuicPacketLayout::wire_size(self : QuicPacketLayout) -> Int {
+  self.prefix.length() +
+  self.number_length +
+  self.payload.length() +
+  self.padding +
+  16
+}
+
+///|
+fn quic_long_layout(
+  packet_type : Int,
+  options : QuicInitialPacketOptions,
+  payload : Bytes,
+) -> Result[QuicPacketLayout, QuicError] {
+  guard packet_type >= 0 && packet_type <= 2 && options.version >= 0 else {
+    return Err(InvalidPacket("invalid long header type or version"))
   }
-  if version < 0 {
-    return Err(InvalidPacket("invalid QUIC version"))
-  }
-  if destination.bytes().length() > QUIC_MAX_CONNECTION_ID ||
-    source.bytes().length() > QUIC_MAX_CONNECTION_ID {
-    return Err(LimitExceeded("connection ID", QUIC_MAX_CONNECTION_ID))
-  }
-  if packet_type != 0 && !token.is_empty() {
+  if packet_type != 0 && !options.token.is_empty() {
     return Err(InvalidPacket("only Initial packets carry a token"))
   }
-  if min_datagram_size < 0 || max_datagram_size < min_datagram_size {
+  if options.min_datagram_size < 0 ||
+    options.max_datagram_size < options.min_datagram_size {
     return Err(InvalidPacket("invalid datagram bounds"))
   }
-  if packet_number < 0L ||
-    packet_number > QUIC_MAX_VARINT ||
-    packet_number_length < 1 ||
-    packet_number_length > 4 {
-    return Err(InvalidPacket("invalid packet number"))
+  if options.packet_number_length < 1 || options.packet_number_length > 4 {
+    return Err(InvalidPacket("invalid packet number length"))
   }
-  let pn_limit = match packet_number_length {
-    1 => 0xffL
-    2 => 0xffffL
-    3 => 0xffffffL
-    _ => 0xffffffffL
+  // A nonempty token is entirely inside the datagram. Reject it before
+  // allocating the header if it cannot fit.
+  if options.token.length() > options.max_datagram_size {
+    return Err(InvalidPacket("token exceeds datagram limit"))
   }
-  if packet_number > pn_limit {
-    return Err(InvalidPacket("packet number does not fit its wire length"))
+  let prefix = Buffer()
+  prefix.write_byte((0xc0 | (packet_type << 4)).to_byte())
+  prefix.write_int_be(options.version)
+  prefix.write_bytes(quic_builder_cid(options.destination))
+  prefix.write_bytes(quic_builder_cid(options.source))
+  if packet_type == 0 {
+    prefix.write_bytes(
+      QuicVarInt::{ value: options.token.length().to_int64(), }.encode(),
+    )
+    prefix.write_bytes(options.token)
   }
-  let token_length = match QuicVarInt::new(token.length().to_int64()) {
-    Ok(value) => value
-    Err(_) => return Err(InvalidPacket("token length overflows"))
-  }
-  let first = match packet_type {
-    0 => 0xc0
-    1 => 0xd0
-    _ => 0xe0
-  }
-  let prefix = quic_builder_join([
-    Bytes::from_array([first.to_byte()]),
-    quic_builder_u32(version),
-    quic_builder_cid(destination),
-    quic_builder_cid(source),
-    if packet_type == 0 {
-      token_length.encode()
-    } else {
-      b""
-    },
-    if packet_type == 0 {
-      token
-    } else {
-      b""
-    },
-  ])
   let padding = match
     quic_builder_padding(
       prefix.length(),
       payload.length(),
-      packet_number_length,
-      min_datagram_size,
-      max_datagram_size,
+      options.packet_number_length,
+      options.min_datagram_size,
+      options.max_datagram_size,
     ) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let ciphertext_length = payload.length() + padding + 16
-  let length_varint = match
-    QuicVarInt::new((packet_number_length + ciphertext_length).to_int64()) {
-    Ok(value) => value
-    Err(_) => return Err(InvalidPacket("payload length overflows"))
-  }
-  let header_prefix = quic_builder_join([prefix, length_varint.encode()])
-  let padded_payload = if padding == 0 {
-    payload
-  } else {
-    quic_builder_join([
-      payload,
-      Bytes::from_array(FixedArray::make(padding, b'\x00')),
-    ])
-  }
-  quic_protect_packet_with_keys(
-    keys, header_prefix, packet_number, packet_number_length, padded_payload, true,
-  )
+  let length = options.packet_number_length + payload.length() + padding + 16
+  prefix.write_bytes(QuicVarInt::{ value: length.to_int64(), }.encode())
+  Ok({
+    prefix: prefix.to_bytes(),
+    number: options.packet_number,
+    number_length: options.packet_number_length,
+    payload,
+    padding,
+    long_header: true,
+  })
 }
 
 ///|
@@ -365,25 +288,72 @@ pub fn quic_build_short_packet(
   payload : Bytes,
   key_phase? : Bool = false,
 ) -> Result[Bytes, QuicError] {
-  if destination.bytes().length() > QUIC_MAX_CONNECTION_ID {
-    return Err(LimitExceeded("connection ID", QUIC_MAX_CONNECTION_ID))
-  }
+  quic_short_layout(
+    destination,
+    packet_number,
+    packet_number_length,
+    payload,
+    0,
+    @int.MAX_VALUE,
+  ).bind(layout => layout.seal(keys, key_phase~))
+}
+
+///|
+fn quic_short_layout(
+  destination : ConnectionId,
+  packet_number : Int64,
+  packet_number_length : Int,
+  payload : Bytes,
+  minimum : Int,
+  maximum : Int,
+) -> Result[QuicPacketLayout, QuicError] {
   if packet_number_length < 1 || packet_number_length > 4 {
     return Err(InvalidPacket("invalid short-header packet number length"))
   }
-  let padding_length = (4 - packet_number_length - payload.length()).max(0)
-  let payload = if padding_length > 0 {
-    let padding = FixedArray::make(padding_length, b'\x00')
-    quic_builder_join([payload, padding.unsafe_reinterpret_as_bytes()])
-  } else {
-    payload
+  let header_size = 1 + destination.bytes().length() + packet_number_length
+  let overhead = header_size + 16
+  let padding = (4 - packet_number_length - payload.length())
+    .max((minimum - overhead).max(0) - payload.length())
+    .max(0)
+  if overhead.to_int64() + payload.length().to_int64() + padding.to_int64() >
+    maximum.to_int64() {
+    return Err(LimitExceeded("QUIC datagram", maximum))
   }
-  let key_bit = if key_phase { 0x04 } else { 0 }
-  let prefix = quic_builder_join([
-    Bytes::from_array([(0x40 | key_bit).to_byte()]),
-    destination.bytes(),
-  ])
+  let prefix = quic_join_bytes([b"\x40", destination.bytes()])
+  Ok({
+    prefix,
+    number: packet_number,
+    number_length: packet_number_length,
+    payload,
+    padding,
+    long_header: false,
+  })
+}
+
+///|
+fn QuicPacketLayout::seal(
+  self : QuicPacketLayout,
+  keys : @tls.QuicPacketKeys,
+  key_phase? : Bool = false,
+) -> Result[Bytes, QuicError] {
+  let prefix = if key_phase && !self.long_header {
+    quic_copy_with_byte(self.prefix, 0, b'\x44')
+  } else {
+    self.prefix
+  }
+  let plaintext = if self.padding == 0 {
+    self.payload
+  } else {
+    let padded = FixedArray::make(self.payload.length() + self.padding, b'\x00')
+    padded.blit_from_bytes(0, self.payload, 0, self.payload.length())
+    padded.unsafe_reinterpret_as_bytes()
+  }
   quic_protect_packet_with_keys(
-    keys, prefix, packet_number, packet_number_length, payload, false,
+    keys,
+    prefix,
+    self.number,
+    self.number_length,
+    plaintext,
+    self.long_header,
   )
 }

@@ -143,75 +143,18 @@ pub fn[P : @transport.QuicTlsProvider] QuicTlsDriver::on_datagram(
   packet : Bytes,
   now_ms : Int64,
 ) -> Result[Array[QuicDriverAction], QuicError] {
-  if packet.is_empty() ||
-    packet.length() >
-    self.driver.connection.transport_params.max_udp_payload_size {
-    return Err(
-      LimitExceeded(
-        "QUIC datagram",
-        self.driver.connection.transport_params.max_udp_payload_size,
-      ),
-    )
+  if self.failure is Some(error) {
+    return Err(error)
   }
-  self.driver.count_received_datagram(source, packet)
-  let actions : Array[QuicDriverAction] = []
-  let mut cursor = 0
-  while cursor < packet.length() {
-    let remaining = packet[cursor:].to_owned()
-    // Retry and Version Negotiation consume a whole datagram and have neither
-    // a packet number nor a protected payload length. The shared packet
-    // driver owns their state transitions, including ClientHello replay.
-    if remaining.length() >= 5 &&
-      (remaining[0].to_int() & 0x80) != 0 &&
-      (
-        packet_version(remaining) != QUIC_VERSION_1 ||
-        ((remaining[0].to_int() >> 4) & 3) == 3
-      ) {
-      if cursor > 0 {
-        break
-      }
-      let special = match
-        self.driver.receive_negotiation_packet(source, remaining, now_ms) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      actions.append(special)
-      cursor = packet.length()
-      continue
-    }
-    // Each coalesced packet is independent. Invalid trailing bytes must not
-    // erase actions from an earlier authenticated packet in this datagram.
-    if (remaining[0].to_int() & 0x40) == 0 {
-      if cursor > 0 {
-        break
-      }
-      return Err(InvalidPacket("QUIC fixed bit is not set"))
-    }
-    let length = if (remaining[0].to_int() & 0x80) == 0 {
-      remaining.length()
-    } else {
-      let (_, _, _, _, offset, payload_length) = match
-        quic_long_header_fields(remaining) {
-        Ok(value) => value
-        Err(_) if cursor > 0 => break
-        Err(error) => return Err(error)
-      }
-      if payload_length > (remaining.length() - offset).to_int64() {
-        if cursor > 0 {
-          break
-        }
-        return Err(NeedMoreInput)
-      }
-      offset + payload_length.to_int()
-    }
-    let next = match
-      self.on_packet(source, remaining[:length].to_owned(), now_ms) {
-      Ok(value) => value
-      Err(_) if cursor > 0 && self.failure is None => break
-      Err(error) => return Err(error)
-    }
-    actions.append(next)
-    cursor += length
+  if !self.started {
+    return Err(Unsupported("QUIC TLS handshake has not started"))
+  }
+  let actions = match
+    self.driver.receive_datagram(source, packet, now_ms, incoming => {
+      self.receive_actions(incoming, now_ms)
+    }) {
+    Ok(value) => value
+    Err(error) => return Err(error)
   }
   let pending = match self.flush_crypto(now_ms) {
     Ok(value) => value
@@ -222,23 +165,11 @@ pub fn[P : @transport.QuicTlsProvider] QuicTlsDriver::on_datagram(
 }
 
 ///|
-fn[P : @transport.QuicTlsProvider] QuicTlsDriver::on_packet(
+fn[P : @transport.QuicTlsProvider] QuicTlsDriver::receive_actions(
   self : QuicTlsDriver[P],
-  source : @types.Endpoint,
-  packet : Bytes,
+  incoming : Array[QuicDriverAction],
   now_ms : Int64,
 ) -> Result[Array[QuicDriverAction], QuicError] {
-  if self.failure is Some(error) {
-    return Err(error)
-  }
-  if !self.started {
-    return Err(Unsupported("QUIC TLS handshake has not started"))
-  }
-  let incoming = match self.driver.on_packet(source, packet, now_ms) {
-    Ok(value) => value
-    // Authentication failures can be dropped without poisoning TLS state.
-    Err(error) => return Err(error)
-  }
   let actions : Array[QuicDriverAction] = []
   for action in incoming {
     match action {

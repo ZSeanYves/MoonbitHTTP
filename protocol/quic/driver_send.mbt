@@ -8,7 +8,7 @@ fn QuicDatagramDriver::quic_driver_next_number(
     Handshake => self.next_handshake_packet
     Application => self.next_application_packet
   }
-  if number >= QUIC_MAX_VARINT {
+  if number > QUIC_MAX_VARINT {
     return Err(VarIntOverflow)
   }
   let length = if number <= 0xffL {
@@ -36,70 +36,52 @@ fn QuicDatagramDriver::quic_driver_commit_number(
 }
 
 ///|
-fn QuicDatagramDriver::quic_driver_build_packet(
+fn QuicDatagramDriver::packet_layout(
   self : QuicDatagramDriver,
   space : PacketNumberSpace,
   payload : Bytes,
-) -> Result[(Int64, Bytes), QuicError] {
-  let keys = match self.quic_driver_space_keys(space, true) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
+  minimum : Int,
+) -> Result[QuicPacketLayout, QuicError] {
   let (packet_number, packet_number_length) = match
     self.quic_driver_next_number(space) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let packet = match space {
-    Initial => {
-      let options = {
-        ..QuicInitialPacketOptions::defaults(
-          self.peer_connection_id,
-          self.local_connection_id,
-          packet_number,
-        ),
-        token: self.initial_token,
-        packet_number_length,
-        max_datagram_size: self.send_datagram_limit(),
-      }
-      match quic_build_initial_packet(keys, options, payload) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-    }
-    Handshake =>
-      match
-        quic_build_long_packet(
-          keys,
-          2,
-          QUIC_VERSION_1,
-          self.peer_connection_id,
-          self.local_connection_id,
-          b"",
+  let maximum = self.send_datagram_limit()
+  match space {
+    Initial | Handshake =>
+      quic_long_layout(
+        if space == Initial {
+          0
+        } else {
+          2
+        },
+        {
+          version: QUIC_VERSION_1,
+          destination: self.peer_connection_id,
+          source: self.local_connection_id,
+          token: if space == Initial {
+            self.initial_token
+          } else {
+            b""
+          },
           packet_number,
           packet_number_length,
-          payload,
-          min_datagram_size=0,
-          max_datagram_size=self.send_datagram_limit(),
-        ) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
+          min_datagram_size: minimum,
+          max_datagram_size: maximum,
+        },
+        payload,
+      )
     Application =>
-      match
-        quic_build_short_packet(
-          keys,
-          self.peer_connection_id,
-          packet_number,
-          packet_number_length,
-          payload,
-          key_phase=self.key_update.send_phase,
-        ) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
+      quic_short_layout(
+        self.peer_connection_id,
+        packet_number,
+        packet_number_length,
+        payload,
+        minimum,
+        maximum,
+      )
   }
-  Ok((packet_number, packet))
 }
 
 ///|
@@ -111,7 +93,14 @@ pub fn QuicDatagramDriver::send_frames(
   frames : Array[QuicFrame],
   now_ms : Int64,
 ) -> Result[QuicDriverAction, QuicError] {
-  self.send_frames_internal(space, frames, now_ms, false, None)
+  self.send_frames_internal_to(
+    space,
+    frames,
+    now_ms,
+    false,
+    None,
+    self.path.active(),
+  )
 }
 
 ///|
@@ -180,25 +169,6 @@ pub fn[C : @transport.Clock, E : @transport.Entropy] QuicDatagramDriver::send_re
 }
 
 ///|
-fn QuicDatagramDriver::send_frames_internal(
-  self : QuicDatagramDriver,
-  space : PacketNumberSpace,
-  frames : Array[QuicFrame],
-  now_ms : Int64,
-  congestion_exempt : Bool,
-  replacement_number : Int64?,
-) -> Result[QuicDriverAction, QuicError] {
-  self.send_frames_internal_to(
-    space,
-    frames,
-    now_ms,
-    congestion_exempt,
-    replacement_number,
-    self.path.active(),
-  )
-}
-
-///|
 /// Builds a packet for an explicit destination. Path validation uses this
 /// entry point so PATH_CHALLENGE and its retransmissions stay on the
 /// candidate path until validation succeeds.
@@ -208,7 +178,7 @@ fn QuicDatagramDriver::send_frames_internal_to(
   frames : Array[QuicFrame],
   now_ms : Int64,
   congestion_exempt : Bool,
-  replacement_number : Int64?,
+  replacement : QuicRetransmission?,
   destination : @types.Endpoint,
 ) -> Result[QuicDriverAction, QuicError] {
   if now_ms < 0L {
@@ -227,129 +197,96 @@ fn QuicDatagramDriver::send_frames_internal_to(
       Unsupported("local connection ID issuance and rotation are not supported"),
     )
   }
-  match self.check_aead_send_limit(space) {
-    Ok(_) => ()
-    Err(error) => return Err(error)
-  }
   match
     quic_validate_packet_frames(space, frames, from_server=self.role == Server) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
   let retransmittable = frames.any(quic_frame_is_retransmittable)
-  let replacing = match replacement_number {
-    None => false
-    Some(number) => {
-      let mut found = false
-      for entry in self.retransmissions {
-        if entry.space == space && entry.number == number && entry.pending {
-          found = true
-          break
-        }
-      }
-      if !found || !retransmittable {
-        return Err(InvalidPacket("invalid QUIC retransmission replacement"))
-      }
-      true
-    }
-  }
   if retransmittable &&
-    !replacing &&
+    replacement is None &&
     self.retransmissions.length() >= self.max_retransmissions {
     return Err(
       LimitExceeded("QUIC retransmission queue", self.max_retransmissions),
     )
   }
-  let mut payload = match quic_encode_frames(frames, limits=self.limits) {
+  let payload = match quic_encode_frames(frames, limits=self.limits) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
   if payload.is_empty() {
     return Err(InvalidFrame("cannot send an empty QUIC packet"))
   }
-  let has_path_probe = frames.any(fn(frame) {
-    match frame {
-      PathChallenge(_) | PathResponse(_) => true
-      _ => false
-    }
-  })
-  if space == Application && has_path_probe {
-    let (_, number_length) = match self.quic_driver_next_number(space) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    let minimum_payload = 1200 -
-      (1 + self.peer_connection_id.bytes().length() + number_length + 16)
-    if payload.length() < minimum_payload {
-      let padding = FixedArray::make(
-        minimum_payload - payload.length(),
-        b'\x00',
-      )
-      payload = quic_driver_join([
-        payload,
-        padding.unsafe_reinterpret_as_bytes(),
-      ])
-    }
+  let ack_eliciting = frames.any(quic_frame_is_ack_eliciting)
+  let minimum = match space {
+    Initial if self.role == Client || ack_eliciting => 1200
+    Application if frames.any(fn(frame) {
+        frame is (PathChallenge(_) | PathResponse(_))
+      }) => 1200
+    _ => 0
   }
-  let (packet_number, packet) = match
-    self.quic_driver_build_packet(space, payload) {
+  let layout = match self.packet_layout(space, payload, minimum) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  // The AEAD operation already consumed the key's security budget even if
-  // congestion or amplification prevents this packet from reaching UDP.
-  self.count_encrypted_packet(space)
-  let packet_size = packet.length()
-  if packet_size > self.send_datagram_limit() {
-    return Err(LimitExceeded("QUIC datagram", self.send_datagram_limit()))
+  let packet_number = layout.number
+  let packet_size = layout.wire_size()
+  let meta : QuicSentPacket = {
+    number: packet_number,
+    space,
+    bytes: packet_size,
+    sent_at_ms: now_ms,
+    ack_eliciting,
+    retransmittable,
   }
+  let in_flight = ack_eliciting ||
+    layout.padding > 0 ||
+    frames.contains(Padding)
   match self.check_amplification(destination, packet_size) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
-  match
-    self.recovery.on_packet_sent(
-      {
-        number: packet_number,
-        space,
-        bytes: packet_size,
-        sent_at_ms: now_ms,
-        ack_eliciting: frames.any(quic_frame_is_ack_eliciting),
-        retransmittable,
-      },
-      congestion_exempt~,
-    ) {
-    Ok(_) => {
-      self.count_sent_datagram(destination, packet_size)
-      self.quic_driver_commit_number(space)
-      if space == Application &&
-        frames.any(fn(frame) {
-          match frame {
-            Ack(ack) =>
-              ack.largest_acknowledged() >= self.key_update.receive_phase_start
-            _ => false
-          }
-        }) {
-        self.key_update.receive_phase_acked = true
-      }
-      if retransmittable {
-        match replacement_number {
-          Some(number) =>
-            if self.take_retransmission(space, number) is None {
-              // The entry was checked before recovery state was mutated. This
-              // branch is unreachable without internal state corruption.
-              self.connection.state = Closed
-              return Err(InvalidPacket("QUIC retransmission state changed"))
-            }
-          None => ()
-        }
-        self.queue_retransmission(space, packet_number, destination, frames)
-      }
-      if space == Handshake && self.role == Client {
-        self.discard_packet_space(Initial)
-      }
-      Ok(SendDatagram(destination, packet))
-    }
-    Err(error) => Err(error)
+  match self.recovery.check_sent(meta, in_flight, congestion_exempt) {
+    Ok(_) => ()
+    Err(error) => return Err(error)
   }
+  match self.check_aead_send_limit(space) {
+    Ok(_) => ()
+    Err(error) => return Err(error)
+  }
+  let keys = match self.quic_driver_space_keys(space, true) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  self.count_encrypted_packet(space)
+  let packet = match layout.seal(keys, key_phase=self.key_update.send_phase) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  self.recovery.record_sent(meta, in_flight)
+  self.count_sent_datagram(destination, packet_size)
+  self.quic_driver_commit_number(space)
+  if space == Application &&
+    frames.any(fn(frame) {
+      match frame {
+        Ack(ack) =>
+          ack.largest_acknowledged() >= self.key_update.receive_phase_start
+        _ => false
+      }
+    }) {
+    self.key_update.receive_phase_acked = true
+  }
+  match replacement {
+    Some(entry) => {
+      entry.number = packet_number
+      entry.pending = false
+    }
+    None if retransmittable =>
+      self.queue_retransmission(space, packet_number, destination, frames)
+    None => ()
+  }
+  if space == Handshake && self.role == Client {
+    self.discard_packet_space(Initial)
+  }
+  Ok(SendDatagram(destination, packet))
 }

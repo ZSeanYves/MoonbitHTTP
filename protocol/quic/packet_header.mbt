@@ -39,7 +39,7 @@ pub(all) enum PacketNumberSpace {
   Initial
   Handshake
   Application
-} derive(Eq, Debug)
+} derive(Eq, Hash, Debug)
 
 ///|
 pub(all) enum QuicRole {

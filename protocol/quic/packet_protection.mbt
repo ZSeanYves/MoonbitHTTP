@@ -89,10 +89,8 @@ fn quic_join_bytes(parts : Array[Bytes]) -> Bytes {
   let output = FixedArray::make(length, b'\x00')
   let mut offset = 0
   for part in parts {
-    for byte in part {
-      output[offset] = byte
-      offset += 1
-    }
+    output.blit_from_bytes(offset, part, 0, part.length())
+    offset += part.length()
   }
   output.unsafe_reinterpret_as_bytes()
 }
@@ -147,50 +145,9 @@ fn quic_copy_with_byte(input : Bytes, index : Int, value : Byte) -> Bytes {
 pub fn quic_long_header_packet_layout(
   packet : Bytes,
 ) -> Result[(Int, Int64), QuicError] {
-  if packet.length() < 7 || (packet[0].to_int() & 0x80) == 0 {
-    return Err(InvalidPacket("not a QUIC long-header packet"))
-  }
-  if (packet[0].to_int() & 0x40) == 0 {
-    return Err(InvalidPacket("QUIC fixed bit is not set"))
-  }
-  let packet_type = (packet[0].to_int() >> 4) & 0x03
-  if packet_type == 3 {
-    return Err(InvalidPacket("Retry packets have no packet number"))
-  }
-  let (destination, after_destination) = match take_connection_id(packet, 5) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  ignore(destination)
-  let (_, after_source) = match take_connection_id(packet, after_destination) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  let mut offset = after_source
-  if packet_type == 0 {
-    let (token_length, used) = match quic_decode_varint(packet[offset:]) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    offset += used
-    let token_length = match varint_to_index(token_length.value()) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    if token_length > packet.length() - offset {
-      return Err(NeedMoreInput)
-    }
-    offset += token_length
-  }
-  let (payload_length, used) = match quic_decode_varint(packet[offset:]) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  offset += used
-  if payload_length.value() < 1L {
-    return Err(InvalidPacket("QUIC payload length excludes packet number"))
-  }
-  Ok((offset, payload_length.value()))
+  quic_parse_long_header(packet).map(header => {
+    (header.number_offset, header.length)
+  })
 }
 
 ///|
@@ -200,6 +157,33 @@ pub fn quic_long_header_packet_layout(
 pub fn quic_long_header_fields(
   packet : Bytes,
 ) -> Result[(Int, ConnectionId, ConnectionId, Int, Int, Int64), QuicError] {
+  quic_parse_long_header(packet).map(header => {
+    (
+      header.version,
+      header.destination,
+      header.source,
+      header.kind,
+      header.number_offset,
+      header.length,
+    )
+  })
+}
+
+///|
+priv struct QuicLongHeader {
+  version : Int
+  destination : ConnectionId
+  source : ConnectionId
+  kind : Int
+  token : BytesView
+  number_offset : Int
+  length : Int64
+}
+
+///|
+fn quic_parse_long_header(
+  packet : BytesView,
+) -> Result[QuicLongHeader, QuicError] {
   if packet.length() < 7 || (packet[0].to_int() & 0x80) == 0 {
     return Err(InvalidPacket("not a QUIC long-header packet"))
   }
@@ -210,10 +194,7 @@ pub fn quic_long_header_fields(
   if packet_type == 3 {
     return Err(InvalidPacket("Retry packets have no packet number"))
   }
-  let version = (packet[1].to_int() << 24) |
-    (packet[2].to_int() << 16) |
-    (packet[3].to_int() << 8) |
-    packet[4].to_int()
+  let version = packet_version(packet)
   let (destination, after_destination) = match take_connection_id(packet, 5) {
     Ok(value) => value
     Err(error) => return Err(error)
@@ -224,6 +205,7 @@ pub fn quic_long_header_fields(
     Err(error) => return Err(error)
   }
   let mut offset = after_source
+  let mut token = packet[0:0]
   if packet_type == 0 {
     let (token_length, used) = match quic_decode_varint(packet[offset:]) {
       Ok(value) => value
@@ -237,6 +219,7 @@ pub fn quic_long_header_fields(
     if token_length > packet.length() - offset {
       return Err(NeedMoreInput)
     }
+    token = packet[offset:offset + token_length]
     offset += token_length
   }
   let (payload_length, used) = match quic_decode_varint(packet[offset:]) {
@@ -247,9 +230,15 @@ pub fn quic_long_header_fields(
   if payload_length.value() < 1L {
     return Err(InvalidPacket("QUIC payload length excludes packet number"))
   }
-  Ok(
-    (version, destination, source, packet_type, offset, payload_length.value()),
-  )
+  Ok({
+    version,
+    destination,
+    source,
+    kind: packet_type,
+    token,
+    number_offset: offset,
+    length: payload_length.value(),
+  })
 }
 
 ///|
@@ -365,11 +354,6 @@ pub fn quic_open_packet_with_keys(
   largest_received : Int64,
   long_header : Bool,
 ) -> Result[QuicOpenedPacket, QuicError] {
-  if packet_number_offset < 1 || packet.length() < packet_number_offset + 20 {
-    return Err(
-      InvalidPacket("packet is too short for header protection sample"),
-    )
-  }
   if long_header {
     let (layout_offset, payload_length) = match
       quic_long_header_packet_layout(packet) {
@@ -379,11 +363,28 @@ pub fn quic_open_packet_with_keys(
     if layout_offset != packet_number_offset {
       return Err(InvalidPacket("packet-number offset does not match header"))
     }
-    if payload_length > @int.MAX_VALUE.to_int64() ||
-      packet_number_offset > packet.length() - payload_length.to_int() ||
-      packet_number_offset + payload_length.to_int() != packet.length() {
+    if payload_length != (packet.length() - layout_offset).to_int64() {
       return Err(InvalidPacket("QUIC payload length does not match datagram"))
     }
+  }
+  quic_open_protected(
+    keys, packet, packet_number_offset, largest_received, long_header,
+  )
+}
+
+///|
+/// The long-header caller verified the Length field against its packet slice.
+fn quic_open_protected(
+  keys : @tls.QuicPacketKeys,
+  packet : Bytes,
+  packet_number_offset : Int,
+  largest_received : Int64,
+  long_header : Bool,
+) -> Result[QuicOpenedPacket, QuicError] {
+  if packet_number_offset < 1 || packet_number_offset > packet.length() - 20 {
+    return Err(
+      InvalidPacket("packet is too short for header protection sample"),
+    )
   }
   let sample = packet[packet_number_offset + 4:packet_number_offset + 20].to_owned()
   let mask = match keys.header_protection_mask(sample) {

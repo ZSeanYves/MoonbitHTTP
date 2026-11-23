@@ -112,8 +112,22 @@ pub fn QuicDatagramDriver::poll(
       _ => ()
     }
   }
+  if self.state() == Closed || self.state() == Draining {
+    return Ok(output)
+  }
   let spaces : Array[PacketNumberSpace] = [Initial, Handshake, Application]
   for space in spaces {
+    let received = self.received(space)
+    if received.pending_ack(space, self.limits, now_ms) is Some(ack) {
+      match self.send_frames(space, [ack], now_ms) {
+        Ok(action) => {
+          received.pending = None
+          output.push(action)
+        }
+        Err(error) if error.send_blocked() => ()
+        Err(error) => return Err(error)
+      }
+    }
     let pending = match self.flush_pending_retransmissions(space, now_ms) {
       Ok(value) => value
       Err(error) => return Err(error)

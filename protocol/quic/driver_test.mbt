@@ -167,13 +167,6 @@ test "quic datagram driver: packet deduplication window stays bounded" {
   let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
   let server_id = @quic.ConnectionId::new(b"server-id").unwrap()
   let client_id = @quic.ConnectionId::new(b"client-id").unwrap()
-  let client = @quic.QuicDatagramDriver::new(
-    Client,
-    endpoint,
-    server_id,
-    client_id,
-    server_id,
-  ).unwrap()
   let server = @quic.QuicDatagramDriver::new(
     Server,
     endpoint,
@@ -181,21 +174,24 @@ test "quic datagram driver: packet deduplication window stays bounded" {
     server_id,
     client_id,
   ).unwrap()
-  let mut retained_packet : Bytes? = None
-  for number in 0..<4097 {
-    guard client.send_frames(Initial, [Padding], number.to_int64()).unwrap()
-      is SendDatagram(_, packet) else {
-      fail("expected padding datagram")
-    }
-    if number == 4090 {
-      retained_packet = Some(packet)
-    }
-    ignore(server.on_datagram(endpoint, packet, number.to_int64()).unwrap())
+  let keys = @quic.quic_initial_packet_key(server_id, Client).unwrap()
+  let packet = fn(number) {
+    let options = @quic.QuicInitialPacketOptions::defaults(
+      server_id, client_id, number,
+    )
+    @quic.quic_build_initial_packet(keys, options, b"\x00").unwrap()
   }
-  assert_eq(
-    server.on_datagram(endpoint, retained_packet.unwrap(), 4097L).unwrap(),
-    [PacketIgnored],
-  )
+  for number in [0L, 4095L, 4096L] {
+    assert_eq(server.on_datagram(endpoint, packet(number), number).unwrap(), [])
+  }
+  assert_eq(server.on_datagram(endpoint, packet(0L), 4097L).unwrap(), [
+    PacketIgnored,
+  ])
+  assert_eq(server.on_datagram(endpoint, packet(4095L), 4098L).unwrap(), [
+    PacketIgnored,
+  ])
+  // An unseen packet just inside the window is still accepted.
+  assert_eq(server.on_datagram(endpoint, packet(1L), 4099L).unwrap(), [])
 }
 
 ///|

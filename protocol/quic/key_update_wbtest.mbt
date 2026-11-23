@@ -143,7 +143,7 @@ test "quic key limits: eligible application keys update at the send bound" {
 }
 
 ///|
-test "quic key limits: encrypted packets consume budget when amplification blocks send" {
+test "quic key limits: amplification backpressure preserves the last available encryption" {
   let endpoint = @types.Endpoint::new("udp", "budget.example", 443).unwrap()
   let (_, server) = key_limit_driver_pair(endpoint, endpoint)
   server.active_budget.validated = false
@@ -151,11 +151,17 @@ test "quic key limits: encrypted packets consume budget when amplification block
   assert_true(
     server.send_frames(Application, [Ping], 0L) is Err(AmplificationBlocked),
   )
+  assert_eq(
+    server.key_update.send_packets,
+    QUIC_AEAD_CONFIDENTIALITY_LIMIT - 1L,
+  )
+  assert_eq(server.next_application_packet, 0L)
+  server.active_budget.validated = true
+  ignore(server.send_frames(Application, [Ping], 1L).unwrap())
   assert_eq(server.key_update.send_packets, QUIC_AEAD_CONFIDENTIALITY_LIMIT)
-  assert_eq(server.state(), Established)
-  guard server.send_frames(Application, [Ping], 1L)
+  guard server.send_frames(Application, [Ping], 2L)
     is Err(Protocol(QUIC_AEAD_LIMIT_REACHED, _)) else {
-    fail("expected exhausted keys to close after an unsent encryption")
+    fail("expected exhausted unconfirmed keys to close")
   }
   assert_eq(server.state(), Closed)
 }

@@ -26,6 +26,9 @@ pub extend ConnectionId with Eq::{equal, not_equal}
 pub extend ConnectionId with @debug.Debug::{to_repr}
 
 ///|
+pub extend PacketNumberSpace with Hash::{hash, hash_combine}
+
+///|
 pub extend PacketNumberSpace with Eq::{equal, not_equal}
 
 ///|

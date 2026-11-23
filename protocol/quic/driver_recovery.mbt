@@ -3,7 +3,7 @@
 /// identify packets, while retransmission needs the original frame sequence.
 struct QuicRetransmission {
   space : PacketNumberSpace
-  number : Int64
+  mut number : Int64
   endpoint : @types.Endpoint?
   frames : Array[QuicFrame]
   mut pending : Bool
@@ -30,24 +30,6 @@ fn quic_frame_is_retransmittable(frame : QuicFrame) -> Bool {
 }
 
 ///|
-fn QuicDatagramDriver::take_retransmission(
-  self : QuicDatagramDriver,
-  space : PacketNumberSpace,
-  number : Int64,
-) -> Array[QuicFrame]? {
-  let mut index = self.retransmissions.length() - 1
-  while index >= 0 {
-    let entry = self.retransmissions[index]
-    if entry.space == space && entry.number == number {
-      self.retransmissions.remove(index) |> ignore
-      return Some(entry.frames)
-    }
-    index -= 1
-  }
-  None
-}
-
-///|
 /// RESET_STREAM supersedes all outstanding STREAM frames for this ID. Leave
 /// packet numbers in recovery for congestion accounting and preserve any other
 /// retransmittable frames that shared those packets.
@@ -66,10 +48,8 @@ fn QuicDatagramDriver::discard_stream_retransmissions(
 }
 
 ///|
-fn quic_ack_contains(ack : AckFrame, number : Int64) -> Bool {
-  ack
-  .ranges()
-  .any(fn(range) { number >= range.smallest() && number <= range.largest() })
+fn AckFrame::covers(self : AckFrame, number : Int64) -> Bool {
+  self.ranges.any(range => number >= range.smallest && number <= range.largest)
 }
 
 ///|
@@ -90,14 +70,10 @@ fn QuicDatagramDriver::mark_retransmission_pending(
 fn QuicDatagramDriver::next_pending_retransmission(
   self : QuicDatagramDriver,
   space : PacketNumberSpace,
-) -> (Int64, Array[QuicFrame], @types.Endpoint)? {
+) -> QuicRetransmission? {
   for entry in self.retransmissions {
     if entry.space == space && entry.pending {
-      let endpoint = match entry.endpoint {
-        Some(value) => value
-        None => self.path.active()
-      }
-      return Some((entry.number, entry.frames, endpoint))
+      return Some(entry)
     }
   }
   None
@@ -114,11 +90,7 @@ fn QuicDatagramDriver::retransmission_for_number(
 ) -> (Array[QuicFrame], @types.Endpoint)? {
   for entry in self.retransmissions {
     if entry.space == space && entry.number == number {
-      let endpoint = match entry.endpoint {
-        Some(value) => value
-        None => self.path.active()
-      }
-      return Some((entry.frames, endpoint))
+      return Some((entry.frames, entry.endpoint.unwrap_or(self.path.active())))
     }
   }
   None
@@ -132,26 +104,18 @@ fn QuicDatagramDriver::flush_pending_retransmissions(
   congestion_exempt? : Bool = false,
 ) -> Result[Array[QuicDriverAction], QuicError] {
   let actions : Array[QuicDriverAction] = []
-  while self.next_pending_retransmission(space)
-        is Some((number, frames, endpoint)) {
+  while self.next_pending_retransmission(space) is Some(entry) {
     match
       self.send_frames_internal_to(
         space,
-        frames,
+        entry.frames,
         now_ms,
         congestion_exempt,
-        Some(number),
-        endpoint,
+        Some(entry),
+        entry.endpoint.unwrap_or(self.path.active()),
       ) {
       Ok(action) => actions.push(action)
-      // Congestion backpressure is not a protocol failure. The retained entry
-      // remains pending and can be sent after a later ACK or timer tick.
-      Err(FlowControl(0L, _)) => break
-      Err(AmplificationBlocked) => break
-      // A response packet may have consumed the final recovery slot before
-      // this retained packet is retried. Preserve the response and leave the
-      // retained entry pending; the next ACK or timer tick can retry it.
-      Err(LimitExceeded("QUIC recovery packet queue", _)) => break
+      Err(error) if error.send_blocked() => break
       Err(error) => return Err(error)
     }
   }
@@ -214,7 +178,7 @@ fn QuicDatagramDriver::apply_recovery_ack(
   let mut retained_index = self.retransmissions.length() - 1
   while retained_index >= 0 {
     let entry = self.retransmissions[retained_index]
-    if entry.space == space && quic_ack_contains(ack, entry.number) {
+    if entry.space == space && ack.covers(entry.number) {
       for frame in entry.frames {
         // Raw send_frames can also carry frames outside connection-owned streams.
         ignore(self.connection.acknowledge_stream_frame(frame))

@@ -156,8 +156,10 @@ pub(all) enum PacketNumberSpace {
   Initial
   Handshake
   Application
-} derive(Eq, @debug.Debug)
+} derive(Eq, Hash, @debug.Debug)
 pub fn PacketNumberSpace::equal(Self, Self) -> Bool
+pub fn PacketNumberSpace::hash(Self) -> Int
+pub fn PacketNumberSpace::hash_combine(Self, Hasher) -> Unit
 pub fn PacketNumberSpace::not_equal(Self, Self) -> Bool
 pub fn PacketNumberSpace::to_repr(Self) -> @debug.Repr
 
@@ -434,6 +436,7 @@ pub(all) struct QuicRecovery {
   mut ssthresh : Int64
   mut in_recovery : Bool
   mut recovery_end : (Int64, Int64, Int64)?
+  // private fields
 } derive(@debug.Debug)
 pub fn QuicRecovery::bytes_in_flight(Self) -> Int64
 pub fn QuicRecovery::can_send(Self, Int, Bool, congestion_exempt? : Bool) -> Result[Unit, QuicError]
@@ -442,7 +445,7 @@ pub fn QuicRecovery::detect_loss(Self, PacketNumberSpace, Int64) -> Result[Array
 pub fn QuicRecovery::new(config? : QuicRecoveryConfig, now_ms? : Int64) -> Result[Self, QuicError]
 pub fn QuicRecovery::oldest_probe_packet(Self, PacketNumberSpace) -> QuicSentPacket?
 pub fn QuicRecovery::on_ack(Self, PacketNumberSpace, AckFrame, Int64, ack_delay_exponent? : Int, reset_pto? : Bool, handshake_confirmed? : Bool) -> Result[Array[QuicRecoveryEvent], QuicError]
-pub fn QuicRecovery::on_packet_sent(Self, QuicSentPacket, congestion_exempt? : Bool) -> Result[Unit, QuicError]
+pub fn QuicRecovery::on_packet_sent(Self, QuicSentPacket, contains_padding? : Bool, congestion_exempt? : Bool) -> Result[Unit, QuicError]
 pub fn QuicRecovery::on_receive(Self, Int64) -> Result[Unit, QuicError]
 pub fn QuicRecovery::poll(Self, Int64, application_confirmed? : Bool) -> Result[Array[QuicRecoveryEvent], QuicError]
 pub fn QuicRecovery::pto_count(Self) -> Int

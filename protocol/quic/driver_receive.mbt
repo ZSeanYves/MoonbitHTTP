@@ -1,66 +1,4 @@
 ///|
-fn QuicDatagramDriver::quic_driver_largest(
-  self : QuicDatagramDriver,
-  space : PacketNumberSpace,
-) -> Int64 {
-  match space {
-    Initial => self.largest_initial_received
-    Handshake => self.largest_handshake_received
-    Application => self.largest_application_received
-  }
-}
-
-///|
-fn QuicDatagramDriver::quic_driver_seen(
-  self : QuicDatagramDriver,
-  space : PacketNumberSpace,
-  number : Int64,
-) -> Bool {
-  let seen = match space {
-    Initial => self.seen_initial
-    Handshake => self.seen_handshake
-    Application => self.seen_application
-  }
-  let largest = self.quic_driver_largest(space)
-  (largest >= 4096L && number <= largest - 4096L) || seen.contains(number)
-}
-
-///|
-fn QuicDatagramDriver::quic_driver_mark_seen(
-  self : QuicDatagramDriver,
-  space : PacketNumberSpace,
-  number : Int64,
-) -> Unit {
-  match space {
-    Initial => {
-      self.seen_initial.push(number)
-      if self.seen_initial.length() > 4096 {
-        self.seen_initial.remove(0) |> ignore
-      }
-      self.largest_initial_received = self.largest_initial_received.max(number)
-    }
-    Handshake => {
-      self.seen_handshake.push(number)
-      if self.seen_handshake.length() > 4096 {
-        self.seen_handshake.remove(0) |> ignore
-      }
-      self.largest_handshake_received = self.largest_handshake_received.max(
-        number,
-      )
-    }
-    Application => {
-      self.seen_application.push(number)
-      if self.seen_application.length() > 4096 {
-        self.seen_application.remove(0) |> ignore
-      }
-      self.largest_application_received = self.largest_application_received.max(
-        number,
-      )
-    }
-  }
-}
-
-///|
 fn quic_driver_packet_space(
   packet_type : Int,
 ) -> Result[PacketNumberSpace, QuicError] {
@@ -82,8 +20,95 @@ pub fn QuicDatagramDriver::on_datagram(
   packet : Bytes,
   now_ms : Int64,
 ) -> Result[Array[QuicDriverAction], QuicError] {
+  self.receive_datagram(source, packet, now_ms, incoming => Ok(incoming))
+}
+
+///|
+/// TLS consumes each authenticated packet before the next one is opened so
+/// freshly installed keys are usable within the same UDP datagram.
+fn QuicDatagramDriver::receive_datagram(
+  self : QuicDatagramDriver,
+  source : @types.Endpoint,
+  packet : Bytes,
+  now_ms : Int64,
+  consume : (Array[QuicDriverAction]) -> Result[
+    Array[QuicDriverAction],
+    QuicError,
+  ],
+) -> Result[Array[QuicDriverAction], QuicError] {
+  if self.state() == Closed || self.state() == Draining {
+    return Ok([PacketIgnored])
+  }
+  let size = packet.length()
+  if size == 0 || size > self.connection.transport_params.max_udp_payload_size {
+    return Err(
+      LimitExceeded(
+        "QUIC datagram",
+        self.connection.transport_params.max_udp_payload_size,
+      ),
+    )
+  }
+  if now_ms < 0L {
+    return Err(InvalidPacket("QUIC clock cannot be negative"))
+  }
   self.count_received_datagram(source, packet)
-  self.on_packet(source, packet, now_ms)
+  let candidate_path = source != self.path.active()
+  if candidate_path && self.path.candidate() != Some(source) {
+    return Err(InvalidPacket("packet arrived on an unvalidated path"))
+  }
+  let output : Array[QuicDriverAction] = []
+  let mut cursor = 0
+  while cursor < size {
+    let rest = packet[cursor:]
+    let first = rest[0].to_int()
+    let long_header = (first & 0x80) != 0
+    if long_header &&
+      rest.length() >= 5 &&
+      (packet_version(rest) != QUIC_VERSION_1 || ((first >> 4) & 3) == 3) {
+      if cursor > 0 {
+        break
+      }
+      return self.receive_negotiation_packet(source, packet, now_ms)
+    }
+    if (first & 0x40) == 0 {
+      if cursor > 0 {
+        break
+      }
+      return Err(InvalidPacket("QUIC fixed bit is not set"))
+    }
+    let (header, length) = if long_header {
+      let header = match quic_parse_long_header(rest) {
+        Ok(value) => value
+        Err(_) if cursor > 0 => break
+        Err(error) => return Err(error)
+      }
+      if header.length > (rest.length() - header.number_offset).to_int64() {
+        if cursor > 0 {
+          break
+        }
+        return Err(NeedMoreInput)
+      }
+      (Some(header), header.number_offset + header.length.to_int())
+    } else {
+      (None, rest.length())
+    }
+    let bytes = if length == size { packet } else { rest[:length].to_owned() }
+    let incoming = match self.on_packet(source, bytes, header, size, now_ms) {
+      Ok(value) => value
+      Err(InvalidPacket(_) | NeedMoreInput | Tls(PacketAuthenticationFailed)) if cursor >
+        0 => break
+      Err(error) => return Err(error)
+    }
+    match consume(incoming) {
+      Ok(actions) => output.append(actions)
+      Err(error) => return Err(error)
+    }
+    cursor += length
+    if self.state() == Closed || self.state() == Draining {
+      break
+    }
+  }
+  Ok(output)
 }
 
 ///|
@@ -159,7 +184,7 @@ fn QuicDatagramDriver::receive_version_negotiation(
     self.initial_receive_keys is None ||
     self.next_initial_packet == 0L ||
     self.initial_peer_id is Some(_) ||
-    self.largest_handshake_received >= 0L ||
+    self.received_handshake.largest() >= 0L ||
     self.retry_source is Some(_) ||
     destination != self.local_connection_id ||
     peer_source != self.original_destination {
@@ -194,7 +219,7 @@ fn QuicDatagramDriver::receive_retry(
     self.initial_receive_keys is None ||
     self.next_initial_packet == 0L ||
     self.initial_peer_id is Some(_) ||
-    self.largest_handshake_received >= 0L ||
+    self.received_handshake.largest() >= 0L ||
     source != self.path.active() {
     return Ok([PacketIgnored])
   }
@@ -243,8 +268,7 @@ fn QuicDatagramDriver::receive_retry(
     entry.pending = true
   }
   self.initial_peer_id = None
-  self.largest_initial_received = -1L
-  self.seen_initial = []
+  self.received_initial = QuicReceivedPackets::new()
   let output = [RetryReceived(retry.source)]
   match self.flush_pending_retransmissions(Initial, now_ms) {
     Ok(actions) => {
@@ -260,48 +284,29 @@ fn QuicDatagramDriver::on_packet(
   self : QuicDatagramDriver,
   source : @types.Endpoint,
   packet : Bytes,
+  header : QuicLongHeader?,
+  datagram_size : Int,
   now_ms : Int64,
 ) -> Result[Array[QuicDriverAction], QuicError] {
-  if self.state() == Closed || self.state() == Draining {
-    return Ok([PacketIgnored])
-  }
-  if packet.is_empty() ||
-    packet.length() > self.connection.transport_params.max_udp_payload_size {
-    return Err(
-      LimitExceeded(
-        "QUIC datagram",
-        self.connection.transport_params.max_udp_payload_size,
-      ),
-    )
-  }
-  if now_ms < 0L {
-    return Err(InvalidPacket("QUIC clock cannot be negative"))
-  }
   let candidate_path = source != self.path.active()
-  if candidate_path && self.path.candidate() != Some(source) {
-    return Err(InvalidPacket("packet arrived on an unvalidated path"))
-  }
-  let first = packet[0].to_int()
-  let long_header = (first & 0x80) != 0
-  if long_header &&
-    packet.length() >= 5 &&
-    (packet_version(packet) != QUIC_VERSION_1 || ((first >> 4) & 3) == 3) {
-    if candidate_path {
-      return Ok([PacketIgnored])
-    }
-    return self.receive_negotiation_packet(source, packet, now_ms)
-  }
-  let (space, opened, source_connection_id, advance_keys) = if long_header {
+  let (space, opened, source_connection_id, advance_keys) = if header
+    is Some(header) {
     if candidate_path {
       return Err(
         InvalidPacket("path validation requires an application packet"),
       )
     }
-    let fields = match quic_long_header_fields(packet) {
-      Ok(value) => value
-      Err(error) => return Err(error)
+    let {
+      version,
+      destination,
+      source: source_id,
+      kind: packet_type,
+      number_offset: packet_number_offset,
+      ..
+    } = header
+    if self.role == Server && packet_type == 0 && datagram_size < 1200 {
+      return Ok([PacketIgnored])
     }
-    let (version, destination, source_id, packet_type, packet_number_offset, _) = fields
     let initial_destination = self.role == Server &&
       packet_type == 0 &&
       destination == self.initial_destination
@@ -313,21 +318,13 @@ fn QuicDatagramDriver::on_packet(
         ),
       )
     }
-    let initial_token : Bytes? = if packet_type == 0 {
-      match quic_decode_packet_header(packet) {
-        Ok((Initial(value), _)) => Some(value.token)
-        _ => None
-      }
-    } else {
-      None
-    }
     // Post-Retry servers are constructed only from a validated context. Every
     // later Initial must preserve the exact token and its endpoint/CID binding;
     // this check is independent of whether the issuer is retained by the driver.
     if self.role == Server && packet_type == 0 {
       match self.retry_context {
         Some(context) =>
-          if initial_token != Some(context.token) ||
+          if header.token != context.token[:] ||
             !context.matches(
               source,
               self.original_destination,
@@ -336,11 +333,8 @@ fn QuicDatagramDriver::on_packet(
             ) {
             return Ok([PacketIgnored])
           }
-        None =>
-          match initial_token {
-            Some(token) if !token.is_empty() => return Ok([PacketIgnored])
-            _ => ()
-          }
+        None if !header.token.is_empty() => return Ok([PacketIgnored])
+        None => ()
       }
     }
     let space = match quic_driver_packet_space(packet_type) {
@@ -356,11 +350,11 @@ fn QuicDatagramDriver::on_packet(
       Err(error) => return Err(error)
     }
     let opened = match
-      quic_open_packet_with_keys(
+      quic_open_protected(
         keys,
         packet,
         packet_number_offset,
-        self.quic_driver_largest(space),
+        self.received(space).largest(),
         true,
       ) {
       Ok(value) => value
@@ -392,7 +386,8 @@ fn QuicDatagramDriver::on_packet(
     }
     (space, opened, None, advance)
   }
-  if self.quic_driver_seen(space, opened.packet_number()) {
+  let received = self.received(space)
+  if received.seen(opened.packet_number()) {
     return Ok([PacketIgnored])
   }
   let frames = match quic_decode_frames(opened.payload(), limits=self.limits) {
@@ -483,7 +478,6 @@ fn QuicDatagramDriver::on_packet(
       Err(error) => return Err(error)
     }
   }
-  self.quic_driver_mark_seen(space, opened.packet_number())
   match self.recovery.on_receive(now_ms) {
     Ok(_) => ()
     Err(error) => return Err(error)
@@ -579,17 +573,12 @@ fn QuicDatagramDriver::on_packet(
       }
     }
   }
+  received.record(opened.packet_number(), now_ms)
   if ack_eliciting {
-    let range = match
-      AckRange::new(opened.packet_number(), opened.packet_number()) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    let ack = match AckFrame::new(opened.packet_number(), 0L, [range]) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    responses.push(Ack(ack))
+    received.pending = Some((opened.packet_number(), now_ms))
+  }
+  if received.pending_ack(space, self.limits, now_ms) is Some(ack) {
+    responses.push(ack)
   }
   // Application control frames must remain pending while replying to delayed
   // Initial/Handshake packets whose keys have not yet been discarded.
@@ -613,10 +602,11 @@ fn QuicDatagramDriver::on_packet(
         source,
       ) {
       Ok(value) => {
+        received.pending = None
         self.consume_pending_retirements(retirement_count)
         actions.push(value)
       }
-      Err(AmplificationBlocked) | Err(FlowControl(0L, _)) => ()
+      Err(error) if error.send_blocked() => ()
       Err(error) => return Err(error)
     }
   }

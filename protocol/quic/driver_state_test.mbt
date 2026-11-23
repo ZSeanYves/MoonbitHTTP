@@ -92,6 +92,7 @@ test "quic driver state: Initial and Handshake reject application frames before 
       0L,
       1,
       payload,
+      min_datagram_size=if space == Initial { 1200 } else { 0 },
     ).unwrap()
     assert_true(
       server.on_datagram(client_endpoint, packet, 1L) is Err(InvalidFrame(_)),

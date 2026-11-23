@@ -45,23 +45,6 @@ fn retry_token_u64(value : Int64) -> Bytes {
 }
 
 ///|
-fn retry_token_join(parts : Array[Bytes]) -> Bytes {
-  let mut length = 0
-  for part in parts {
-    length += part.length()
-  }
-  let output = FixedArray::make(length, b'\x00')
-  let mut offset = 0
-  for part in parts {
-    for byte in part {
-      output[offset] = byte
-      offset += 1
-    }
-  }
-  output.unsafe_reinterpret_as_bytes()
-}
-
-///|
 fn retry_token_equal(left : Bytes, right : Bytes) -> Bool {
   if left.length() != right.length() {
     return false
@@ -76,7 +59,7 @@ fn retry_token_equal(left : Bytes, right : Bytes) -> Bool {
 ///|
 fn retry_token_cid_part(cid : ConnectionId) -> Bytes {
   let bytes = cid.bytes()
-  retry_token_join([Bytes::from_array([bytes.length().to_byte()]), bytes])
+  quic_join_bytes([Bytes::from_array([bytes.length().to_byte()]), bytes])
 }
 
 ///|
@@ -139,7 +122,7 @@ pub fn[C : @transport.Clock, E : @transport.Entropy] QuicRetryTokenManager::issu
     Ok(_) => ()
     Err(error) => return Err(Entropy(error))
   }
-  let body = retry_token_join([
+  let body = quic_join_bytes([
     retry_token_magic,
     retry_token_u64(now_ms),
     retry_token_u16(binding.length()),
@@ -150,7 +133,7 @@ pub fn[C : @transport.Clock, E : @transport.Entropy] QuicRetryTokenManager::issu
     nonce.unsafe_reinterpret_as_bytes(),
   ])
   let mac = @mooncry.hmac_sha256(self.secret, body)
-  let token = retry_token_join([body, mac])
+  let token = quic_join_bytes([body, mac])
   if token.length() > retry_token_max_length {
     return Err(LimitExceeded("Retry token", retry_token_max_length))
   }

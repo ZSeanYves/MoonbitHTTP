@@ -22,6 +22,7 @@ fn QuicDatagramDriver::discard_packet_space(
     }
     Application => return
   }
+  self.received(space).pending = None
   let mut index = self.retransmissions.length() - 1
   while index >= 0 {
     if self.retransmissions[index].space == space {
@@ -33,13 +34,10 @@ fn QuicDatagramDriver::discard_packet_space(
   while index >= 0 {
     let packet = self.recovery.sent[index]
     if packet.space == space {
-      if packet.ack_eliciting {
-        self.recovery.bytes_in_flight = (self.recovery.bytes_in_flight -
-        packet.bytes.to_int64()).max(0L)
-      }
-      self.recovery.sent.remove(index) |> ignore
+      ignore(self.recovery.remove_sent(index))
     }
     index -= 1
   }
   self.recovery.pto_count = 0
+  self.recovery.last_probe_ms = None
 }

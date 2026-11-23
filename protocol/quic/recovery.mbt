@@ -79,6 +79,11 @@ pub(all) struct QuicRecovery {
   config : QuicRecoveryConfig
   mut peer_max_ack_delay_ms : Int64
   sent : Array[QuicSentPacket]
+  // Only packets that need padding to count as in flight require an entry.
+  priv padded_non_eliciting : Set[(PacketNumberSpace, Int64)]
+  // An unpadded ACK can be the largest number in a mixed ACK. Its timestamp
+  // is optional RTT history and must never consume a recovery admission slot.
+  priv recent_untracked : Map[(PacketNumberSpace, Int64), QuicSentPacket]
   mut bytes_in_flight : Int64
   mut largest_initial_sent : Int64
   mut largest_handshake_sent : Int64
@@ -118,6 +123,8 @@ pub fn QuicRecovery::new(
     config,
     peer_max_ack_delay_ms: config.max_ack_delay_ms,
     sent: [],
+    padded_non_eliciting: Set([]),
+    recent_untracked: {},
     bytes_in_flight: 0L,
     largest_initial_sent: -1L,
     largest_handshake_sent: -1L,
@@ -231,14 +238,14 @@ fn QuicRecovery::sent_after_recovery_start(
 pub fn QuicRecovery::can_send(
   self : QuicRecovery,
   bytes : Int,
-  ack_eliciting : Bool,
+  in_flight : Bool,
   congestion_exempt? : Bool = false,
 ) -> Result[Unit, QuicError] {
   if bytes <= 0 {
     return Err(InvalidPacket("packet size must be positive"))
   }
   let bytes64 = bytes.to_int64()
-  if ack_eliciting {
+  if in_flight {
     if self.bytes_in_flight > QUIC_MAX_VARINT - bytes64 {
       return Err(VarIntOverflow)
     }
@@ -260,39 +267,19 @@ pub fn QuicRecovery::oldest_probe_packet(
   self : QuicRecovery,
   space : PacketNumberSpace,
 ) -> QuicSentPacket? {
-  let mut selected : (Int, QuicSentPacket)? = None
-  for index, packet in self.sent {
+  let mut selected : QuicSentPacket? = None
+  for packet in self.sent {
     if packet.space != space || !packet.ack_eliciting {
       continue
     }
     match selected {
-      None => selected = Some((index, packet))
-      Some((_, previous)) if packet.sent_at_ms < previous.sent_at_ms =>
-        selected = Some((index, packet))
+      None => selected = Some(packet)
+      Some(previous) if packet.sent_at_ms < previous.sent_at_ms =>
+        selected = Some(packet)
       _ => ()
     }
   }
-  match selected {
-    None => None
-    Some((_, packet)) => Some(packet)
-  }
-}
-
-///|
-fn recovery_packet_matches(
-  packet : QuicSentPacket,
-  space : PacketNumberSpace,
-  ranges : Array[AckRange],
-) -> Bool {
-  if packet.space != space {
-    return false
-  }
-  for range in ranges {
-    if packet.number >= range.smallest && packet.number <= range.largest {
-      return true
-    }
-  }
-  false
+  selected
 }
 
 ///|
@@ -327,10 +314,26 @@ fn pto_backoff(base : Int64, count : Int) -> Int64 {
 }
 
 ///|
+/// Supply contains_padding for packets with explicit or builder-added PADDING.
+/// Congestion uses their full wire size even when they do not elicit an ACK.
 pub fn QuicRecovery::on_packet_sent(
   self : QuicRecovery,
   packet : QuicSentPacket,
+  contains_padding? : Bool = false,
   congestion_exempt? : Bool = false,
+) -> Result[Unit, QuicError] {
+  let in_flight = packet.ack_eliciting || contains_padding
+  self
+  .check_sent(packet, in_flight, congestion_exempt)
+  .map(_ => self.record_sent(packet, in_flight))
+}
+
+///|
+fn QuicRecovery::check_sent(
+  self : QuicRecovery,
+  packet : QuicSentPacket,
+  in_flight : Bool,
+  congestion_exempt : Bool,
 ) -> Result[Unit, QuicError] {
   if packet.number < 0L ||
     packet.number > QUIC_MAX_VARINT ||
@@ -341,8 +344,8 @@ pub fn QuicRecovery::on_packet_sent(
   if packet.number <= self.largest_sent(packet.space) {
     return Err(InvalidPacket("packet numbers must increase within their space"))
   }
-  let tracked = packet.ack_eliciting || packet.retransmittable
-  if tracked && self.sent.length() >= self.config.max_tracked_packets {
+  if (in_flight || packet.retransmittable) &&
+    self.sent.length() >= self.config.max_tracked_packets {
     return Err(
       LimitExceeded(
         "QUIC recovery packet queue",
@@ -350,19 +353,53 @@ pub fn QuicRecovery::on_packet_sent(
       ),
     )
   }
-  match self.can_send(packet.bytes, packet.ack_eliciting, congestion_exempt~) {
-    Ok(_) => ()
-    Err(error) => return Err(error)
-  }
-  if tracked {
+  self.can_send(packet.bytes, in_flight, congestion_exempt~)
+}
+
+///|
+fn QuicRecovery::record_sent(
+  self : QuicRecovery,
+  packet : QuicSentPacket,
+  in_flight : Bool,
+) -> Unit {
+  if in_flight || packet.retransmittable {
     self.sent.push(packet)
+  } else if !self.sent.is_empty() {
+    self.recent_untracked.set(
+      self.timestamp_slot(packet.space, packet.number),
+      packet,
+    )
   }
-  if packet.ack_eliciting {
+  if in_flight && !packet.ack_eliciting {
+    self.padded_non_eliciting.add((packet.space, packet.number))
+  }
+  if in_flight {
     self.bytes_in_flight += packet.bytes.to_int64()
   }
   self.set_largest_sent(packet.space, packet.number)
   self.last_activity_ms = packet.sent_at_ms
-  Ok(())
+}
+
+///|
+fn QuicRecovery::timestamp_slot(
+  self : QuicRecovery,
+  space : PacketNumberSpace,
+  number : Int64,
+) -> (PacketNumberSpace, Int64) {
+  (space, number % self.config.max_tracked_packets.min(4096).to_int64())
+}
+
+///|
+/// Release a tracked packet once, whether it was ACKed, lost or discarded.
+/// Returns whether it supplied congestion feedback.
+fn QuicRecovery::remove_sent(self : QuicRecovery, index : Int) -> Bool {
+  let packet = self.sent.remove(index)
+  let in_flight = packet.ack_eliciting ||
+    self.padded_non_eliciting.remove_and_check((packet.space, packet.number))
+  if in_flight {
+    self.bytes_in_flight -= packet.bytes.to_int64()
+  }
+  in_flight
 }
 
 ///|
@@ -419,41 +456,40 @@ fn QuicRecovery::apply_ack(
   if largest > self.largest_sent(space) {
     return Err(Protocol(0x0aL, "ACK acknowledges an unsent packet"))
   }
+  let mut rtt_packet : QuicSentPacket? = None
   if largest > self.largest_acked(space) {
     self.set_largest_acked(space, largest)
+    let slot = self.timestamp_slot(space, largest)
+    if self.recent_untracked.get(slot) is Some(packet) &&
+      packet.number == largest &&
+      packet.sent_at_ms <= now_ms {
+      rtt_packet = Some(packet)
+      self.recent_untracked.remove(slot)
+    }
   }
   let events : Array[QuicRecoveryEvent] = []
-  let mut rtt_packet : QuicSentPacket? = None
+  let mut acked_eliciting = false
   let mut acknowledged_after_recovery_start = false
   let mut acknowledged_bytes : Int64 = 0L
   let mut index = self.sent.length() - 1
   while index >= 0 {
     let packet = self.sent[index]
-    if recovery_packet_matches(packet, space, ack.ranges) {
-      // ACK-only packets do not provide congestion feedback.  They may be
-      // retained for retransmission bookkeeping, but must not end a loss
-      // recovery epoch or grow the congestion window.
-      if self.sent_after_recovery_start(packet) && packet.ack_eliciting {
+    if packet.space == space && ack.covers(packet.number) {
+      let in_flight = self.remove_sent(index)
+      if in_flight && self.sent_after_recovery_start(packet) {
         acknowledged_after_recovery_start = true
         acknowledged_bytes += packet.bytes.to_int64()
       }
-      if packet.ack_eliciting {
-        self.bytes_in_flight = (self.bytes_in_flight - packet.bytes.to_int64()).max(
-          0L,
-        )
-      }
-      if packet.number == largest &&
-        packet.ack_eliciting &&
-        packet.sent_at_ms <= now_ms {
+      acked_eliciting = acked_eliciting || packet.ack_eliciting
+      if packet.number == largest && packet.sent_at_ms <= now_ms {
         rtt_packet = Some(packet)
       }
       events.push(PacketAcknowledged(packet.number, packet.space, packet.bytes))
-      self.sent.remove(index) |> ignore
     }
     index -= 1
   }
   match rtt_packet {
-    Some(packet) => {
+    Some(packet) if acked_eliciting => {
       let raw_sample = (now_ms - packet.sent_at_ms).max(1L)
       let min_rtt = self.min_rtt_ms.map_or(raw_sample, fn(previous) {
         previous.min(raw_sample)
@@ -481,7 +517,7 @@ fn QuicRecovery::apply_ack(
       } else {
         raw_sample
       }
-      self.latest_rtt_ms = Some(sample)
+      self.latest_rtt_ms = Some(raw_sample)
       match (self.smoothed_rtt_ms, self.rttvar_ms) {
         (None, _) => {
           self.smoothed_rtt_ms = Some(sample)
@@ -495,9 +531,9 @@ fn QuicRecovery::apply_ack(
         _ => ()
       }
     }
-    None => ()
+    _ => ()
   }
-  if reset_pto && events.any(fn(event) { event is PacketAcknowledged(_, _, _) }) {
+  if reset_pto && !events.is_empty() {
     self.pto_count = 0
     self.last_probe_ms = None
   }
@@ -601,16 +637,11 @@ pub fn QuicRecovery::detect_loss(
           packet.sent_at_ms <= now_ms - time_threshold
         )
       ) {
-      if self.sent_after_recovery_start(packet) {
+      let in_flight = self.remove_sent(index)
+      if in_flight && self.sent_after_recovery_start(packet) {
         lost_after_recovery_start = true
       }
-      if packet.ack_eliciting {
-        self.bytes_in_flight = (self.bytes_in_flight - packet.bytes.to_int64()).max(
-          0L,
-        )
-      }
       events.push(PacketLost(packet.number, packet.space, packet.bytes))
-      self.sent.remove(index) |> ignore
     }
     index -= 1
   }

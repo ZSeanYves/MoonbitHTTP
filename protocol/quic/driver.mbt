@@ -15,23 +15,6 @@ pub(all) enum QuicDriverAction {
 } derive(Eq, Debug)
 
 ///|
-fn quic_driver_join(parts : Array[Bytes]) -> Bytes {
-  let mut length = 0
-  for part in parts {
-    length += part.length()
-  }
-  let output = FixedArray::make(length, b'\x00')
-  let mut cursor = 0
-  for part in parts {
-    for byte in part {
-      output[cursor] = byte
-      cursor += 1
-    }
-  }
-  output.unsafe_reinterpret_as_bytes()
-}
-
-///|
 pub struct QuicDatagramDriver {
   priv role : QuicRole
   priv limits : QuicLimits
@@ -68,15 +51,12 @@ pub struct QuicDatagramDriver {
   priv peer_connection_ids : QuicConnectionIdManager
   priv pending_resets : @deque.Deque[QuicFrame]
   priv pending_retirements : Array[Int64]
-  priv mut largest_initial_received : Int64
-  priv mut largest_handshake_received : Int64
-  priv mut largest_application_received : Int64
+  priv mut received_initial : QuicReceivedPackets
+  priv received_handshake : QuicReceivedPackets
+  priv received_application : QuicReceivedPackets
   priv mut next_initial_packet : Int64
   priv mut next_handshake_packet : Int64
   priv mut next_application_packet : Int64
-  priv mut seen_initial : Array[Int64]
-  priv seen_handshake : Array[Int64]
-  priv seen_application : Array[Int64]
   priv crypto_initial : QuicCryptoReassembler
   priv crypto_handshake : QuicCryptoReassembler
   priv crypto_application : QuicCryptoReassembler
@@ -412,15 +392,12 @@ pub fn QuicDatagramDriver::new(
     peer_connection_ids,
     pending_resets: @deque.from_array([]),
     pending_retirements: [],
-    largest_initial_received: -1L,
-    largest_handshake_received: -1L,
-    largest_application_received: -1L,
+    received_initial: QuicReceivedPackets::new(),
+    received_handshake: QuicReceivedPackets::new(),
+    received_application: QuicReceivedPackets::new(),
     next_initial_packet: 0L,
     next_handshake_packet: 0L,
     next_application_packet: 0L,
-    seen_initial: [],
-    seen_handshake: [],
-    seen_application: [],
     crypto_initial: initial_crypto,
     crypto_handshake: handshake_crypto,
     crypto_application: application_crypto,

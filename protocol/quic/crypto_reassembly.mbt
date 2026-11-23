@@ -176,7 +176,7 @@ fn QuicCryptoReassembler::feed_bounded(
           return Err(error)
         }
       }
-      let combined = quic_driver_join([last.1, suffix])
+      let combined = quic_join_bytes([last.1, suffix])
       merged[last_index] = (last.0, combined)
     }
   }

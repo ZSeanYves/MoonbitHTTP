@@ -573,3 +573,89 @@ test "quic recovery: loss epochs use send order across packet spaces" {
   assert_eq(recovery.detect_loss(Initial, 201L).unwrap().length(), 1)
   assert_eq(recovery.congestion_window(), second_reduction)
 }
+
+///|
+test "quic recovery: padded sends observe both limits and settle congestion once" {
+  let recovery = @quic.QuicRecovery::new().unwrap()
+  let packet : @quic.QuicSentPacket = {
+    number: 0L,
+    space: Application,
+    bytes: 1200,
+    sent_at_ms: 0L,
+    ack_eliciting: false,
+    retransmittable: false,
+  }
+  for number in 0L..<10L {
+    recovery
+    .on_packet_sent({ ..packet, number, }, contains_padding=true)
+    .unwrap()
+  }
+  let next = { ..packet, number: 10L, }
+  assert_true(
+    recovery.on_packet_sent(next, contains_padding=true) is Err(FlowControl(_)),
+  )
+  recovery.on_packet_sent(next).unwrap()
+  assert_eq(recovery.bytes_in_flight(), 12000L)
+  assert_true(recovery.oldest_probe_packet(Application) is None)
+  assert_eq(recovery.poll(2000L).unwrap(), [])
+  let ack = @quic.AckFrame::new(9L, 0L, [@quic.AckRange::new(9L, 8L).unwrap()]).unwrap()
+  assert_eq(recovery.on_ack(Application, ack, 2L).unwrap().length(), 2)
+  assert_eq(recovery.on_ack(Application, ack, 3L).unwrap(), [])
+  assert_eq(recovery.bytes_in_flight(), 9600L)
+  assert_eq(recovery.smoothed_rtt_ms(), None)
+  assert_eq(recovery.congestion_window(), 14400L)
+  assert_eq(recovery.detect_loss(Application, 4L).unwrap().length(), 7)
+  assert_eq(recovery.bytes_in_flight(), 1200L)
+  assert_eq(recovery.congestion_window(), 7200L)
+  assert_eq(recovery.detect_loss(Application, 4L).unwrap(), [])
+  let capped = @quic.QuicRecovery::new(config={
+    ..@quic.QuicRecoveryConfig::defaults(),
+    max_tracked_packets: 1,
+  }).unwrap()
+  capped.on_packet_sent(packet, contains_padding=true).unwrap()
+  assert_true(
+    capped.on_packet_sent(next, contains_padding=true)
+    is Err(LimitExceeded(_, 1)),
+  )
+  capped.on_packet_sent(next).unwrap()
+  assert_eq(capped.bytes_in_flight(), 1200L)
+}
+
+///|
+test "quic recovery: mixed ACK samples the time of its largest non-eliciting packet" {
+  for contains_padding in [true, false] {
+    let recovery = @quic.QuicRecovery::new().unwrap()
+    let packet : @quic.QuicSentPacket = {
+      number: 0L,
+      space: Handshake,
+      bytes: 100,
+      sent_at_ms: 10L,
+      ack_eliciting: true,
+      retransmittable: true,
+    }
+    recovery.on_packet_sent(packet).unwrap()
+    recovery
+    .on_packet_sent(
+      {
+        ..packet,
+        number: 1L,
+        sent_at_ms: 17L,
+        ack_eliciting: false,
+        retransmittable: false,
+      },
+      contains_padding~,
+    )
+    .unwrap()
+    let ack = @quic.AckFrame::new(1L, 0L, [@quic.AckRange::new(1L, 0L).unwrap()]).unwrap()
+    assert_eq(
+      recovery.on_ack(Handshake, ack, 50L).unwrap().length(),
+      if contains_padding {
+        2
+      } else {
+        1
+      },
+    )
+    assert_eq(recovery.smoothed_rtt_ms(), Some(33L))
+    assert_eq(recovery.bytes_in_flight(), 0L)
+  }
+}

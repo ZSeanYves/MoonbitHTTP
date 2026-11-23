@@ -115,7 +115,7 @@ fn QuicDatagramDriver::open_application_packet(
       current,
       packet,
       offset,
-      self.largest_application_received,
+      self.received_application.largest(),
       false,
     ) {
     Ok(opened) => {
@@ -134,12 +134,12 @@ fn QuicDatagramDriver::open_application_packet(
         next,
         packet,
         offset,
-        self.largest_application_received,
+        self.received_application.largest(),
         false,
       ) {
       Ok(opened) => {
         if opened.key_phase() == state.receive_phase ||
-          opened.packet_number() <= self.largest_application_received {
+          opened.packet_number() <= self.received_application.largest() {
           return Err(
             self.key_update_failure(
               "key update must advance phase and packet number",
@@ -165,7 +165,7 @@ fn QuicDatagramDriver::open_application_packet(
         previous,
         packet,
         offset,
-        self.largest_application_received,
+        self.received_application.largest(),
         false,
       ) {
       Ok(opened) => {

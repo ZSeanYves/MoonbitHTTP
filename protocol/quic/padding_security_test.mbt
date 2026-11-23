@@ -96,3 +96,24 @@ test "quic padding chooses a representable size at both small length boundaries"
     )
   }
 }
+
+///|
+test "long headers authenticate the full packet number across a wire truncation" {
+  let destination = @quic.ConnectionId::new(b"destinid").unwrap()
+  let source = @quic.ConnectionId::new(b"sourceid").unwrap()
+  let keys = @quic.quic_initial_packet_key(destination, Client).unwrap()
+  let number = 0x100000000L
+  let packet = @quic.quic_build_long_packet(
+    keys, 2, 1, destination, source, b"", number, 1, b"\x01",
+  ).unwrap()
+  let (offset, _) = @quic.quic_long_header_packet_layout(packet).unwrap()
+  let opened = @quic.quic_open_packet_with_keys(
+    keys,
+    packet,
+    offset,
+    number - 1L,
+    true,
+  ).unwrap()
+  assert_eq(opened.packet_number(), number)
+  assert_eq(opened.payload(), b"\x01\x00\x00")
+}
