@@ -14,6 +14,51 @@ passed the four target suites (455 Wasm, 324 Wasm-GC, 455 JS and 514 Native),
 Windows. These results describe the published alpha. The changes listed under
 Unreleased in the changelog require their own validation.
 
+## QUIC recovery timers at `5e0f172`
+
+Two regressions failed on the preceding revision. With Initial sends at 0 and
+90 ms and a Handshake send at 40 ms, it probed Initial at 997 ms. The corrected
+driver selects Handshake at 1,037 ms. In a second case the receiver acknowledged
+a later packet at 80 ms and stayed silent. Polling now emits the missing stream
+payload at 90 ms, and the receiver delivers it with its FIN.
+[RFC 9002 sections 6.1 and 6.2](https://www.rfc-editor.org/rfc/rfc9002.html#section-6)
+
+A client waiting for address validation can send a padded Initial or a
+Handshake probe after its previous flight was fully acknowledged. Tests cover
+both encryption levels, a server blocked at its amplification limit, capped
+backoff, expiry on a silent peer and the three-PTO key-retention deadline on
+a monotonic clock above the QUIC varint range. The packet driver consumes
+validated ACK ranges without building a public event list. Standalone
+recovery callers continue to receive per-packet notifications.
+
+| Check | macOS arm64 | Ubuntu 24.04 arm64 VM |
+| --- | --- | --- |
+| Strict check, build and full suite | Wasm 499/499, Wasm-GC 358/358, JS 499/499, Native 566/566 | Native 566/566 |
+| Native QUIC, TLS, client and listener packages, included above | 178/178 | 178/178 |
+| Independent HTTP/1.1, HTTP/2 and h2c socket cases | 6/6 | 6/6 |
+| aioquic 1.3.0 with loss, delay and reordering, fresh connections | 60 in 122.576 s | 57 in 120.350 s |
+
+Each aioquic suite also completed 256 requests on one connection and eight
+concurrent requests. The MoonBit client verified a 4,096-byte echo, a
+131,072-byte download and hostname rejection against the upstream server.
+The peer qlog confirmed the application close. Across the VM gateway the
+ngtcp2/nghttp3 GnuTLS client received an exact 4,096-byte echo, GOAWAY(4)
+and a 0x100 application close from the macOS server.
+
+The pinned compiler was `0.10.14+7d59c7ec9`. The architecture check covered
+28 manifests and 96 local dependencies. All 33 macOS Native TLS ASan tests
+passed with leak detection disabled. Both ASan input hashes were restored.
+The frozen archive contained 428 files, passed its extracted four-target
+check and had SHA-256
+`1ac27c61ef6b8abe287f5ebcf32efe1bdd0c047d41d711766ffac8b618bb9e03`.
+
+Both operating systems ran on one physical machine. Current Windows results,
+sustained traffic between separate hosts and independent release-revision
+security review remain open. The tracking limit still applies to PTO probes.
+When the queue is full and no ACK or loss frees a slot, the connection can
+reach its idle timeout before sending another probe. The native HTTP/3 client
+currently takes a numeric endpoint and scopes a connection to one origin.
+
 ## QUIC congestion and cumulative ACKs at `dd0c77b`
 
 The original client sent a 1,200-byte Initial containing an ACK and automatic
@@ -60,13 +105,9 @@ passed with leak detection disabled, and the runtime and manifest hashes were
 restored. The 426-file package passed its extracted four-target check with
 SHA-256 `06155f8f820c6c890b8a0be6405b29b6d67d4a7557bcc2e724c6aa771bc3c481`.
 
-QUIC's probe timer still selects the oldest outstanding eliciting packet, and
-time-threshold loss detection currently runs when processing an ACK. Timer
-behavior across packet-number spaces remains a recovery milestone.
-The native HTTP/3 client takes a numeric endpoint and scopes a connection to
-one origin. A current Windows run, sustained testing on separate physical
-hosts and independent release-revision security review remain open.
-[RFC 9002 section 6.2](https://www.rfc-editor.org/rfc/rfc9002.html#section-6.2)
+The [subsequent timer validation](#quic-recovery-timers-at-5e0f172) covers
+probe selection across packet-number spaces and time-threshold loss during
+periods without incoming ACKs.
 
 ## HTTP/3 shutdown and QUIC frame handling at `abf4e1a`
 
