@@ -17,6 +17,14 @@ pub fn QuicVarInt::value(self : QuicVarInt) -> Int64 {
 }
 
 ///|
+fn varint_to_index(value : Int64) -> Result[Int, QuicError] {
+  if value < 0L || value > @int.MAX_VALUE.to_int64() {
+    return Err(VarIntOverflow)
+  }
+  Ok(value.to_int())
+}
+
+///|
 pub fn QuicVarInt::encoded_length(self : QuicVarInt) -> Int {
   quic_encoded_varint_size(self.value)
 }
@@ -90,10 +98,8 @@ pub fn quic_decode_varint(
   for index in 1..<length {
     value = (value << 8) | input[index].to_int().to_int64()
   }
-  let result = match QuicVarInt::new(value) {
-    Ok(result) => result
-    Err(error) => return Err(error)
-  }
+  // The length bits were masked off, so value contains at most 62 bits.
+  let result : QuicVarInt = { value, }
   if canonical && result.encoded_length() != length {
     return Err(NonCanonicalVarInt)
   }

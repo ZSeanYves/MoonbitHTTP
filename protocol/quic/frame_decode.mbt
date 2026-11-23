@@ -1,132 +1,179 @@
 ///|
-fn decode_frame_varint(
-  payload : BytesView,
-  offset : Int,
+priv struct QuicFrameReader {
+  mut remaining : BytesView
+}
+
+///|
+fn QuicFrameReader::varint(
+  self : QuicFrameReader,
   canonical? : Bool = false,
-) -> Result[(Int64, Int), QuicError] {
-  if offset < 0 || offset > payload.length() {
-    return Err(NeedMoreInput)
-  }
-  let (value, used) = match quic_decode_varint(payload[offset:], canonical~) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  Ok((value.value(), offset + used))
+) -> Int64 raise QuicError {
+  let (value, used) = quic_decode_varint(self.remaining, canonical~).unwrap_or_error()
+  self.remaining = self.remaining[used:]
+  value.value()
 }
 
 ///|
-fn varint_to_index(value : Int64) -> Result[Int, QuicError] {
-  if value < 0L || value > @int.MAX_VALUE.to_int64() {
-    return Err(VarIntOverflow)
-  }
-  Ok(value.to_int())
+fn QuicFrameReader::index(
+  self : QuicFrameReader,
+  canonical? : Bool = false,
+) -> Int raise QuicError {
+  varint_to_index(self.varint(canonical~)).unwrap_or_error()
 }
 
 ///|
-fn take_frame_bytes(
-  payload : BytesView,
-  offset : Int,
-  length : Int,
-) -> Result[(Bytes, Int), QuicError] {
-  if length < 0 ||
-    offset < 0 ||
-    offset > payload.length() ||
-    length > payload.length() - offset {
-    return Err(NeedMoreInput)
+fn QuicFrameReader::take(
+  self : QuicFrameReader,
+  count : Int,
+) -> BytesView raise QuicError {
+  if count > self.remaining.length() {
+    raise NeedMoreInput
   }
-  Ok((payload[offset:offset + length].to_owned(), offset + length))
+  let value = self.remaining[:count]
+  self.remaining = self.remaining[count:]
+  value
 }
 
 ///|
-fn decode_ack_frame(
-  payload : BytesView,
-  offset : Int,
+fn QuicFrameReader::ack(
+  self : QuicFrameReader,
   with_ecn : Bool,
   limits : QuicLimits,
-) -> Result[(AckFrame, Int), QuicError] {
-  let (largest, after_largest) = match decode_frame_varint(payload, offset) {
-    Ok(value) => value
-    Err(error) => return Err(error)
+) -> AckFrame raise QuicError {
+  let largest = self.varint()
+  let delay = self.varint()
+  let count = self.index()
+  if count > limits.max_ack_ranges {
+    raise LimitExceeded("ACK ranges", limits.max_ack_ranges)
   }
-  let (delay, after_delay) = match decode_frame_varint(payload, after_largest) {
-    Ok(value) => value
-    Err(error) => return Err(error)
+  let first = self.varint()
+  if first > largest {
+    raise InvalidFrame("ACK first range underflows")
   }
-  let (range_count64, after_count) = match
-    decode_frame_varint(payload, after_delay) {
-    Ok(value) => value
-    Err(error) => return Err(error)
+  let mut smallest = largest - first
+  let ranges : Array[AckRange] = [{ largest, smallest, }]
+  for _ in 0..<count {
+    let gap = self.varint()
+    let length = self.varint()
+    if gap + 2L > smallest {
+      raise InvalidFrame("ACK range gap underflows packet number")
+    }
+    let largest = smallest - gap - 2L
+    if length > largest {
+      raise InvalidFrame("ACK range length underflows packet number")
+    }
+    smallest = largest - length
+    ranges.push({ largest, smallest, })
   }
-  let range_count = match varint_to_index(range_count64) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  if range_count > limits.max_ack_ranges {
-    return Err(LimitExceeded("ACK ranges", limits.max_ack_ranges))
-  }
-  let (first_range, first_cursor) = match
-    decode_frame_varint(payload, after_count) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  if first_range > largest {
-    return Err(InvalidFrame("ACK first range underflows"))
-  }
-  // The wire uses unsigned varints and gaps. The subtraction checks here
-  // establish the ordering and bounds as we decode each range.
-  let ranges : Array[AckRange] = [{ largest, smallest: largest - first_range, }]
-  let mut cursor = first_cursor
-  let mut previous_smallest = largest - first_range
-  for _ in 0..<range_count {
-    let (gap, after_gap) = match decode_frame_varint(payload, cursor) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    let (range_length, after_range) = match
-      decode_frame_varint(payload, after_gap) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    if gap + 2L > previous_smallest {
-      return Err(InvalidFrame("ACK range gap underflows packet number"))
-    }
-    let largest_range = previous_smallest - gap - 2L
-    if range_length > largest_range {
-      return Err(InvalidFrame("ACK range length underflows packet number"))
-    }
-    let range : AckRange = {
-      largest: largest_range,
-      smallest: largest_range - range_length,
-    }
-    ranges.push(range)
-    previous_smallest = range.smallest
-    cursor = after_range
-  }
-  let ecn = if with_ecn {
-    let (ect0, after_ect0) = match decode_frame_varint(payload, cursor) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    let (ect1, after_ect1) = match decode_frame_varint(payload, after_ect0) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    let (ce, after_ce) = match decode_frame_varint(payload, after_ect1) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    cursor = after_ce
+  let ecn_counts = if with_ecn {
+    let ect0 = self.varint()
+    let ect1 = self.varint()
+    let ce = self.varint()
     Some((ect0, ect1, ce))
   } else {
     None
   }
-  let ack = {
-    largest_acknowledged: largest,
-    ack_delay: delay,
-    ranges,
-    ecn_counts: ecn,
+  { largest_acknowledged: largest, ack_delay: delay, ranges, ecn_counts, }
+}
+
+///|
+fn QuicFrameReader::frame(
+  self : QuicFrameReader,
+  limits : QuicLimits,
+) -> QuicFrame raise QuicError {
+  let typ = self.index(canonical=true)
+  match typ {
+    0x00 => Padding
+    0x01 => Ping
+    0x02 | 0x03 => Ack(self.ack(typ == 0x03, limits))
+    0x04 => {
+      let id = self.varint()
+      let code = self.varint()
+      ResetStream(id, code, self.varint())
+    }
+    0x05 => {
+      let id = self.varint()
+      StopSending(id, self.varint())
+    }
+    0x06 => {
+      let offset = self.varint()
+      let length = self.index()
+      if length > limits.max_crypto_bytes {
+        raise LimitExceeded("CRYPTO data", limits.max_crypto_bytes)
+      }
+      ignore(quic_range_end(offset, length).unwrap_or_error())
+      Crypto(offset, self.take(length).to_owned())
+    }
+    0x07 => {
+      let length = self.index()
+      quic_check_new_token(length)
+      NewToken(self.take(length).to_owned())
+    }
+    _ if typ >= 0x08 && typ <= 0x0f => {
+      let id = self.varint()
+      let offset = if (typ & 0x04) != 0 { self.varint() } else { 0L }
+      let length = if (typ & 0x02) != 0 {
+        self.index()
+      } else {
+        self.remaining.length()
+      }
+      let data = self.take(length).to_owned()
+      Stream(
+        StreamFrame::new(id, offset, data, (typ & 0x01) != 0).unwrap_or_error(),
+      )
+    }
+    0x10 => MaxData(self.varint())
+    0x11 => {
+      let id = self.varint()
+      MaxStreamData(id, self.varint())
+    }
+    0x12 | 0x13 => {
+      let count = self.varint()
+      quic_check_stream_count(count)
+      MaxStreams(typ == 0x13, count)
+    }
+    0x14 => DataBlocked(self.varint())
+    0x15 => {
+      let id = self.varint()
+      StreamDataBlocked(id, self.varint())
+    }
+    0x16 | 0x17 => {
+      let count = self.varint()
+      quic_check_stream_count(count)
+      StreamsBlocked(typ == 0x17, count)
+    }
+    0x18 => {
+      let sequence = self.varint()
+      let floor = self.varint()
+      let length = self.take(1)[0].to_int()
+      if !quic_valid_connection_id_announcement(sequence, floor, length, 16) {
+        raise Protocol(0x07L, "invalid NEW_CONNECTION_ID")
+      }
+      let fields = self.take(length + 16)
+      let id : ConnectionId = { bytes: fields[:length].to_owned(), }
+      NewConnectionId(sequence, floor, id, fields[length:].to_owned())
+    }
+    0x19 => RetireConnectionId(self.varint())
+    0x1a => PathChallenge(self.take(8).to_owned())
+    0x1b => PathResponse(self.take(8).to_owned())
+    0x1c | 0x1d => {
+      let code = self.varint()
+      let transport = typ == 0x1c
+      let frame_type = if transport { self.varint() } else { 0L }
+      let length = self.index()
+      ConnectionClose(transport, code, frame_type, self.take(length).to_owned())
+    }
+    0x1e => HandshakeDone
+    0x30 | 0x31 => {
+      let length = if typ == 0x31 {
+        self.index()
+      } else {
+        self.remaining.length()
+      }
+      Datagram(self.take(length).to_owned())
+    }
+    _ => raise InvalidFrame("unknown QUIC frame type")
   }
-  Ok((ack, cursor))
 }
 
 ///|
@@ -134,306 +181,28 @@ pub fn quic_decode_frames(
   payload : BytesView,
   limits? : QuicLimits = QuicLimits::defaults(),
 ) -> Result[Array[QuicFrame], QuicError] {
-  match limits.validate() {
-    Ok(_) => ()
-    Err(error) => return Err(error)
+  try {
+    limits.validate().unwrap_or_error()
+    Ok(quic_read_frames(payload, limits))
+  } catch {
+    error => Err(error)
   }
+}
+
+///|
+/// Driver construction validates the immutable configuration. Each packet
+/// still has its payload, fields, lengths and resource bounds checked here.
+fn quic_read_frames(
+  payload : BytesView,
+  limits : QuicLimits,
+) -> Array[QuicFrame] raise QuicError {
   if payload.length() > limits.max_frame_payload {
-    return Err(LimitExceeded("frame payload", limits.max_frame_payload))
+    raise LimitExceeded("frame payload", limits.max_frame_payload)
   }
-  let frames : Array[QuicFrame] = []
-  let mut offset = 0
-  while offset < payload.length() {
-    let (typ64, next) = match
-      decode_frame_varint(payload, offset, canonical=true) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    let typ = match varint_to_index(typ64) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    offset = next
-    if typ == 0x00 {
-      frames.push(Padding)
-    } else if typ == 0x01 {
-      frames.push(Ping)
-    } else if typ == 0x02 || typ == 0x03 {
-      let (ack, cursor) = match
-        decode_ack_frame(payload, offset, typ == 0x03, limits) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(Ack(ack))
-      offset = cursor
-    } else if typ == 0x04 {
-      let (stream_id, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let (error_code, cursor) = match decode_frame_varint(payload, cursor) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let (final_size, cursor) = match decode_frame_varint(payload, cursor) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(ResetStream(stream_id, error_code, final_size))
-      offset = cursor
-    } else if typ == 0x05 {
-      let (stream_id, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let (error_code, cursor) = match decode_frame_varint(payload, cursor) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(StopSending(stream_id, error_code))
-      offset = cursor
-    } else if typ == 0x06 {
-      let (crypto_offset, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let (length64, cursor) = match decode_frame_varint(payload, cursor) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let length = match varint_to_index(length64) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      if length > limits.max_crypto_bytes {
-        return Err(LimitExceeded("CRYPTO data", limits.max_crypto_bytes))
-      }
-      if quic_range_end(crypto_offset, length) is Err(error) {
-        return Err(error)
-      }
-      let (data, cursor) = match take_frame_bytes(payload, cursor, length) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(Crypto(crypto_offset, data))
-      offset = cursor
-    } else if typ == 0x07 {
-      let (length64, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let length = match varint_to_index(length64) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      quic_check_new_token(length) catch {
-        error => return Err(error)
-      }
-      let (token, cursor) = match take_frame_bytes(payload, cursor, length) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(NewToken(token))
-      offset = cursor
-    } else if typ >= 0x08 && typ <= 0x0f {
-      let (stream_id, after_stream) = match
-        decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let has_offset = (typ & 0x04) != 0
-      let has_length = (typ & 0x02) != 0
-      let fin = (typ & 0x01) != 0
-      let (stream_offset, after_offset) = if has_offset {
-        match decode_frame_varint(payload, after_stream) {
-          Ok(value) => value
-          Err(error) => return Err(error)
-        }
-      } else {
-        (0L, after_stream)
-      }
-      let (length, after_length) = if has_length {
-        let (length64, cursor) = match
-          decode_frame_varint(payload, after_offset) {
-          Ok(value) => value
-          Err(error) => return Err(error)
-        }
-        let length = match varint_to_index(length64) {
-          Ok(value) => value
-          Err(error) => return Err(error)
-        }
-        (length, cursor)
-      } else {
-        (payload.length() - after_offset, after_offset)
-      }
-      let (data, cursor) = match
-        take_frame_bytes(payload, after_length, length) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let frame = match StreamFrame::new(stream_id, stream_offset, data, fin) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(Stream(frame))
-      offset = cursor
-    } else if typ == 0x10 {
-      let (value, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(MaxData(value))
-      offset = cursor
-    } else if typ == 0x11 {
-      let (stream_id, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let (value, cursor) = match decode_frame_varint(payload, cursor) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(MaxStreamData(stream_id, value))
-      offset = cursor
-    } else if typ == 0x12 || typ == 0x13 {
-      let (value, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      quic_check_stream_count(value) catch {
-        error => return Err(error)
-      }
-      frames.push(MaxStreams(typ == 0x13, value))
-      offset = cursor
-    } else if typ == 0x14 {
-      let (value, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(DataBlocked(value))
-      offset = cursor
-    } else if typ == 0x15 {
-      let (stream_id, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let (value, cursor) = match decode_frame_varint(payload, cursor) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(StreamDataBlocked(stream_id, value))
-      offset = cursor
-    } else if typ == 0x16 || typ == 0x17 {
-      let (value, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      quic_check_stream_count(value) catch {
-        error => return Err(error)
-      }
-      frames.push(StreamsBlocked(typ == 0x17, value))
-      offset = cursor
-    } else if typ == 0x18 {
-      let (sequence, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let (retire_prior_to, cursor) = match
-        decode_frame_varint(payload, cursor) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      if payload.length() - cursor < 1 {
-        return Err(NeedMoreInput)
-      }
-      let cid_length = payload[cursor].to_int()
-      if !quic_valid_connection_id_announcement(
-          sequence, retire_prior_to, cid_length, 16,
-        ) {
-        return Err(Protocol(0x07L, "invalid NEW_CONNECTION_ID"))
-      }
-      if payload.length() - cursor - 1 < cid_length + 16 {
-        return Err(NeedMoreInput)
-      }
-      let cid : ConnectionId = {
-        bytes: payload[cursor + 1:cursor + 1 + cid_length].to_owned(),
-      }
-      let token_start = cursor + 1 + cid_length
-      let token = payload[token_start:token_start + 16].to_owned()
-      frames.push(NewConnectionId(sequence, retire_prior_to, cid, token))
-      offset = token_start + 16
-    } else if typ == 0x19 {
-      let (sequence, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(RetireConnectionId(sequence))
-      offset = cursor
-    } else if typ == 0x1a || typ == 0x1b {
-      let (data, cursor) = match take_frame_bytes(payload, offset, 8) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      if typ == 0x1a {
-        frames.push(PathChallenge(data))
-      } else {
-        frames.push(PathResponse(data))
-      }
-      offset = cursor
-    } else if typ == 0x1c || typ == 0x1d {
-      let (error_code, cursor) = match decode_frame_varint(payload, offset) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let (frame_type, cursor) = if typ == 0x1c {
-        match decode_frame_varint(payload, cursor) {
-          Ok(value) => value
-          Err(error) => return Err(error)
-        }
-      } else {
-        (0L, cursor)
-      }
-      let (reason_length64, cursor) = match
-        decode_frame_varint(payload, cursor) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let reason_length = match varint_to_index(reason_length64) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let (reason, cursor) = match
-        take_frame_bytes(payload, cursor, reason_length) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(ConnectionClose(typ == 0x1c, error_code, frame_type, reason))
-      offset = cursor
-    } else if typ == 0x1e {
-      frames.push(HandshakeDone)
-    } else if typ == 0x30 || typ == 0x31 {
-      let (length, cursor) = if typ == 0x31 {
-        let (length64, cursor) = match decode_frame_varint(payload, offset) {
-          Ok(value) => value
-          Err(error) => return Err(error)
-        }
-        let length = match varint_to_index(length64) {
-          Ok(value) => value
-          Err(error) => return Err(error)
-        }
-        (length, cursor)
-      } else {
-        (payload.length() - offset, offset)
-      }
-      let (data, cursor) = match take_frame_bytes(payload, cursor, length) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      frames.push(Datagram(data))
-      offset = cursor
-    } else {
-      return Err(InvalidFrame("unknown QUIC frame type"))
-    }
+  let reader : QuicFrameReader = { remaining: payload, }
+  let frames = []
+  while !reader.remaining.is_empty() {
+    frames.push(reader.frame(limits))
   }
-  Ok(frames)
+  frames
 }

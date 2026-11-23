@@ -388,9 +388,8 @@ fn QuicDatagramDriver::on_packet(
   if received.seen(opened.packet_number()) {
     return Ok([PacketIgnored])
   }
-  let frames = match quic_decode_frames(opened.payload(), limits=self.limits) {
-    Ok(value) => value
-    Err(error) => return Err(error)
+  let frames = quic_read_frames(opened.payload(), self.limits) catch {
+    error => return Err(error)
   }
   match
     quic_validate_packet_frames(space, frames, from_server=self.role == Client) {

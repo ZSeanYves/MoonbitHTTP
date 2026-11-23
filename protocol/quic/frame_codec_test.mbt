@@ -41,6 +41,17 @@ test "quic frame codec: canonical round trips preserve protocol fields" {
   let encoded = @quic.quic_encode_frames(frames).unwrap()
   let decoded = @quic.quic_decode_frames(encoded).unwrap()
   assert_eq(decoded, frames)
+  // STREAM without LEN and DATAGRAM without LEN consume the packet remainder.
+  // A frame field may use a wider varint. Only the frame type must be minimal.
+  assert_eq(
+    @quic.quic_decode_frames(b"\x01\x0d\x40\x04\x0cpayload"),
+    Ok([Ping, Stream(stream)]),
+  )
+  assert_eq(
+    @quic.quic_decode_frames(b"\x30\x01\x00"),
+    Ok([Datagram(b"\x01\x00")]),
+  )
+  assert_true(@quic.quic_decode_frames(b"\x40\x01") is Err(NonCanonicalVarInt))
   assert_eq(
     @quic.quic_encode_frame(Ack(ack)).unwrap(),
     b"\x03\x14\x03\x01\x02\x00\x02\x01\x02\x03",
@@ -158,6 +169,14 @@ test "quic frame codec: the payload limit includes every frame and its headers" 
   assert_true(
     @quic.quic_encode_frames([], limits={ ..two, max_packet_size: 0, })
     is Err(_),
+  )
+  assert_true(
+    @quic.quic_decode_frames(b"", limits={ ..two, max_packet_size: 0, })
+    is Err(LimitExceeded("max_packet_size", 0)),
+  )
+  assert_true(
+    @quic.quic_decode_frames(b"\x01\x00\x01", limits=two)
+    is Err(LimitExceeded("frame payload", 2)),
   )
   assert_true(
     @quic.quic_encode_frame(Datagram(b"x"), limits=two)

@@ -58,13 +58,12 @@ fn QuicDatagramDriver::append_pending_retirements(
   if self.pending_retirements.is_empty() {
     return 0
   }
-  let payload_size = match quic_encode_frames(frames, limits=self.limits) {
-    Ok(payload) => payload.length()
+  let (payload, _) = quic_write_frames(frames, self.limits) catch {
     // The normal send path reports the original response encoding error.
-    Err(_) => return 0
+    _ => return 0
   }
   let payload_limit = self.application_payload_limit()
-  let mut available = (payload_limit - payload_size).max(0)
+  let mut available = (payload_limit - payload.length()).max(0)
   let mut count = 0
   while count < self.pending_retirements.length().min(64) {
     let sequence = self.pending_retirements[count]
