@@ -325,3 +325,55 @@ test "body: stream rejects invalid caller configuration without aborting" {
     is Err(InvalidLimit(2)),
   )
 }
+
+///|
+struct ObservedPull {
+  pull : async () -> @body.Frame?
+  cancelled : Array[Error]
+}
+
+///|
+impl @body.Body for ObservedPull with fn next_frame(self) {
+  (self.pull)()
+}
+
+///|
+impl @body.Body for ObservedPull with fn size_hint(_) {
+  @body.SizeHint::unknown()
+}
+
+///|
+impl @body.Body for ObservedPull with fn cancel(self, cause) {
+  self.cancelled.push(cause)
+}
+
+///|
+async test "body: collect notifies an external producer exactly once with the first failure" {
+  let data : ObservedPull = {
+    pull: fn() { Some(Data(b"large")) },
+    cancelled: [],
+  }
+  try @body.collect(data, max_bytes=1) catch {
+    @body.BodyLimitExceeded(limit=1) => ()
+    e => raise e
+  } noraise {
+    _ => fail("expected body limit")
+  }
+  assert_eq(data.cancelled.length(), 1)
+  assert_true(data.cancelled[0] is @body.BodyLimitExceeded(limit=1))
+  let failed : ObservedPull = {
+    pull: async fn() {
+      @async.pause()
+      raise @types.UriError::InvalidUri("producer")
+    },
+    cancelled: [],
+  }
+  try @body.collect(failed) catch {
+    @types.UriError::InvalidUri("producer") => ()
+    e => raise e
+  } noraise {
+    _ => fail("expected producer error")
+  }
+  assert_eq(failed.cancelled.length(), 1)
+  assert_true(failed.cancelled[0] is @types.UriError::InvalidUri("producer"))
+}

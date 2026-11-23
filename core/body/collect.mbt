@@ -8,50 +8,39 @@ pub async fn[B : Body] collect(
   body : B,
   max_bytes? : Int = 16 * 1024 * 1024,
 ) -> (Bytes, @types.HeaderMap?) {
-  if max_bytes < 0 {
-    let error = BodyError::InvalidLimit(max_bytes)
-    body.cancel(error)
-    raise error
-  }
-  let data : Array[Byte] = []
-  let mut trailers : @types.HeaderMap? = None
-  let mut trailers_seen = false
-  errdefer body.cancel(BodyError::Cancelled)
-  while true {
-    let outcome : Result[Frame?, Error] = Ok(body.next_frame()) catch {
-      error => Err(error)
+  let mut cause : Error = BodyError::Cancelled
+  errdefer body.cancel(cause)
+  let result : Result[(Bytes, @types.HeaderMap?), Error] = try {
+    if max_bytes < 0 {
+      raise BodyError::InvalidLimit(max_bytes)
     }
-    let next = match outcome {
-      Ok(value) => value
-      Err(error) => {
-        body.cancel(error)
-        raise error
+    let data = @buffer.Buffer()
+    let mut trailers : @types.HeaderMap? = None
+    while body.next_frame() is Some(frame) {
+      match validate_frame(frame, trailers is Some(_)) {
+        Err(error) => raise error
+        Ok(SkipFrame) => continue
+        Ok(DeliverFrame(_)) => ()
       }
-    }
-    guard next is Some(frame) else { break }
-    match validate_frame(frame, trailers_seen) {
-      Err(error) => {
-        body.cancel(error)
-        raise error
-      }
-      Ok(SkipFrame) => ()
-      Ok(DeliverFrame(next_trailers_seen)) => {
-        trailers_seen = next_trailers_seen
-        match frame {
-          Data(chunk) => {
-            if chunk.length() > max_bytes - data.length() {
-              let error = BodyLimitExceeded(limit=max_bytes)
-              body.cancel(error)
-              raise error
-            }
-            for byte in chunk {
-              data.push(byte)
-            }
+      match frame {
+        Data(chunk) => {
+          if chunk.length() > max_bytes - data.length() {
+            raise BodyLimitExceeded(limit=max_bytes)
           }
-          Trailers(value) => trailers = Some(value)
+          data.write_bytes(chunk)
         }
+        Trailers(value) => trailers = Some(value)
       }
     }
+    Ok((data.to_bytes(), trailers))
+  } catch {
+    error => Err(error)
   }
-  (Bytes::from_array(data), trailers)
+  match result {
+    Ok(value) => value
+    Err(error) => {
+      cause = error
+      raise error
+    }
+  }
 }

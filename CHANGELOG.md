@@ -10,6 +10,7 @@ in local or CI workspaces and are not part of this file.
 
 - Coalesce HTTP/2 receive credit while the server writer is busy. In-flight window updates for finished streams are ignored, and a valid upload burst no longer consumes the control queue with repeated credit notifications.
 
+- Collect body chunks with bulk copies and deliver each collection failure to its producer once, preserving the original cause.
 - Fix HTTP/1 line limits across fragmented CRLF and consumed prefixes. The shared codec buffer now bulk-copies byte ranges when receiving or returning data.
 - Share HTTP/2 and HTTP/3 regular-field rules across readers and writers. Both protocols reject `TE` in responses and trailers, and accept case-insensitive `trailers` in requests.
 - Flush TLS `close_notify` after a successful native server exchange, including HTTP/1.0 streaming responses. Shutdown has a configurable deadline and cancellation releases the socket immediately.

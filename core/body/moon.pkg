@@ -1,6 +1,7 @@
 import {
   "ZSeanYves/MoonbitHTTP/core/types",
   "moonbitlang/async/aqueue",
+  "moonbitlang/core/buffer",
   "moonbitlang/core/debug",
 }
 
