@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -103,8 +103,17 @@ jobs:
             throw "OpenSSL 3.5 or newer is required; found $version"
           }
 
-      - name: Run Native QUIC, TLS, client and listener suites
-        run: moon test protocol/quic adapter/native/tls adapter/native/client adapter/native/server --target native --no-parallelize --deny-warn --warn-list +73
+      - name: Run Native QUIC suite
+        run: moon test protocol/quic --target native --no-parallelize --deny-warn --warn-list +73
+
+      - name: Run Native TLS suite
+        run: moon test adapter/native/tls --target native --no-parallelize --deny-warn --warn-list +73
+
+      - name: Run Native client suite
+        run: moon test adapter/native/client --target native --no-parallelize --deny-warn --warn-list +73
+
+      - name: Run Native listener suite
+        run: moon test adapter/native/server --target native --no-parallelize --deny-warn --warn-list +73
 
   build-and-test:
     runs-on: ubuntu-latest
@@ -112,7 +121,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -128,7 +137,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential perl curl wget nghttp2-client unzip ca-certificates python3-venv golang-go
 
       - name: Cache pinned OpenSSL 3.5 LTS runtime
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: _build/ci-openssl/install
           key: openssl-3.5.8-linux-${{ runner.arch }}-shared-${{ hashFiles('repo-tools/scripts/install_ci_openssl.mbtx') }}
