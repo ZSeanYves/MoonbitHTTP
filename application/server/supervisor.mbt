@@ -6,7 +6,7 @@ pub struct ServerSupervisor {
   mut accept_errors : Int32
   mut next_connection_id : Int32
   metrics : ServerMetrics
-  connections_changed : @async.CondVar
+  connections_changed : @async.Cond
   mut close_listener : (() -> Unit)?
   mut cancel_accept : (() -> Unit)?
 }
@@ -187,8 +187,8 @@ pub async fn[L : Listener] ServerSupervisor::serve(
       self.finish_shutdown() |> ignore
     }
   }
-  let group_result = @async.with_task_group(async fn(group) {
-    let mut outcome : Result[Unit, ServerError] = Ok(())
+  let mut outcome : Result[Unit, ServerError] = Ok(())
+  @async.with_task_group(async fn(group) {
     while self.state == Running {
       let accepting = group.spawn(
         async fn() {
@@ -244,7 +244,8 @@ pub async fn[L : Listener] ServerSupervisor::serve(
         }
         Err(error) => {
           (connection.close)()
-          return Err(error)
+          outcome = Err(error)
+          break
         }
       }
       let mut handler_error : Error? = None
@@ -273,7 +274,7 @@ pub async fn[L : Listener] ServerSupervisor::serve(
     }
     self.begin_shutdown() |> ignore
     if outcome is Err(_) {
-      return outcome
+      return
     }
     let drain = async fn() {
       while self.active > 0 {
@@ -283,14 +284,13 @@ pub async fn[L : Listener] ServerSupervisor::serve(
     match self.config.limits.graceful_timeout_ms {
       Some(timeout) =>
         @async.with_timeout(timeout, drain) catch {
-          @async.TimeoutError => return Err(ShutdownTimeout)
+          @async.TimeoutError => outcome = Err(ShutdownTimeout)
           error => raise error
         }
       None => drain()
     }
-    outcome
   })
-  match group_result {
+  match outcome {
     Ok(_) => self.finish_shutdown()
     Err(error) => Err(error)
   }

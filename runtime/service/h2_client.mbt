@@ -1168,7 +1168,7 @@ pub fn H2Client::close(self : H2Client) -> Unit {
 }
 
 ///|
-pub async fn[R : @aio.Reader, W : @aio.Writer, X] with_h2_client_connection(
+pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, X] with_h2_client_connection(
   reader : R,
   writer : W,
   run : async (H2Client) -> X,
@@ -1179,7 +1179,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, X] with_h2_client_connection(
     Ok(_) => ()
     Err(error) => raise error
   }
-  @async.with_task_group(async fn(group) {
+  @async_support.with_group_result(async fn(group) {
     let shared : H2ClientShared = {
       config,
       runtime: @http2.H2Connection::new(Client, limits=config.limits),

@@ -1,5 +1,5 @@
 ///|
-async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_auto_connection_inner(
+async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_auto_connection_inner(
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
@@ -61,7 +61,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_auto_connection
 }
 
 ///|
-pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_auto_connection(
+pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_auto_connection(
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],

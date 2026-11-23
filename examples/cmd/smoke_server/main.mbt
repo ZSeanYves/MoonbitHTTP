@@ -59,8 +59,8 @@ async fn main {
         ..@transport.TlsOptions::defaults(),
         alpn: ["h2"],
         verify_peer: false,
-        server_certificate: Some(@fs.read_file(cert).binary()),
-        server_private_key: Some(@fs.read_file(key).binary()),
+        server_certificate: Some(@fs.read_binary(cert)),
+        server_private_key: Some(@fs.read_binary(key)),
       }
       let listener = match
         @native_server.NativeTcpListener::bind_http_tls(

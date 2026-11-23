@@ -390,7 +390,7 @@ pub async fn NativeHttp3Listener::serve(
     self.serving = false
     self.close()
   }
-  @async.with_task_group(async fn(group) {
+  @async_support.with_group_result(async fn(group) {
     group.spawn_bg(
       async fn() {
         while true {

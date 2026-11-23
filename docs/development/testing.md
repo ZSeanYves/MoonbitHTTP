@@ -18,7 +18,7 @@ criteria belong in [release/gates.md](../release/gates.md).
 | --- | --- | --- |
 | Incremental codecs | `protocol/http1`, `protocol/http2`, `protocol/quic`, `protocol/http3` tests | Fragmentation, malformed bytes, bounded buffers and wire encodings |
 | State transitions | Protocol state tests | Legal frames per phase, flow control, path validation, cancellation and terminal states |
-| Drivers | `runtime/service`, QUIC driver and Native TLS tests | Reader/Writer integration, multiplexing, backpressure and endpoint actions |
+| Drivers | `runtime/service`, QUIC driver and Native TLS tests | BinaryReader/BinaryWriter integration, multiplexing, backpressure and endpoint actions |
 | Independent sockets | `repo-tools/tools/interoperability.mbtx` and `repo-tools/tools/http3_interoperability.mbtx` | Behavior against real TCP/UDP sockets and an independent HTTP/3 implementation |
 
 Test-only deterministic clocks, entropy and datagrams live in `internal/test_support`.

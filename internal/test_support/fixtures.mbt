@@ -26,9 +26,8 @@ pub fn fragment(input : BytesView, sizes : Array[Int32]) -> Array[Bytes] {
 }
 
 ///|
-#warnings("-alert_internal")
 pub struct FaultReader {
-  reader_buffer : @aio.ReaderBuffer
+  reader_controller : @aio.BinaryReaderController
   chunks : Array[Bytes]
   mut chunk_index : Int32
   mut chunk_offset : Int32
@@ -37,13 +36,12 @@ pub struct FaultReader {
 }
 
 ///|
-#warnings("-alert_internal")
 pub fn FaultReader::new(
   chunks : Array[Bytes],
   fail_after~ : Int32? = None,
 ) -> FaultReader {
   {
-    reader_buffer: @aio.ReaderBuffer::new(),
+    reader_controller: BinaryReaderController(),
     chunks,
     chunk_index: 0,
     chunk_offset: 0,
@@ -53,13 +51,20 @@ pub fn FaultReader::new(
 }
 
 ///|
-#warnings("-alert_internal")
-pub impl @aio.Reader for FaultReader with fn _get_internal_buffer(self) {
-  self.reader_buffer
+pub impl @aio.BinaryReader for FaultReader
+
+///|
+impl @aio.BinaryReaderImpl for FaultReader with fn name(_self) {
+  "FaultReader"
 }
 
 ///|
-pub impl @aio.Reader for FaultReader with fn _direct_read(
+impl @aio.BinaryReaderImpl for FaultReader with fn get_controller(self) {
+  self.reader_controller
+}
+
+///|
+impl @aio.BinaryReaderImpl for FaultReader with fn raw_read_impl(
   self,
   destination,
   offset~,
@@ -87,6 +92,7 @@ pub impl @aio.Reader for FaultReader with fn _direct_read(
 
 ///|
 pub struct RecordingWriter {
+  writer_controller : @aio.BinaryWriterController
   bytes : Array[Byte]
   mut writes : Int32
   fail_after : Int32?
@@ -94,11 +100,34 @@ pub struct RecordingWriter {
 
 ///|
 pub fn RecordingWriter::new(fail_after~ : Int32? = None) -> RecordingWriter {
-  { bytes: [], writes: 0, fail_after, }
+  {
+    writer_controller: BinaryWriterController(),
+    bytes: [],
+    writes: 0,
+    fail_after,
+  }
 }
 
 ///|
-pub impl @aio.Writer for RecordingWriter with fn write_once(
+pub impl @aio.BinaryWriter for RecordingWriter
+
+///|
+impl @aio.BinaryWriterImpl for RecordingWriter with fn name(_self) {
+  "RecordingWriter"
+}
+
+///|
+impl @aio.BinaryWriterImpl for RecordingWriter with fn get_controller(self) {
+  self.writer_controller
+}
+
+///|
+impl @aio.BinaryWriterImpl for RecordingWriter with fn flush_partial_data(_self) {
+  ()
+}
+
+///|
+impl @aio.BinaryWriterImpl for RecordingWriter with fn raw_write_impl(
   self,
   source,
   offset~,

@@ -97,7 +97,7 @@ pub fn[R, W] ClientConnection::new(
 }
 
 ///|
-async fn[R : @aio.Reader] client_read_with_timeout(
+async fn[R : @aio.BinaryReader] client_read_with_timeout(
   reader : R,
   max_len : Int32,
   timeout_ms : Int32?,
@@ -110,7 +110,7 @@ async fn[R : @aio.Reader] client_read_with_timeout(
 }
 
 ///|
-async fn[W : @aio.Writer] client_write_with_timeout(
+async fn[W : @aio.BinaryWriter] client_write_with_timeout(
   writer : W,
   bytes : Bytes,
   timeout_ms : Int32?,
@@ -147,7 +147,7 @@ pub fn[R, W] ClientConnection::is_closed(self : ClientConnection[R, W]) -> Bool 
 }
 
 ///|
-async fn[R, W : @aio.Writer, B : @body.Body] ClientConnection::write_upload(
+async fn[R, W : @aio.BinaryWriter, B : @body.Body] ClientConnection::write_upload(
   self : ClientConnection[R, W],
   framing : @http1.BodyFraming,
   body : B,
@@ -177,7 +177,7 @@ async fn[R, W : @aio.Writer, B : @body.Body] ClientConnection::write_upload(
 }
 
 ///|
-async fn[R : @aio.Reader, W] ClientConnection::read_response_head(
+async fn[R : @aio.BinaryReader, W] ClientConnection::read_response_head(
   self : ClientConnection[R, W],
   decoder : @http1.ResponseDecoder,
   timeout_ms : Int32?,
@@ -222,13 +222,13 @@ async fn[R : @aio.Reader, W] ClientConnection::read_response_head(
 ///|
 /// Keep a single pending read across the grace period. Cancelling an actual
 /// transport read on timeout would close the socket before the upload.
-async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection::expect_continue(
+async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] ClientConnection::expect_continue(
   self : ClientConnection[R, W],
   decoder : @http1.ResponseDecoder,
   framing : @http1.BodyFraming,
   body : B,
 ) -> @types.Response[Unit] {
-  @async.with_task_group(async fn(group) {
+  @async_support.with_group_result(async fn(group) {
     let changed = @cond_var.Cond()
     let mut outcome : Result[@types.Response[Unit], Error]? = None
     group.spawn_bg(async fn() {
@@ -278,7 +278,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection::exp
 }
 
 ///|
-pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] ClientConnection::send(
+pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] ClientConnection::send(
   self : ClientConnection[R, W],
   request : @types.Request[B],
 ) -> @types.Response[@body.BodyStream] {

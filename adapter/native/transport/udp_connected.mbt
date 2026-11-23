@@ -11,22 +11,13 @@ pub struct UdpSocket {
 
 ///|
 fn udp_connected_is_multicast(address : @socket.Addr) -> Bool {
-  if address.is_multicast() {
+  if address.ip.is_multicast() {
     return true
   }
-  if !address.is_ipv6() {
-    return false
-  }
-  // Addr renders IPv4-mapped IPv6 consistently as ::ffff:a.b.c.d, including
-  // inputs written with eight hexadecimal groups. Its is_multicast method
-  // only checks the IPv6 ff00::/8 prefix, so inspect the mapped IPv4 too.
-  let rendered = address.to_string()
-  guard rendered.has_prefix("[::ffff:") else { return false }
-  guard rendered.find("]") is Some(end) else { return false }
-  let mapped = @socket.Addr::parse(rendered[8:end].to_owned() + ":1") catch {
-    _ => return false
-  }
-  mapped.is_multicast()
+  // IPv4-mapped IPv6 peers carry the IPv4 address in their final four bytes.
+  guard address.ip is Ipv6(bytes, ..) else { return false }
+  bytes[:12] == b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff" &&
+  bytes[12] is (224..<240)
 }
 
 ///|
@@ -95,7 +86,7 @@ pub impl @transport_api.DatagramSocket for UdpSocket with fn receive(
   }
   // Detect oversized datagrams instead of accepting a silently truncated one.
   let buffer = FixedArray::make(max_bytes + 1, b'\x00')
-  let (count, _) = self.socket.recvfrom(buffer) catch {
+  let count = self.socket.recv_into(buffer.mut_view()) catch {
     error => return Err(native_transport_error(Receive, error))
   }
   if count < 0 || count > max_bytes {

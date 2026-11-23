@@ -14,7 +14,9 @@ async test "H2 client callback return cancels suspended upload and reader" {
   })
   defer reader.close()
   @async.with_timeout(1000, async fn() {
-    @service.with_h2_client_connection(reader, writer, async fn(client) {
+    @service.with_h2_client_connection(reader, test_writer(writer), async fn(
+      client,
+    ) {
       let response = client.send(
         security_request(Post).map_body(fn(_) { upload }),
       )

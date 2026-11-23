@@ -1,9 +1,10 @@
 import {
+  "ZSeanYves/MoonbitHTTP/internal/async_support",
   "ZSeanYves/MoonbitHTTP/internal/http_fields",
-  "moonbitlang/async",
-  "moonbitlang/async/cond_var",
-  "moonbitlang/async/io" @aio,
-  "moonbitlang/async/aqueue",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/cond_var",
+  "moonbitlang/core/async/io" @aio,
+  "moonbitlang/core/async/aqueue",
   "moonbitlang/core/debug",
   "moonbitlang/core/deque",
   "moonbitlang/core/string",
@@ -19,6 +20,16 @@ import {
   "moonbitlang/x/codec/base64",
 }
 
+import {
+  "ZSeanYves/MoonbitHTTP/adapter/uv",
+} for "test"
+
 options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/aqueue",
+    "moonbitlang/core/async/cond_var",
+    "moonbitlang/core/async/io",
+  ],
   "is-main": false,
 )

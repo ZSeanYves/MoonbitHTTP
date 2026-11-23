@@ -6,7 +6,7 @@ Source: working-tree (governed by Git)
 Last reviewed: 2026-11-23
 
 ## 用途
-把 HTTP/1、HTTP/2 state machine 接到 async Reader/Writer，覆盖 h2c、并发 dispatch、背压、deadline 和作用域关闭。
+把 HTTP/1、HTTP/2 state machine 接到 async BinaryReader/BinaryWriter，覆盖 h2c、并发 dispatch、背压、deadline 和作用域关闭。
 
 ## 入口
 入口是 serve_http1_connection、serve_http1_or_h2c_connection、serve_http2_connection、serve_auto_connection、ClientConnection、with_h2_client_connection。
@@ -15,7 +15,7 @@ Last reviewed: 2026-11-23
 HTTP/3 使用可移植的 HTTP/3 与 QUIC 驱动、专用数据报套接字、时钟和 QUIC TLS provider。宿主套接字由 adapter 提供。
 
 ## 使用边界
-传入 Reader、Writer、handler 和已校验 config；handler 使用 Request[BodyStream] -> Response[B]，H2 body 在 callback 内消费。
+传入 BinaryReader、BinaryWriter、handler 和已校验 config；handler 使用 Request[BodyStream] -> Response[B]，H2 body 在 callback 内消费。
 
 `with_http3_connection` 接管套接字，在认证握手完成后调用应用。通过 `io.session` 收发请求和响应，通过 `io.next_events()` 读取事件批次，`io.flush()` 可立即发送待写数据。接收任务和恢复计时器独立运行，交付队列最多保留一个待读批次。回调正常返回后，先等待排队的流数据和 QUIC 确认，再发送关闭包并释放套接字。`shutdown_timeout_ms` 限制等待和最后一次发送的时间，对端正常关闭后，已交付的事件仍可读，消费完后再次读取才收到关闭通知。TLS provider 由调用方管理。
 

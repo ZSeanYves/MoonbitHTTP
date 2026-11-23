@@ -45,7 +45,7 @@ async test "h2c EOF before initial SETTINGS cancels the outer upgrade task" {
         @async.with_timeout(1000, async fn() {
           @service.serve_http1_or_h2c_connection(
             reader,
-            CaptureWriter::{ bytes: [], },
+            test_writer(CaptureWriter::{ bytes: [], }),
             async fn(_) {
               defer {
                 cleaned += 1
@@ -93,7 +93,7 @@ async test "h2c EOF after preface cancels handler before initial SETTINGS" {
     @async.with_timeout(1000, async fn() {
       @service.serve_http1_or_h2c_connection(
         reader,
-        CaptureWriter::{ bytes: [], },
+        test_writer(CaptureWriter::{ bytes: [], }),
         async fn(request) {
           defer {
             cleaned += 1
@@ -165,12 +165,17 @@ async test "H2 and h2c EOF cancel suspended handlers and join cleanup" {
         if upgrade {
           @service.serve_http1_or_h2c_connection(
             reader,
-            writer,
+            test_writer(writer),
             service,
             config~,
           )
         } else {
-          @service.serve_http2_connection(reader, writer, service, config~)
+          @service.serve_http2_connection(
+            reader,
+            test_writer(writer),
+            service,
+            config~,
+          )
         }
       })
     catch {
@@ -208,7 +213,7 @@ async test "H2 EOF deadline cancels a suspended response body exactly once" {
     @async.with_timeout(1000, async fn() {
       @service.serve_http2_connection(
         reader,
-        CaptureWriter::{ bytes: [], },
+        test_writer(CaptureWriter::{ bytes: [], }),
         fn(_) {
           {
             status: 200,
@@ -248,7 +253,7 @@ async test "H2 EOF grace starts at EOF and preserves finite delayed responses" {
   @async.with_timeout(1000, async fn() {
     @service.serve_http2_connection(
       reader,
-      writer,
+      test_writer(writer),
       async fn(_) {
         @async.sleep(5)
         {
@@ -302,7 +307,7 @@ async test "H2 EOF deadline covers a writer with IO timeout disabled" {
     @async.with_timeout(1000, async fn() {
       @service.serve_http2_connection(
         reader,
-        writer,
+        test_writer(writer),
         fn(_) { lifecycle_response(outgoing) },
         config={
           ..@service.ServerConfig::defaults(),
@@ -356,7 +361,7 @@ async test "H2 control writes do not hide peer EOF when IO timeout is disabled" 
     @async.with_timeout(1000, async fn() {
       @service.serve_http2_connection(
         reader,
-        writer,
+        test_writer(writer),
         async fn(_) {
           @async.sleep(60_000)
           {
@@ -399,7 +404,7 @@ async test "H2 external cancellation joins handlers before EOF grace expires" {
       let connection = group.spawn(async fn() {
         @service.serve_http2_connection(
           reader,
-          CaptureWriter::{ bytes: [], },
+          test_writer(CaptureWriter::{ bytes: [], }),
           async fn(_) {
             defer {
               cleaned += 1

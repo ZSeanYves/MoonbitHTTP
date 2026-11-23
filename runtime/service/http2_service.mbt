@@ -250,7 +250,7 @@ fn decode_h2_request(
 }
 
 ///|
-async fn[W : @aio.Writer] write_h2_frame(
+async fn[W : @aio.BinaryWriter] write_h2_frame(
   lock : @async.Mutex,
   writer : W,
   bytes : Bytes,
@@ -262,7 +262,7 @@ async fn[W : @aio.Writer] write_h2_frame(
 }
 
 ///|
-async fn[W : @aio.Writer] write_h2_header_block(
+async fn[W : @aio.BinaryWriter] write_h2_header_block(
   lock : @async.Mutex,
   writer : W,
   encode : () -> Result[Bytes, @http2.H2ProtocolError],
@@ -278,7 +278,7 @@ async fn[W : @aio.Writer] write_h2_header_block(
 }
 
 ///|
-async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connection_inner(
+async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_http2_connection_inner(
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
@@ -1112,7 +1112,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
 }
 
 ///|
-pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connection(
+pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_http2_connection(
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],

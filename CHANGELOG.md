@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Migrate service drivers and native sockets to the experimental async packages bundled with the pinned MoonBit compiler. Stream integrations now use `moonbitlang/core/async/io.BinaryReader` and `BinaryWriter`. The migration guide covers custom streams and callback adapters.
+
 - Update the CI compiler to MoonBit `0.10.22+124d61d05` for the new derive syntax and script import format. HTTP/2 stream cancellation now retires local state synchronously and lets the connection send the wire reset.
 
 - HTTP/1, HTTP/2 and HTTP/3 servers grant `100 Continue` for pending uploads and return `417 Expectation Failed` before dispatch for unsupported expectations. HTTP/1 and HTTP/2 now release the response producer without reading it for `HEAD`, `204` and `304`. HTTP/2 clients and servers share outgoing body length and trailer checks. Buffered and streaming encoders share header construction.

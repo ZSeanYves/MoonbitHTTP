@@ -5,27 +5,36 @@ pub(all) suberror StreamIoError {
 }
 
 ///|
-#warnings("-alert_internal")
 pub struct StreamIo {
-  priv reader_buffer : @aio.ReaderBuffer
+  priv writer_controller : @aio.BinaryWriterController
+  priv reader_controller : @aio.BinaryReaderController
   priv connection : @transport.StreamConnection
 }
 
 ///|
-#warnings("-alert_internal")
 pub fn StreamIo::new(connection : @transport.StreamConnection) -> StreamIo {
-  { reader_buffer: @aio.ReaderBuffer::new(), connection, }
+  {
+    writer_controller: BinaryWriterController(),
+    reader_controller: BinaryReaderController(),
+    connection,
+  }
 }
 
 ///|
-#warnings("-alert_internal")
-pub impl @aio.Reader for StreamIo with fn _get_internal_buffer(self) {
-  self.reader_buffer
+pub impl @aio.BinaryReader for StreamIo
+
+///|
+impl @aio.BinaryReaderImpl for StreamIo with fn name(_self) {
+  "StreamIo"
 }
 
 ///|
-#warnings("-alert_internal")
-pub impl @aio.Reader for StreamIo with fn _direct_read(
+impl @aio.BinaryReaderImpl for StreamIo with fn get_controller(self) {
+  self.reader_controller
+}
+
+///|
+impl @aio.BinaryReaderImpl for StreamIo with fn raw_read_impl(
   self,
   destination,
   offset~,
@@ -49,8 +58,25 @@ pub impl @aio.Reader for StreamIo with fn _direct_read(
 }
 
 ///|
-#warnings("-alert_internal")
-pub impl @aio.Writer for StreamIo with fn write_once(
+pub impl @aio.BinaryWriter for StreamIo
+
+///|
+impl @aio.BinaryWriterImpl for StreamIo with fn name(_self) {
+  "StreamIo"
+}
+
+///|
+impl @aio.BinaryWriterImpl for StreamIo with fn get_controller(self) {
+  self.writer_controller
+}
+
+///|
+impl @aio.BinaryWriterImpl for StreamIo with fn flush_partial_data(_self) {
+  ()
+}
+
+///|
+impl @aio.BinaryWriterImpl for StreamIo with fn raw_write_impl(
   self,
   source,
   offset~,

@@ -1,9 +1,9 @@
 ----
 import {
-  "moonbitlang/async@0.22.4",
-  "moonbitlang/async@0.22.4/fs",
-  "moonbitlang/async@0.22.4/process",
-  "moonbitlang/async@0.22.4/socket",
+  "moonbitlang/async@0.22.10",
+  "moonbitlang/async@0.22.10/fs",
+  "moonbitlang/async@0.22.10/process",
+  "moonbitlang/async@0.22.10/socket",
   "moonbitlang/core/bench",
   "moonbitlang/core/env",
   "moonbitlang/core/encoding/utf8",

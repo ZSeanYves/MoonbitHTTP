@@ -83,7 +83,7 @@ async test "service HTTP2 server accepts small DATA frames sent before SETTINGS 
   @async.with_timeout(1000, async fn() {
     @service.serve_http2_connection(
       reader,
-      writer,
+      test_writer(writer),
       async fn(request) {
         @async.sleep(5)
         {
@@ -147,7 +147,7 @@ async test "service HTTP2 client accepts small DATA frames sent before SETTINGS 
   @async.with_timeout(1000, async fn() {
     @service.with_h2_client_connection(
       reader,
-      writer,
+      test_writer(writer),
       async fn(client) {
         let headers = @types.HeaderMap::new()
         headers.append_string("host", "example.test").unwrap()

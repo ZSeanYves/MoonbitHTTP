@@ -62,7 +62,7 @@ pub impl @transport_api.DatagramSocket for UdpServerSocket with fn send(
     Some(value) => value
     None => return Err(Failed(Resolve, "UDP requires a numeric endpoint"))
   }
-  self.socket.sendto(payload, remote) catch {
+  self.socket.send(payload, remote) catch {
     error => return Err(native_transport_error(Send, error))
   }
   Ok(())
@@ -81,7 +81,7 @@ pub impl @transport_api.DatagramSocket for UdpServerSocket with fn receive(
   }
   // One sentinel byte distinguishes a complete datagram from silent truncation.
   let buffer = FixedArray::make(max_bytes + 1, b'\x00')
-  let (count, peer) = self.socket.recvfrom(buffer) catch {
+  let (count, peer) = self.socket.recv_into(buffer.mut_view()) catch {
     error => return Err(native_transport_error(Receive, error))
   }
   if count < 0 || count > max_bytes {
@@ -93,7 +93,7 @@ pub impl @transport_api.DatagramSocket for UdpServerSocket with fn receive(
       return Err(Failed(Receive, "UDP peer address cannot be represented"))
   }
   let endpoint = match
-    @types.Endpoint::new(self.scheme, ip.value(), peer.port()) {
+    @types.Endpoint::new(self.scheme, ip.value(), peer.port.to_int()) {
     Ok(value) => value
     Err(error) => return Err(InvalidEndpoint(error))
   }

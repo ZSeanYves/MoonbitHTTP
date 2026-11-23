@@ -6,7 +6,7 @@ Source: working-tree (governed by Git)
 Last reviewed: 2026-11-23
 
 ## Purpose
-Connects HTTP/1 and HTTP/2 state machines to async Reader/Writer capabilities, including h2c, concurrent dispatch, backpressure, deadlines, and scoped shutdown.
+Connects HTTP/1 and HTTP/2 state machines to async BinaryReader/BinaryWriter capabilities, including h2c, concurrent dispatch, backpressure, deadlines, and scoped shutdown.
 
 ## Entry points
 Use serve_http1_connection, serve_http1_or_h2c_connection, serve_http2_connection, serve_auto_connection, ClientConnection, and with_h2_client_connection.
@@ -15,7 +15,7 @@ Use serve_http1_connection, serve_http1_or_h2c_connection, serve_http2_connectio
 HTTP/3 uses the portable HTTP/3 and QUIC drivers, a dedicated datagram socket, a clock and a QUIC TLS provider. Host sockets come from adapters.
 
 ## Usage
-Give each service explicit Reader, Writer, handler, and validated config. Handlers use Request[BodyStream] -> Response[B]. Consume H2 response bodies inside the callback.
+Give each service explicit BinaryReader, BinaryWriter, handler, and validated config. Handlers use Request[BodyStream] -> Response[B]. Consume H2 response bodies inside the callback.
 
 `with_http3_connection` owns the socket and calls the application after the authenticated handshake. Submit requests or responses through `io.session`, and read ordered application event batches with `io.next_events()`. `io.flush()` sends pending writes. The scope runs a receiver and a recovery timer, and keeps at most one unread batch in its delivery queue. On a normal return, the scope waits for queued stream writes and their QUIC acknowledgments, sends HTTP/3 close and releases the socket. `shutdown_timeout_ms` bounds the drain and final send. An orderly peer close preserves already delivered batches. The next read after the last batch reports the close. The caller owns the TLS provider.
 

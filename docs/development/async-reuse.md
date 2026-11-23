@@ -1,15 +1,19 @@
 # Async reuse boundary
 
-MoonbitHTTP uses `moonbitlang/async@0.22.4` as its runtime substrate. Task
-groups, cancellation, timeouts, locks, queues, `Reader`/`Writer`, TCP, UDP and
+MoonbitHTTP uses the experimental `moonbitlang/core/async` packages bundled with
+the pinned compiler. Task groups, cancellation, timeouts, locks, queues,
+`BinaryReader`/`BinaryWriter`, TCP, UDP and
 address lookup are reused through thin Native or host adapters. The portable
 protocol packages continue to depend only on MoonbitHTTP capability contracts.
+
+Standalone Native development scripts pin `moonbitlang/async@0.22.10` for
+their process and filesystem APIs. These scripts build separately from the library.
 
 ## Stream TLS boundary
 
 The capability review in the [async TLS capability matrix](async-tls-capability.md)
-found that async@0.22.4 cannot represent the complete `TlsOptions` and
-`SecureConnection` contract. Its stream TLS API lacks negotiated metadata,
+records why the standalone async TLS API could not represent the complete `TlsOptions` and
+`SecureConnection` contract. The bundled core stream TLS API also lacks negotiated metadata,
 in-memory credentials, revocation controls and the required server semantics.
 MoonbitHTTP therefore does not ship an async stream TLS provider or a
 fail-closed placeholder. `NativeTlsProvider` is the single ordinary stream-TLS

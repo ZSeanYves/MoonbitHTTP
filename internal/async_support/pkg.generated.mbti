@@ -1,0 +1,22 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/internal/async_support"
+
+import {
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/io",
+}
+
+// Values
+pub fn io_cause(Error) -> Error
+
+pub async fn[R : @io.BinaryReader] read_some(R, Int32) -> Bytes? raise @io.ReaderError
+
+pub async fn[X] with_group_result(async (@async.TaskGroup) -> X) -> X
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

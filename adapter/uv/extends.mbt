@@ -1,17 +1,25 @@
 ///|
-pub extend CallbackTransport with @aio.Reader::{
+pub extend CallbackTransport with @aio.BinaryReader::{
   read,
-  read_some,
-  _direct_read,
-  drop,
+  read_into,
   read_all,
   read_until,
   read_exactly,
-  _get_internal_buffer,
+  drop_exactly,
+  peek,
+  peek_at_least,
+  peek_exactly,
+  peek_until,
+  read_at_least,
+  drop_all,
 }
 
 ///|
-pub extend CallbackTransport with @aio.Writer::{write_once, write, write_reader}
+pub extend CallbackTransport with @aio.BinaryWriter::{
+  write,
+  write_reader,
+  flush_partial_data,
+}
 
 ///|
 pub extend CallbackTransportClosed with Eq::{equal, not_equal}

@@ -46,7 +46,7 @@ to serve HTTP/1.1 and HTTP/2 on the same TLS listener.
   opt-in HTTP policies.
 - `adapter/native/*`: Native TCP/UDP, resolver, clock, OpenSSL stream TLS and
   QUIC TLS adapters.
-- `adapter/uv`: callback-to-async `Reader`/`Writer` integration for a host
+- `adapter/uv`: callback-to-async `BinaryReader`/`BinaryWriter` integration for a host
   runtime.
 
 ## Features
@@ -66,7 +66,7 @@ to serve HTTP/1.1 and HTTP/2 on the same TLS listener.
 - [x] **[host] Capability injection** — stream/datagram I/O, resolver, clock,
   entropy, TLS, and `NetworkPolicy` are explicit inputs.
 - [x] **[host] Callback integration** — `adapter/uv` adapts host callbacks to
-  async `Reader`/`Writer` capabilities.
+  async `BinaryReader`/`BinaryWriter` capabilities.
 - [x] **[native] TCP/UDP, DNS, and Native client/server adapters** — host
   sockets and resolver wiring; HTTP semantics and message behavior follow
   [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) and HTTP/1.1 framing in

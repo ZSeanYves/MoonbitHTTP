@@ -1,9 +1,9 @@
 ///|
-/// Adapts async callbacks from uv.mbt or another event loop to Reader/Writer.
+/// Adapts async callbacks from uv.mbt or another event loop to BinaryReader/BinaryWriter.
 /// The adapter does not pin a uv version or add native dependencies to codecs.
-#warnings("-alert_internal")
 pub struct CallbackTransport {
-  reader_buffer : @aio.ReaderBuffer
+  priv writer_controller : @aio.BinaryWriterController
+  priv reader_controller : @aio.BinaryReaderController
   read_callback : async (FixedArray[Byte], Int32, Int32) -> Int32
   write_callback : async (Bytes, Int32, Int32) -> Int32
   close_callback : () -> Unit
@@ -11,14 +11,14 @@ pub struct CallbackTransport {
 }
 
 ///|
-#warnings("-alert_internal")
 pub fn CallbackTransport::new(
   read_callback : async (FixedArray[Byte], Int32, Int32) -> Int32,
   write_callback : async (Bytes, Int32, Int32) -> Int32,
   close_callback~ : () -> Unit = fn() { () },
 ) -> CallbackTransport {
   {
-    reader_buffer: @aio.ReaderBuffer::new(),
+    writer_controller: BinaryWriterController(),
+    reader_controller: BinaryReaderController(),
     read_callback,
     write_callback,
     close_callback,
@@ -35,13 +35,20 @@ pub fn CallbackTransport::close(self : CallbackTransport) -> Unit {
 }
 
 ///|
-#warnings("-alert_internal")
-pub impl @aio.Reader for CallbackTransport with fn _get_internal_buffer(self) {
-  self.reader_buffer
+pub impl @aio.BinaryReader for CallbackTransport
+
+///|
+impl @aio.BinaryReaderImpl for CallbackTransport with fn name(_self) {
+  "CallbackTransport"
 }
 
 ///|
-pub impl @aio.Reader for CallbackTransport with fn _direct_read(
+impl @aio.BinaryReaderImpl for CallbackTransport with fn get_controller(self) {
+  self.reader_controller
+}
+
+///|
+impl @aio.BinaryReaderImpl for CallbackTransport with fn raw_read_impl(
   self,
   destination,
   offset~,
@@ -50,12 +57,36 @@ pub impl @aio.Reader for CallbackTransport with fn _direct_read(
   if self.closed {
     0
   } else {
-    (self.read_callback)(destination, offset, max_len)
+    let count = (self.read_callback)(destination, offset, max_len)
+    guard count >= 0 && count <= max_len else {
+      raise InvalidReadCount(count, limit=max_len)
+    }
+    count
   }
 }
 
 ///|
-pub impl @aio.Writer for CallbackTransport with fn write_once(
+pub impl @aio.BinaryWriter for CallbackTransport
+
+///|
+impl @aio.BinaryWriterImpl for CallbackTransport with fn name(_self) {
+  "CallbackTransport"
+}
+
+///|
+impl @aio.BinaryWriterImpl for CallbackTransport with fn get_controller(self) {
+  self.writer_controller
+}
+
+///|
+impl @aio.BinaryWriterImpl for CallbackTransport with fn flush_partial_data(
+  _self,
+) {
+  ()
+}
+
+///|
+impl @aio.BinaryWriterImpl for CallbackTransport with fn raw_write_impl(
   self,
   source,
   offset~,
@@ -64,11 +95,22 @@ pub impl @aio.Writer for CallbackTransport with fn write_once(
   if self.closed {
     raise CallbackTransportClosed
   }
-  (self.write_callback)(source, offset, len)
+  let count = (self.write_callback)(source, offset, len)
+  guard count > 0 && count <= len else {
+    raise InvalidWriteCount(count, limit=len)
+  }
+  count
 }
 
 ///|
 #derive(Debug, Eq)
 pub(all) suberror CallbackTransportClosed {
   CallbackTransportClosed
+}
+
+///|
+/// A host callback reported progress outside the supplied buffer range.
+pub(all) suberror CallbackCountError {
+  InvalidReadCount(Int32, limit~ : Int32)
+  InvalidWriteCount(Int32, limit~ : Int32)
 }

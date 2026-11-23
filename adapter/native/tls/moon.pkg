@@ -1,6 +1,6 @@
 import {
   "ZSeanYves/MoonbitHTTP/core/types",
-  "moonbitlang/async",
+  "moonbitlang/core/async",
   "moonbitlang/core/encoding/utf8",
   "ZSeanYves/MoonbitHTTP/runtime/transport",
 }
@@ -8,15 +8,21 @@ import {
 supported_targets = "+native"
 
 import {
+  "ZSeanYves/MoonbitHTTP/internal/async_support",
   "ZSeanYves/MoonbitHTTP/protocol/tls",
-  "moonbitlang/async/fs",
-  "moonbitlang/async/socket",
+  "moonbitlang/core/async/fs",
+  "moonbitlang/core/async/socket",
   "ZSeanYves/MoonbitHTTP/protocol/quic",
   "ZSeanYves/MoonbitHTTP/internal/test_support",
   "ZSeanYves/MoonbitHTTP/internal/test_support/native_tls_revocation" @revocation_test,
 } for "wbtest"
 
 options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/fs",
+    "moonbitlang/core/async/socket",
+  ],
   "native-stub": [ "openssl_stub.c", "quic_tls_stub.c" ],
   "is-main": false,
 )

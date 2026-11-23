@@ -1,10 +1,10 @@
 ///|
 async test "native TCP: refused connections preserve errno with and without a deadline" {
-  let reservation = @socket.TcpServer(@socket.Addr::new(0x7f000001U, 0))
+  let reservation = @socket.TcpServer(Addr(@socket.IpAddr::v4(0x7f000001U), 0))
   let endpoint = @types.Endpoint::new(
     "tcp",
     "127.0.0.1",
-    reservation.addr.port(),
+    reservation.addr.port.to_int(),
   ).unwrap()
   reservation.close()
   for timeout_ms in [Some(5000), None] {
@@ -15,7 +15,8 @@ async test "native TCP: refused connections preserve errno with and without a de
     match result {
       Err(SystemFailure(Connect, code, message)) => {
         assert_true(
-          @os_error.OSError(code, context="regression test").is_ECONNREFUSED(),
+          @os_error.from_errno(code, context="connect")
+          is OsError(ConnectionRefused, ..),
         )
         assert_false(message.is_empty())
       }
@@ -30,9 +31,13 @@ async test "native TCP: refused connections preserve errno with and without a de
 
 ///|
 async test "native TCP: an actual idle deadline is a receive timeout and closes the stream" {
-  let listener = @socket.TcpServer(@socket.Addr::new(0x7f000001U, 0))
+  let listener = @socket.TcpServer(Addr(@socket.IpAddr::v4(0x7f000001U), 0))
   defer listener.close()
-  let endpoint = @types.Endpoint::new("tcp", "127.0.0.1", listener.addr.port()).unwrap()
+  let endpoint = @types.Endpoint::new(
+    "tcp",
+    "127.0.0.1",
+    listener.addr.port.to_int(),
+  ).unwrap()
   let connection = TcpConnector::new()
     .connect(endpoint, {
       ..@transport_api.ConnectOptions::defaults(),
@@ -49,12 +54,12 @@ async test "native TCP: an actual idle deadline is a receive timeout and closes 
 ///|
 async test "native TCP: caller cancellation remains distinct from an idle timeout" {
   for idle_timeout_ms in [None, Some(10000)] {
-    let listener = @socket.TcpServer(@socket.Addr::new(0x7f000001U, 0))
+    let listener = @socket.TcpServer(Addr(@socket.IpAddr::v4(0x7f000001U), 0))
     defer listener.close()
     let endpoint = @types.Endpoint::new(
       "tcp",
       "127.0.0.1",
-      listener.addr.port(),
+      listener.addr.port.to_int(),
     ).unwrap()
     let connection = TcpConnector::new()
       .connect(endpoint, {

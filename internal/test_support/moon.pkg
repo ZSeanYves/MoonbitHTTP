@@ -1,16 +1,21 @@
 import {
   "ZSeanYves/MoonbitHTTP/runtime/transport",
-  "moonbitlang/async/aqueue",
-  "moonbitlang/async/io" @aio,
+  "moonbitlang/core/async/aqueue",
+  "moonbitlang/core/async/io" @aio,
   "moonbitlang/core/debug",
 }
 
 import {
   "ZSeanYves/MoonbitHTTP/core/types",
-  "moonbitlang/async",
+  "moonbitlang/core/async",
   "ZSeanYves/MoonbitHTTP/protocol/http1",
 } for "test"
 
 options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/aqueue",
+    "moonbitlang/core/async/io",
+  ],
   "is-main": false,
 )

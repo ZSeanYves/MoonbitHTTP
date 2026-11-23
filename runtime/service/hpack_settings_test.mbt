@@ -58,7 +58,7 @@ async test "service: HTTP/2 client applies peer table limit before sending reque
   @async.with_timeout(1000, async fn() {
     @service.with_h2_client_connection(
       reader,
-      writer,
+      test_writer(writer),
       async fn(client) {
         ready.get()
         let headers = @types.HeaderMap::new()
@@ -141,7 +141,7 @@ async test "service: HTTP/2 server applies peer table limit only to response enc
   }
   @service.serve_http2_connection(
     reader,
-    writer,
+    test_writer(writer),
     fn(_) {
       calls += 1
       let response_headers = @types.HeaderMap::new()

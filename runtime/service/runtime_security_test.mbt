@@ -6,7 +6,7 @@ struct SecurityCaptureWriter {
 }
 
 ///|
-impl @aio.Writer for SecurityCaptureWriter with fn write_once(
+impl TestWriter for SecurityCaptureWriter with fn write_once(
   self,
   data,
   offset~,
@@ -59,7 +59,7 @@ async fn security_h2_response(
   let writer : SecurityCaptureWriter = { bytes: [], ready, writes: 0, }
   let limits = { ..@types.Limits::defaults(), max_body_bytes, }
   @async.with_timeout(1000, async fn() {
-    @service.with_h2_client_connection(reader, writer, consume, config={
+    @service.with_h2_client_connection(reader, test_writer(writer), consume, config={
       ..@service.H2ClientConfig::defaults(),
       limits,
       body_queue_capacity: 1,
@@ -115,7 +115,7 @@ async test "service HTTP/1 EOF before final headers is terminal" {
     let reader = @aio.MemoryReader(async fn(writer) { writer.write(prefix) })
     let ready : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
     let writer : SecurityCaptureWriter = { bytes: [], ready, writes: 0, }
-    let client = @service.ClientConnection::new(reader, writer).unwrap()
+    let client = @service.ClientConnection::new(reader, test_writer(writer)).unwrap()
     let request = { ..security_request(Get), version: Http11, }
     try
       @async.with_timeout(1000, async fn() { ignore(client.send(request)) })
@@ -231,7 +231,7 @@ async test "service HTTP/2 rejects response frames after trailers" {
   @async.with_timeout(1000, async fn() {
     @service.with_h2_client_connection(
       reader,
-      writer,
+      test_writer(writer),
       async fn(client) {
         let result = client.send(security_request(Get))
         assert_eq(result.status, 200)
@@ -285,7 +285,7 @@ async test "service HTTP/2 rejects DATA and duplicate trailers after request end
   let reader = @aio.MemoryReader(async fn(writer) { writer.write(bytes) })
   let writer : CaptureWriter = { bytes: [], }
   @async.with_timeout(1000, async fn() {
-    @service.serve_http2_connection(reader, writer, async fn(_) {
+    @service.serve_http2_connection(reader, test_writer(writer), async fn(_) {
       @async.sleep(1000)
       {
         status: 200,
@@ -331,7 +331,7 @@ async test "service HTTP/2 rapid resets cancel and join handlers before reusing 
   @async.with_timeout(1000, async fn() {
     @service.serve_http2_connection(
       reader,
-      writer,
+      test_writer(writer),
       async fn(_) {
         active += 1
         peak = peak.max(active)

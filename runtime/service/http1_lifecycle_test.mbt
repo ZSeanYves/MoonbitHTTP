@@ -57,7 +57,7 @@ fn http1_failing_header_writer() -> Http1FailingHeaderWriter {
 }
 
 ///|
-impl @aio.Writer for Http1FailingHeaderWriter with fn write_once(
+impl TestWriter for Http1FailingHeaderWriter with fn write_once(
   _self,
   _data,
   offset~,
@@ -75,7 +75,7 @@ struct Http1BlockedHeaderWriter {
 }
 
 ///|
-impl @aio.Writer for Http1BlockedHeaderWriter with fn write_once(
+impl TestWriter for Http1BlockedHeaderWriter with fn write_once(
   self,
   _data,
   offset~,
@@ -104,7 +104,7 @@ async test "service: HTTP/1 header write failure cancels response body once with
   try
     @service.serve_http1_connection(
       reader,
-      http1_failing_header_writer(),
+      test_writer(http1_failing_header_writer()),
       fn(_) { http1_lifecycle_response(body) },
       config~,
     )
@@ -127,7 +127,7 @@ async test "service: HTTP/1 invalid response head cancels its unpolled body" {
   let body : Http1LifecycleBody = { failure: None, cancelled, }
   let writer : CaptureWriter = { bytes: [], }
   try
-    @service.serve_http1_connection(reader, writer, fn(_) {
+    @service.serve_http1_connection(reader, test_writer(writer), fn(_) {
       http1_lifecycle_response(body, status=99)
     })
   catch {
@@ -144,7 +144,7 @@ async test "service: HTTP/1 invalid response head cancels its unpolled body" {
 async test "service: HTTP/1 request body failure is cancelled once and preserves its cause" {
   let reader = @aio.MemoryReader(fn(_writer) { () })
   let writer : CaptureWriter = { bytes: [], }
-  let client = @service.ClientConnection::new(reader, writer).unwrap()
+  let client = @service.ClientConnection::new(reader, test_writer(writer)).unwrap()
   let cancelled : Array[Error] = []
   let body : Http1LifecycleBody = {
     failure: Some(Http1LifecycleFailure("request body")),
@@ -181,7 +181,7 @@ async test "service: HTTP/1 error response failure cancels body and closes once"
   try
     @service.serve_http1_with_error_responder(
       reader,
-      writer,
+      test_writer(writer),
       fn(_) raise { raise Http1LifecycleFailure("handler") },
       fn(_) { http1_lifecycle_response(body, status=500) },
       config~,
@@ -213,7 +213,7 @@ async test "service: HTTP/1 successful error response retains original close cau
   }
   @service.serve_http1_with_error_responder(
     reader,
-    writer,
+    test_writer(writer),
     fn(_) raise { raise Http1LifecycleFailure("handler") },
     fn(_) { http1_lifecycle_response(body, status=500) },
     config~,
@@ -245,7 +245,7 @@ async test "service: cancelling HTTP/1 error response closes once and cancels it
       let task = group.spawn(async fn() {
         @service.serve_http1_with_error_responder(
           reader,
-          writer,
+          test_writer(writer),
           fn(_) raise { raise Http1LifecycleFailure("handler") },
           fn(_) { http1_lifecycle_response(body, status=500) },
           config~,
@@ -290,7 +290,7 @@ async test "HTTP/1 stops after a closing exchange and honors explicit HTTP/1.0 p
     defer reader.close()
     let writer : CaptureWriter = { bytes: [], }
     let mut calls = 0
-    @service.serve_http1_connection(reader, writer, request => {
+    @service.serve_http1_connection(reader, test_writer(writer), request => {
       calls += 1
       let headers = @types.HeaderMap::new()
       if response_closes {
@@ -320,7 +320,9 @@ async test "HTTP/1 selection preserves a coalesced body and the next request" {
   defer reader.close()
   let writer : CaptureWriter = { bytes: [], }
   let seen : Array[(String, Bytes)] = []
-  @service.serve_http1_or_h2c_connection(reader, writer, async fn(request) {
+  @service.serve_http1_or_h2c_connection(reader, test_writer(writer), async fn(
+    request,
+  ) {
     let (data, _) = @body.collect(request.body)
     seen.push((request.uri.value, data))
     {
@@ -342,7 +344,7 @@ async test "HTTP/1 and h2c reject an unsupported expectation before dispatch" {
     let reader = @aio.MemoryReader(async fn(peer) { peer.write(head) })
     defer reader.close()
     let writer : CaptureWriter = { bytes: [], }
-    @service.serve_http1_or_h2c_connection(reader, writer, _ => {
+    @service.serve_http1_or_h2c_connection(reader, test_writer(writer), _ => {
       (
         fail("unsupported expectation reached the handler") :
         @types.Response[@body.EmptyBody])
@@ -359,9 +361,10 @@ async test "a successful CONNECT leaves the sequential HTTP/1 connection" {
     peer.write(b"HTTP/1.1 200 OK\r\n\r\ntunnel")
   })
   defer reader.close()
-  let client = @service.ClientConnection::new(reader, CaptureWriter::{
-    bytes: [],
-  }).unwrap()
+  let client = @service.ClientConnection::new(
+    reader,
+    test_writer(CaptureWriter::{ bytes: [], }),
+  ).unwrap()
   let base = phase_timeout_request(@body.EmptyBody::new())
   let response = client.send({
     ..base,
@@ -389,7 +392,7 @@ async test "HTTP/1 and HTTP/2 finish metadata-only responses without polling the
     })
     defer input.close()
     let output : CaptureWriter = { bytes: [], }
-    @service.serve_http1_connection(input, output, _ => {
+    @service.serve_http1_connection(input, test_writer(output), _ => {
       http1_lifecycle_response(body, status~)
     })
     let head = @utf8.decode_lossy(Bytes::from_array(output.bytes))
@@ -424,7 +427,7 @@ async test "HTTP/1 and HTTP/2 finish metadata-only responses without polling the
     })
     defer incoming.close()
     @async.with_timeout(2000, async fn() {
-      @service.serve_http2_connection(incoming, wire, _ => {
+      @service.serve_http2_connection(incoming, test_writer(wire), _ => {
         status,
         version: Http2,
         headers: @types.HeaderMap::new(),

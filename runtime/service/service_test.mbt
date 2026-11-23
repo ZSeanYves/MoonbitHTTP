@@ -4,7 +4,7 @@ struct CaptureWriter {
 }
 
 ///|
-impl @aio.Writer for CaptureWriter with fn write_once(self, data, offset~, len~) {
+impl TestWriter for CaptureWriter with fn write_once(self, data, offset~, len~) {
   for i in offset..<(offset + len) {
     self.bytes.push(data[i])
   }
@@ -18,7 +18,7 @@ struct SignalingCaptureWriter {
 }
 
 ///|
-impl @aio.Writer for SignalingCaptureWriter with fn write_once(
+impl TestWriter for SignalingCaptureWriter with fn write_once(
   self,
   data,
   offset~,
@@ -32,19 +32,17 @@ impl @aio.Writer for SignalingCaptureWriter with fn write_once(
 }
 
 ///|
-#warnings("-alert_internal")
 struct PhaseBlockingReader {
-  reader_buffer : @aio.ReaderBuffer
+  reader_controller : @aio.BinaryReaderController
   prefix : Bytes
   mut prefix_offset : Int32
   gate : @aqueue.Queue[Unit]
 }
 
 ///|
-#warnings("-alert_internal")
 fn PhaseBlockingReader::new(prefix : Bytes) -> PhaseBlockingReader {
   {
-    reader_buffer: @aio.ReaderBuffer::new(),
+    reader_controller: BinaryReaderController(),
     prefix,
     prefix_offset: 0,
     gate: Queue(kind=Unbounded),
@@ -52,13 +50,20 @@ fn PhaseBlockingReader::new(prefix : Bytes) -> PhaseBlockingReader {
 }
 
 ///|
-#warnings("-alert_internal")
-impl @aio.Reader for PhaseBlockingReader with fn _get_internal_buffer(self) {
-  self.reader_buffer
+impl @aio.BinaryReader for PhaseBlockingReader
+
+///|
+impl @aio.BinaryReaderImpl for PhaseBlockingReader with fn name(_self) {
+  "PhaseBlockingReader"
 }
 
 ///|
-impl @aio.Reader for PhaseBlockingReader with fn _direct_read(
+impl @aio.BinaryReaderImpl for PhaseBlockingReader with fn get_controller(self) {
+  self.reader_controller
+}
+
+///|
+impl @aio.BinaryReaderImpl for PhaseBlockingReader with fn raw_read_impl(
   self,
   destination,
   offset~,
@@ -85,7 +90,7 @@ struct PhaseBlockingWriter {
 }
 
 ///|
-impl @aio.Writer for PhaseBlockingWriter with fn write_once(
+impl TestWriter for PhaseBlockingWriter with fn write_once(
   self,
   data,
   offset~,
@@ -124,7 +129,7 @@ async test "service: HTTP/1 runs on official async Reader/Writer" {
   let writer : CaptureWriter = { bytes: [], }
   @service.serve_http1_connection(
     reader,
-    writer,
+    test_writer(writer),
     async fn(request) {
       @async.pause()
       assert_eq(request.uri.value, "/")
@@ -157,7 +162,7 @@ async test "service: client handshake sends request and streams response" {
     )
   })
   let writer : CaptureWriter = { bytes: [], }
-  let client = @service.ClientConnection::new(reader, writer).unwrap()
+  let client = @service.ClientConnection::new(reader, test_writer(writer)).unwrap()
   let headers = @types.HeaderMap::new()
   assert_eq(headers.append_string("host", "example.test"), Ok(()))
   let request : @types.Request[@body.FullBody] = {
@@ -188,7 +193,7 @@ async test "service: cancelling an HTTP/1 response permanently closes reuse" {
     writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ndata")
   })
   let writer : CaptureWriter = { bytes: [], }
-  let client = @service.ClientConnection::new(reader, writer).unwrap()
+  let client = @service.ClientConnection::new(reader, test_writer(writer)).unwrap()
   let headers = @types.HeaderMap::new()
   assert_eq(headers.append_string("host", "example.test"), Ok(()))
   let response = client.send({
@@ -215,7 +220,7 @@ async test "service: HTTP/1 request-header timeout closes the connection" {
   }
   let client = @service.ClientConnection::new(
     reader,
-    writer,
+    test_writer(writer),
     request_headers_timeout_ms=Some(10),
     request_body_timeout_ms=None,
     response_headers_timeout_ms=None,
@@ -246,7 +251,7 @@ async test "service: HTTP/1 request-body timeout cancels a stalled producer or w
     }
     let client = @service.ClientConnection::new(
       reader,
-      writer,
+      test_writer(writer),
       request_headers_timeout_ms=None,
       request_body_timeout_ms=Some(10),
       response_headers_timeout_ms=None,
@@ -282,7 +287,7 @@ async test "service: HTTP/1 response-header timeout closes the connection" {
   let writer : CaptureWriter = { bytes: [], }
   let client = @service.ClientConnection::new(
     reader,
-    writer,
+    test_writer(writer),
     request_headers_timeout_ms=None,
     request_body_timeout_ms=None,
     response_headers_timeout_ms=Some(10),
@@ -308,7 +313,7 @@ async test "service: HTTP/1 response-body timeout closes the connection" {
   let writer : CaptureWriter = { bytes: [], }
   let client = @service.ClientConnection::new(
     reader,
-    writer,
+    test_writer(writer),
     request_headers_timeout_ms=None,
     request_body_timeout_ms=None,
     response_headers_timeout_ms=None,
@@ -334,7 +339,7 @@ async test "service: HTTP/1 close semantics prevent accidental pooling" {
     writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
   })
   let writer : CaptureWriter = { bytes: [], }
-  let client = @service.ClientConnection::new(reader, writer).unwrap()
+  let client = @service.ClientConnection::new(reader, test_writer(writer)).unwrap()
   let headers = @types.HeaderMap::new()
   assert_eq(headers.append_string("host", "example.test"), Ok(()))
   assert_eq(headers.append_string("connection", "close"), Ok(()))
@@ -358,7 +363,9 @@ async test "service: HTTP/1 streams request frames and response trailers" {
     )
   })
   let writer : CaptureWriter = { bytes: [], }
-  @service.serve_http1_connection(reader, writer, async fn(request) {
+  @service.serve_http1_connection(reader, test_writer(writer), async fn(
+    request,
+  ) {
     let (data, trailers) = @body.collect(request.body)
     assert_eq(data, b"abcd")
     assert_eq(
@@ -408,7 +415,9 @@ async test "service: HTTP/2 client sends preface and receives streamed body" {
     writer.write(Bytes::from_array(input))
   })
   let writer : SignalingCaptureWriter = { bytes: [], signal: request_written, }
-  @service.with_h2_client_connection(reader, writer, async fn(client) {
+  @service.with_h2_client_connection(reader, test_writer(writer), async fn(
+    client,
+  ) {
     let headers = @types.HeaderMap::new()
     assert_eq(headers.append_string("host", "example.test"), Ok(()))
     let request : @types.Request[@body.FullBody] = {
@@ -463,7 +472,9 @@ async test "service: HTTP/2 client multiplexes two response streams" {
     writer.write(Bytes::from_array(input))
   })
   let writer : SignalingCaptureWriter = { bytes: [], signal: request_written, }
-  @service.with_h2_client_connection(reader, writer, async fn(client) {
+  @service.with_h2_client_connection(reader, test_writer(writer), async fn(
+    client,
+  ) {
     let results : @aqueue.Queue[Bytes] = Queue(kind=Unbounded)
     @async.with_task_group(async fn(group) {
       for path in ["/one", "/two"] {
@@ -510,7 +521,9 @@ async test "service: h2c grants a waiting upload before switching stream one" {
   })
   defer reader.close()
   let mut request_body = b""
-  @service.serve_http1_or_h2c_connection(reader, writer, async fn(request) {
+  @service.serve_http1_or_h2c_connection(reader, test_writer(writer), async fn(
+    request,
+  ) {
     let (data, _) = @body.collect(request.body)
     request_body = data
     assert_eq(request.version, Http2)
@@ -536,7 +549,7 @@ async test "service: HTTP/1 reserves connection before waiting for response head
   let reader = PhaseBlockingReader::new(b"")
   let signal : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
   let writer : SignalingCaptureWriter = { bytes: [], signal, }
-  let client = @service.ClientConnection::new(reader, writer).unwrap()
+  let client = @service.ClientConnection::new(reader, test_writer(writer)).unwrap()
   @async.with_timeout(1000, async fn() {
     @async.with_task_group(async fn(group) {
       let cancelled : Array[Error] = []

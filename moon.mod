@@ -9,7 +9,6 @@ warnings = "-result_error_return"
 
 import {
   "moonbitlang/x@0.5.5",
-  "moonbitlang/async@0.22.4",
   "mizchi/crater-browser-http@0.19.0",
   "moonbit-community/normalization@0.5.2",
   "moonbit-community/idna@0.5.2",

@@ -3,7 +3,7 @@ package "ZSeanYves/MoonbitHTTP/application/server"
 
 import {
   "ZSeanYves/MoonbitHTTP/runtime/transport",
-  "moonbitlang/async/cond_var",
+  "moonbitlang/core/async/cond_var",
   "moonbitlang/core/debug",
 }
 

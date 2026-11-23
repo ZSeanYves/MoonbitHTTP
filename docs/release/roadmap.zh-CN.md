@@ -101,7 +101,7 @@ repo-tools/{tools,scripts}/  仓库检查、互操作和发布工具
 每个协议实现都应有相同的两类接口：
 
 1. **无 I/O 的 codec/state machine**：给定 `BytesView` 或事件，返回 `NeedMoreInput`、`Produced`、`Complete` 或结构化错误；输出缓冲满时保留状态，不丢失已消费和未消费的边界。
-2. **异步 driver**：使用 `Reader`/`Writer` 或 datagram 能力反复驱动状态机，施加读取、写入、body、并发和时间限制。
+2. **异步 driver**：使用 `BinaryReader`/`BinaryWriter` 或 datagram 能力反复驱动状态机，施加读取、写入、body、并发和时间限制。
 
 driver 不应把所有响应 body 聚合成 `Bytes`。只有调用方显式调用 `body.collect(max_bytes=...)` 时才聚合；默认通过 `BodyStream` 传递背压。
 

@@ -1,10 +1,10 @@
 ///|
 async fn unused_tcp_endpoint() -> @types.Endpoint {
-  let reservation = @socket.TcpServer(@socket.Addr::new(0x7f000001U, 0))
+  let reservation = @socket.TcpServer(Addr(@socket.IpAddr::v4(0x7f000001U), 0))
   let endpoint = @types.Endpoint::new(
     "tcp",
     "127.0.0.1",
-    reservation.addr.port(),
+    reservation.addr.port.to_int(),
   ).unwrap()
   reservation.close()
   endpoint
@@ -15,10 +15,10 @@ async fn listener_tls_options() -> (
   @transport.TlsOptions,
   @transport.TlsOptions,
 ) {
-  let certificate = @fs.read_file(
+  let certificate = @fs.read_binary(
     "adapter/native/tls/testdata/localhost.cert.pem",
-  ).binary()
-  let key = @fs.read_file("adapter/native/tls/testdata/localhost.key.pem").binary()
+  )
+  let key = @fs.read_binary("adapter/native/tls/testdata/localhost.key.pem")
   (
     {
       ..@transport.TlsOptions::defaults(),

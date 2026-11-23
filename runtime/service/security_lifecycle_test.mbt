@@ -69,7 +69,7 @@ async test "security lifecycle: H2 EOF wakes existing and future send-credit wai
       @async.with_timeout(1000, async fn() {
         @service.serve_http2_connection(
           reader,
-          writer,
+          test_writer(writer),
           async fn(_) {
             if !already_waiting {
               @async.pause()
@@ -119,7 +119,7 @@ async test "security lifecycle: H2 reset cancels a response already waiting for 
   @async.with_timeout(1000, async fn() {
     @service.serve_http2_connection(
       reader,
-      H2LifecycleWriter::new(),
+      test_writer(H2LifecycleWriter::new()),
       fn(_) { lifecycle_response(outgoing) },
       config={
         ..@service.ServerConfig::defaults(),
@@ -137,7 +137,7 @@ struct LifecycleFailingWriter {
 }
 
 ///|
-impl @aio.Writer for LifecycleFailingWriter with fn write_once(
+impl TestWriter for LifecycleFailingWriter with fn write_once(
   self,
   data,
   offset~,
@@ -172,7 +172,7 @@ async test "security lifecycle: H2 header and DATA write failures cancel owned r
     try
       @service.serve_http2_connection(
         reader,
-        LifecycleFailingWriter::{ typ, },
+        test_writer(LifecycleFailingWriter::{ typ, }),
         fn(_) { lifecycle_response(outgoing) },
       )
     catch {
@@ -194,7 +194,7 @@ async test "security lifecycle: H2 request header failure cancels body before up
   @async.with_timeout(1000, async fn() {
     @service.with_h2_client_connection(
       reader,
-      LifecycleFailingWriter::{ typ: @http2.H2_FRAME_HEADERS, },
+      test_writer(LifecycleFailingWriter::{ typ: @http2.H2_FRAME_HEADERS, }),
       async fn(client) {
         try
           client.send(security_request(Post).map_body(fn(_) { outgoing }))
@@ -212,31 +212,38 @@ async test "security lifecycle: H2 request header failure cancels body before up
 }
 
 ///|
-#warnings("-alert_internal")
 struct LifecycleRequestReader {
-  reader_buffer : @aio.ReaderBuffer
+  reader_controller : @aio.BinaryReaderController
   chunks : Array[Bytes]
   mut cursor : Int32
   pushed : @aqueue.Queue[Unit]
 }
 
 ///|
-#warnings("-alert_internal")
-impl @aio.Reader for LifecycleRequestReader with fn _get_internal_buffer(self) {
-  self.reader_buffer
+impl @aio.BinaryReader for LifecycleRequestReader
+
+///|
+impl @aio.BinaryReaderImpl for LifecycleRequestReader with fn name(_self) {
+  "LifecycleRequestReader"
 }
 
 ///|
-#warnings("-alert_internal")
+impl @aio.BinaryReaderImpl for LifecycleRequestReader with fn get_controller(
+  self,
+) {
+  self.reader_controller
+}
+
+///|
 fn LifecycleRequestReader::new(
   chunks : Array[Bytes],
   pushed : @aqueue.Queue[Unit],
 ) -> LifecycleRequestReader {
-  { reader_buffer: @aio.ReaderBuffer::new(), chunks, cursor: 0, pushed, }
+  { reader_controller: BinaryReaderController(), chunks, cursor: 0, pushed, }
 }
 
 ///|
-impl @aio.Reader for LifecycleRequestReader with fn _direct_read(
+impl @aio.BinaryReaderImpl for LifecycleRequestReader with fn raw_read_impl(
   self,
   buf,
   offset~,
@@ -292,14 +299,14 @@ async test "security lifecycle: HTTP1 and h2c completion wakes an already-full r
       if upgrade {
         @service.serve_http1_or_h2c_connection(
           reader,
-          CaptureWriter::{ bytes: [], },
+          test_writer(CaptureWriter::{ bytes: [], }),
           service,
           config~,
         )
       } else {
         @service.serve_http1_connection(
           reader,
-          CaptureWriter::{ bytes: [], },
+          test_writer(CaptureWriter::{ bytes: [], }),
           service,
           config~,
         )
@@ -325,7 +332,7 @@ async test "security lifecycle: HTTP1 lazy echo consumes request beyond queue ca
   @async.with_timeout(1000, async fn() {
     @service.serve_http1_connection(
       reader,
-      writer,
+      test_writer(writer),
       fn(request) {
         {
           status: 200,
@@ -359,7 +366,7 @@ async test "security lifecycle: h2c abandoned staged response is cancelled once"
       @async.with_timeout(1000, async fn() {
         @service.serve_http1_or_h2c_connection(
           reader,
-          CaptureWriter::{ bytes: [], },
+          test_writer(CaptureWriter::{ bytes: [], }),
           async fn(_) {
             created.put(())
             lifecycle_response(outgoing)

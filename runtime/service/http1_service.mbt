@@ -31,42 +31,42 @@ fn ServerConfig::without_close_callback(self : ServerConfig) -> ServerConfig {
 }
 
 ///|
-async fn[R : @aio.Reader] read_some_with_timeout(
+async fn[X] io_with_timeout(timeout_ms : Int32?, action : async () -> X) -> X {
+  try {
+    match timeout_ms {
+      Some(timeout) if timeout > 0 => @async.with_timeout(timeout, action)
+      _ => action()
+    }
+  } catch {
+    error => raise @async_support.io_cause(error)
+  }
+}
+
+///|
+async fn[R : @aio.BinaryReader] read_some_with_timeout(
   reader : R,
   max_len : Int32,
   timeout_ms : Int32?,
 ) -> Bytes? {
-  match timeout_ms {
-    Some(timeout) if timeout > 0 =>
-      @async.with_timeout(timeout, () => reader.read_some(max_len~))
-    _ => reader.read_some(max_len~)
-  }
+  io_with_timeout(timeout_ms, () => @async_support.read_some(reader, max_len))
 }
 
 ///|
-async fn[R : @aio.Reader] read_exactly_with_timeout(
+async fn[R : @aio.BinaryReader] read_exactly_with_timeout(
   reader : R,
   len : Int32,
   timeout_ms : Int32?,
 ) -> Bytes {
-  match timeout_ms {
-    Some(timeout) if timeout > 0 =>
-      @async.with_timeout(timeout, () => reader.read_exactly(len))
-    _ => reader.read_exactly(len)
-  }
+  io_with_timeout(timeout_ms, () => reader.read_exactly(len))
 }
 
 ///|
-async fn[W : @aio.Writer] write_with_timeout(
+async fn[W : @aio.BinaryWriter] write_with_timeout(
   writer : W,
   bytes : Bytes,
   timeout_ms : Int32?,
 ) -> Unit {
-  match timeout_ms {
-    Some(timeout) if timeout > 0 =>
-      @async.with_timeout(timeout, () => writer.write(bytes))
-    _ => writer.write(bytes)
-  }
+  io_with_timeout(timeout_ms, () => writer.write(bytes))
 }
 
 ///|
@@ -85,7 +85,7 @@ fn expects_request_body(request : @types.Request[Unit]) -> Bool {
 }
 
 ///|
-async fn[W : @aio.Writer] accept_http1_expectation(
+async fn[W : @aio.BinaryWriter] accept_http1_expectation(
   request : @types.Request[Unit],
   writer : W,
   timeout_ms : Int32?,
@@ -163,7 +163,7 @@ fn[R] Http1RequestInput::new(
 }
 
 ///|
-async fn[R : @aio.Reader] Http1RequestInput::next(
+async fn[R : @aio.BinaryReader] Http1RequestInput::next(
   self : Http1RequestInput[R],
 ) -> @http1.RequestEvent? {
   for ;; {
@@ -184,7 +184,7 @@ async fn[R : @aio.Reader] Http1RequestInput::next(
 }
 
 ///|
-pub async fn[R : @aio.Reader] drive_http1_events(
+pub async fn[R : @aio.BinaryReader] drive_http1_events(
   reader : R,
   on_event : async (@http1.RequestEvent) -> Unit,
   config~ : ServerConfig = ServerConfig::defaults(),
@@ -197,7 +197,7 @@ pub async fn[R : @aio.Reader] drive_http1_events(
 }
 
 ///|
-async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connection_inner(
+async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_http1_connection_inner(
   input : Http1RequestInput[R],
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
@@ -375,7 +375,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connectio
 }
 
 ///|
-pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_connection(
+pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_http1_connection(
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
@@ -396,7 +396,7 @@ pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_conne
 }
 
 ///|
-pub async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http1_with_error_responder(
+pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_http1_with_error_responder(
   reader : R,
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],

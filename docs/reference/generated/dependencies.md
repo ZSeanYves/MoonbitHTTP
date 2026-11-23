@@ -29,6 +29,7 @@ flowchart TD
   p_adapter_native_server["adapter/native/server"]
   p_internal_test_support["internal/test_support"]
   p_policy_content_coding["policy/content_coding"]
+  p_internal_async_support["internal/async_support"]
   p_adapter_native_transport["adapter/native/transport"]
   p_examples_cmd_smoke_server["examples/cmd/smoke_server"]
   p_examples_cmd_h3_smoke_client["examples/cmd/h3_smoke_client"]
@@ -47,6 +48,7 @@ flowchart TD
   p_protocol_http3 --> p_core_types
   p_runtime_service --> p_core_body
   p_protocol_quic --> p_protocol_tls
+  p_runtime_service -. "test" .-> p_adapter_uv
   p_runtime_service --> p_core_types
   p_application_client --> p_core_body
   p_protocol_http3 --> p_protocol_quic
@@ -96,6 +98,7 @@ flowchart TD
   p_adapter_native_server --> p_runtime_service
   p_examples_cmd_h3_smoke_client --> p_core_body
   p_examples_cmd_h3_smoke_server --> p_core_body
+  p_runtime_service --> p_internal_async_support
   p_adapter_native_client --> p_runtime_transport
   p_adapter_native_server --> p_runtime_transport
   p_examples_cmd_h3_smoke_client --> p_core_types
@@ -108,6 +111,7 @@ flowchart TD
   p_application_client -. "test" .-> p_internal_test_support
   p_application_client --> p_policy_content_coding
   p_examples_cmd_smoke_server --> p_protocol_http2
+  p_application_client --> p_internal_async_support
   p_examples_cmd_smoke_server --> p_runtime_service
   p_adapter_native_server -. "wbtest" .-> p_application_server
   p_adapter_native_tls -. "wbtest" .-> p_internal_test_support
@@ -115,7 +119,9 @@ flowchart TD
   p_examples_cmd_h3_smoke_client --> p_protocol_quic
   p_examples_cmd_h3_smoke_server --> p_protocol_quic
   p_adapter_native_client --> p_policy_content_coding
+  p_adapter_native_tls -. "wbtest" .-> p_internal_async_support
   p_examples_cmd_smoke_server --> p_runtime_transport
+  p_adapter_native_server --> p_internal_async_support
   p_adapter_native_transport -. "wbtest" .-> p_runtime_transport
   p_examples_cmd_h3_smoke_client --> p_runtime_service
   p_examples_cmd_h3_smoke_server --> p_runtime_service
@@ -126,6 +132,7 @@ flowchart TD
   p_adapter_native_server --> p_adapter_native_transport
   p_examples_cmd_h3_smoke_client --> p_runtime_transport
   p_examples_cmd_h3_smoke_server --> p_runtime_transport
+  p_adapter_native_transport --> p_internal_async_support
   p_examples_cmd_h3_smoke_server --> p_application_server
   p_examples_cmd_smoke_server --> p_adapter_native_server
   p_examples_cmd_h3_smoke_client --> p_adapter_native_client

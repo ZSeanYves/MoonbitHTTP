@@ -2,13 +2,18 @@
 package "ZSeanYves/MoonbitHTTP/adapter/uv"
 
 import {
-  "moonbitlang/async/io",
+  "moonbitlang/core/async/io",
   "moonbitlang/core/debug",
 }
 
 // Values
 
 // Errors
+pub(all) suberror CallbackCountError {
+  InvalidReadCount(Int32, limit~ : Int32)
+  InvalidWriteCount(Int32, limit~ : Int32)
+}
+
 #derive(Eq, @debug.Debug)
 pub(all) suberror CallbackTransportClosed {
   CallbackTransportClosed
@@ -19,27 +24,31 @@ pub fn CallbackTransportClosed::to_repr(Self) -> @debug.Repr
 
 // Types and methods
 pub struct CallbackTransport {
-  reader_buffer : @io.ReaderBuffer
   read_callback : async (FixedArray[Byte], Int32, Int32) -> Int32
   write_callback : async (Bytes, Int32, Int32) -> Int32
   close_callback : () -> Unit
   mut closed : Bool
+  // private fields
 }
-pub async fn CallbackTransport::_direct_read(Self, FixedArray[Byte], offset~ : Int32, max_len~ : Int32) -> Int32
-pub fn CallbackTransport::_get_internal_buffer(Self) -> @io.ReaderBuffer
 pub fn CallbackTransport::close(Self) -> Unit
-pub async fn CallbackTransport::drop(Self, Int32) -> Int32
+pub async fn CallbackTransport::drop_all(Self) -> Int64 raise @io.ReaderError
+pub async fn CallbackTransport::drop_exactly(Self, Int32) -> Unit raise @io.ReaderError
+pub async fn CallbackTransport::flush_partial_data(Self) -> Unit
 pub fn CallbackTransport::new(async (FixedArray[Byte], Int32, Int32) -> Int32, async (Bytes, Int32, Int32) -> Int32, close_callback? : () -> Unit) -> Self
-pub async fn CallbackTransport::read(Self, FixedArray[Byte], offset? : Int32, max_len? : Int32) -> Int32
-pub async fn CallbackTransport::read_all(Self) -> &@io.Data
-pub async fn CallbackTransport::read_exactly(Self, Int32) -> Bytes
-pub async fn CallbackTransport::read_some(Self, max_len? : Int32) -> Bytes?
-pub async fn CallbackTransport::read_until(Self, StringView) -> String?
-pub async fn CallbackTransport::write(Self, &@io.Data) -> Unit
-pub async fn CallbackTransport::write_once(Self, Bytes, offset~ : Int32, len~ : Int32) -> Int32
-pub async fn CallbackTransport::write_reader(Self, &@io.Reader) -> Unit
-pub impl @io.Reader for CallbackTransport
-pub impl @io.Writer for CallbackTransport
+pub async fn CallbackTransport::peek(Self) -> BytesView? raise @io.ReaderError
+pub async fn CallbackTransport::peek_at_least(Self, Int32) -> BytesView raise @io.ReaderError
+pub async fn CallbackTransport::peek_exactly(Self, Int32) -> BytesView raise @io.ReaderError
+pub async fn CallbackTransport::peek_until(Self, BytesView, include_delimiter? : Bool) -> BytesView? raise @io.ReaderError
+pub async fn CallbackTransport::read(Self) -> Bytes? raise @io.ReaderError
+pub async fn CallbackTransport::read_all(Self) -> Bytes raise @io.ReaderError
+pub async fn CallbackTransport::read_at_least(Self, Int32) -> Bytes raise @io.ReaderError
+pub async fn CallbackTransport::read_exactly(Self, Int32) -> Bytes raise @io.ReaderError
+pub async fn CallbackTransport::read_into(Self, MutArrayView[Byte]) -> Int32 raise @io.ReaderError
+pub async fn CallbackTransport::read_until(Self, BytesView, include_delimiter? : Bool) -> Bytes? raise @io.ReaderError
+pub async fn CallbackTransport::write(Self, BytesView) -> Unit raise @io.WriterError
+pub async fn CallbackTransport::write_reader(Self, &@io.BinaryReader) -> Unit
+pub impl @io.BinaryReader for CallbackTransport
+pub impl @io.BinaryWriter for CallbackTransport
 
 // Type aliases
 

@@ -23,19 +23,27 @@ pub extend ClientConnectionError with Eq::{equal, not_equal}
 pub extend ClientConnectionError with @debug.Debug::{to_repr}
 
 ///|
-pub extend StreamIo with @aio.Reader::{
+pub extend StreamIo with @aio.BinaryReader::{
   read,
-  read_some,
-  _direct_read,
-  drop,
+  read_into,
   read_all,
   read_until,
   read_exactly,
-  _get_internal_buffer,
+  drop_exactly,
+  peek,
+  peek_at_least,
+  peek_exactly,
+  peek_until,
+  read_at_least,
+  drop_all,
 }
 
 ///|
-pub extend StreamIo with @aio.Writer::{write_once, write, write_reader}
+pub extend StreamIo with @aio.BinaryWriter::{
+  write,
+  write_reader,
+  flush_partial_data,
+}
 
 ///|
 pub extend StreamIoError with @debug.Debug::{to_repr}

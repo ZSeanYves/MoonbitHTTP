@@ -31,12 +31,12 @@ async fn main {
     _ => fail("usage: h3_smoke_server [--once]")
   }
   let endpoint = @types.Endpoint::new("udp", "127.0.0.1", 18443).unwrap()
-  let certificate = @fs.read_file(
+  let certificate = @fs.read_binary(
     "adapter/native/tls/testdata/localhost.cert.pem",
-  ).binary()
-  let private_key = @fs.read_file(
+  )
+  let private_key = @fs.read_binary(
     "adapter/native/tls/testdata/localhost.key.pem",
-  ).binary()
+  )
   let options = {
     ..@transport.TlsOptions::defaults(),
     verify_peer: false,
@@ -75,6 +75,6 @@ async fn main {
     },
   ).unwrap_or_error()
   defer listener.close()
-  @stdio.stdout.write("HTTP/3 smoke listening on https://localhost:18443\n")
+  @stdio.stdout.write(b"HTTP/3 smoke listening on https://localhost:18443\n")
   listener.serve(supervisor).unwrap_or_error()
 }

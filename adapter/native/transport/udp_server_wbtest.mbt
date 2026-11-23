@@ -1,10 +1,10 @@
 ///|
 async fn unused_udp_endpoint() -> @types.Endpoint {
-  let reservation = @socket.UdpServer(@socket.Addr::new(0x7f000001U, 0))
+  let reservation = @socket.UdpServer(Addr(@socket.IpAddr::v4(0x7f000001U), 0))
   let endpoint = @types.Endpoint::new(
     "udp",
     "127.0.0.1",
-    reservation.addr.port(),
+    reservation.addr.port.to_int(),
   ).unwrap()
   reservation.close()
   endpoint

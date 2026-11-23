@@ -175,7 +175,7 @@ pub async fn[B : @body.Body] serve_http3_connection(
           }
           // A terminal session delivers the peer's actual close via next_events.
           if !io.session.ended() {
-            group.return_immediately(())
+            group.return_immediately()
           }
         },
         no_wait=true,

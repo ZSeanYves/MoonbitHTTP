@@ -4,12 +4,28 @@
 > Scope: source migration from the 0.6 API to the 0.7.0 development line and
 > its v1 architecture target.
 > Source: working-tree (governed by Git)
-> Last reviewed: 2026-10-01
+> Last reviewed: 2026-11-23
 
 The 0.7 boundary intentionally breaks compatibility. No deprecated forwarding
 layer is required. Existing wire behavior tests remain; a removed stub is
 replaced by real keyed-packet tests, and duplicated test fixtures move with
 their owning concepts.
+
+## Async stream integrations
+
+The service API uses `BinaryReader` and `BinaryWriter` from the experimental
+`moonbitlang/core/async/io` package bundled with MoonBit `0.10.22+124d61d05`.
+Packages that import it directly can declare
+`options("allow-experimental-packages": ["moonbitlang/core/async/io"])` in
+`moon.pkg`. Replace standalone async streams with core async streams on both
+sides of each connection. Native core TCP streams already implement both traits.
+
+Hosts using `adapter/uv.CallbackTransport::new` can keep their read, write
+and close callbacks. Custom stream implementations can use that adapter or
+implement `BinaryReaderImpl` and `BinaryWriterImpl` with a controller per
+direction and opt into the corresponding binary traits. Use `read()` for the
+next chunk and `read_into(destination)` for a bounded read. A zero count
+from a nonempty destination signals EOF.
 
 ## Canonical entry points
 
@@ -26,7 +42,7 @@ their owning concepts.
 | Public parser/state internals | Private fields and checked transition methods |
 | Stub `quic_protect_packet` | `quic_protect_packet_with_keys`, with explicit packet keys |
 | `TlsOptions::validate` compatibility validator | `validate_client` / `validate_server`, sharing `validate_common` |
-| `io` forwarding package | Official `moonbitlang/async/io` traits |
+| `io` forwarding package | `moonbitlang/core/async/io.BinaryReader` and `BinaryWriter` |
 | Transport testing helpers | `internal/test_support.FixedClock`, `ZeroEntropy`, `MemoryDatagramSocket` |
 
 The callback executor may omit a resolver only for numeric endpoints. It still
@@ -48,7 +64,7 @@ connection. HTTP/3 separates field validation, request/control streams and
 QPACK encoder/decoder state. QUIC separates frame/packet codecs, connection
 credit, path actions, loss recovery, datagram I/O and the TLS handshake bridge.
 
-`runtime/service` binds HTTP/1 and HTTP/2 state to Reader/Writer lifetimes. It owns body
+`runtime/service` binds HTTP/1 and HTTP/2 state to binary reader and writer lifetimes. It owns body
 cancellation and connection shutdown. `application/client` owns request policy and physical
 pool leases. Its HTTP/1 executor files separate capabilities, I/O adaptation,
 connecting, proxy tunneling, pool sessions and exchanges; these are one

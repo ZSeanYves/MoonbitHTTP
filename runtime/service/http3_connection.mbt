@@ -193,7 +193,7 @@ pub async fn[
     },
     flush_writes: async fn() { dispatch([]) },
   }
-  @async.with_task_group(async fn(group) {
+  @async_support.with_group_result(async fn(group) {
     // The request tasks may live in a pool outside this connection scope.
     // Preserve the driver error before structured cancellation unwinds it.
     fn spawn_driver(task : async () -> Unit) -> Unit {

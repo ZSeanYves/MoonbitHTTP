@@ -340,7 +340,7 @@ pub async fn[X] with_h3_client(
   }
   let authority = @types.Authority::parse_endpoint(origin.authority()).unwrap_or_error()
   io.session.defer_body_credit()
-  @async.with_task_group(async fn(group) {
+  @async_support.with_group_result(async fn(group) {
     let client : H3Client = {
       io,
       authority,

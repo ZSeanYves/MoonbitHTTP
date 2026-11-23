@@ -130,16 +130,7 @@ fn peer_endpoint(
   let invalid_peer = @server_api.ServerError::Policy(
     Denied(Accept, "accepted peer address is not representable"),
   )
-  let host = if !peer.is_ipv6() {
-    let value = peer.ip()
-    "\{value >> 24}.\{(value >> 16) & 255}.\{(value >> 8) & 255}.\{value & 255}"
-  } else {
-    let rendered = peer.to_string()
-    guard rendered.has_prefix("[") else { return Err(invalid_peer) }
-    guard rendered.find("]") is Some(close) else { return Err(invalid_peer) }
-    rendered[1:close].to_owned()
-  }
-  match @types.Endpoint::new("tcp", host, peer.port()) {
+  match @types.Endpoint::new("tcp", peer.ip.to_string(), peer.port.to_int()) {
     Ok(endpoint) => Ok(endpoint)
     Err(_) => Err(invalid_peer)
   }
@@ -175,7 +166,7 @@ pub impl @server_api.Listener for NativeTcpListener with fn accept(self) {
   let connection = @transport.StreamConnection::new(
     endpoint,
     async fn(max_bytes) {
-      let bytes = tcp.read_some(max_len=max_bytes) catch {
+      let bytes = @async_support.read_some(tcp, max_bytes) catch {
         _ => return Err(Failed(Receive, "native TCP read failed"))
       }
       Ok(bytes)

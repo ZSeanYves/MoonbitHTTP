@@ -1,9 +1,10 @@
 import {
-  "moonbitlang/async",
+  "moonbitlang/core/async",
   "moonbitlang/core/debug",
   "ZSeanYves/MoonbitHTTP/runtime/transport",
 }
 
 options(
+  "allow-experimental-packages": [ "moonbitlang/core/async" ],
   "is-main": false,
 )

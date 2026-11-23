@@ -41,7 +41,7 @@ TLS 监听地址提供 HTTP/1.1 和 HTTP/2 服务。
   可选 HTTP 策略。
 - `adapter/native/*`：Native TCP/UDP、resolver、clock、OpenSSL 普通 TLS 和
   QUIC TLS 适配器。
-- `adapter/uv`：把宿主 callback 接入 async `Reader`/`Writer`。
+- `adapter/uv`：把宿主 callback 接入 async `BinaryReader`/`BinaryWriter`。
 
 ## 功能
 
@@ -56,7 +56,7 @@ TLS 监听地址提供 HTTP/1.1 和 HTTP/2 服务。
 - [x] **[portable] 可选策略**：认证、Cookie、缓存决策、重定向、重试和有界内容编码。
 - [x] **[host] 能力注入**：stream/datagram I/O、resolver、clock、entropy、TLS 和
   `NetworkPolicy` 都是显式输入。
-- [x] **[host] Callback 接入**：`adapter/uv` 把宿主 callback 转为 async `Reader`/`Writer`。
+- [x] **[host] Callback 接入**：`adapter/uv` 把宿主 callback 转为 async `BinaryReader`/`BinaryWriter`。
 - [x] **[native] TCP/UDP、DNS 与 Native client/server 适配器**：提供宿主 socket
   和 resolver 接线；HTTP 语义与 HTTP/1.1 framing 分别对照
   [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) 和

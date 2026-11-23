@@ -1,5 +1,5 @@
 import {
-  "moonbitlang/async",
+  "moonbitlang/core/async",
   "ZSeanYves/MoonbitHTTP/application/client" @client_api,
   "ZSeanYves/MoonbitHTTP/core/types",
   "ZSeanYves/MoonbitHTTP/protocol/http3",
@@ -12,11 +12,16 @@ import {
 }
 
 import {
-  "moonbitlang/async/socket",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/async/socket",
 } for "test"
 
 supported_targets = "+native"
 
 options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/socket",
+  ],
   "is-main": false,
 )

@@ -818,7 +818,7 @@ async test "HTTP/3 shutdown deadline joins a suspended handler and releases its 
     let (ct, st) = listener_tls_options()
     let policy = @transport.AllowAllPolicy::new()
     let entered : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
-    let suspended = @async.CondVar::Cond()
+    let suspended = @async.Cond::Cond()
     let mut cleaned = 0
     let (endpoint, listener) = bind_test_listener(endpoint => {
       NativeHttp3Listener::bind_http(

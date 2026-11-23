@@ -1,8 +1,9 @@
 import {
+  "ZSeanYves/MoonbitHTTP/internal/async_support",
   "ZSeanYves/MoonbitHTTP/core/types",
-  "moonbitlang/async",
-  "moonbitlang/async/socket",
-  "moonbitlang/async/os_error",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/socket",
+  "moonbitlang/core/async/os_error",
   "moonbitlang/core/bench",
   "moonbitlang/core/env",
   "ZSeanYves/MoonbitHTTP/runtime/transport" @transport_api,
@@ -15,5 +16,10 @@ import {
 supported_targets = "+native"
 
 options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/os_error",
+    "moonbitlang/core/async/socket",
+  ],
   "is-main": false,
 )

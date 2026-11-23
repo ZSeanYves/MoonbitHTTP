@@ -16,7 +16,7 @@ async fn run_peer_soak(
   let origin = @types.Authority::parse_endpoint(authority).unwrap_or_error()
   let tls = {
     ..@transport.TlsOptions::for_quic(origin.host),
-    trust_anchors: Some(@fs.read_file(trust_file).binary()),
+    trust_anchors: Some(@fs.read_binary(trust_file)),
   }
   let base = "https://" + authority
   let download = Bytes::make(4096, b'Z')

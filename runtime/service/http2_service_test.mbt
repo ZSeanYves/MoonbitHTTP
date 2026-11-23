@@ -37,7 +37,9 @@ async test "service: HTTP/2 dispatches two streams on one connection" {
   })
   let writer = CaptureWriter::{ bytes: [], }
   let mut calls = 0
-  @service.serve_http2_connection(reader, writer, async fn(request) {
+  @service.serve_http2_connection(reader, test_writer(writer), async fn(
+    request,
+  ) {
     calls += 1
     @async.pause()
     let response_headers = @types.HeaderMap::new()
@@ -105,7 +107,7 @@ async test "service: HTTP/2 response honors flow-control windows" {
     writer.write(Bytes::from_array(input))
   })
   let writer : CaptureWriter = { bytes: [], }
-  @service.serve_http2_connection(reader, writer, fn(_) {
+  @service.serve_http2_connection(reader, test_writer(writer), fn(_) {
     let body : Array[Byte] = []
     body.resize(70000, b'x')
     {
@@ -166,7 +168,7 @@ async test "service: stream errors reset only the offending stream" {
   })
   let writer : CaptureWriter = { bytes: [], }
   let mut calls = 0
-  @service.serve_http2_connection(reader, writer, fn(_) {
+  @service.serve_http2_connection(reader, test_writer(writer), fn(_) {
     calls += 1
     {
       status: 200,
@@ -247,7 +249,9 @@ async test "HTTP/2 grants a waiting upload and rejects an unsupported expectatio
   defer incoming.close()
   let received : Array[Bytes] = []
   @async.with_timeout(2000, async fn() {
-    @service.serve_http2_connection(incoming, wire, async fn(request) {
+    @service.serve_http2_connection(incoming, test_writer(wire), async fn(
+      request,
+    ) {
       received.push(@body.collect(request.body).0)
       {
         status: 204,

@@ -15,7 +15,7 @@ fn H2LifecycleWriter::new() -> H2LifecycleWriter {
 }
 
 ///|
-impl @aio.Writer for H2LifecycleWriter with fn write_once(
+impl TestWriter for H2LifecycleWriter with fn write_once(
   self,
   data,
   offset~,
@@ -78,7 +78,7 @@ struct H2GatedWriter {
 }
 
 ///|
-impl @aio.Writer for H2GatedWriter with fn write_once(self, data, offset~, len~) {
+impl TestWriter for H2GatedWriter with fn write_once(self, data, offset~, len~) {
   let bytes = data[offset:offset + len].to_owned()
   if !self.held &&
     len >= 9 &&
@@ -88,7 +88,7 @@ impl @aio.Writer for H2GatedWriter with fn write_once(self, data, offset~, len~)
     self.started.put(())
     self.release.get()
   }
-  @aio.Writer::write_once(self.control, data, offset~, len~)
+  TestWriter::write_once(self.control, data, offset~, len~)
 }
 
 ///|
@@ -132,7 +132,9 @@ async test "H2 client consumption credit survives cancellation while another wri
   })
   defer reader.close()
   @async.with_timeout(1000, async fn() {
-    @service.with_h2_client_connection(reader, writer, async fn(client) {
+    @service.with_h2_client_connection(reader, test_writer(writer), async fn(
+      client,
+    ) {
       let response = client.send(security_request(Get))
       writer.started.get()
       @async.with_task_group(async fn(group) {
@@ -206,7 +208,9 @@ async test "H2 server consumption credit survives handler cancellation while ano
   })
   defer reader.close()
   @async.with_timeout(1000, async fn() {
-    @service.serve_http2_connection(reader, writer, async fn(request) {
+    @service.serve_http2_connection(reader, test_writer(writer), async fn(
+      request,
+    ) {
       if request.http_method == Post {
         consume.get()
         ignore(request.body.next_frame())
@@ -232,7 +236,7 @@ struct H2InterruptedWriter {
 }
 
 ///|
-impl @aio.Writer for H2InterruptedWriter with fn write_once(
+impl TestWriter for H2InterruptedWriter with fn write_once(
   self,
   data,
   offset~,
@@ -252,7 +256,7 @@ impl @aio.Writer for H2InterruptedWriter with fn write_once(
     @async.sleep(60_000)
   }
   self.captured.append(bytes.to_array())
-  @aio.Writer::write_once(self.control, data, offset~, len~)
+  TestWriter::write_once(self.control, data, offset~, len~)
 }
 
 ///|
@@ -276,7 +280,7 @@ async test "H2 interrupted upload frame closes connection before another frame i
   @async.with_timeout(1000, async fn() {
     @service.with_h2_client_connection(
       reader,
-      writer,
+      test_writer(writer),
       async fn(client) {
         let response = client.send(
           security_request(Post).map_body(fn(_) { upload }),
@@ -346,7 +350,7 @@ async test "H2 response cancellation refunds blocked and terminal bodies and pre
     @async.with_timeout(1000, async fn() {
       @service.with_h2_client_connection(
         reader,
-        writer,
+        test_writer(writer),
         async fn(client) {
           let response = client.send(security_request(Get))
           received.get()
@@ -402,7 +406,7 @@ async test "H2 request cancellation drains credit while preserving an early resp
   @async.with_timeout(1000, async fn() {
     @service.serve_http2_connection(
       reader,
-      writer,
+      test_writer(writer),
       async fn(request) {
         received.get()
         request.body.cancel(@body.BodyError::Cancelled)
@@ -435,7 +439,9 @@ async test "H2 response cancellation stops an upload waiting for source data" {
   })
   defer reader.close()
   @async.with_timeout(1000, async fn() {
-    @service.with_h2_client_connection(reader, writer, async fn(client) {
+    @service.with_h2_client_connection(reader, test_writer(writer), async fn(
+      client,
+    ) {
       let response = client.send(
         security_request(Post).map_body(fn(_) { upload }),
       )
@@ -493,7 +499,7 @@ async test "H2 server reclaims reset, rejected, and closed-stream DATA exactly o
     @async.with_timeout(1000, async fn() {
       @service.serve_http2_connection(
         reader,
-        writer,
+        test_writer(writer),
         async fn(_) {
           @async.sleep(60_000)
           {
@@ -553,7 +559,7 @@ async test "H2 client refunds rejected and reset response DATA without double cr
     @async.with_timeout(1000, async fn() {
       @service.with_h2_client_connection(
         reader,
-        writer,
+        test_writer(writer),
         async fn(client) {
           try {
             let response = client.send(security_request(Get))
@@ -617,7 +623,7 @@ async test "H2 upload completion preserves blocked terminal response DATA and tr
     @async.with_timeout(1000, async fn() {
       @service.with_h2_client_connection(
         reader,
-        writer,
+        test_writer(writer),
         async fn(client) {
           let response = client.send(
             security_request(Post).map_body(fn(_) { upload }),
@@ -668,7 +674,7 @@ async test "H2 request trailers do not block WINDOW_UPDATE for an early response
   @async.with_timeout(1000, async fn() {
     @service.serve_http2_connection(
       reader,
-      writer,
+      test_writer(writer),
       fn(_) {
         {
           status: 200,
@@ -705,7 +711,9 @@ async test "H2 admission resumes on SETTINGS, resets an abandoned request and wa
     ignore(wire.wait_frame(@http2.H2_FRAME_PING, 0))
   }
   @async.with_timeout(2000, async fn() {
-    @service.with_h2_client_connection(reader, wire, async fn(client) {
+    @service.with_h2_client_connection(reader, test_writer(wire), async fn(
+      client,
+    ) {
       pause_admission()
       @async.with_task_group(async fn(group) {
         let first = group.spawn(

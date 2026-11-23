@@ -50,7 +50,7 @@ async fn[S, X] with_origin_pool(
       protocol_name + " pool capacity must be positive",
     )
   }
-  @async.with_task_group(async fn(group) {
+  @async_support.with_group_result(async fn(group) {
     let pool : OriginPool[S] = {
       max_connections,
       open,

@@ -16,6 +16,7 @@
     "adapter/**",
     "internal/test_support/**",
     "internal/http_fields/**",
+    "internal/async_support/**",
     "docs/README.md",
     "docs/concepts/**",
     "docs/development/**",

@@ -1,7 +1,7 @@
 ///|
 async fn fixture(name : String) -> Bytes {
   let path = "adapter/native/tls/testdata/" + name
-  @fs.read_file(path).binary()
+  @fs.read_binary(path)
 }
 
 ///|
@@ -23,7 +23,7 @@ fn test_tcp_stream(
 ) -> @transport.StreamConnection {
   @transport.StreamConnection::new(
     endpoint,
-    async fn(size) { Ok(tcp.read_some(max_len=size)) },
+    async fn(size) { Ok(@async_support.read_some(tcp, size)) },
     async fn(bytes) {
       tcp.write(bytes)
       Ok(())
@@ -40,12 +40,16 @@ async fn handshake_pair(
   Result[@transport.SecureConnection, @transport.TlsError],
   Result[@transport.SecureConnection, @transport.TlsError],
 ) {
-  let listener = @socket.TcpServer(@socket.Addr::new(0x7f000001U, 0))
+  let listener = @socket.TcpServer(Addr(@socket.IpAddr::v4(0x7f000001U), 0))
   defer listener.close()
-  let endpoint = @types.Endpoint::new("tcp", "127.0.0.1", listener.addr.port()).unwrap()
+  let endpoint = @types.Endpoint::new(
+    "tcp",
+    "127.0.0.1",
+    listener.addr.port.to_int(),
+  ).unwrap()
   let provider = NativeTlsProvider::new(allow_system_roots=false)
   @async.with_timeout(5000, async fn() {
-    @async.with_task_group(async fn(group) {
+    @async_support.with_group_result(async fn(group) {
       let server_task = group.spawn(async fn() {
         let (tcp, _) = listener.accept()
         provider.server_handshake(

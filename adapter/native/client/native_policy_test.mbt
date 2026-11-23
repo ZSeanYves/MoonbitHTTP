@@ -19,9 +19,13 @@ async test "native HTTP/1 factory honors an explicit network policy" {
 
 ///|
 async test "native HTTP/3 scope: handshake timeout releases the pending UDP receive" {
-  let silent = @socket.UdpServer(@socket.Addr::new(0x7f000001U, 0))
+  let silent = @socket.UdpServer(Addr(@socket.IpAddr::v4(0x7f000001U), 0))
   defer silent.close()
-  let endpoint = @types.Endpoint::new("udp", "127.0.0.1", silent.addr.port()).unwrap()
+  let endpoint = @types.Endpoint::new(
+    "udp",
+    "127.0.0.1",
+    silent.addr.port.to_int(),
+  ).unwrap()
   let mut called = false
   let timed_out = try {
     @client.with_http3_connection(
@@ -62,9 +66,13 @@ async test "HTTP/3 hostname policy stops a forbidden lookup before DNS" {
 
 ///|
 async test "HTTP/3 tries the next UDP address after a silent handshake" {
-  let silent = @socket.UdpServer(@socket.Addr::new(0x7f000001U, 0))
+  let silent = @socket.UdpServer(Addr(@socket.IpAddr::v4(0x7f000001U), 0))
   defer silent.close()
-  let endpoint = @types.Endpoint::new("udp", "route.test", silent.addr.port()).unwrap()
+  let endpoint = @types.Endpoint::new(
+    "udp",
+    "route.test",
+    silent.addr.port.to_int(),
+  ).unwrap()
   let resolver = @transport.StaticResolver::new([
     (
       "route.test",
@@ -94,14 +102,14 @@ async test "HTTP/3 tries the next UDP address after a silent handshake" {
   }
   let bytes = FixedArray::make(2048, b'\x00')
   let (count, _) = @async.with_timeout(1000, async fn() {
-    silent.recvfrom(bytes)
+    silent.recv_into(bytes.mut_view())
   })
   assert_true(count >= 1200)
 }
 
 ///|
 async test "a partial HTTP/1 response survives the continue timeout on a pooled TCP connection" {
-  let listener = @socket.TcpServer(@socket.Addr::new(0x7f000001U, 0))
+  let listener = @socket.TcpServer(Addr(@socket.IpAddr::v4(0x7f000001U), 0))
   defer listener.close()
   let client = @client.new_http1_client(
     @transport_native.NativeResolver::new(),
@@ -122,12 +130,12 @@ async test "a partial HTTP/1 response survives the continue timeout on a pooled 
       group.spawn_bg(async fn() {
         let (peer, _) = listener.accept()
         defer peer.close()
-        let head = peer.read_until("\r\n\r\n").unwrap()
-        assert_true(head.contains("expect: 100-continue"))
+        let head = peer.read_until(b"\r\n\r\n").unwrap()
+        assert_true(@utf8.decode(head).contains("expect: 100-continue"))
         peer.write(b"HTTP/1.1 103 Early Hints\r\n\r\nHTTP/1.")
         assert_eq(peer.read_exactly(4), b"data")
         peer.write(b"1 200 OK\r\ncontent-length: 3\r\n\r\nyes")
-        assert_true(peer.read_until("\r\n\r\n").unwrap().has_prefix("GET / "))
+        assert_true(peer.read_until(b"\r\n\r\n").unwrap().has_prefix(b"GET / "))
         peer.write(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
       })
       let headers = @types.HeaderMap::new()

@@ -1,5 +1,5 @@
 import {
-  "moonbitlang/async",
+  "moonbitlang/core/async",
 } for "test"
 
 import {
@@ -14,5 +14,6 @@ import {
 }
 
 options(
+  "allow-experimental-packages": [ "moonbitlang/core/async" ],
   "is-main": false,
 )

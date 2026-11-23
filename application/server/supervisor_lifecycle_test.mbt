@@ -1,7 +1,7 @@
 ///|
 struct LifecycleListener {
   pending : Array[@server.AcceptedConnection]
-  signal : @async.CondVar
+  signal : @async.Cond
   keep_open : Bool
   fail_accept : Bool
   mut waiting : Bool
@@ -66,7 +66,7 @@ pub impl @server.Listener for LifecycleListener with fn close(self) {
 async test "server supervisor: raised and returned peer errors preserve siblings and new connections" {
   @async.with_timeout(2000, async fn() {
     let supervisor = @server.ServerSupervisor::new().unwrap()
-    let finish = @async.CondVar::Cond()
+    let finish = @async.Cond::Cond()
     let mut healthy_done = false
     let mut new_done = false
     let closes = [0, 0, 0, 0]
@@ -138,7 +138,7 @@ async test "server supervisor: graceful deadline cancels peer and releases its s
     let supervisor = @server.ServerSupervisor::new(
       config=@server.ServerConfig::defaults().with_limits(limits),
     ).unwrap()
-    let blocked = @async.CondVar::Cond()
+    let blocked = @async.Cond::Cond()
     let mut closes = 0
     let mut finalized = false
     let listener = LifecycleListener::new([
@@ -201,7 +201,7 @@ async test "server supervisor: grace starts at shutdown rather than server start
     let supervisor = @server.ServerSupervisor::new(
       config=@server.ServerConfig::defaults().with_limits(limits),
     ).unwrap()
-    let finish = @async.CondVar::Cond()
+    let finish = @async.Cond::Cond()
     let mut entered = false
     let mut completed = false
     let listener = LifecycleListener::new(
@@ -259,7 +259,7 @@ async test "server supervisor: beginning shutdown wakes an idle accept" {
 async test "server supervisor: external cancellation preserves cancellation and cleanup" {
   @async.with_timeout(2000, async fn() {
     let supervisor = @server.ServerSupervisor::new().unwrap()
-    let blocked = @async.CondVar::Cond()
+    let blocked = @async.Cond::Cond()
     let mut entered = false
     let mut closes = 0
     let listener = LifecycleListener::new(
@@ -308,7 +308,7 @@ async test "server supervisor: fatal accept errors cancel peers and retain the e
     let supervisor = @server.ServerSupervisor::new(
       config=@server.ServerConfig::defaults().with_limits(limits),
     ).unwrap()
-    let blocked = @async.CondVar::Cond()
+    let blocked = @async.Cond::Cond()
     let mut closes = 0
     let listener = LifecycleListener::new(
       [

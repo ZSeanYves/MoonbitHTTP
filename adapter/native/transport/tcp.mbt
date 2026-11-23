@@ -51,7 +51,7 @@ pub impl @transport_api.StreamConnector for TcpConnector with fn connect(
     endpoint,
     async fn(max_bytes) {
       native_io(Receive, idle_timeout, async fn() {
-        tcp.read_some(max_len=max_bytes)
+        @async_support.read_some(tcp, max_bytes)
       })
     },
     async fn(bytes) {

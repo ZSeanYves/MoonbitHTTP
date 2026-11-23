@@ -5,9 +5,11 @@ fn native_transport_error(
   operation : @transport_api.TransportOperation,
   error : Error,
 ) -> @transport_api.TransportError {
+  let error = @async_support.io_cause(error)
   match error {
     @async.TimeoutError => Timeout(operation)
-    @os_error.OSError(code, ..) => SystemFailure(operation, code, "\{error}")
+    @os_error.OsError(_, raw_code=code, ..) =>
+      SystemFailure(operation, code, "\{error}")
     _ => Failed(operation, "\{error}")
   }
 }

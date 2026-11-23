@@ -1,6 +1,7 @@
 import {
-  "moonbitlang/async",
-  "moonbitlang/async/cond_var",
+  "ZSeanYves/MoonbitHTTP/internal/async_support",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/cond_var",
   "moonbitlang/core/debug",
   "moonbitlang/core/int64",
   "moonbitlang/core/encoding/utf8",
@@ -20,12 +21,17 @@ import {
   "moonbit-community/flate/gzip",
   "moonbit-community/flate/zlib",
   "hustcer/fbr",
-  "moonbitlang/async/aqueue",
+  "moonbitlang/core/async/aqueue",
   "ZSeanYves/MoonbitHTTP/internal/test_support",
 } for "test"
 
 supported_targets = "js+native+wasm+wasm-gc"
 
 options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/aqueue",
+    "moonbitlang/core/async/cond_var",
+  ],
   "is-main": false,
 )
