@@ -5,6 +5,7 @@ import {
   "moonbitlang/async@0.22.4/process",
   "moonbitlang/async@0.22.4/socket",
   "moonbitlang/core/env",
+  "moonbitlang/core/json",
   "moonbitlang/x@0.5.5/crypto",
 }
 
@@ -471,6 +472,31 @@ async fn with_impairment(
 }
 
 ///|
+fn check_upload_credit(trace : String, size : Int) -> Unit raise {
+  guard @json.parse(trace) is { "traces": [{ "events": Array(events), .. }], .. } else {
+    fail("POST: expected one aioquic event trace")
+  }
+  let mut connection = 0.0
+  let mut stream = 0.0
+  for event in events {
+    if event is { "name": "transport:packet_received", "data": { "frames": Array(frames), .. }, .. } {
+      for frame in frames {
+        match frame {
+          { "frame_type": "max_data", "maximum": Number(value, ..), .. } =>
+            connection = connection.max(value)
+          { "frame_type": "max_stream_data", "stream_id": 0, "maximum": Number(value, ..), .. } =>
+            stream = stream.max(value)
+          _ => ()
+        }
+      }
+    }
+  }
+  if connection < size.to_double() || stream < size.to_double() {
+    fail("POST: peer did not grant sufficient connection and request-stream credit for the upload")
+  }
+}
+
+///|
 async fn request_case(
   directory : String,
   name : String,
@@ -482,6 +508,7 @@ async fn request_case(
   impair : Bool,
   summaries : Array[Json],
   include_headers? : Bool = false,
+  check_upload_window? : Bool = false,
 ) -> Unit {
   let case_dir = directory + "/" + name
   @fs.mkdir(case_dir)
@@ -520,6 +547,9 @@ async fn request_case(
       let traces = @fs.readdir(case_dir).filter(name => name.has_suffix(".qlog"))
       guard traces.length() == 1 else {
         fail("\{name}: expected one QUIC connection trace, found \{traces.length()}")
+      }
+      if check_upload_window {
+        check_upload_credit(@fs.read_file(case_dir + "/" + traces[0]).text(), body.length())
       }
       let expected = if include_headers {
         ":status: 200\r\ncontent-type: text/plain\r\ncontent-length: " +
@@ -708,17 +738,20 @@ async fn main {
       proxy_summaries,
       include_headers=true,
     )
+    // Exceed both the server's initial 256-byte stream and 1024-byte connection windows.
+    let upload = "0123456789abcdef".repeat(256)
     request_case(
       directory,
       "post",
       python,
       client,
       ["/"],
-      ["--data", "independent-http3-echo"],
-      Some("independent-http3-echo"),
+      ["--data", upload],
+      Some(upload),
       impair,
       proxy_summaries,
       include_headers=true,
+      check_upload_window=build_server,
     )
     request_case(
       directory,
@@ -829,6 +862,8 @@ async fn main {
       "cases": ["http3-get", "http3-post", "http3-key-update", "http3-rolling-streams", "http3-wrong-ca"],
       "long_requests_requested": long_requests,
       "long_requests_completed": long_completed,
+      "echoed_upload_bytes": upload.length(),
+      "upload_credit_verified_from_qlog": build_server,
       "single_connection_requests_completed": rolling_paths.length(),
       "concurrent_requests_requested": concurrent_requests,
       "concurrent_requests_completed": concurrent_completed,

@@ -70,9 +70,9 @@ fn QuicConnection::retire_if_finished(
     return
   }
   self.streams.remove(id)
-  self.retained_send_bytes -= stream.send_offset
-  self.released_receive_bytes += stream.recv_offset.min(
-    QUIC_MAX_VARINT - self.local_max_data - self.released_receive_bytes,
+  self.retained_send_bytes -= stream.outstanding.bytes
+  self.release_receive_credit(
+    stream.recv_offset - stream.reassembler.history_start(),
   )
   if !initiated_here {
     let incoming = if uni { self.incoming_uni } else { self.incoming_bidi }
@@ -93,50 +93,4 @@ fn QuicConnection::retire_if_finished(
     }
     self.recent_final_sizes[id] = size
   }
-}
-
-///|
-fn QuicConnection::credit_updates(self : QuicConnection) -> Array[QuicFrame] {
-  let frames = []
-  if self.released_receive_bytes > 0L {
-    frames.push(MaxData(self.local_max_data + self.released_receive_bytes))
-  }
-  if self.incoming_bidi.retired_credit > 0L {
-    frames.push(
-      MaxStreams(
-        false,
-        self.incoming_bidi.advertised + self.incoming_bidi.retired_credit,
-      ),
-    )
-  }
-  if self.incoming_uni.retired_credit > 0L {
-    frames.push(
-      MaxStreams(
-        true,
-        self.incoming_uni.advertised + self.incoming_uni.retired_credit,
-      ),
-    )
-  }
-  frames
-}
-
-///|
-fn QuicConnection::commit_credit_updates(self : QuicConnection) -> Unit {
-  self.local_max_data += self.released_receive_bytes
-  self.released_receive_bytes = 0L
-  self.incoming_bidi.advertised += self.incoming_bidi.retired_credit
-  self.incoming_bidi.retired_credit = 0L
-  self.incoming_uni.advertised += self.incoming_uni.retired_credit
-  self.incoming_uni.retired_credit = 0L
-}
-
-///|
-/// Takes coalesced receive-credit updates for reliable transmission by a custom
-/// transport. The built-in datagram driver handles these updates in poll().
-pub fn QuicConnection::take_credit_updates(
-  self : QuicConnection,
-) -> Array[QuicFrame] {
-  let frames = self.credit_updates()
-  self.commit_credit_updates()
-  frames
 }

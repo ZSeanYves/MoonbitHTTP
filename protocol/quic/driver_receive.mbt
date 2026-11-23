@@ -290,9 +290,12 @@ fn QuicDatagramDriver::on_packet(
     return Ok([PacketIgnored])
   }
   if packet.is_empty() ||
-    packet.length() > self.transport_params.max_udp_payload_size {
+    packet.length() > self.connection.transport_params.max_udp_payload_size {
     return Err(
-      LimitExceeded("QUIC datagram", self.transport_params.max_udp_payload_size),
+      LimitExceeded(
+        "QUIC datagram",
+        self.connection.transport_params.max_udp_payload_size,
+      ),
     )
   }
   if now_ms < 0L {

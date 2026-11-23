@@ -6,7 +6,7 @@
 pub struct QuicCryptoReassembler {
   priv mut next_offset : Int64
   priv mut segments : Array[(Int64, Bytes)]
-  priv delivered : Array[Byte]
+  priv delivered : @deque.Deque[Byte]
   priv max_bytes : Int
   priv max_segments : Int
   priv max_work : Int64
@@ -28,7 +28,7 @@ pub fn QuicCryptoReassembler::new(
   Ok({
     next_offset: 0L,
     segments: [],
-    delivered: [],
+    delivered: @deque.from_array([]),
     max_bytes,
     max_segments,
     max_work,
@@ -63,7 +63,7 @@ pub fn QuicCryptoReassembler::next_offset(
 
 ///|
 fn crypto_segment_end(offset : Int64, data : Bytes) -> Result[Int64, QuicError] {
-  if offset < 0L || data.length() > @int.MAX_VALUE {
+  if offset < 0L {
     return Err(InvalidPacket("invalid CRYPTO range"))
   }
   let length = data.length().to_int64()
@@ -95,14 +95,15 @@ fn QuicCryptoReassembler::feed_bounded(
 ) -> Result[Array[Bytes], QuicError] {
   let mut offset = offset
   let mut data = data
-  let mut end = match crypto_segment_end(offset, data) {
+  let end = match crypto_segment_end(offset, data) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  if end > self.max_bytes.to_int64() {
+  let history_start = self.history_start()
+  if end - history_start > self.max_bytes.to_int64() {
     return Err(LimitExceeded(limit_name, self.max_bytes))
   }
-  if data.is_empty() {
+  if data.is_empty() || end <= history_start {
     return Ok([])
   }
   match
@@ -114,10 +115,9 @@ fn QuicCryptoReassembler::feed_bounded(
   }
   if offset < self.next_offset {
     let overlap_end = end.min(self.next_offset)
-    for position in offset..<overlap_end {
-      let history_index = position.to_int()
-      if history_index >= self.delivered.length() ||
-        data[(position - offset).to_int()] != self.delivered[history_index] {
+    for position in offset.max(history_start)..<overlap_end {
+      let history_index = (position - history_start).to_int()
+      if data[(position - offset).to_int()] != self.delivered[history_index] {
         return Err(Protocol(0x0aL, "conflicting retransmitted stream bytes"))
       }
     }
@@ -127,7 +127,9 @@ fn QuicCryptoReassembler::feed_bounded(
     let trim = (self.next_offset - offset).to_int()
     data = data[trim:].to_owned()
     offset = self.next_offset
-    end = offset + data.length().to_int64()
+  }
+  if offset == self.next_offset && self.segments.is_empty() {
+    return Ok(self.deliver(data))
   }
   // Compare every existing overlap before coalescing.  This is deliberately
   // byte based; handshake messages are not assumed to be aligned to frames.
@@ -181,31 +183,68 @@ fn QuicCryptoReassembler::feed_bounded(
       let suffix = segment.1[suffix_start:].to_owned()
       match self.charge_work((last.1.length() + suffix.length()).to_int64()) {
         Ok(_) => ()
-        Err(error) => return Err(error)
+        Err(error) => {
+          ignore(self.segments.remove(insertion))
+          return Err(error)
+        }
       }
       let combined = quic_driver_join([last.1, suffix])
       merged[last_index] = (last.0, combined)
     }
   }
   self.segments = merged
-  let output : Array[Bytes] = []
-  while !self.segments.is_empty() && self.segments[0].0 <= self.next_offset {
-    let segment = self.segments[0]
-    let segment_end = segment.0 + segment.1.length().to_int64()
-    if segment_end <= self.next_offset {
-      self.segments.remove(0) |> ignore
-      continue
-    }
-    let start = (self.next_offset - segment.0).to_int()
-    let chunk = segment.1[start:].to_owned()
-    self.next_offset = segment_end
-    self.segments.remove(0) |> ignore
-    if !chunk.is_empty() {
-      for byte in chunk {
-        self.delivered.push(byte)
-      }
-      output.push(chunk)
+  // Coalesced ranges are disjoint and nonadjacent. Only their first member
+  // can start at the delivery frontier.
+  if merged is [(start, chunk), ..] && start == self.next_offset {
+    ignore(merged.remove(0))
+    return Ok(self.deliver(chunk))
+  }
+  Ok([])
+}
+
+///|
+fn QuicCryptoReassembler::deliver(
+  self : QuicCryptoReassembler,
+  data : Bytes,
+) -> Array[Bytes] {
+  self.next_offset += data.length().to_int64()
+  for byte in data {
+    self.delivered.push_back(byte)
+  }
+  [data]
+}
+
+///|
+fn QuicCryptoReassembler::history_start(self : QuicCryptoReassembler) -> Int64 {
+  self.next_offset - self.delivered.length().to_int64()
+}
+
+///|
+/// STREAM callers may release a contiguous delivered prefix after consumption.
+/// CRYPTO keeps its full history and its original lifetime work budget.
+fn QuicCryptoReassembler::consume(
+  self : QuicCryptoReassembler,
+  count : Int,
+) -> Unit {
+  if count == self.delivered.length() {
+    self.delivered.clear()
+  } else {
+    for _ in 0..<count {
+      ignore(self.delivered.pop_front())
     }
   }
-  Ok(output)
+  // Renew work in proportion to genuine forward progress; duplicates alone
+  // cannot replenish the comparison/coalescing budget.
+  self.work = (self.work - count.to_int64() * 64L).max(0L)
+}
+
+///|
+fn QuicCryptoReassembler::discard(
+  self : QuicCryptoReassembler,
+  final_size : Int64,
+) -> Unit {
+  self.delivered.clear()
+  self.delivered.shrink_to_fit()
+  self.segments = []
+  self.next_offset = final_size
 }

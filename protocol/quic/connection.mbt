@@ -9,7 +9,9 @@ pub(all) enum QuicConnectionState {
 ///|
 priv struct QuicStreamState {
   mut send_max : Int64
-  recv_max : Int64
+  mut recv_max : Int64
+  recv_window : Int64
+  outstanding : SentStreamRanges
   mut send_offset : Int64
   mut recv_offset : Int64
   mut fin_sent : Bool
@@ -33,6 +35,8 @@ fn quic_new_stream_state(
   Ok({
     send_max,
     recv_max,
+    recv_window: recv_max,
+    outstanding: { ranges: [], bytes: 0L, },
     send_offset: 0L,
     recv_offset: 0L,
     fin_sent: false,
@@ -65,6 +69,7 @@ pub struct QuicConnection {
   priv mut connection_recv_offset : Int64
   priv mut peer_max_data : Int64
   priv mut local_max_data : Int64
+  priv pending_stream_credit : Map[Int64, Int64]
   priv mut released_receive_bytes : Int64
   priv mut retained_send_bytes : Int64
   priv incoming_bidi : IncomingStreams
@@ -93,6 +98,21 @@ pub fn QuicConnection::new(
     Ok(_) => ()
     Err(error) => return Err(error)
   }
+  let transport_params = {
+    ..transport_params,
+    initial_max_data: transport_params.initial_max_data.min(
+      limits.max_connection_data,
+    ),
+    initial_max_stream_data_uni: transport_params.initial_max_stream_data_uni.min(
+      limits.max_stream_data,
+    ),
+    initial_max_stream_data_bidi_local: transport_params.initial_max_stream_data_bidi_local.min(
+      limits.max_stream_data,
+    ),
+    initial_max_stream_data_bidi_remote: transport_params.initial_max_stream_data_bidi_remote.min(
+      limits.max_stream_data,
+    ),
+  }
   let first_stream = if role == Client { 0L } else { 1L }
   Ok({
     role,
@@ -102,6 +122,7 @@ pub fn QuicConnection::new(
     peer_transport_params: None,
     streams: Map([]),
     connection_send_offset: 0L,
+    pending_stream_credit: Map([]),
     released_receive_bytes: 0L,
     retained_send_bytes: 0L,
     incoming_bidi: IncomingStreams::new(
@@ -117,9 +138,7 @@ pub fn QuicConnection::new(
     final_size_cursor: 0,
     connection_recv_offset: 0L,
     peer_max_data: 0L,
-    local_max_data: transport_params.initial_max_data.min(
-      limits.max_connection_data,
-    ),
+    local_max_data: transport_params.initial_max_data,
     next_stream_id: first_stream,
     next_uni_stream_id: first_stream + 2L,
     peer_max_streams_bidi: 0L,
@@ -217,10 +236,8 @@ pub fn QuicConnection::receive_frame(
       }
       stream.recv_offset = end.max(stream.recv_offset)
       if stream_frame.fin {
-        match stream.recv_final_size {
-          Some(_) => ()
-          None => stream.recv_final_size = Some(end)
-        }
+        stream.recv_final_size = Some(end)
+        self.pending_stream_credit.remove(id)
       }
       self.connection_recv_offset += new_bytes
       let complete = stream.recv_final_size ==
@@ -244,6 +261,9 @@ pub fn QuicConnection::receive_frame(
       self.peer_max_data = self.peer_max_data.max(value)
     }
     MaxStreamData(id, value) => {
+      if value < 0L || value > QUIC_MAX_VARINT {
+        return Err(InvalidFrame("invalid MAX_STREAM_DATA limit"))
+      }
       if (id & 2L) != 0L && !self.locally_initiated(id) {
         return Err(Protocol(0x5L, "MAX_STREAM_DATA for a receive-only stream"))
       }
@@ -258,9 +278,7 @@ pub fn QuicConnection::receive_frame(
             Err(error) => return Err(error)
           }
       }
-      if value > stream.send_max {
-        stream.send_max = value.min(self.limits.max_stream_data)
-      }
+      stream.send_max = stream.send_max.max(value)
     }
     MaxStreams(uni, value) => {
       if value > 0x1000000000000000L || value < 0L {
@@ -302,6 +320,11 @@ pub fn QuicConnection::receive_frame(
       if stream.reset {
         return Ok(actions)
       }
+      self.pending_stream_credit.remove(id)
+      self.release_receive_credit(
+        final_size - stream.reassembler.history_start(),
+      )
+      stream.reassembler.discard(final_size)
       stream.recv_final_size = Some(final_size)
       stream.recv_offset = final_size
       self.connection_recv_offset += new_bytes

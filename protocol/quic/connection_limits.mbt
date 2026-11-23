@@ -66,8 +66,8 @@ fn QuicConnection::open_stream(
   }
   let stream = match
     quic_new_stream_state(
-      send_limit.min(self.limits.max_stream_data),
-      receive_limit.min(self.limits.max_stream_data),
+      send_limit,
+      receive_limit,
       if uni {
         0
       } else {
@@ -103,4 +103,12 @@ pub fn QuicConnection::open_unidirectional_stream(
 ///|
 pub fn QuicConnection::close_reason(self : QuicConnection) -> (Int64, String)? {
   self.close_error
+}
+
+///|
+/// Effective local transport parameters for a custom handshake adapter.
+pub fn QuicConnection::local_transport_params(
+  self : QuicConnection,
+) -> QuicTransportParams {
+  self.transport_params
 }

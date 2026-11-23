@@ -142,6 +142,12 @@ fn SmokeConnection::receive(
             now_ms,
           ),
         )
+        checked(
+          self.tls
+          .datagram_driver()
+          .connection()
+          .consume_stream_data(id, bytes.length()),
+        )
         if fin && (id & 2L) == 0L {
           let body = if self.post_streams.get(id).unwrap_or(false) {
             Bytes::from_array(self.bodies.get(id).unwrap_or([]))
@@ -277,6 +283,8 @@ async fn main {
               transport_params={
                 ..@quic.QuicTransportParams::defaults(),
                 initial_max_streams_bidi: 8L,
+                initial_max_data: 1024L,
+                initial_max_stream_data_bidi_remote: 256L,
               },
               authorize=fn(endpoint, operation) {
                 policy.authorize(endpoint, operation)

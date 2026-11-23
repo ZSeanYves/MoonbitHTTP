@@ -34,7 +34,6 @@ fn quic_driver_join(parts : Array[Bytes]) -> Bytes {
 pub struct QuicDatagramDriver {
   priv role : QuicRole
   priv limits : QuicLimits
-  priv transport_params : QuicTransportParams
   priv connection : QuicConnection
   priv local_connection_id : ConnectionId
   /// Current Initial DCID. A client replaces this with the Retry SCID after a
@@ -375,7 +374,6 @@ pub fn QuicDatagramDriver::new(
   Ok({
     role,
     limits,
-    transport_params,
     connection,
     local_connection_id,
     initial_destination,

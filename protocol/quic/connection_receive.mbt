@@ -38,13 +38,13 @@ fn QuicConnection::receive_stream(
       if uni {
         0L
       } else {
-        peer.initial_max_stream_data_bidi_local.min(self.limits.max_stream_data)
+        peer.initial_max_stream_data_bidi_local
       },
-      (if uni {
+      if uni {
         self.transport_params.initial_max_stream_data_uni
       } else {
         self.transport_params.initial_max_stream_data_bidi_remote
-      }).min(self.limits.max_stream_data),
+      },
       self.limits.max_stream_data.to_int(),
     ) {
     Ok(value) => value

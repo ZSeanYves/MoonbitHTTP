@@ -11,9 +11,9 @@ in local or CI workspaces and are not part of this file.
 - Add one-shot streaming uploads to the pooled HTTP/1 executor, with the response lease retained until EOF or cancellation.
 - Preserve representation framing fields on HEAD and 304 responses and leave tunnel bytes available after successful CONNECT.
 - Accept a server's HTTP/2 ENABLE_PUSH setting of zero. Ignore undefined frame flags and reserved stream-ID bits. Share header-fragment validation across frame and connection decoding.
-- Reclaim QUIC stream state after both directions finish. Return connection and stream-count credit through the datagram driver or `QuicConnection::take_credit_updates()`.
+- Slide active QUIC byte windows as applications consume data and packets are acknowledged. Receive resets release their final-size credit, and completed streams return their stream-count credit. Custom transports can exchange the same limits and credit updates as the built-in datagram driver.
 - Advance stream send offsets only after datagram admission. Local stream resets now use the recorded final size.
-- Exercise 256 independent HTTP/3 requests on a single connection with an initial eight-stream allowance.
+- Verify a 4 KiB HTTP/3 upload across a 256-byte stream window and 256 requests on one connection with an initial eight-stream allowance using aioquic.
 
 ## 0.7.0 — 2026-10-07
 

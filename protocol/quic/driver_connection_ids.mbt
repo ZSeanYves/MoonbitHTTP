@@ -35,6 +35,14 @@ fn QuicDatagramDriver::receive_peer_connection_id(
 }
 
 ///|
+fn QuicDatagramDriver::application_payload_limit(
+  self : QuicDatagramDriver,
+) -> Int {
+  let header_size = 1 + self.peer_connection_id.bytes().length() + 4 + 16
+  (self.send_datagram_limit() - header_size).min(self.limits.max_frame_payload)
+}
+
+///|
 /// Keep required retirements until packet recovery accepts them. Reserve the
 /// existing response payload and a maximum-width short header before adding
 /// a bounded batch of frames.
@@ -50,15 +58,12 @@ fn QuicDatagramDriver::append_pending_retirements(
     // The normal send path reports the original response encoding error.
     Err(_) => return 0
   }
-  let header_size = 1 + self.peer_connection_id.bytes().length() + 4 + 16
-  let payload_limit = (self.send_datagram_limit() - header_size).min(
-    self.limits.max_frame_payload,
-  )
+  let payload_limit = self.application_payload_limit()
   let mut available = (payload_limit - payload_size).max(0)
   let mut count = 0
   while count < self.pending_retirements.length().min(64) {
     let sequence = self.pending_retirements[count]
-    let size = 1 + QuicVarInt::new(sequence).unwrap().encoded_length()
+    let size = 1 + quic_encoded_varint_size(sequence)
     if size > available {
       break
     }

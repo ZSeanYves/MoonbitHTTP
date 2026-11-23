@@ -128,11 +128,13 @@ pub fn QuicDatagramDriver::poll(
     Err(error) => return Err(error)
   }
   if self.state() == Established {
-    let frames = self.connection.credit_updates()
+    let frames = self.connection.credit_updates(
+      self.application_payload_limit(),
+    )
     if !frames.is_empty() {
       match self.send_frames(Application, frames, now_ms) {
         Ok(action) => {
-          self.connection.commit_credit_updates()
+          self.connection.commit_credit_updates(frames)
           output.push(action)
         }
         Err(AmplificationBlocked)

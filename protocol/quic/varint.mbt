@@ -18,11 +18,16 @@ pub fn QuicVarInt::value(self : QuicVarInt) -> Int64 {
 
 ///|
 pub fn QuicVarInt::encoded_length(self : QuicVarInt) -> Int {
-  if self.value <= 63L {
+  quic_encoded_varint_size(self.value)
+}
+
+///|
+fn quic_encoded_varint_size(value : Int64) -> Int {
+  if value <= 63L {
     1
-  } else if self.value <= 16383L {
+  } else if value <= 16383L {
     2
-  } else if self.value <= 1073741823L {
+  } else if value <= 1073741823L {
     4
   } else {
     8

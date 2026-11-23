@@ -111,7 +111,7 @@ pub fn[P : @transport.QuicTlsProvider] QuicTlsDriver::start(
   let driver = self.driver
   let base_params = QuicTransportParameters::new(
     driver.local_connection_id,
-    limits=driver.transport_params,
+    limits=driver.connection.transport_params,
     original_destination_connection_id=if driver.role == Server {
       Some(driver.original_destination)
     } else {
@@ -144,11 +144,12 @@ pub fn[P : @transport.QuicTlsProvider] QuicTlsDriver::on_datagram(
   now_ms : Int64,
 ) -> Result[Array[QuicDriverAction], QuicError] {
   if packet.is_empty() ||
-    packet.length() > self.driver.transport_params.max_udp_payload_size {
+    packet.length() >
+    self.driver.connection.transport_params.max_udp_payload_size {
     return Err(
       LimitExceeded(
         "QUIC datagram",
-        self.driver.transport_params.max_udp_payload_size,
+        self.driver.connection.transport_params.max_udp_payload_size,
       ),
     )
   }
@@ -448,10 +449,10 @@ pub fn QuicDatagramDriver::set_peer_transport_parameters(
 fn QuicDatagramDriver::send_datagram_limit(self : QuicDatagramDriver) -> Int {
   match self.peer_parameters {
     Some(params) =>
-      self.transport_params.max_udp_payload_size.min(
+      self.connection.transport_params.max_udp_payload_size.min(
         params.limits.max_udp_payload_size,
       )
-    None => self.transport_params.max_udp_payload_size.min(1200)
+    None => self.connection.transport_params.max_udp_payload_size.min(1200)
   }
 }
 

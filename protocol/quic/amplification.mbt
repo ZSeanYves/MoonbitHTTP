@@ -37,7 +37,7 @@ fn QuicDatagramDriver::count_received_datagram(
   packet : Bytes,
 ) -> Unit {
   if packet.is_empty() ||
-    packet.length() > self.transport_params.max_udp_payload_size {
+    packet.length() > self.connection.transport_params.max_udp_payload_size {
     return
   }
   let budget = match self.path_budget(source) {

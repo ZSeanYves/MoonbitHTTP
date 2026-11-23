@@ -174,8 +174,11 @@ pub fn QuicAction::to_repr(Self) -> @debug.Repr
 pub struct QuicConnection {
   // private fields
 }
+pub fn QuicConnection::acknowledge_stream_data(Self, Int64, Int64, Int) -> Result[Unit, QuicError]
 pub fn QuicConnection::close_reason(Self) -> (Int64, String)?
+pub fn QuicConnection::consume_stream_data(Self, Int64, Int) -> Result[Unit, QuicError]
 pub fn QuicConnection::establish(Self) -> Result[Unit, QuicError]
+pub fn QuicConnection::local_transport_params(Self) -> QuicTransportParams
 pub fn QuicConnection::new(QuicRole, limits? : QuicLimits, transport_params? : QuicTransportParams) -> Result[Self, QuicError]
 pub fn QuicConnection::open_bidirectional_stream(Self) -> Result[Int64, QuicError]
 pub fn QuicConnection::open_unidirectional_stream(Self) -> Result[Int64, QuicError]

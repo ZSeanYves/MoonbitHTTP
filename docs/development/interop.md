@@ -42,7 +42,13 @@ moon run repo-tools/tools/http3_interoperability.mbtx
 The HTTP/3 runner uses the Native smoke server, an aioquic client and OpenSSL
 3.5 or newer for the QUIC TLS callback provider. Positive cases cover verified
 GET and POST, authenticated requests, key update and concurrent request
-streams. One aioquic process also sends 256 requests over a single connection. The smoke server initially permits eight bidirectional streams. The runner checks each response and counts the connection traces. The duration window below uses fresh connections for successive requests. Negative cases must use an explicitly untrusted or mismatched
+streams. The built-in server starts POST requests with a 256-byte stream window
+and a 1024-byte connection window. The runner verifies a 4096-byte echo and
+checks the client's qlog for both window updates on the receive path.
+One aioquic process also sends 256 requests over a single connection with an
+initial allowance of eight bidirectional streams. The runner checks each response
+and counts the connection traces. The duration window uses fresh connections
+for successive requests. Negative cases must use an explicitly untrusted or mismatched
 credential and must assert a failed verification outcome.
 
 The server fixture details and its non-deployment limits are documented in

@@ -43,7 +43,8 @@ fn[T] QuicConnection::write_stream(
         return Err(LimitExceeded("stream frame", self.limits.max_frame_payload))
       }
       let length = data.length().to_int64()
-      if length > stream.send_max - stream.send_offset {
+      if length > stream.send_max - stream.send_offset ||
+        length > self.limits.max_stream_data - stream.outstanding.bytes {
         return Err(FlowControl(id, "stream send window exhausted"))
       }
       if length > self.peer_max_data - self.connection_send_offset ||
@@ -61,6 +62,7 @@ fn[T] QuicConnection::write_stream(
     Ok(value) => value
     Err(error) => return Err(error)
   }
+  stream.outstanding.append(stream.send_offset, length)
   stream.send_offset += length
   self.connection_send_offset += length
   self.retained_send_bytes += length
@@ -117,4 +119,31 @@ pub fn QuicDatagramDriver::reset_stream(
   self.connection.write_stream(stream_id, Reset(code), fn(frame) {
     self.send_frames(Application, [frame], now_ms)
   })
+}
+
+///|
+/// A custom reliable transport reports acknowledged byte ranges. Reordering,
+/// duplicate ACKs and retransmissions with different frame boundaries release
+/// only bytes still outstanding. QuicDatagramDriver performs this on packet ACK.
+pub fn QuicConnection::acknowledge_stream_data(
+  self : QuicConnection,
+  id : Int64,
+  offset : Int64,
+  length : Int,
+) -> Result[Unit, QuicError] {
+  if offset < 0L || length < 0 || offset > QUIC_MAX_VARINT - length.to_int64() {
+    return Err(InvalidFrame("invalid acknowledged stream range"))
+  }
+  if self.is_retired(id) {
+    return Ok(())
+  }
+  guard self.streams.get(id) is Some(stream) else {
+    return Err(StreamClosed(id))
+  }
+  let end = offset + length.to_int64()
+  if end > stream.send_offset {
+    return Err(InvalidFrame("acknowledged unsent stream data"))
+  }
+  self.retained_send_bytes -= stream.outstanding.release(offset, end)
+  Ok(())
 }

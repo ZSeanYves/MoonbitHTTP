@@ -198,6 +198,18 @@ fn QuicDatagramDriver::apply_recovery_ack(
   while retained_index >= 0 {
     let entry = self.retransmissions[retained_index]
     if entry.space == space && quic_ack_contains(ack, entry.number) {
+      for frame in entry.frames {
+        if frame is Stream(data) {
+          // Raw send_frames callers can supply frames outside connection-owned streams.
+          ignore(
+            self.connection.acknowledge_stream_data(
+              data.stream_id,
+              data.offset,
+              data.data.length(),
+            ),
+          )
+        }
+      }
       self.retransmissions.remove(retained_index) |> ignore
     }
     retained_index -= 1
