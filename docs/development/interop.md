@@ -95,6 +95,51 @@ evidence. Changing either requires a new report. Native QUIC fixture tests
 prove the provider/driver boundary and recovery actions, but only independent
 wire interoperability proves interaction with another implementation.
 
+## Sustained requests to a separately managed HTTP/3 peer
+
+The native client holds one authenticated QUIC connection for the entire
+measurement. Each worker alternates a binary 4 KiB POST to `/echo` and a GET
+to `/4096`. The client checks HTTP/3, status 200 and all 4 KiB of each
+response. Timing starts after the handshake and continues until every worker
+finishes its last pair. A pair has a 30-second timeout. A lost connection
+fails the run.
+
+On the server machine, prepare the pinned aioquic environment as above. Use
+a certificate for the chosen HTTPS name and bind an address reachable from the
+client. For example, with the address, certificate and key paths in the shell
+variables below:
+
+```sh
+_build/interop-aioquic/venv/bin/python _build/interop-aioquic/upstream/examples/http3_server.py \
+  --host "$SERVER_IP" --port 18444 --certificate "$CERT_PEM" --private-key "$KEY_PEM" \
+  >peer.log 2>&1
+```
+
+On the client machine, supply the numeric UDP address (IPv6 uses brackets),
+the HTTPS authority, its trust anchors, the duration in seconds (1–3600) and
+the number of workers (1–32). For a one-hour run with eight workers:
+
+```sh
+moon run repo-tools/tools/http3_interoperability.mbtx \
+  --peer-soak "$SERVER_IP:18444" "$TLS_NAME:18444" "$CA_PEM" 3600 8 --impair
+```
+
+The optional `--impair` applies the same bidirectional loss, delay and reorder
+profile used by the forward fixture. The local relay forwards to the supplied
+UDP address. TLS and the HTTP authority still use the supplied peer name.
+Complete packet counters accompany a sample of the first 4,096 relay events.
+Without the flag, datagrams go directly to the peer.
+
+The client evidence directory includes the revision, worktree status, client
+hostname, binary and trust-file hashes, command, exit status and completed
+pairs. After an established connection unwinds, the client also leaves its
+completed-pair count in `client.stdout` on failure. Keep the independent
+server's log, machine identity and aioquic
+revision beside the result. For an isolated run, the peer log should contain
+one connection identifier for every POST and GET, with each method count
+equal to `measurement.completed_pairs`. Record the placement of both
+machines when evaluating the physical-host release gate.
+
 ## Failure classification
 
 Record preflight, implementation, peer, timeout and environment failures

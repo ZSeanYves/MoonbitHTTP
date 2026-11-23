@@ -14,25 +14,58 @@ fn request(
 }
 
 ///|
+fn echo_payload(seed : Int) -> Bytes {
+  Bytes::from_array(FixedArray::makei(4096, i => ((i + seed) % 251).to_byte()))
+}
+
+///|
+async fn check_body(
+  response : @types.Response[@body.BodyStream],
+  expected : Bytes,
+) -> Unit {
+  let (body, _) = @body.collect(response.body, max_bytes=expected.length())
+  guard response.version == Http3 && response.status == 200 && body == expected else {
+    fail("HTTP/3 status, version or response bytes differed")
+  }
+}
+
+///|
 async fn main {
+  let args = @env.args()
+  if args is [_, "--peer-soak", address, authority, ca, seconds, workers] {
+    run_peer_soak(
+      address,
+      authority,
+      ca,
+      @string.parse_int(seconds),
+      @string.parse_int(workers),
+    ) catch {
+      @quic.QuicError::Tls(cause) => fail("QUIC TLS failure: \{Repr(cause)}")
+      @quic.QuicError::ConnectionClosed(code, reason) =>
+        fail("QUIC connection closed (\{code}): \{reason}")
+      err => raise err
+    }
+    return
+  }
   let cert = @fs.read_file("adapter/native/tls/testdata/localhost.cert.pem").binary()
   let options = {
     ..@transport.TlsOptions::for_quic("localhost"),
     trust_anchors: Some(cert),
   }
-  match @env.args() {
+  match args {
     [_, "--peer-restart", marker] => {
       check_peer_restart(options, marker)
       return
     }
     [_] => ()
-    _ => fail("usage: h3_smoke_client [--peer-restart READY_FILE]")
+    _ =>
+      fail(
+        "usage: h3_smoke_client [--peer-restart READY_FILE | --peer-soak ADDRESS AUTHORITY CA_FILE SECONDS WORKERS]",
+      )
   }
   let endpoint = @types.Endpoint::new("udp", "localhost", 18444).unwrap()
   let resolver = @transport_native.NativeResolver::new()
-  let payload = Bytes::from_array(
-    FixedArray::makei(4096, i => (i % 251).to_byte()),
-  )
+  let payload = echo_payload(0)
   @async.with_timeout(20000, async fn() {
     @native_client.with_http3_pool(
       resolver,
@@ -55,27 +88,12 @@ async fn main {
             let response = client.send(
               request("https://localhost:18444/echo", Post, payload),
             )
-            let (body, _) = @body.collect(response.body, max_bytes=4096)
-            guard response.version == Http3 &&
-              response.status == 200 &&
-              body == payload else {
-              fail("echo mismatch")
-            }
+            check_body(response, payload)
           })
           let download = client.send(
             request("https://localhost:18444/131072", Get, b""),
           )
-          let (body, _) = @body.collect(download.body, max_bytes=131072)
-          guard download.version == Http3 &&
-            download.status == 200 &&
-            body.length() == 131072 else {
-            fail("invalid download")
-          }
-          for byte in body {
-            if byte != b'Z' {
-              fail("invalid download byte")
-            }
-          }
+          check_body(download, Bytes::make(131072, b'Z'))
           echo.wait()
           assert_eq(client.connection_count(), 1)
         })

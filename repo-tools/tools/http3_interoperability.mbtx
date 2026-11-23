@@ -5,6 +5,7 @@ import {
   "moonbitlang/async@0.22.4/process",
   "moonbitlang/async@0.22.4/socket",
   "moonbitlang/core/env",
+  "moonbitlang/core/int",
   "moonbitlang/core/json",
   "moonbitlang/x@0.5.5/crypto",
 }
@@ -16,6 +17,7 @@ async fn record(
   command : String,
   args : Array[String],
   success? : Bool = true,
+  timeout_ms? : Int = 30000,
 ) -> String {
   let stdout = @process.redirect_to_file(
     directory + "/" + name + ".stdout",
@@ -26,7 +28,7 @@ async fn record(
     create_mode=CreateNew,
   )
   // Redirect first so a timeout also preserves the independent client's logs.
-  let exit = @async.with_timeout_opt(30000, async fn() {
+  let exit = @async.with_timeout_opt(timeout_ms, async fn() {
     @process.run(
       command,
       args,
@@ -43,7 +45,7 @@ async fn record(
     "arguments": args,
     "exit": status,
     "timed_out": exit is None,
-    "timeout_ms": 30000,
+    "timeout_ms": timeout_ms,
   }
   @fs.write_file(
     directory + "/" + name + ".command.json",
@@ -51,7 +53,7 @@ async fn record(
     create_mode=CreateNew,
   )
   if exit is None {
-    fail("\{name} exceeded 30 seconds; process was cancelled and reaped")
+    fail("\{name} exceeded \{timeout_ms} ms; process was cancelled and reaped")
   }
   if success && status != 0 {
     fail("\{name} exited \{status}: \{stderr_text}")
@@ -141,6 +143,8 @@ struct ProxyState {
   client : ProxyDirection
   server : ProxyDirection
   events : Array[Json]
+  event_limit : Int
+  mut omitted_events : Int64
   mut peer : @socket.Addr?
   mut tick : Int
 }
@@ -253,6 +257,13 @@ fn contains_packet_type(bytes : Bytes, packet_type : Int) -> Bool {
 }
 
 ///|
+fn ProxyState::retain_event(self : ProxyState) -> Bool {
+  if self.events.length() < self.event_limit { return true }
+  self.omitted_events += 1L
+  false
+}
+
+///|
 fn ProxyState::enqueue(
   self : ProxyState,
   direction : ProxyDirection,
@@ -299,15 +310,17 @@ fn ProxyState::enqueue(
       "enqueue"
     }
   }
-  self.events.push({
-    "direction": direction.label,
-    "sequence": sequence,
-    "action": action,
-    "first_packet_kind": kind,
-    "contains_handshake_header": has_handshake,
-    "bytes": bytes.length(),
-    "tick": self.tick,
-  })
+  if self.retain_event() {
+    self.events.push({
+      "direction": direction.label,
+      "sequence": sequence,
+      "action": action,
+      "first_packet_kind": kind,
+      "contains_handshake_header": has_handshake,
+      "bytes": bytes.length(),
+      "tick": self.tick,
+    })
+  }
 }
 
 ///|
@@ -334,34 +347,38 @@ async fn ProxyState::flush(
     direction.max_delay_ms = direction.max_delay_ms.max(
       (@env.now() - packet.received_ms).reinterpret_as_int64(),
     )
-    self.events.push({
-      "direction": direction.label,
-      "sequence": packet.sequence,
-      "action": "forward",
-      "tick": self.tick,
-      "overtaken_by_later_datagram": reordered,
-    })
+    if self.retain_event() {
+      self.events.push({
+        "direction": direction.label,
+        "sequence": packet.sequence,
+        "action": "forward",
+        "tick": self.tick,
+        "overtaken_by_later_datagram": reordered,
+      })
+    }
   }
 }
 
 ///|
-// One invocation of the unmodified upstream client uses one QUIC connection.
-// Give every invocation its own front and upstream sockets; no mapping can
-// accidentally reuse a previous client's server-side endpoint.
+// Each peer invocation owns a fresh pair of UDP sockets.
 async fn with_impairment(
   directory : String,
   name : String,
   summaries : Array[Json],
-  run : async (String) -> String,
+  target : @socket.Addr,
+  run : async (@socket.Addr) -> String,
+  event_limit? : Int = @int.MAX_VALUE,
 ) -> String {
   let front = @socket.UdpServer(@socket.Addr::parse("127.0.0.1:0"))
   defer front.close()
-  let upstream = @socket.UdpClient(@socket.Addr::parse("127.0.0.1:18443"))
+  let upstream = @socket.UdpClient(target)
   defer upstream.close()
   let state : ProxyState = {
     client: ProxyDirection::new("client-to-server"),
     server: ProxyDirection::new("server-to-client"),
     events: [],
+    event_limit,
+    omitted_events: 0L,
     peer: None,
     tick: 0,
   }
@@ -411,7 +428,7 @@ async fn with_impairment(
         },
         no_wait=true,
       )
-      let output = run("https://127.0.0.1:" + front.addr.port().to_string())
+      let output = run(front.addr)
       // Let the bounded delay queue drain after the client's close flight.
       @async.sleep(30)
       state.tick += 8
@@ -432,6 +449,8 @@ async fn with_impairment(
     },
     "proxy_endpoint": front.addr.to_string(),
     "upstream_endpoint": upstream.addr.to_string(),
+    "target_endpoint": target.to_string(),
+    "events_omitted": state.omitted_events.to_double(),
     "client_to_server": state.client.summary(),
     "server_to_client": state.server.summary(),
     "cleanup": "all proxy tasks cancelled and joined before socket close",
@@ -557,7 +576,8 @@ async fn request_case(
     )
   }
   let logs = if impair {
-    with_impairment(directory, name, summaries, invoke)
+    with_impairment(directory, name, summaries, @socket.Addr::parse("127.0.0.1:18443"),
+      addr => invoke("https://" + addr.to_string()))
   } else {
     invoke("https://127.0.0.1:18443")
   }
@@ -764,8 +784,100 @@ async fn check_peer_restart(reference : String) -> Unit {
 }
 
 ///|
+async fn new_run_directory(prefix : String) -> String {
+  let temporary = @fs.tmpdir(prefix~)
+  let unique = temporary.split("/").to_array().last().unwrap().to_owned()
+  @fs.rmdir(temporary)
+  let directory = "_build/evidence/http3-interoperability/" + unique
+  @fs.mkdir(directory, recursive=true)
+  directory
+}
+
+///|
+async fn peer_soak(
+  address : String,
+  authority : String,
+  ca : String,
+  duration : String,
+  concurrency : String,
+  impair : Bool,
+) -> Unit {
+  let seconds = decimal(duration)
+  let workers = decimal(concurrency)
+  guard seconds >= 1 && seconds <= 3600 && workers >= 1 && workers <= 32 else {
+    fail("peer soak requires 1–3600 seconds and 1–32 workers")
+  }
+  let target = @socket.Addr::parse(address)
+  guard target.port() > 0 else { fail("UDP target requires a nonzero port") }
+  let directory = new_run_directory("moonbithttp-h3-soak")
+  println("HTTP/3 peer soak evidence: " + directory)
+  let revision = record(directory, "git-revision", "git", ["rev-parse", "HEAD"])
+  let status = record(directory, "git-status", "git", ["status", "--porcelain=v1"])
+  let hostname = record(directory, "client-host", "hostname", [])
+  let binary = build_smoke_client()
+  let configuration : Json = {
+    "git_revision": revision.trim().to_owned(),
+    "worktree_dirty": !status.is_empty(),
+    "client_host": hostname.trim().to_owned(),
+    "client_sha256": file_hash(binary),
+    "trust_anchors_sha256": file_hash(ca),
+    "udp_target": address,
+    "https_authority": authority,
+    "duration_seconds": seconds,
+    "workers": workers,
+    "impairment_enabled": impair,
+  }
+  @fs.write_file(directory + "/configuration.json", configuration, create_mode=CreateNew)
+  async fn measure(endpoint : @socket.Addr) -> String {
+    let args = ["--peer-soak", endpoint.to_string(), authority, ca, duration, concurrency]
+    record(directory, "client", "./" + binary, args, timeout_ms=seconds * 1000 + 60000)
+  }
+  let summaries = []
+  let outcome : Result[Json, Error] = try {
+    if impair {
+      ignore(with_impairment(directory, "soak", summaries, target, measure, event_limit=4096))
+    } else {
+      ignore(measure(target))
+    }
+    let stats = @json.parse(@fs.read_file(directory + "/client.stdout").text())
+    guard stats is { "elapsed_ms": Number(elapsed, ..), "completed_pairs": Number(pairs, ..),
+      "verified_response_bytes": Number(bytes, ..), "workers": Number(active, ..), .. } &&
+      elapsed >= (seconds * 1000).to_double() && active == workers.to_double() &&
+      pairs >= active && bytes == pairs * 8192.0 else {
+      fail("peer soak did not verify the requested workload")
+    }
+    Ok(stats)
+  } catch { error => Err(error) }
+  let result : Json = match outcome {
+    Ok(stats) => {
+      "status": "passed",
+      "configuration": configuration,
+      "measurement": stats,
+      "proxy_sessions": Json::array(summaries),
+    }
+    Err(error) => {
+      "status": "failed",
+      "configuration": configuration,
+      "error": error.to_string(),
+      "proxy_sessions": Json::array(summaries),
+    }
+  }
+  @fs.write_file(directory + "/result.json", result, create_mode=CreateNew)
+  if outcome is Err(error) { raise error }
+  println("PASS: sustained HTTP/3 GET and POST on one authenticated connection")
+}
+
+///|
 async fn main {
   let args = @env.args()
+  if args.length() > 1 && args[1] == "--peer-soak" {
+    guard args is [_, _, address, authority, ca, seconds, workers, ..tail] &&
+      (tail.is_empty() || tail is ["--impair"]) else {
+      fail("usage: --peer-soak UDP_ADDRESS HTTPS_AUTHORITY CA_FILE SECONDS WORKERS [--impair]")
+    }
+    peer_soak(address, authority, ca, seconds, workers, !tail.is_empty())
+    return
+  }
   if args is [_, "--peer-restart", reference] {
     check_peer_restart(reference)
     return
@@ -828,11 +940,7 @@ async fn main {
   if duration_seconds < 0 || duration_seconds > 3600 {
     fail("--duration-seconds must be between 0 and 3600")
   }
-  let temporary = @fs.tmpdir(prefix="moonbithttp-h3-interop")
-  let unique = temporary.split("/").to_array().last().unwrap().to_owned()
-  @fs.rmdir(temporary)
-  let directory = "_build/evidence/http3-interoperability/" + unique
-  @fs.mkdir(directory, recursive=true)
+  let directory = new_run_directory("moonbithttp-h3-interop")
   println("HTTP/3 interoperability evidence: \{directory}")
   let revision = record(directory, "git-revision", "git", ["rev-parse", "HEAD"])
   let status = record(directory, "git-status", "git", [
