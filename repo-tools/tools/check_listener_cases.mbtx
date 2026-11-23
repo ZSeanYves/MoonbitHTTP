@@ -1,0 +1,37 @@
+----
+import {
+  "moonbitlang/async@0.22.10",
+  "moonbitlang/async@0.22.10/process",
+}
+----
+
+async fn main {
+  let base = ["test", "adapter/native/server", "--target", "native", "--deny-warn", "--warn-list", "+73"]
+  guard @process.run("moon", base + ["--build-only"]) == 0 else {
+    fail("native listener test build failed")
+  }
+  let (status, output, errors) = @process.collect_output("moon", base + ["--outline"])
+  guard status == 0 else { fail(errors.text()) }
+  let mut count = 0
+  let failures : Array[String] = []
+  for line in output.text().split("\n") {
+    if line.trim().is_empty() { continue }
+    guard line.split_once(" name=\"") is Some((_, name)) && name.trim().has_suffix("\"") else {
+      fail("unknown test outline entry: \{line}")
+    }
+    let quoted = name.trim()
+    let name = quoted[:quoted.length() - 1].to_owned()
+    count += 1
+    println("Running \{name}")
+    let code = @async.with_timeout_opt(45000, () => {
+      @process.run("moon", base + ["--filter", name])
+    })
+    if code != Some(0) {
+      println("Failed \{name} with result \{Repr(code)}")
+      failures.push(name)
+    }
+  }
+  guard count > 0 && failures.is_empty() else {
+    fail("listener suite ran \{count} cases, failures \{Repr(failures)}")
+  }
+}

@@ -113,7 +113,12 @@ jobs:
         run: moon test adapter/native/client --target native --no-parallelize --deny-warn --warn-list +73
 
       - name: Run Native listener suite
+        if: runner.os != 'Windows'
         run: moon test adapter/native/server --target native --no-parallelize --deny-warn --warn-list +73
+
+      - name: Run Native listener cases on Windows
+        if: runner.os == 'Windows'
+        run: moon run repo-tools/tools/check_listener_cases.mbtx
 
   build-and-test:
     runs-on: ubuntu-latest
