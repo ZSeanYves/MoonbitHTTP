@@ -9,6 +9,7 @@ import {
   "moonbitlang/async",
   "moonbitlang/async/socket",
   "ZSeanYves/MoonbitHTTP/runtime/service",
+  "ZSeanYves/MoonbitHTTP/protocol/http2",
   "ZSeanYves/MoonbitHTTP/core/body",
   "ZSeanYves/MoonbitHTTP/core/types",
 }

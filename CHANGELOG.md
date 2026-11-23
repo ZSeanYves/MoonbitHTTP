@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Coalesce HTTP/2 receive credit while the server writer is busy. In-flight window updates for finished streams are ignored, and a valid upload burst no longer consumes the control queue with repeated credit notifications.
+
 - Serve HTTP/1.1 and HTTP/2 through a native TLS listener selected by ALPN. HTTP/1 servers now finish a closing exchange before processing another request and explicitly acknowledge HTTP/1.0 persistence.
 
 - Add a bounded, origin-managed HTTP/2 client for streaming and byte requests, including a native TCP entry point. It shares DNS, policy and TLS dialing with HTTP/1, requires `h2` for HTTPS, and drains accepted streams after GOAWAY.

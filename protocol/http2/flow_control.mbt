@@ -122,14 +122,13 @@ fn H2Connection::receive_window_update(
         self.connection_send_window += increment
       } else {
         let stream = match self.streams.get(h.stream_id) {
+          Some(stream) if stream.state == HalfClosedLocal => return Ok([])
           Some(value) => value
+          // Credit already in flight when our END_STREAM or reset was sent.
+          None if self.was_created_stream_id(h.stream_id) => return Ok([])
           None =>
             return Err(
-              StreamError(
-                h.stream_id,
-                StreamClosed,
-                "WINDOW_UPDATE on idle stream",
-              ),
+              ConnectionError(ProtocolError, "WINDOW_UPDATE on idle stream"),
             )
         }
         if stream.send_window > 0x7fffffff - increment {

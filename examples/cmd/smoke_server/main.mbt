@@ -73,7 +73,18 @@ async fn main {
         Ok(value) => value
         Err(error) => raise error
       }
-      let supervisor = @server_api.ServerSupervisor::new().unwrap()
+      let config = @server_api.ServerConfig::defaults().with_error_responder(error => {
+        match error {
+          @service.StreamIoError::StreamIoError(cause) =>
+            println("connection transport error: \{Repr(cause)}")
+          @http2.H2ProtocolError::ConnectionError(code, detail) =>
+            println("HTTP/2 connection error: \{Repr(code)} \{detail}")
+          @http2.H2ProtocolError::StreamError(id, code, detail) =>
+            println("HTTP/2 stream \{id} error: \{Repr(code)} \{detail}")
+          cause => println("connection error: \{cause}")
+        }
+      })
+      let supervisor = @server_api.ServerSupervisor::new(config~).unwrap()
       match supervisor.serve(listener) {
         Ok(_) => ()
         Err(error) => raise error

@@ -371,19 +371,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
   let mut header_end_stream = false
   let mut discarded_header_code : @http2.H2ErrorCode? = None
   let write_lock = @async.Mutex::Mutex()
-  // Keep the receive loop independent from a peer that stops reading while
-  // write timeouts are disabled. Control frames are serialized by a bounded
-  // task-group worker; a full queue fails the connection instead of growing
-  // without limit.
-  let control_frames : @aqueue.Queue[Bytes] = Queue(kind=Blocking(32))
-  let enqueue_control_frame = fn(bytes : Bytes) -> Unit raise {
-    if !control_frames.try_put(bytes) {
-      raise @http2.H2ProtocolError::ConnectionError(
-        ProtocolError,
-        "HTTP/2 control frame queue full",
-      )
-    }
-  }
+  let control = H2ServerControl::new(connection, config.limits.max_streams)
   let window_signal = @cond_var.Cond()
   let blocked_signal : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
   let mut initial_settings_received = false
@@ -397,7 +385,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         "HTTP/2 connection task group closed",
       )
       blocked_signal.close(error~)
-      control_frames.close(error~)
+      control.queue.close(error~)
       for value in pending.values() {
         value.body.fail(error)
       }
@@ -405,8 +393,13 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
     group.spawn_bg(
       async fn() {
         while true {
-          let bytes = control_frames.get() catch { _ => return }
-          write_h2_frame(write_lock, writer, bytes, config.write_timeout_ms)
+          let item = control.queue.get() catch { _ => return }
+          write_lock.acquire()
+          defer write_lock.release()
+          let bytes = control.take(item)
+          if !bytes.is_empty() {
+            write_with_timeout(writer, bytes, config.write_timeout_ms)
+          }
         }
       },
       no_wait=true,
@@ -429,13 +422,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         Ok(value) => value
         Err(error) => raise error
       }
-      if update is SendWindowUpdate(id, increment) {
-        let encoded = match @http2.encode_window_update(id, increment) {
-          Ok(value) => value
-          Err(error) => raise error
-        }
-        enqueue_control_frame(encoded)
-      }
+      control.credit(update)
     }
     let release_consumed_data = async fn(
       stream_id : Int,
@@ -459,13 +446,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         Err(error) => raise error
       }
       for update in updates {
-        if update is SendWindowUpdate(id, value) {
-          let encoded = match @http2.encode_window_update(id, value) {
-            Ok(value) => value
-            Err(error) => raise error
-          }
-          enqueue_control_frame(encoded)
-        }
+        control.credit(update)
       }
       blocked_signal.put(())
     }
@@ -495,7 +476,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
         Ok(value) => value
         Err(error) => raise error
       }
-      enqueue_control_frame(encoded)
+      control.frame(encoded)
     }
     let reset_stream = async fn(stream_id : Int, code : @http2.H2ErrorCode) {
       reset_stream_with_error(
@@ -874,13 +855,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
               Err(error) => raise error
             }
             for update in updates {
-              if update is SendWindowUpdate(id, amount) {
-                let encoded = match @http2.encode_window_update(id, amount) {
-                  Ok(value) => value
-                  Err(error) => raise error
-                }
-                enqueue_control_frame(encoded)
-              }
+              control.credit(update)
             }
             reset_stream(stream_id, code)
             []
@@ -895,7 +870,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
               write_lock.release()
             }
             SendSettingsAck =>
-              enqueue_control_frame(
+              control.frame(
                 Bytes::from_array(@http2.encode_settings_frame([], true)),
               )
             SendPingAck(payload) => {
@@ -903,7 +878,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
                 Ok(value) => value
                 Err(error) => raise error
               }
-              enqueue_control_frame(ack)
+              control.frame(ack)
             }
             WindowAvailable(_, _) => window_signal.broadcast()
             HeadersStarted(stream_id, end_stream) => {
@@ -1017,14 +992,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
                   }
                 }
                 for update in updates {
-                  if update is SendWindowUpdate(id, amount) {
-                    let encoded = match
-                      @http2.encode_window_update(id, amount) {
-                      Ok(value) => value
-                      Err(error) => raise error
-                    }
-                    enqueue_control_frame(encoded)
-                  }
+                  control.credit(update)
                 }
                 if end_stream && request.response_finished {
                   request.body.finish()
@@ -1044,14 +1012,7 @@ async fn[R : @aio.Reader, W : @aio.Writer, B : @body.Body] serve_http2_connectio
                   Err(error) => raise error
                 }
                 for update in updates {
-                  if update is SendWindowUpdate(id, amount) {
-                    let encoded = match
-                      @http2.encode_window_update(id, amount) {
-                      Ok(value) => value
-                      Err(error) => raise error
-                    }
-                    enqueue_control_frame(encoded)
-                  }
+                  control.credit(update)
                 }
               }
               if request.credit.retired {

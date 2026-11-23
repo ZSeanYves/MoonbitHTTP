@@ -90,6 +90,7 @@ flowchart TD
   p_adapter_native_server --> p_application_server
   p_application_client -. "test" .-> p_internal_test_support
   p_application_client --> p_policy_content_coding
+  p_examples_cmd_smoke_server --> p_protocol_http2
   p_examples_cmd_smoke_server --> p_runtime_service
   p_adapter_native_client -. "wbtest" .-> p_adapter_native_tls
   p_adapter_native_server -. "wbtest" .-> p_adapter_native_tls

@@ -266,3 +266,17 @@ test "H2 initial peer stream capacity follows the local budget until SETTINGS" {
   connection.reset_stream(1).unwrap()
   assert_eq(connection.try_open_local_stream(), Ok(Some(257)))
 }
+
+///|
+test "in-flight WINDOW_UPDATE after local end is harmless and a future stream is idle" {
+  let connection = @http2.H2Connection::new(Client)
+  let id = connection.open_local_stream(end_stream=true).unwrap()
+  let update = test_frame(@http2.H2_FRAME_WINDOW_UPDATE, 0, id, [0, 0, 0, 1])
+  assert_true(connection.receive(update) is Ok([]))
+  connection.reset_stream(id).unwrap()
+  assert_true(connection.receive(update) is Ok([]))
+  let idle = test_frame(@http2.H2_FRAME_WINDOW_UPDATE, 0, id + 2, [0, 0, 0, 1])
+  assert_true(
+    connection.receive(idle) is Err(ConnectionError(ProtocolError, _)),
+  )
+}
