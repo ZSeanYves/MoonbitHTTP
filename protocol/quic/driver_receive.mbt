@@ -399,7 +399,8 @@ fn QuicDatagramDriver::on_packet(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  match quic_validate_frames_for_space(space, frames) {
+  match
+    quic_validate_packet_frames(space, frames, from_server=self.role == Client) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
@@ -421,14 +422,6 @@ fn QuicDatagramDriver::on_packet(
         ),
       )
     }
-  }
-  if frames.contains(HandshakeDone) &&
-    (self.role != Client || self.state() != Established) {
-    return Err(
-      InvalidFrame(
-        "HANDSHAKE_DONE is only valid from the server after TLS completion",
-      ),
-    )
   }
   if candidate_path {
     // A candidate path cannot affect connection, recovery, or stream state
@@ -499,10 +492,7 @@ fn QuicDatagramDriver::on_packet(
   let responses : Array[QuicFrame] = []
   let mut ack_eliciting = false
   for frame in frames {
-    match frame {
-      Padding | Ack(_) => ()
-      _ => ack_eliciting = true
-    }
+    ack_eliciting = ack_eliciting || quic_frame_is_ack_eliciting(frame)
     match frame {
       Ack(ack) =>
         if !has_path_challenge {
@@ -537,13 +527,6 @@ fn QuicDatagramDriver::on_packet(
         }
       }
       HandshakeDone => {
-        if self.role != Client || self.state() != Established {
-          return Err(
-            InvalidFrame(
-              "HANDSHAKE_DONE is only valid from the server after TLS completion",
-            ),
-          )
-        }
         self.key_update.confirmed = true
         self.discard_packet_space(Handshake)
       }

@@ -92,7 +92,7 @@ fn QuicConnection::retire_if_finished(
   )
   if !initiated_here {
     let incoming = if uni { self.incoming_uni } else { self.incoming_bidi }
-    if incoming.advertised + incoming.retired_credit < 0x1000000000000000L {
+    if incoming.advertised + incoming.retired_credit < QUIC_MAX_STREAM_COUNT {
       incoming.retired_credit += 1L
     }
   }

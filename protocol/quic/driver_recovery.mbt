@@ -12,7 +12,7 @@ struct QuicRetransmission {
 ///|
 fn quic_frame_is_ack_eliciting(frame : QuicFrame) -> Bool {
   match frame {
-    Ack(_) | Padding => false
+    Ack(_) | Padding | ConnectionClose(_, _, _, _) => false
     _ => true
   }
 }
@@ -20,14 +20,13 @@ fn quic_frame_is_ack_eliciting(frame : QuicFrame) -> Bool {
 ///|
 fn quic_frame_is_retransmittable(frame : QuicFrame) -> Bool {
   match frame {
-    Ack(_) | Padding | PathResponse(_) | Datagram(_) => false
+    Ack(_)
+    | Padding
+    | ConnectionClose(_, _, _, _)
+    | PathResponse(_)
+    | Datagram(_) => false
     _ => true
   }
-}
-
-///|
-fn quic_frames_are_retransmittable(frames : Array[QuicFrame]) -> Bool {
-  frames.any(quic_frame_is_retransmittable)
 }
 
 ///|
@@ -244,23 +243,15 @@ fn QuicDatagramDriver::queue_retransmission(
   endpoint : @types.Endpoint,
   frames : Array[QuicFrame],
 ) -> Unit {
-  if quic_frames_are_retransmittable(frames) {
-    let retained : Array[QuicFrame] = []
-    for frame in frames {
-      if quic_frame_is_retransmittable(frame) {
-        retained.push(frame)
-      }
-    }
-    self.retransmissions.push({
-      space,
-      number,
-      endpoint: if frames.any(fn(frame) { frame is PathChallenge(_) }) {
-        Some(endpoint)
-      } else {
-        None
-      },
-      frames: retained,
-      pending: false,
-    })
-  }
+  self.retransmissions.push({
+    space,
+    number,
+    endpoint: if frames.any(fn(frame) { frame is PathChallenge(_) }) {
+      Some(endpoint)
+    } else {
+      None
+    },
+    frames: frames.filter(quic_frame_is_retransmittable),
+    pending: false,
+  })
 }

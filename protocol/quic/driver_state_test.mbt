@@ -3,6 +3,7 @@ fn established_driver_pair(
   client_endpoint : @types.Endpoint,
   server_endpoint : @types.Endpoint,
   established? : Bool = true,
+  recovery_config? : @quic.QuicRecoveryConfig = @quic.QuicRecoveryConfig::defaults(),
 ) -> (@quic.QuicDatagramDriver, @quic.QuicDatagramDriver) {
   let server_id = @quic.ConnectionId::new(b"server-id").unwrap()
   let client_id = @quic.ConnectionId::new(b"client-id").unwrap()
@@ -12,6 +13,7 @@ fn established_driver_pair(
     server_id,
     client_id,
     server_id,
+    recovery_config~,
   ).unwrap()
   let server = @quic.QuicDatagramDriver::new(
     Server,
@@ -113,6 +115,46 @@ test "quic driver state: application space retains post-handshake CRYPTO" {
   }
   let actions = server.on_datagram(endpoint, packet, 1L).unwrap()
   assert_true(actions.contains(CryptoData(Application, 0L, b"ticket")))
+}
+
+///|
+test "quic driver state: only the server sends NEW_TOKEN and HANDSHAKE_DONE" {
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
+  let (client, server) = established_driver_pair(endpoint, endpoint)
+  let frames : Array[@quic.QuicFrame] = [NewToken(b"token"), HandshakeDone]
+  for frame in frames {
+    assert_true(
+      client.send_frames(Application, [frame], 0L) is Err(Protocol(0x0aL, _)),
+    )
+  }
+  guard server.send_frames(Application, frames, 1L).unwrap()
+    is SendDatagram(_, packet) else {
+    fail("expected a server datagram")
+  }
+  assert_true(client.on_datagram(endpoint, packet, 2L) is Ok(_))
+}
+
+///|
+test "quic driver state: a close-only packet can leave a full recovery queue" {
+  let endpoint = @types.Endpoint::new("udp", "example.test", 443).unwrap()
+  let (client, server) = established_driver_pair(endpoint, endpoint, recovery_config={
+    ..@quic.QuicRecoveryConfig::defaults(),
+    max_tracked_packets: 1,
+  })
+  ignore(client.send_frames(Application, [Ping], 0L).unwrap())
+  assert_true(
+    client.send_frames(Application, [Ping], 1L) is Err(LimitExceeded(_, 1)),
+  )
+  guard client.send_frames(
+      Application,
+      [ConnectionClose(false, 0x100L, 0L, b"done")],
+      2L,
+    )
+    is Ok(SendDatagram(_, packet)) else {
+    fail("a close-only packet must not consume a recovery slot")
+  }
+  let actions = server.on_datagram(endpoint, packet, 3L).unwrap()
+  assert_eq(actions, [ConnectionClosed(0x100L, "done")])
 }
 
 ///|

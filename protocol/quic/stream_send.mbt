@@ -228,8 +228,9 @@ pub fn QuicConnection::acknowledge_stream_data(
   length : Int,
   fin? : Bool = false,
 ) -> Result[Unit, QuicError] {
-  if offset < 0L || length < 0 || offset > QUIC_MAX_VARINT - length.to_int64() {
-    return Err(InvalidFrame("invalid acknowledged stream range"))
+  let end = match quic_range_end(offset, length) {
+    Ok(end) => end
+    Err(_) => return Err(InvalidFrame("invalid acknowledged stream range"))
   }
   if self.is_retired(id) {
     return Ok(())
@@ -237,7 +238,6 @@ pub fn QuicConnection::acknowledge_stream_data(
   guard self.streams.get(id) is Some(stream) else {
     return Err(StreamClosed(id))
   }
-  let end = offset + length.to_int64()
   if end > stream.send_offset {
     return Err(InvalidFrame("acknowledged unsent stream data"))
   }

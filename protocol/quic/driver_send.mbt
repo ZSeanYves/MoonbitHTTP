@@ -231,11 +231,12 @@ fn QuicDatagramDriver::send_frames_internal_to(
     Ok(_) => ()
     Err(error) => return Err(error)
   }
-  match quic_validate_frames_for_space(space, frames) {
+  match
+    quic_validate_packet_frames(space, frames, from_server=self.role == Server) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
-  let retransmittable = quic_frames_are_retransmittable(frames)
+  let retransmittable = frames.any(quic_frame_is_retransmittable)
   let replacing = match replacement_number {
     None => false
     Some(number) => {

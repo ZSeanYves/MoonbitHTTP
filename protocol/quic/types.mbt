@@ -15,6 +15,9 @@ pub const QUIC_MAX_PACKET_SIZE : Int = 65527
 pub const QUIC_MAX_VARINT : Int64 = 0x3fffffffffffffffL
 
 ///|
+const QUIC_MAX_STREAM_COUNT : Int64 = 1L << 60
+
+///|
 /// RFC 9001 section 6.6 AES-GCM usage limits.  These values are kept in
 /// packet units so every key phase can be accounted independently.
 pub const QUIC_AEAD_CONFIDENTIALITY_LIMIT : Int64 = 1L << 23

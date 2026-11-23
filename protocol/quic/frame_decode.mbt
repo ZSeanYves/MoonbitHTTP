@@ -72,11 +72,9 @@ fn decode_ack_frame(
   if first_range > largest {
     return Err(InvalidFrame("ACK first range underflows"))
   }
-  let first = match AckRange::new(largest, largest - first_range) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  let ranges = [first]
+  // The wire uses unsigned varints and gaps. The subtraction checks here
+  // establish the ordering and bounds as we decode each range.
+  let ranges : Array[AckRange] = [{ largest, smallest: largest - first_range, }]
   let mut cursor = first_cursor
   let mut previous_smallest = largest - first_range
   for _ in 0..<range_count {
@@ -96,10 +94,9 @@ fn decode_ack_frame(
     if range_length > largest_range {
       return Err(InvalidFrame("ACK range length underflows packet number"))
     }
-    let range = match
-      AckRange::new(largest_range, largest_range - range_length) {
-      Ok(value) => value
-      Err(error) => return Err(error)
+    let range : AckRange = {
+      largest: largest_range,
+      smallest: largest_range - range_length,
     }
     ranges.push(range)
     previous_smallest = range.smallest
@@ -123,9 +120,11 @@ fn decode_ack_frame(
   } else {
     None
   }
-  let ack = match AckFrame::new(largest, delay, ranges, ecn_counts=ecn) {
-    Ok(value) => value
-    Err(error) => return Err(error)
+  let ack = {
+    largest_acknowledged: largest,
+    ack_delay: delay,
+    ranges,
+    ecn_counts: ecn,
   }
   Ok((ack, cursor))
 }
@@ -209,6 +208,9 @@ pub fn quic_decode_frames(
       if length > limits.max_crypto_bytes {
         return Err(LimitExceeded("CRYPTO data", limits.max_crypto_bytes))
       }
+      if quic_range_end(crypto_offset, length) is Err(error) {
+        return Err(error)
+      }
       let (data, cursor) = match take_frame_bytes(payload, cursor, length) {
         Ok(value) => value
         Err(error) => return Err(error)
@@ -223,6 +225,9 @@ pub fn quic_decode_frames(
       let length = match varint_to_index(length64) {
         Ok(value) => value
         Err(error) => return Err(error)
+      }
+      quic_check_new_token(length) catch {
+        error => return Err(error)
       }
       let (token, cursor) = match take_frame_bytes(payload, cursor, length) {
         Ok(value) => value
@@ -295,6 +300,9 @@ pub fn quic_decode_frames(
         Ok(value) => value
         Err(error) => return Err(error)
       }
+      quic_check_stream_count(value) catch {
+        error => return Err(error)
+      }
       frames.push(MaxStreams(typ == 0x13, value))
       offset = cursor
     } else if typ == 0x14 {
@@ -320,6 +328,9 @@ pub fn quic_decode_frames(
         Ok(value) => value
         Err(error) => return Err(error)
       }
+      quic_check_stream_count(value) catch {
+        error => return Err(error)
+      }
       frames.push(StreamsBlocked(typ == 0x17, value))
       offset = cursor
     } else if typ == 0x18 {
@@ -336,16 +347,16 @@ pub fn quic_decode_frames(
         return Err(NeedMoreInput)
       }
       let cid_length = payload[cursor].to_int()
-      if cid_length > QUIC_MAX_CONNECTION_ID ||
-        payload.length() - cursor - 1 < cid_length + 16 {
+      if !quic_valid_connection_id_announcement(
+          sequence, retire_prior_to, cid_length, 16,
+        ) {
+        return Err(Protocol(0x07L, "invalid NEW_CONNECTION_ID"))
+      }
+      if payload.length() - cursor - 1 < cid_length + 16 {
         return Err(NeedMoreInput)
       }
-      let cid = match
-        ConnectionId::new(
-          payload[cursor + 1:cursor + 1 + cid_length].to_owned(),
-        ) {
-        Ok(value) => value
-        Err(error) => return Err(error)
+      let cid : ConnectionId = {
+        bytes: payload[cursor + 1:cursor + 1 + cid_length].to_owned(),
       }
       let token_start = cursor + 1 + cid_length
       let token = payload[token_start:token_start + 16].to_owned()

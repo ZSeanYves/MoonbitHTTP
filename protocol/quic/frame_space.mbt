@@ -22,13 +22,23 @@ fn quic_frame_allowed_in_space(
 /// Validates every frame before packet accounting or connection state is
 /// mutated.  The same gate is used for outgoing and authenticated incoming
 /// packets so both sides observe the same packet-space contract.
-fn quic_validate_frames_for_space(
+fn quic_validate_packet_frames(
   space : PacketNumberSpace,
   frames : Array[QuicFrame],
+  from_server~ : Bool,
 ) -> Result[Unit, QuicError] {
   for frame in frames {
     if !quic_frame_allowed_in_space(space, frame) {
       return Err(InvalidFrame("frame is not valid in this packet number space"))
+    }
+    if !from_server {
+      match frame {
+        NewToken(_) | HandshakeDone =>
+          return Err(
+            Protocol(0x0aL, "NEW_TOKEN and HANDSHAKE_DONE are server-only"),
+          )
+        _ => ()
+      }
     }
   }
   Ok(())

@@ -1,326 +1,206 @@
 ///|
-/// QUIC frame encoding lives beside the decoder so a driver can round-trip
-/// frames without reimplementing wire rules.  Every integer is encoded in its
-/// canonical variable-length form and all byte lengths are checked before a
-/// buffer is allocated.
-
-///|
-fn quic_frame_join(parts : Array[Bytes]) -> Bytes {
-  let mut length = 0
-  for part in parts {
-    if part.length() > @int.MAX_VALUE - length {
-      return b""
-    }
-    length += part.length()
-  }
-  let output = FixedArray::make(length, b'\x00')
-  let mut offset = 0
-  for part in parts {
-    for byte in part {
-      output[offset] = byte
-      offset += 1
-    }
-  }
-  output.unsafe_reinterpret_as_bytes()
+priv struct QuicFrameWriter {
+  output : @buffer.Buffer
+  limits : QuicLimits
 }
 
 ///|
-fn quic_frame_varint(value : Int64) -> Result[Bytes, QuicError] {
-  match QuicVarInt::new(value) {
-    Ok(encoded) => Ok(encoded.encode())
-    Err(error) => Err(error)
+fn QuicFrameWriter::put(
+  self : QuicFrameWriter,
+  data : Bytes,
+) -> Unit raise QuicError {
+  if data.length() > self.limits.max_frame_payload - self.output.length() {
+    raise LimitExceeded("encoded QUIC payload", self.limits.max_frame_payload)
   }
+  self.output.write_bytes(data)
 }
 
 ///|
-fn quic_frame_bytes_length(
-  value : Int,
-  label : String,
-) -> Result[Bytes, QuicError] {
-  if value < 0 || value > @int.MAX_VALUE {
-    return Err(LimitExceeded(label, value))
-  }
-  quic_frame_varint(value.to_int64())
+fn QuicFrameWriter::integer(
+  self : QuicFrameWriter,
+  value : Int64,
+) -> Unit raise QuicError {
+  self.put(QuicVarInt::new(value).unwrap_or_error().encode())
 }
 
 ///|
-fn quic_encode_ack(ack : AckFrame, with_ecn : Bool) -> Result[Bytes, QuicError] {
-  if ack.ranges.is_empty() ||
-    ack.largest_acknowledged < 0L ||
-    ack.ack_delay < 0L {
-    return Err(InvalidFrame("invalid ACK frame"))
+fn QuicFrameWriter::length_prefixed(
+  self : QuicFrameWriter,
+  data : Bytes,
+) -> Unit raise QuicError {
+  self.integer(data.length().to_int64())
+  self.put(data)
+}
+
+///|
+fn QuicFrameWriter::ack(
+  self : QuicFrameWriter,
+  ack : AckFrame,
+) -> Unit raise QuicError {
+  let count = ack.ranges.length() - 1
+  if count > self.limits.max_ack_ranges {
+    raise LimitExceeded("ACK ranges", self.limits.max_ack_ranges)
   }
+  ack.validate()
+  self.put(if ack.ecn_counts is Some(_) { b"\x03" } else { b"\x02" })
+  self.integer(ack.largest_acknowledged)
+  self.integer(ack.ack_delay)
+  self.integer(count.to_int64())
   let first = ack.ranges[0]
-  if first.largest != ack.largest_acknowledged {
-    return Err(InvalidFrame("ACK largest value does not match first range"))
-  }
+  self.integer(first.largest - first.smallest)
   let mut previous_smallest = first.smallest
-  if first.largest - first.smallest < 0L {
-    return Err(InvalidFrame("invalid ACK range"))
-  }
-  let parts : Array[Bytes] = [
-    quic_frame_varint(ack.largest_acknowledged).unwrap(),
-    quic_frame_varint(ack.ack_delay).unwrap(),
-    quic_frame_varint((ack.ranges.length() - 1).to_int64()).unwrap(),
-    quic_frame_varint(first.largest - first.smallest).unwrap(),
-  ]
-  for index in 1..<ack.ranges.length() {
-    let range = ack.ranges[index]
-    if range.largest >= previous_smallest ||
-      range.smallest < 0L ||
-      range.largest < range.smallest {
-      return Err(InvalidFrame("ACK ranges overlap or are unordered"))
-    }
-    let gap = previous_smallest - range.largest - 2L
-    if gap < 0L {
-      return Err(InvalidFrame("ACK range gap underflows"))
-    }
-    parts.push(quic_frame_varint(gap).unwrap())
-    parts.push(quic_frame_varint(range.largest - range.smallest).unwrap())
+  for i in 1..<ack.ranges.length() {
+    let range = ack.ranges[i]
+    self.integer(previous_smallest - range.largest - 2L)
+    self.integer(range.largest - range.smallest)
     previous_smallest = range.smallest
   }
-  if with_ecn {
-    match ack.ecn_counts {
-      Some((ect0, ect1, ce)) if ect0 >= 0L && ect1 >= 0L && ce >= 0L => {
-        parts.push(quic_frame_varint(ect0).unwrap())
-        parts.push(quic_frame_varint(ect1).unwrap())
-        parts.push(quic_frame_varint(ce).unwrap())
-      }
-      _ => return Err(InvalidFrame("invalid ECN counts"))
-    }
-  } else if ack.ecn_counts is Some(_) {
-    return Err(InvalidFrame("ECN counts require ACK_ECN"))
+  if ack.ecn_counts is Some((ect0, ect1, ce)) {
+    self.integer(ect0)
+    self.integer(ect1)
+    self.integer(ce)
   }
-  Ok(quic_frame_join(parts))
 }
 
 ///|
-/// Encodes one QUIC frame.  The returned bytes are suitable for the
-/// authenticated payload of a packet; packet protection is deliberately kept
-/// in `packet_protection.mbt`.
+fn QuicFrameWriter::frame(
+  self : QuicFrameWriter,
+  frame : QuicFrame,
+) -> Unit raise QuicError {
+  match frame {
+    Padding => self.put(b"\x00")
+    Ping => self.put(b"\x01")
+    Ack(ack) => self.ack(ack)
+    ResetStream(id, code, final_size) => {
+      self.put(b"\x04")
+      self.integer(id)
+      self.integer(code)
+      self.integer(final_size)
+    }
+    StopSending(id, code) => {
+      self.put(b"\x05")
+      self.integer(id)
+      self.integer(code)
+    }
+    Crypto(offset, data) => {
+      if data.length() > self.limits.max_crypto_bytes {
+        raise LimitExceeded("CRYPTO data", self.limits.max_crypto_bytes)
+      }
+      ignore(quic_range_end(offset, data.length()).unwrap_or_error())
+      self.put(b"\x06")
+      self.integer(offset)
+      self.length_prefixed(data)
+    }
+    NewToken(token) => {
+      quic_check_new_token(token.length())
+      self.put(b"\x07")
+      self.length_prefixed(token)
+    }
+    Stream(stream) => {
+      ignore(
+        quic_range_end(stream.offset, stream.data.length()).unwrap_or_error(),
+      )
+      self.put(if stream.fin { b"\x0f" } else { b"\x0e" })
+      self.integer(stream.stream_id)
+      self.integer(stream.offset)
+      self.length_prefixed(stream.data)
+    }
+    MaxData(value) => {
+      self.put(b"\x10")
+      self.integer(value)
+    }
+    MaxStreamData(id, value) => {
+      self.put(b"\x11")
+      self.integer(id)
+      self.integer(value)
+    }
+    MaxStreams(uni, value) => {
+      quic_check_stream_count(value)
+      self.put(if uni { b"\x13" } else { b"\x12" })
+      self.integer(value)
+    }
+    DataBlocked(value) => {
+      self.put(b"\x14")
+      self.integer(value)
+    }
+    StreamDataBlocked(id, value) => {
+      self.put(b"\x15")
+      self.integer(id)
+      self.integer(value)
+    }
+    StreamsBlocked(uni, value) => {
+      quic_check_stream_count(value)
+      self.put(if uni { b"\x17" } else { b"\x16" })
+      self.integer(value)
+    }
+    NewConnectionId(sequence, retire_prior_to, id, token) => {
+      if !quic_valid_connection_id_announcement(
+          sequence,
+          retire_prior_to,
+          id.bytes().length(),
+          token.length(),
+        ) {
+        raise InvalidFrame("invalid NEW_CONNECTION_ID")
+      }
+      self.put(b"\x18")
+      self.integer(sequence)
+      self.integer(retire_prior_to)
+      // A ConnectionId holds at most 20 bytes, so its length occupies one byte.
+      self.length_prefixed(id.bytes())
+      self.put(token)
+    }
+    RetireConnectionId(sequence) => {
+      self.put(b"\x19")
+      self.integer(sequence)
+    }
+    PathChallenge(data) | PathResponse(data) => {
+      if data.length() != 8 {
+        raise InvalidFrame("PATH data must contain eight bytes")
+      }
+      self.put(if frame is PathChallenge(_) { b"\x1a" } else { b"\x1b" })
+      self.put(data)
+    }
+    ConnectionClose(transport_error, code, frame_type, reason) => {
+      self.put(if transport_error { b"\x1c" } else { b"\x1d" })
+      self.integer(code)
+      if transport_error {
+        self.integer(frame_type)
+      } else if frame_type < 0L {
+        raise InvalidFrame("invalid CONNECTION_CLOSE")
+      }
+      self.length_prefixed(reason)
+    }
+    HandshakeDone => self.put(b"\x1e")
+    Datagram(data) => {
+      self.put(b"\x31")
+      self.length_prefixed(data)
+    }
+  }
+}
+
+///|
+/// Encodes one frame into a canonical QUIC packet payload.
 pub fn quic_encode_frame(
   frame : QuicFrame,
   limits? : QuicLimits = QuicLimits::defaults(),
 ) -> Result[Bytes, QuicError] {
-  match limits.validate() {
-    Ok(_) => ()
-    Err(error) => return Err(error)
-  }
-  let encoded : Bytes = match frame {
-    Padding => b"\x00"
-    Ping => b"\x01"
-    Ack(ack) => {
-      let body = match quic_encode_ack(ack, ack.ecn_counts is Some(_)) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      quic_frame_join([
-        quic_frame_varint(if ack.ecn_counts is Some(_) { 3L } else { 2L }).unwrap(),
-        body,
-      ])
-    }
-    ResetStream(stream_id, error_code, final_size) => {
-      if stream_id < 0L || error_code < 0L || final_size < 0L {
-        return Err(InvalidFrame("invalid RESET_STREAM"))
-      }
-      quic_frame_join([
-        b"\x04",
-        quic_frame_varint(stream_id).unwrap(),
-        quic_frame_varint(error_code).unwrap(),
-        quic_frame_varint(final_size).unwrap(),
-      ])
-    }
-    StopSending(stream_id, error_code) => {
-      if stream_id < 0L || error_code < 0L {
-        return Err(InvalidFrame("invalid STOP_SENDING"))
-      }
-      quic_frame_join([
-        b"\x05",
-        quic_frame_varint(stream_id).unwrap(),
-        quic_frame_varint(error_code).unwrap(),
-      ])
-    }
-    Crypto(offset, data) => {
-      if offset < 0L || data.length() > limits.max_crypto_bytes {
-        return Err(LimitExceeded("CRYPTO data", limits.max_crypto_bytes))
-      }
-      quic_frame_join([
-        b"\x06",
-        quic_frame_varint(offset).unwrap(),
-        quic_frame_bytes_length(data.length(), "CRYPTO data").unwrap(),
-        data,
-      ])
-    }
-    NewToken(token) => {
-      if token.length() > limits.max_frame_payload {
-        return Err(LimitExceeded("NEW_TOKEN", limits.max_frame_payload))
-      }
-      quic_frame_join([
-        b"\x07",
-        quic_frame_bytes_length(token.length(), "NEW_TOKEN").unwrap(),
-        token,
-      ])
-    }
-    Stream(stream_frame) => {
-      let data = stream_frame.data
-      if stream_frame.stream_id < 0L ||
-        stream_frame.offset < 0L ||
-        data.length() > limits.max_frame_payload {
-        return Err(LimitExceeded("STREAM data", limits.max_frame_payload))
-      }
-      let typ = if stream_frame.fin { 0x0fL } else { 0x0eL }
-      quic_frame_join([
-        quic_frame_varint(typ).unwrap(),
-        quic_frame_varint(stream_frame.stream_id).unwrap(),
-        quic_frame_varint(stream_frame.offset).unwrap(),
-        quic_frame_bytes_length(data.length(), "STREAM data").unwrap(),
-        data,
-      ])
-    }
-    MaxData(value) => {
-      if value < 0L {
-        return Err(InvalidFrame("invalid MAX_DATA"))
-      }
-      quic_frame_join([b"\x10", quic_frame_varint(value).unwrap()])
-    }
-    MaxStreamData(stream_id, value) => {
-      if stream_id < 0L || value < 0L {
-        return Err(InvalidFrame("invalid MAX_STREAM_DATA"))
-      }
-      quic_frame_join([
-        b"\x11",
-        quic_frame_varint(stream_id).unwrap(),
-        quic_frame_varint(value).unwrap(),
-      ])
-    }
-    MaxStreams(bidi, value) => {
-      if value < 0L {
-        return Err(InvalidFrame("invalid MAX_STREAMS"))
-      }
-      quic_frame_join([
-        quic_frame_varint(if bidi { 0x13L } else { 0x12L }).unwrap(),
-        quic_frame_varint(value).unwrap(),
-      ])
-    }
-    DataBlocked(value) => {
-      if value < 0L {
-        return Err(InvalidFrame("invalid DATA_BLOCKED"))
-      }
-      quic_frame_join([b"\x14", quic_frame_varint(value).unwrap()])
-    }
-    StreamDataBlocked(stream_id, value) => {
-      if stream_id < 0L || value < 0L {
-        return Err(InvalidFrame("invalid STREAM_DATA_BLOCKED"))
-      }
-      quic_frame_join([
-        b"\x15",
-        quic_frame_varint(stream_id).unwrap(),
-        quic_frame_varint(value).unwrap(),
-      ])
-    }
-    StreamsBlocked(bidi, value) => {
-      if value < 0L {
-        return Err(InvalidFrame("invalid STREAMS_BLOCKED"))
-      }
-      quic_frame_join([
-        quic_frame_varint(if bidi { 0x17L } else { 0x16L }).unwrap(),
-        quic_frame_varint(value).unwrap(),
-      ])
-    }
-    NewConnectionId(sequence, retire_prior_to, id, token) => {
-      if sequence < 0L ||
-        retire_prior_to < 0L ||
-        retire_prior_to > sequence ||
-        id.bytes().is_empty() ||
-        id.bytes().length() > QUIC_MAX_CONNECTION_ID ||
-        token.length() != 16 {
-        return Err(InvalidFrame("invalid NEW_CONNECTION_ID"))
-      }
-      quic_frame_join([
-        b"\x18",
-        quic_frame_varint(sequence).unwrap(),
-        quic_frame_varint(retire_prior_to).unwrap(),
-        Bytes::from_array([id.bytes().length().to_byte()]),
-        id.bytes(),
-        token,
-      ])
-    }
-    RetireConnectionId(sequence) => {
-      if sequence < 0L {
-        return Err(InvalidFrame("invalid RETIRE_CONNECTION_ID"))
-      }
-      quic_frame_join([b"\x19", quic_frame_varint(sequence).unwrap()])
-    }
-    PathChallenge(data) => {
-      if data.length() != 8 {
-        return Err(InvalidFrame("PATH data must contain eight bytes"))
-      }
-      quic_frame_join([b"\x1a", data])
-    }
-    PathResponse(data) => {
-      if data.length() != 8 {
-        return Err(InvalidFrame("PATH data must contain eight bytes"))
-      }
-      quic_frame_join([b"\x1b", data])
-    }
-    ConnectionClose(transport_error, error_code, frame_type, reason) => {
-      if error_code < 0L ||
-        frame_type < 0L ||
-        reason.length() > limits.max_frame_payload {
-        return Err(InvalidFrame("invalid CONNECTION_CLOSE"))
-      }
-      if transport_error {
-        quic_frame_join([
-          b"\x1c",
-          quic_frame_varint(error_code).unwrap(),
-          quic_frame_varint(frame_type).unwrap(),
-          quic_frame_bytes_length(reason.length(), "close reason").unwrap(),
-          reason,
-        ])
-      } else {
-        quic_frame_join([
-          b"\x1d",
-          quic_frame_varint(error_code).unwrap(),
-          quic_frame_bytes_length(reason.length(), "close reason").unwrap(),
-          reason,
-        ])
-      }
-    }
-    HandshakeDone => b"\x1e"
-    Datagram(data) => {
-      if data.length() > limits.max_frame_payload {
-        return Err(LimitExceeded("DATAGRAM", limits.max_frame_payload))
-      }
-      quic_frame_join([
-        b"\x31",
-        quic_frame_bytes_length(data.length(), "DATAGRAM").unwrap(),
-        data,
-      ])
-    }
-  }
-  if encoded.length() > limits.max_frame_payload {
-    return Err(LimitExceeded("encoded QUIC frame", limits.max_frame_payload))
-  }
-  Ok(encoded)
+  quic_encode_frames([frame], limits~)
 }
 
 ///|
+/// Checks the limits once and writes the entire payload within the byte budget.
 pub fn quic_encode_frames(
   frames : Array[QuicFrame],
   limits? : QuicLimits = QuicLimits::defaults(),
 ) -> Result[Bytes, QuicError] {
-  let parts : Array[Bytes] = []
-  let mut total = 0
-  for frame in frames {
-    let encoded = match quic_encode_frame(frame, limits~) {
-      Ok(value) => value
-      Err(error) => return Err(error)
+  try {
+    limits.validate().unwrap_or_error()
+    let writer : QuicFrameWriter = { output: Buffer(), limits, }
+    for frame in frames {
+      writer.frame(frame)
     }
-    if encoded.length() > limits.max_frame_payload - total {
-      return Err(LimitExceeded("encoded QUIC frames", limits.max_frame_payload))
-    }
-    total += encoded.length()
-    parts.push(encoded)
+    Ok(writer.output.to_bytes())
+  } catch {
+    error => Err(error)
   }
-  Ok(quic_frame_join(parts))
 }

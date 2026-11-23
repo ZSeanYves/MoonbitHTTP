@@ -62,18 +62,6 @@ pub fn QuicCryptoReassembler::next_offset(
 }
 
 ///|
-fn crypto_segment_end(offset : Int64, data : Bytes) -> Result[Int64, QuicError] {
-  if offset < 0L {
-    return Err(InvalidPacket("invalid CRYPTO range"))
-  }
-  let length = data.length().to_int64()
-  if offset > QUIC_MAX_VARINT - length {
-    return Err(VarIntOverflow)
-  }
-  Ok(offset + length)
-}
-
-///|
 /// Feeds a CRYPTO range and returns newly contiguous chunks.  Empty ranges do
 /// not generate events and overlapping bytes are accepted only when their
 /// contents agree; conflicting retransmissions are authentication/protocol
@@ -95,7 +83,7 @@ fn QuicCryptoReassembler::feed_bounded(
 ) -> Result[Array[Bytes], QuicError] {
   let mut offset = offset
   let mut data = data
-  let end = match crypto_segment_end(offset, data) {
+  let end = match quic_range_end(offset, data.length()) {
     Ok(value) => value
     Err(error) => return Err(error)
   }

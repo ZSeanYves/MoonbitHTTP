@@ -8,6 +8,10 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Send a QUIC close-only packet even when the recovery queue is full. The closing frame no longer occupies a retransmission slot or waits for an acknowledgment.
+
+- Bound QUIC frame encoding across an entire batch. Out-of-range integers and invalid ACK ranges return errors through the public codec. Single and batch encoders share a writer. The codec enforces stream count, token and connection ID bounds in both directions. Packet validation enforces the sender role for NEW_TOKEN and HANDSHAKE_DONE.
+
 - Drain typed HTTP/3 servers with GOAWAY on supervisor shutdown. Idle connections close, previously admitted responses finish, and new requests receive a retryable rejection. Preserve the distinction between QUIC transport and application close codes, including the HTTP/3 normal close and bounded failure notification on cancellation.
 
 - Add a typed, multiplexed HTTP/3 client bound to one verified HTTPS origin. HTTP/2 and HTTP/3 clients share request target and pseudo-field construction. A server can end an upload with `STOP_SENDING(H3_NO_ERROR)` after an early response. Cancelling a duplex exchange releases its slot while the connection continues serving other requests.

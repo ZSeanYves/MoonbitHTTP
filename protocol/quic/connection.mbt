@@ -209,11 +209,11 @@ pub fn QuicConnection::receive_frame(
     Ack(ack) => actions.push(PeerAck(ack))
     Stream(stream_frame) => {
       let id = stream_frame.stream_id
-      let length = stream_frame.data.length().to_int64()
-      if stream_frame.offset > QUIC_MAX_VARINT - length {
-        return Err(VarIntOverflow)
+      let end = match
+        quic_range_end(stream_frame.offset, stream_frame.data.length()) {
+        Ok(end) => end
+        Err(error) => return Err(error)
       }
-      let end = stream_frame.offset + length
       if self.is_retired(id) {
         return self.check_retired_range(id, end, stream_frame.fin)
       }
@@ -305,13 +305,25 @@ pub fn QuicConnection::receive_frame(
       }
     }
     MaxStreams(uni, value) => {
-      if value > 0x1000000000000000L || value < 0L {
-        return Err(Protocol(0x7L, "MAX_STREAMS exceeds 2^60"))
+      quic_check_stream_count(value) catch {
+        error => return Err(error)
       }
       if uni {
         self.peer_max_streams_uni = value.max(self.peer_max_streams_uni)
       } else {
         self.peer_max_streams_bidi = value.max(self.peer_max_streams_bidi)
+      }
+    }
+    StreamsBlocked(_, value) =>
+      quic_check_stream_count(value) catch {
+        error => return Err(error)
+      }
+    NewToken(token) => {
+      if self.role == Server {
+        return Err(Protocol(0x0aL, "NEW_TOKEN is server-only"))
+      }
+      quic_check_new_token(token.length()) catch {
+        error => return Err(error)
       }
     }
     ResetStream(id, code, final_size) => {

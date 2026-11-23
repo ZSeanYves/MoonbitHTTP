@@ -9,10 +9,18 @@ pub fn AckRange::new(
   largest : Int64,
   smallest : Int64,
 ) -> Result[AckRange, QuicError] {
-  if smallest < 0L || largest < smallest || largest > QUIC_MAX_VARINT {
+  let range : AckRange = { largest, smallest, }
+  if !range.valid() {
     return Err(InvalidFrame("ACK range bounds are invalid"))
   }
-  Ok({ largest, smallest, })
+  Ok(range)
+}
+
+///|
+fn AckRange::valid(self : AckRange) -> Bool {
+  self.smallest >= 0L &&
+  self.smallest <= self.largest &&
+  self.largest <= QUIC_MAX_VARINT
 }
 
 ///|
@@ -40,28 +48,35 @@ pub fn AckFrame::new(
   ranges : Array[AckRange],
   ecn_counts? : (Int64, Int64, Int64)? = None,
 ) -> Result[AckFrame, QuicError] {
-  if largest_acknowledged < 0L || ack_delay < 0L || ranges.is_empty() {
-    return Err(InvalidFrame("ACK fields are invalid"))
+  let ack : AckFrame = { largest_acknowledged, ack_delay, ranges, ecn_counts, }
+  ack.validate() catch {
+    error => return Err(error)
   }
-  if largest_acknowledged > QUIC_MAX_VARINT || ack_delay > QUIC_MAX_VARINT {
-    return Err(InvalidFrame("ACK fields exceed QUIC varint range"))
+  Ok(ack)
+}
+
+///|
+fn AckFrame::validate(self : AckFrame) -> Unit raise QuicError {
+  if self.ranges.is_empty() ||
+    self.ranges[0].largest != self.largest_acknowledged {
+    raise InvalidFrame("ACK largest value must match its first range")
   }
-  if ranges[0].largest != largest_acknowledged {
-    return Err(InvalidFrame("ACK largest value does not match first range"))
-  }
-  let mut previous_smallest = largest_acknowledged + 1L
-  for range in ranges {
-    if range.largest >= previous_smallest {
-      return Err(InvalidFrame("ACK ranges overlap or are unordered"))
+  ignore(QuicVarInt::new(self.ack_delay).unwrap_or_error())
+  for i, range in self.ranges {
+    if !range.valid() {
+      raise InvalidFrame("ACK range bounds are invalid")
     }
-    previous_smallest = range.smallest
+    if i > 0 && range.largest > self.ranges[i - 1].smallest - 2L {
+      raise InvalidFrame(
+        "ACK ranges must descend with at least one missing packet",
+      )
+    }
   }
-  match ecn_counts {
-    Some((ect0, ect1, ce)) if ect0 < 0L || ect1 < 0L || ce < 0L =>
-      return Err(InvalidFrame("negative ECN count"))
-    _ => ()
+  if self.ecn_counts is Some((ect0, ect1, ce)) {
+    ignore(QuicVarInt::new(ect0).unwrap_or_error())
+    ignore(QuicVarInt::new(ect1).unwrap_or_error())
+    ignore(QuicVarInt::new(ce).unwrap_or_error())
   }
-  Ok({ largest_acknowledged, ack_delay, ranges, ecn_counts, })
 }
 
 ///|
@@ -94,10 +109,50 @@ pub fn StreamFrame::new(
   data : Bytes,
   fin : Bool,
 ) -> Result[StreamFrame, QuicError] {
-  if stream_id < 0L || offset < 0L {
-    return Err(InvalidFrame("negative stream id or offset"))
+  if QuicVarInt::new(stream_id) is Err(error) {
+    return Err(error)
+  }
+  if quic_range_end(offset, data.length()) is Err(error) {
+    return Err(error)
   }
   Ok({ stream_id, offset, data, fin, })
+}
+
+///|
+fn quic_range_end(offset : Int64, length : Int) -> Result[Int64, QuicError] {
+  if offset < 0L || length < 0 || offset > QUIC_MAX_VARINT - length.to_int64() {
+    return Err(VarIntOverflow)
+  }
+  Ok(offset + length.to_int64())
+}
+
+///|
+fn quic_check_stream_count(value : Int64) -> Unit raise QuicError {
+  if value < 0L || value > QUIC_MAX_STREAM_COUNT {
+    raise Protocol(0x07L, "stream count outside 0..2^60")
+  }
+}
+
+///|
+fn quic_check_new_token(length : Int) -> Unit raise QuicError {
+  if length == 0 {
+    raise Protocol(0x07L, "NEW_TOKEN must carry a token")
+  }
+}
+
+///|
+fn quic_valid_connection_id_announcement(
+  sequence : Int64,
+  retire_prior_to : Int64,
+  id_length : Int,
+  token_length : Int,
+) -> Bool {
+  retire_prior_to >= 0L &&
+  retire_prior_to <= sequence &&
+  sequence <= QUIC_MAX_VARINT &&
+  id_length >= 1 &&
+  id_length <= QUIC_MAX_CONNECTION_ID &&
+  token_length == 16
 }
 
 ///|

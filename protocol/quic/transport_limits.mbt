@@ -61,8 +61,8 @@ pub fn QuicTransportParams::validate(
     self.active_connection_id_limit > QUIC_MAX_VARINT {
     return Err(InvalidTransportParameter("active_connection_id_limit"))
   }
-  if self.initial_max_streams_bidi > 0x1000000000000000L ||
-    self.initial_max_streams_uni > 0x1000000000000000L {
+  if self.initial_max_streams_bidi > QUIC_MAX_STREAM_COUNT ||
+    self.initial_max_streams_uni > QUIC_MAX_STREAM_COUNT {
     return Err(InvalidTransportParameter("initial_max_streams exceeds 2^60"))
   }
   Ok(())

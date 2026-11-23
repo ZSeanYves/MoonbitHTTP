@@ -213,12 +213,12 @@ fn QuicConnectionIdManager::prepare_announcement(
   id : ConnectionId,
   reset_token : Bytes,
 ) -> Result[QuicConnectionIdUpdate, QuicError] {
-  if sequence < 0L ||
-    sequence > QUIC_MAX_VARINT ||
-    retire_prior_to < 0L ||
-    retire_prior_to > sequence ||
-    id.bytes().is_empty() ||
-    reset_token.length() != 16 {
+  if !quic_valid_connection_id_announcement(
+      sequence,
+      retire_prior_to,
+      id.bytes().length(),
+      reset_token.length(),
+    ) {
     return Err(InvalidFrame("invalid NEW_CONNECTION_ID"))
   }
   if self.ids.any(fn(value) { value.id.bytes().is_empty() }) {
