@@ -6,7 +6,7 @@
 > Last reviewed: 2026-11-23
 
 Mooncakes published the 0.7.0 alpha on 2026-10-07. The table records the release baseline. Production approval remains open until every remaining gate below is
-closed with evidence at the release revision.
+closed with evidence at the release revision. The [unreleased validation record](current.md#unreleased-protocol-suite-at-128f9fd) covers the current protocol changes and local macOS/Linux interoperability.
 
 | Gate | State | Required evidence |
 | --- | --- | --- |
