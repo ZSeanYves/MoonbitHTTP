@@ -51,7 +51,11 @@ async test "native QUIC driver: real TLS CRYPTO packets establish h3, exchange d
   let endpoint = @types.Endpoint::new("udp", "127.0.0.1", 443).unwrap()
   let server_id = @quic.ConnectionId::new(b"server-id").unwrap()
   let client_id = @quic.ConnectionId::new(b"client-id").unwrap()
-  let original_id = @quic.ConnectionId::new(b"original").unwrap()
+  let cid_bytes = FixedArray::make(16, b'\x00')
+  NativeEntropy::new().fill(cid_bytes).unwrap()
+  let original_id = @quic.ConnectionId::new(
+    cid_bytes.unsafe_reinterpret_as_bytes(),
+  ).unwrap()
   let transport_params = {
     ..@quic.QuicTransportParams::defaults(),
     max_udp_payload_size: 1400,

@@ -5,6 +5,8 @@ import {
   "ZSeanYves/MoonbitHTTP/core/body",
   "ZSeanYves/MoonbitHTTP/core/types",
   "ZSeanYves/MoonbitHTTP/protocol/http1",
+  "ZSeanYves/MoonbitHTTP/protocol/http3",
+  "ZSeanYves/MoonbitHTTP/protocol/quic",
   "ZSeanYves/MoonbitHTTP/runtime/transport",
   "moonbitlang/async/io",
   "moonbitlang/core/debug",
@@ -24,6 +26,8 @@ pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http1_with_er
 pub async fn[R : @io.Reader, W : @io.Writer, B : @body.Body] serve_http2_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig, upgraded_request? : @types.Request[@body.BodyStream]?, upgrade_settings? : Bytes?) -> Unit
 
 pub async fn[R : @io.Reader, W : @io.Writer, X] with_h2_client_connection(R, W, async (H2Client) -> X, config? : H2ClientConfig, on_state_change? : () -> Unit) -> X
+
+pub async fn[P : @transport.QuicTlsProvider, S : @transport.DatagramSocket, K : @transport.Clock, X] with_http3_connection(@quic.QuicTlsDriver[P], S, K, @transport.TlsOptions, async (H3ConnectionIo) -> X, limits? : @types.Limits, qpack_limits? : @http3.QpackLimits, handshake_timeout_ms? : Int, shutdown_timeout_ms? : Int) -> X
 
 // Errors
 pub(all) suberror ClientConnectionError {
@@ -99,6 +103,13 @@ pub(all) struct H2ClientConfig {
 }
 pub fn H2ClientConfig::defaults() -> Self
 pub fn H2ClientConfig::validate(Self) -> Result[Unit, ServiceConfigError]
+
+pub struct H3ConnectionIo {
+  session : @http3.Http3Session
+  // private fields
+}
+pub async fn H3ConnectionIo::flush(Self) -> Unit
+pub async fn H3ConnectionIo::next_events(Self) -> Array[@http3.Http3SessionAction]
 
 pub(all) struct ServerConfig {
   limits : @types.Limits

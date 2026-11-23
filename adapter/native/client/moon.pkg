@@ -1,5 +1,10 @@
 import {
   "ZSeanYves/MoonbitHTTP/application/client" @client_api,
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/protocol/http3",
+  "ZSeanYves/MoonbitHTTP/protocol/quic",
+  "ZSeanYves/MoonbitHTTP/runtime/service",
+  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @tls_native,
   "ZSeanYves/MoonbitHTTP/policy/content_coding",
   "ZSeanYves/MoonbitHTTP/runtime/transport",
   "ZSeanYves/MoonbitHTTP/adapter/native/transport" @transport_native,
@@ -7,13 +12,8 @@ import {
 
 import {
   "moonbitlang/async",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @tls_native,
+  "moonbitlang/async/socket",
 } for "test"
-
-import {
-  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @tls_native,
-} for "wbtest"
 
 supported_targets = "+native"
 

@@ -27,19 +27,20 @@ pub struct QpackDecoder {
 pub fn QpackDecoder::new(
   limits? : QpackLimits = QpackLimits::defaults(),
 ) -> Result[QpackDecoder, Http3Error] {
-  match limits.validate() {
-    Ok(_) =>
-      Ok({
-        limits,
-        entries: [],
-        table_size: 0,
-        capacity: 0,
-        total_inserts: 0L,
-        blocked: Map([]),
-        encoder_buffer: [],
-        failure: None,
-      })
-    Err(error) => Err(error)
+  limits.validate().map(_ => QpackDecoder::with_valid_limits(limits))
+}
+
+///|
+fn QpackDecoder::with_valid_limits(limits : QpackLimits) -> QpackDecoder {
+  {
+    limits,
+    entries: [],
+    table_size: 0,
+    capacity: 0,
+    total_inserts: 0L,
+    blocked: Map([]),
+    encoder_buffer: [],
+    failure: None,
   }
 }
 

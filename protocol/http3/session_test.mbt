@@ -134,6 +134,7 @@ test "http3 session: backpressure retries preserve stream identifiers, body leng
   let trailer = [qpack_test_field("x-check", "done")]
   server.session.send_headers(id, trailer).unwrap()
   server.session.finish(id).unwrap()
+  assert_true(server.session.writes_pending())
   for tick in 0..<6 {
     pump_sessions(client, server, 40L + tick.to_int64() * 20L)
   }
@@ -144,6 +145,7 @@ test "http3 session: backpressure retries preserve stream identifiers, body leng
     client.events.contains(Message(H3HeadersReceived(id, trailer, true, false))),
   )
   assert_true(client.events.contains(Message(H3MessageFinished(id))))
+  assert_false(server.session.writes_pending())
   assert_eq(
     client.session.start_request(driver_request_fields(), fin=true),
     Ok(4L),

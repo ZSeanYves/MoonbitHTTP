@@ -102,7 +102,7 @@ RFC 链接说明实现对照的协议契约，不表示所有可选扩展或部�
 HTTP/1.1 和 HTTP/2 具有最完整的应用覆盖。HTTP/2 framing 与 HPACK 对照
 [RFC 9113](https://www.rfc-editor.org/rfc/rfc9113) 和
 [RFC 7541](https://www.rfc-editor.org/rfc/rfc7541)。HTTP/3 与 QUIC 当前提供
-协议引擎和 driver action；本版本不承诺通用 HTTP/3 client/server service。
+可流式读写的连接会话和基于认证 QUIC 的原生客户端入口。服务端示例在有界的回环监听器上使用同一会话 API。
 
 Native TLS 与 QUIC 必须显式选择 provider。Wasm 和 JavaScript 不会自动获得浏览器
 网络、DNS、UDP 或 TLS。async runtime 使用协作式调度，宿主能力和应用 handler
@@ -123,7 +123,7 @@ Native TLS 套件、HTTP/3/QUIC 互操作，以及受控 Native 性能/参考运
 
 - `0.7.0` 是 alpha 架构线，包路径可能发生破坏性变化。
 - Native QUIC TLS 需要 OpenSSL 3.5 或更高版本。
-- HTTP/3 service 编排、浏览器 fetch/WebSocket adapter 和在线 OCSP 获取不在当前范围。
+- HTTP/3 多连接服务端监听器与按源连接池仍待实现。浏览器 fetch/WebSocket adapter 和在线 OCSP 获取属于后续范围。
 - 可移植目标构建通过只证明包可编译，不证明该目标已经提供可用网络实现。
 
 ## 许可证

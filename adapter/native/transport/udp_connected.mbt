@@ -101,13 +101,9 @@ pub impl @transport_api.DatagramSocket for UdpSocket with fn receive(
   if count < 0 || count > max_bytes {
     return Err(InvalidDatagramSize)
   }
-  let payload = FixedArray::make(count, b'\x00')
-  for index in 0..<count {
-    payload[index] = buffer[index]
-  }
   Ok(
     @transport_api.Datagram::new(
-      payload.unsafe_reinterpret_as_bytes(),
+      buffer.unsafe_reinterpret_as_bytes()[:count].to_owned(),
       self.endpoint,
     ),
   )

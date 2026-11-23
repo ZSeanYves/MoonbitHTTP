@@ -300,3 +300,17 @@ pub fn QuicConnection::stream_writable(
   self.streams.get(id) is Some(stream) &&
   stream.send_state is Writable
 }
+
+///|
+/// Whether stream bytes, a FIN or a RESET_STREAM still await acknowledgment.
+pub fn QuicConnection::stream_writes_pending(self : QuicConnection) -> Bool {
+  if self.retained_send_bytes != 0L {
+    return true
+  }
+  for _, stream in self.streams {
+    if stream.send_state is (FinSent(false) | ResetSent) {
+      return true
+    }
+  }
+  false
+}

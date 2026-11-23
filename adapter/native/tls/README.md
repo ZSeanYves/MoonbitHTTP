@@ -8,6 +8,8 @@ Last reviewed: 2026-11-23
 ## Purpose
 Implements TlsProvider and QuicTlsProvider with OpenSSL. It pumps TLS records or QUIC CRYPTO through injected connections and never performs DNS or socket creation.
 
+`NativeEntropy` fills caller-owned byte buffers with OpenSSL `RAND_bytes`. The native HTTP/3 client uses it for both its original destination ID and its local connection ID.
+
 ## Entry points
 Use NativeTlsProvider::new and NativeQuicTlsProvider::new with explicit trust anchors, PEM credentials, identity, and ALPN.
 

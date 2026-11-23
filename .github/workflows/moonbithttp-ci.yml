@@ -168,11 +168,11 @@ jobs:
       - name: Run socket interoperability checks
         run: moon run repo-tools/tools/interoperability.mbtx
 
-      - name: Prepare independent HTTP/3 client
+      - name: Prepare independent HTTP/3 peers
         run: moon run repo-tools/tools/prepare_http3_interop.mbtx
 
       - name: Run independent HTTP/3 and QUIC TLS loss/reorder interoperability
-        run: moon run repo-tools/tools/http3_interoperability.mbtx --impair --duration-seconds 60 --concurrent-requests 8
+        run: moon run repo-tools/tools/http3_interoperability.mbtx --reverse --impair --duration-seconds 60 --concurrent-requests 8
 
       - name: Execute native release benchmarks
         run: moon run repo-tools/tools/benchmarks.mbtx

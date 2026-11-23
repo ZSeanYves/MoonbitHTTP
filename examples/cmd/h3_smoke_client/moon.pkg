@@ -1,0 +1,13 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/MoonbitHTTP/adapter/native/client" @native_client,
+  "ZSeanYves/MoonbitHTTP/protocol/http3",
+  "ZSeanYves/MoonbitHTTP/protocol/quic",
+}
+
+supported_targets = "+native"
+
+pkgtype(kind: "executable")

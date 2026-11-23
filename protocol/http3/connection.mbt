@@ -67,20 +67,12 @@ pub fn Http3Connection::new(
       ),
     )
   }
-  let decoder = match QpackDecoder::new(limits=qpack_limits) {
-    Ok(result) => result
-    Err(error) => return Err(error)
-  }
-  let encoder = match QpackEncoder::new(limits=qpack_limits) {
-    Ok(result) => result
-    Err(error) => return Err(error)
-  }
   Ok({
     role,
     limits,
     qpack_limits,
-    decoder,
-    encoder,
+    decoder: QpackDecoder::with_valid_limits(qpack_limits),
+    encoder: QpackEncoder::with_valid_limits(qpack_limits),
     streams: Map([]),
     blocked_sections: Map([]),
     remote_control_stream: None,

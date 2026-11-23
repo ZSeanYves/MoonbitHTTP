@@ -31,6 +31,7 @@ flowchart TD
   p_policy_content_coding["policy/content_coding"]
   p_adapter_native_transport["adapter/native/transport"]
   p_examples_cmd_smoke_server["examples/cmd/smoke_server"]
+  p_examples_cmd_h3_smoke_client["examples/cmd/h3_smoke_client"]
   p_examples_cmd_h3_smoke_server["examples/cmd/h3_smoke_server"]
   p_internal_test_support_native_tls_revocation["internal/test_support/native_tls_revocation"]
   p_core_body --> p_core_types
@@ -53,15 +54,17 @@ flowchart TD
   p_runtime_transport --> p_core_types
   p_adapter_native_tls --> p_core_types
   p_application_client --> p_core_types
+  p_runtime_service --> p_protocol_quic
   p_application_client --> p_policy_auth
   p_protocol_tls --> p_runtime_transport
   p_runtime_service --> p_protocol_http1
   p_runtime_service --> p_protocol_http2
+  p_runtime_service --> p_protocol_http3
   p_adapter_native_server --> p_core_body
   p_application_client --> p_policy_cache
   p_policy_content_coding --> p_core_body
   p_protocol_quic --> p_runtime_transport
-  p_adapter_native_client -. "test" .-> p_core_types
+  p_adapter_native_client --> p_core_types
   p_adapter_native_server --> p_core_types
   p_application_client --> p_policy_cookie
   p_internal_test_support -. "test" .-> p_core_types
@@ -73,46 +76,53 @@ flowchart TD
   p_runtime_service --> p_runtime_transport
   p_adapter_native_tls -. "wbtest" .-> p_protocol_quic
   p_application_client --> p_runtime_service
+  p_adapter_native_client --> p_protocol_quic
   p_adapter_native_transport --> p_core_types
   p_examples_cmd_smoke_server --> p_core_body
   p_protocol_http2 --> p_internal_http_fields
   p_protocol_http3 --> p_internal_http_fields
   p_protocol_quic -. "test" .-> p_internal_test_support
+  p_adapter_native_client --> p_protocol_http3
   p_adapter_native_tls --> p_runtime_transport
   p_application_client --> p_runtime_transport
   p_application_server --> p_runtime_transport
   p_examples_cmd_smoke_server --> p_core_types
   p_internal_test_support -. "test" .-> p_protocol_http1
   p_runtime_service --> p_internal_http_fields
+  p_adapter_native_client --> p_runtime_service
   p_adapter_native_server --> p_runtime_service
   p_adapter_native_client --> p_runtime_transport
   p_adapter_native_server --> p_runtime_transport
+  p_examples_cmd_h3_smoke_client --> p_core_types
   p_examples_cmd_h3_smoke_server --> p_core_types
   p_internal_test_support --> p_runtime_transport
-  p_adapter_native_client -. "test" .-> p_adapter_native_tls
+  p_adapter_native_client --> p_adapter_native_tls
   p_adapter_native_client --> p_application_client
   p_adapter_native_server --> p_application_server
   p_application_client -. "test" .-> p_internal_test_support
   p_application_client --> p_policy_content_coding
   p_examples_cmd_smoke_server --> p_protocol_http2
   p_examples_cmd_smoke_server --> p_runtime_service
-  p_adapter_native_client -. "wbtest" .-> p_adapter_native_tls
   p_adapter_native_server -. "wbtest" .-> p_adapter_native_tls
   p_adapter_native_server -. "wbtest" .-> p_application_server
   p_adapter_native_tls -. "wbtest" .-> p_internal_test_support
   p_adapter_native_transport --> p_runtime_transport
+  p_examples_cmd_h3_smoke_client --> p_protocol_quic
   p_examples_cmd_h3_smoke_server --> p_protocol_quic
   p_adapter_native_client --> p_policy_content_coding
+  p_examples_cmd_h3_smoke_client --> p_protocol_http3
   p_examples_cmd_h3_smoke_server --> p_protocol_http3
   p_examples_cmd_smoke_server --> p_runtime_transport
   p_adapter_native_transport -. "wbtest" .-> p_runtime_transport
   p_examples_cmd_smoke_server --> p_adapter_native_tls
   p_examples_cmd_smoke_server --> p_application_server
   p_adapter_native_client --> p_adapter_native_transport
+  p_examples_cmd_h3_smoke_client --> p_runtime_transport
   p_examples_cmd_h3_smoke_server --> p_runtime_transport
   p_examples_cmd_h3_smoke_server --> p_adapter_native_tls
   p_examples_cmd_smoke_server --> p_adapter_native_server
   p_adapter_native_server -. "wbtest" .-> p_adapter_native_transport
+  p_examples_cmd_h3_smoke_client --> p_adapter_native_client
   p_examples_cmd_h3_smoke_server --> p_adapter_native_transport
   p_adapter_native_tls -. "wbtest" .-> p_internal_test_support_native_tls_revocation
 ```

@@ -13,6 +13,8 @@ import {
   "ZSeanYves/MoonbitHTTP/core/body",
   "ZSeanYves/MoonbitHTTP/protocol/http1",
   "ZSeanYves/MoonbitHTTP/protocol/http2",
+  "ZSeanYves/MoonbitHTTP/protocol/http3",
+  "ZSeanYves/MoonbitHTTP/protocol/quic",
   "ZSeanYves/MoonbitHTTP/runtime/detection" @auto,
   "moonbitlang/x/codec/base64",
 }

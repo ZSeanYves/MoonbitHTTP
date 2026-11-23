@@ -359,3 +359,36 @@ pub fn Http3Session::advance(
   }
   out
 }
+
+///|
+/// Terminate this session and reject further application writes. When keys are
+/// available the owner sends the returned application CONNECTION_CLOSE.
+pub fn Http3Session::close(
+  self : Http3Session,
+  now_ms : Int64,
+) -> Result[@quic.QuicDriverAction?, @quic.QuicError] {
+  if self.ended {
+    return Ok(None)
+  }
+  self.ended = true
+  if self.quic.state() != Established {
+    return Ok(None)
+  }
+  self.quic
+  .send_frames(
+    Application,
+    [ConnectionClose(true, H3NoError.wire_value(), 0L, b"")],
+    now_ms,
+  )
+  .map(packet => Some(packet))
+}
+
+///|
+/// Include queued frames and writes handed to QUIC but still unacknowledged.
+pub fn Http3Session::writes_pending(self : Http3Session) -> Bool {
+  self.writes.count != 0 ||
+  self.control.count != 0 ||
+  !self.stops.is_empty() ||
+  !self.resets.is_empty() ||
+  self.quic.connection().stream_writes_pending()
+}

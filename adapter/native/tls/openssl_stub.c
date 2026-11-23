@@ -278,6 +278,14 @@ MOONBIT_FFI_EXPORT void *moon_http_tls_symbol(const char *name) {
   return find_symbol(tls_library, crypto_library, name);
 }
 
+MOONBIT_FFI_EXPORT int moon_http_random_fill(uint8_t *buffer) {
+  int length = Moonbit_array_length(buffer);
+  if (length == 0) return 1;
+  typedef int (*RandomBytes)(unsigned char *, int);
+  RandomBytes generate = (RandomBytes)moon_http_tls_symbol("RAND_bytes");
+  return generate != NULL && generate(buffer, length) == 1;
+}
+
 static void capture_error(HttpTls *self, const char *fallback) {
   self->error_code = p_ERR_get_error();
   self->verify_code = self->ssl ? p_SSL_get_verify_result(self->ssl) : 0;

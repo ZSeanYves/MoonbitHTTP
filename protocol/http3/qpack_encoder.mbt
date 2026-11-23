@@ -42,21 +42,22 @@ pub struct QpackEncoder {
 pub fn QpackEncoder::new(
   limits? : QpackLimits = QpackLimits::defaults(),
 ) -> Result[QpackEncoder, Http3Error] {
-  match limits.validate() {
-    Ok(_) =>
-      Ok({
-        limits,
-        entries: [],
-        table_size: 0,
-        capacity: 0,
-        total_inserts: 0L,
-        known_received_count: 0L,
-        pending: Map([]),
-        pending_bytes: 0,
-        decoder_buffer: [],
-        failure: None,
-      })
-    Err(error) => Err(error)
+  limits.validate().map(_ => QpackEncoder::with_valid_limits(limits))
+}
+
+///|
+fn QpackEncoder::with_valid_limits(limits : QpackLimits) -> QpackEncoder {
+  {
+    limits,
+    entries: [],
+    table_size: 0,
+    capacity: 0,
+    total_inserts: 0L,
+    known_received_count: 0L,
+    pending: Map([]),
+    pending_bytes: 0,
+    decoder_buffer: [],
+    failure: None,
   }
 }
 

@@ -64,7 +64,7 @@ that loopback experiment as WAN behavior or production capacity.
 
 ```text
 moon run repo-tools/tools/http3_interoperability.mbtx \
-  --impair --concurrent-requests 8 --duration-seconds 300
+  --reverse --impair --concurrent-requests 8 --duration-seconds 300
 ```
 
 The independent client revision and dependency version are part of the
@@ -80,3 +80,5 @@ Do not turn a missing executable, unavailable OpenSSL callback API or skipped
 client into a successful result. Link completed runs from
 [current evidence](../release/current.md), and track unresolved scope in
 [release gates](../release/gates.md).
+
+With `--reverse`, the runner also starts the pinned aioquic server and its unmodified ASGI application on 127.0.0.1:18444. The native MoonBit client verifies a concurrent 4 KiB POST echo and 128 KiB download on one authenticated connection, then checks that OpenSSL rejects a mismatched hostname before the application callback runs. The reverse leg uses direct loopback. Its result includes the client binary and independent server/application hashes.

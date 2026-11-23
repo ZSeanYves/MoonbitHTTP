@@ -8,6 +8,8 @@ in local or CI workspaces and are not part of this file.
 
 ## Unreleased
 
+- Add a scoped HTTP/3 client over native UDP and OpenSSL, and a portable single-peer I/O loop that drives TLS, HTTP/3 events and QUIC recovery. The interoperability runner now exercises the MoonBit client against the upstream aioquic server with `--reverse`.
+
 - Stream incoming HTTP/3 DATA in bounded chunks, accept legal wider frame varints on fragmented input, and share frame header parsing across decoder entry points. The incremental decoder now keeps its backing storage private. Its `feed`, `next` and `finish` methods retain their signatures.
 - Add a transport-driven HTTP/3 client/server session with streaming messages, bounded write queues, cancellation and per-request QPACK replay isolation. The native interoperability server now uses this public API.
 

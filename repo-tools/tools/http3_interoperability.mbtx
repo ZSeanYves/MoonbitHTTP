@@ -589,6 +589,61 @@ async fn request_case(
 }
 
 ///|
+async fn reverse_client_case(directory : String, python : String, source : String) -> Json {
+  let script = source + "/examples/http3_server.py"
+  let app = source + "/examples/demo.py"
+  let binary = "_build/native/debug/build/examples/cmd/h3_smoke_client/h3_smoke_client.exe"
+  async fn hash(path : String) -> String {
+    @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file(path).binary()))
+  }
+  let server_hash = hash(script)
+  let app_hash = hash(app)
+  if server_hash != "504e85ad00ea5e093ebe4a05b415077456dfad39186864e37229fd4ae7a6a9e8" ||
+      app_hash != "8e80272bbc8e52cd709fe6bde9daf03dc85963faddbbded11f440488c1914928" {
+    fail("independent server or ASGI application differs from pinned upstream")
+  }
+  if @process.run("moon", ["build", "examples/cmd/h3_smoke_client", "--target", "native", "--deny-warn", "--warn-list", "+73"]) != 0 {
+    fail("HTTP/3 client build failed")
+  }
+  let reservation = @socket.UdpServer(@socket.Addr::parse("127.0.0.1:18444"))
+  reservation.close()
+  @async.with_task_group(async fn(group) {
+    let fixture = "adapter/native/tls/testdata/localhost"
+    let server_args = [
+      "-X", "dev", script, "--host", "127.0.0.1", "--port", "18444",
+      "--certificate", fixture + ".cert.pem", "--private-key", fixture + ".key.pem",
+      "--verbose",
+    ]
+    let peer = @process.spawn(group, python, server_args,
+      stdout=@process.redirect_to_file(directory + "/reverse-server.stdout", create_mode=CreateNew),
+      stderr=@process.redirect_to_file(directory + "/reverse-server.stderr", create_mode=CreateNew),
+      cancel_handler=@process.graceful_cancel(timeout=1000), no_wait=true)
+    defer peer.cancel()
+    let deadline = @env.now() + 15000UL
+    while !@fs.read_file(directory + "/reverse-server.stderr").text().contains("Datagram endpoint local_addr=") {
+      if peer.try_wait() is Some(_) { fail("independent HTTP/3 server exited before binding") }
+      if @env.now() >= deadline { fail("independent HTTP/3 server did not confirm its UDP bind") }
+      @async.sleep(25)
+    }
+    let log = record(directory, "reverse-client", "./" + binary, [])
+    if !log.contains("PASS HTTP/3 client:") { fail("client did not verify the reverse exchange") }
+    let server_log = @fs.read_file(directory + "/reverse-server.stderr").text()
+    if !server_log.contains("HTTP request GET /131072") || !server_log.contains("HTTP request POST /echo") || !server_log.contains("Connection close received (code 0x100") {
+      fail("independent peer did not confirm both requests and HTTP/3 shutdown")
+    }
+  })
+  {
+    "status": "passed",
+    "client_sha256": hash(binary),
+    "server_source_sha256": server_hash,
+    "asgi_source_sha256": app_hash,
+    "echo_bytes": 4096,
+    "download_bytes": 131072,
+    "hostname_mismatch_rejected": true,
+  }
+}
+
+///|
 async fn main {
   let args = @env.args()
   let mut python = "_build/interop-aioquic/venv/bin/python"
@@ -599,9 +654,11 @@ async fn main {
   let mut concurrent_requests = 0
   let mut duration_seconds = 0
   let mut impair = false
+  let mut reverse = false
   let mut index = 1
   while index < args.length() {
     match args[index] {
+      "--reverse" => { reverse = true; index += 1; continue }
       "--impair" => {
         impair = true
         index += 1
@@ -624,7 +681,7 @@ async fn main {
       "--duration-seconds" => duration_seconds = decimal(args[index + 1])
       _ =>
         fail(
-          "usage: http3_interoperability.mbtx [--python PATH] [--client PATH] [--server PATH] [--long-requests N] [--duration-seconds N] [--concurrent-requests N] [--impair]",
+          "usage: http3_interoperability.mbtx [--python PATH] [--client PATH] [--server PATH] [--long-requests N] [--duration-seconds N] [--concurrent-requests N] [--impair] [--reverse]",
         )
     }
     index += 2
@@ -686,6 +743,7 @@ async fn main {
     "7eab21d50460f0b4f55a18f110bd5d1901e336fef8f4ca5597d8794f1d2381bc" {
     fail("upstream aioquic HTTP/3 client source was modified")
   }
+  let reverse_result : Json = if reverse { reverse_client_case(directory, python, source) } else { Json::null() }
   let reservation = @socket.UdpServer(@socket.Addr::parse("127.0.0.1:18443"))
   reservation.close()
   @async.with_task_group(async fn(group) {
@@ -859,6 +917,7 @@ async fn main {
       },
       "upstream_commit": upstream.trim().to_owned(),
       "client_source_sha256": source_hash,
+      "moonbit_client_aioquic_server": reverse_result,
       "cases": ["http3-get", "http3-post", "http3-key-update", "http3-rolling-streams", "http3-wrong-ca"],
       "long_requests_requested": long_requests,
       "long_requests_completed": long_completed,

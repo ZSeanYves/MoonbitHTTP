@@ -319,7 +319,7 @@ pub fn decode_http3_frame(
   if length > max_payload_bytes {
     return Err(Http3LimitExceeded("frame payload", max_payload_bytes))
   }
-  if header_length > input.length() || length > input.length() - header_length {
+  if length > input.length() - header_length {
     return Err(Http3NeedMoreInput)
   }
   let payload = input[header_length:header_length + length].to_owned()

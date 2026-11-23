@@ -27,5 +27,5 @@ async fn main {
     run("python3", ["-m", "venv", directory + "/venv"])
   }
   run(directory + "/venv/bin/python", ["-m", "pip", "install", "-r", "repo-tools/tools/http3-requirements.txt"])
-  println("Independent aioquic client ready; no upstream Python source was changed")
+  println("Independent aioquic client and server examples ready")
 }

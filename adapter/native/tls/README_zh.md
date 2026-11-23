@@ -8,6 +8,8 @@ Last reviewed: 2026-11-23
 ## 用途
 使用 OpenSSL 实现 TlsProvider 与 QuicTlsProvider，通过注入 connection 传递 TLS record/QUIC CRYPTO，不做 DNS 或 socket。
 
+`NativeEntropy` 用 OpenSSL `RAND_bytes` 填充调用方的字节缓冲区。原生 HTTP/3 客户端用它生成初始目的连接 ID 和本地连接 ID。
+
 ## 入口
 入口是 NativeTlsProvider::new、NativeQuicTlsProvider::new，显式传入 CA、PEM 凭据、identity 和 ALPN。
 

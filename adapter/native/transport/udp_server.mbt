@@ -103,7 +103,7 @@ pub impl @transport_api.DatagramSocket for UdpServerSocket with fn receive(
   }
   Ok(
     @transport_api.Datagram::new(
-      Bytes::from_array(buffer[:count].to_owned()),
+      buffer.unsafe_reinterpret_as_bytes()[:count].to_owned(),
       endpoint,
     ),
   )
