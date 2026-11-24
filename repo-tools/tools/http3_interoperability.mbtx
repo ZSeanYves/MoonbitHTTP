@@ -566,9 +566,9 @@ async fn request_case(
         client,
         "--ca-certs",
         if expected_body is Some(_) {
-          "adapter/native/tls/testdata/localhost.cert.pem"
+          "tests/fixtures/tls/localhost.cert.pem"
         } else {
-          "adapter/native/tls/testdata/other.cert.pem"
+          "tests/fixtures/tls/other.cert.pem"
         },
         "--verbose",
         "--output-dir",
@@ -660,7 +660,7 @@ async fn reverse_client_case(directory : String, python : String, source : Strin
   let reservation = @socket.UdpServer(@socket.Addr::parse("127.0.0.1:18444"))
   reservation.close()
   @async.with_task_group(async fn(group) {
-    let fixture = "adapter/native/tls/testdata/localhost"
+    let fixture = "tests/fixtures/tls/localhost"
     let traces = directory + "/reverse-server-qlog"
     @fs.mkdir(traces)
     let server_args = [
@@ -733,7 +733,7 @@ async fn check_peer_restart(reference : String) -> Unit {
   let client = build_smoke_client()
   let secret = private_dir + "/restart-key"
   ignore(record(directory, "generate-key", "openssl", ["rand", "-out", secret, "32"]))
-  let fixture = "adapter/native/tls/testdata/localhost"
+  let fixture = "tests/fixtures/tls/localhost"
   let server_args = [fixture + ".cert.pem", fixture + ".key.pem", secret]
   let peer_version = "github.com/quic-go/quic-go v0.55.0 h1:zccPQIqYCXDt5NmcEabyYvOnomjs8Tlwl7tISjJh9Mk="
   async fn wait_for(child : @process.Process, log : String, line : String, probe : @process.Process?) -> Unit {

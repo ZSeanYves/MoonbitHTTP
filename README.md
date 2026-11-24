@@ -134,6 +134,8 @@ handlers must yield and keep cancellation cleanup bounded.
 
 ## Validation status
 
+In a source checkout, run `moon run tests/run.mbtx -- blackbox native` for public API tests. Use `whitebox` for private unit tests, `integration` for component and socket tests, and `verify` to check that every case belongs to exactly one suite. The test directory includes a [guide to the suites](https://github.com/ZSeanYves/MoonbitHTTP/blob/main/tests/README.md).
+
 The repository runs strict Native, Wasm, Wasm-GC, and JavaScript checks, tests,
 architecture validation, Native TLS suites, HTTP/3/QUIC interoperability, and
 controlled Native performance/reference runs in CI. These are bounded

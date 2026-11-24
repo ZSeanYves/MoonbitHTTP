@@ -20,8 +20,8 @@ async fn require_test(target : String, package_path : String, name : String) -> 
 ///|
 async fn main {
   for target in ["native", "wasm", "js"] {
-    require_test(target, "runtime/service", "HTTP/1 final response interrupts a pending upload")
-    require_test(target, "runtime/service", "H2 admission resumes on SETTINGS, resets an abandoned request and wakes on GOAWAY")
+    require_test(target, "tests/integration/http_service", "HTTP/1 final response interrupts a pending upload")
+    require_test(target, "tests/integration/http_service", "H2 admission resumes on SETTINGS, resets an abandoned request and wakes on GOAWAY")
   }
-  require_test("wasm-gc", "protocol/quic", "QUIC driver honors the negotiated idle timeout")
+  require_test("wasm-gc", "tests/blackbox/quic_api", "QUIC driver honors the negotiated idle timeout")
 }

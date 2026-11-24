@@ -8,3 +8,8 @@ coverage-*.xml
 *.coverage
 *.profraw
 *.zip
+
+# Test executables have no published interface.
+/tests/blackbox/**/pkg.generated.mbti
+/tests/integration/**/pkg.generated.mbti
+/tests/benchmarks/pkg.generated.mbti

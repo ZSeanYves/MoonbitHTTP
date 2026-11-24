@@ -1,0 +1,8 @@
+import {
+  "moonbitlang/core/async",
+  "ZSeanYves/MoonbitHTTP/adapter/callback",
+} for "test"
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/async" ],
+)

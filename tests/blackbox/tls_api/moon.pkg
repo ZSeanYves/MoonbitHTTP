@@ -1,0 +1,4 @@
+import {
+  "ZSeanYves/MoonbitHTTP/protocol/tls",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+} for "test"

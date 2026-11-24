@@ -1,0 +1,27 @@
+import {
+  "hustcer/fbr",
+  "moonbit-community/flate/gzip",
+  "moonbit-community/flate/zlib",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/aqueue",
+  "moonbitlang/core/encoding/utf8",
+  "ZSeanYves/MoonbitHTTP/application/client",
+  "ZSeanYves/MoonbitHTTP/core/body",
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/tests/support" @test_support,
+  "ZSeanYves/MoonbitHTTP/policy/auth",
+  "ZSeanYves/MoonbitHTTP/policy/cache",
+  "ZSeanYves/MoonbitHTTP/policy/content_coding",
+  "ZSeanYves/MoonbitHTTP/protocol/http2",
+  "ZSeanYves/MoonbitHTTP/runtime/service",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+} for "test"
+
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/aqueue",
+  ],
+)
+
+supported_targets = "js+native+wasm+wasm-gc"

@@ -16,6 +16,6 @@
 /*.profraw
 /*.zip
 
-# Test-only certificates, keys and revocation fixtures never belong in the
-# published module. Native TLS fixture tests run from the source checkout.
-/adapter/native/tls/testdata/
+# Repository test suites, fixtures, benchmarks and private tests.
+/tests/
+**/*_wbtest.mbt

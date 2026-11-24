@@ -25,8 +25,8 @@ async fn compare_window(directory : String, go_binary : String, moon_server : St
   let address = reservation.addr
   reservation.close()
   let port = address.port().to_string()
-  let cert = "adapter/native/tls/testdata/localhost.cert.pem"
-  let key = "adapter/native/tls/testdata/localhost.key.pem"
+  let cert = "tests/fixtures/tls/localhost.cert.pem"
+  let key = "tests/fixtures/tls/localhost.key.pem"
   let (executable, args) = if arm == "Go" {
     (go_binary, ["--mode", "server", "--protocol", protocol, "--listen", address.to_string(), "--cert", cert, "--key", key])
   } else if protocol == "h1" {

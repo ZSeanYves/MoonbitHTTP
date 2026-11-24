@@ -47,7 +47,7 @@ async fn main {
     }
     return
   }
-  let cert = @fs.read_binary("adapter/native/tls/testdata/localhost.cert.pem")
+  let cert = @fs.read_binary("tests/fixtures/tls/localhost.cert.pem")
   let options = {
     ..@transport.TlsOptions::for_quic("localhost"),
     trust_anchors: Some(cert),

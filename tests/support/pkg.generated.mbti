@@ -1,0 +1,97 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/tests/support"
+
+import {
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "moonbitlang/core/async/aqueue",
+  "moonbitlang/core/async/io",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn fragment(BytesView, Array[Int32]) -> Array[Bytes]
+
+// Errors
+#derive(Eq, @debug.Debug)
+pub(all) suberror InjectedIoError {
+  InjectedReadFailure
+  InjectedWriteFailure
+}
+pub fn InjectedIoError::equal(Self, Self) -> Bool
+pub fn InjectedIoError::not_equal(Self, Self) -> Bool
+pub fn InjectedIoError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub struct FaultReader {
+  reader_controller : @io.BinaryReaderController
+  chunks : Array[Bytes]
+  mut chunk_index : Int32
+  mut chunk_offset : Int32
+  mut reads : Int32
+  fail_after : Int32?
+}
+pub async fn FaultReader::drop_all(Self) -> Int64 raise @io.ReaderError
+pub async fn FaultReader::drop_exactly(Self, Int32) -> Unit raise @io.ReaderError
+pub fn FaultReader::new(Array[Bytes], fail_after? : Int32?) -> Self
+pub async fn FaultReader::peek(Self) -> BytesView? raise @io.ReaderError
+pub async fn FaultReader::peek_at_least(Self, Int32) -> BytesView raise @io.ReaderError
+pub async fn FaultReader::peek_exactly(Self, Int32) -> BytesView raise @io.ReaderError
+pub async fn FaultReader::peek_until(Self, BytesView, include_delimiter? : Bool) -> BytesView? raise @io.ReaderError
+pub async fn FaultReader::read(Self) -> Bytes? raise @io.ReaderError
+pub async fn FaultReader::read_all(Self) -> Bytes raise @io.ReaderError
+pub async fn FaultReader::read_at_least(Self, Int32) -> Bytes raise @io.ReaderError
+pub async fn FaultReader::read_exactly(Self, Int32) -> Bytes raise @io.ReaderError
+pub async fn FaultReader::read_into(Self, MutArrayView[Byte]) -> Int32 raise @io.ReaderError
+pub async fn FaultReader::read_until(Self, BytesView, include_delimiter? : Bool) -> Bytes? raise @io.ReaderError
+pub impl @io.BinaryReader for FaultReader
+
+#derive(Eq, @debug.Debug)
+pub(all) struct FixedClock {
+  mut monotonic : Int64
+  mut wall_seconds : Int64
+}
+pub fn FixedClock::advance(Self, Int64) -> Result[Unit, String]
+pub fn FixedClock::equal(Self, Self) -> Bool
+pub fn FixedClock::monotonic_millis(Self) -> Int64
+pub fn FixedClock::new(Int64, Int64) -> Self
+pub fn FixedClock::not_equal(Self, Self) -> Bool
+pub fn FixedClock::to_repr(Self) -> @debug.Repr
+pub fn FixedClock::wall_clock_seconds(Self) -> Int64
+pub impl @transport.Clock for FixedClock
+
+pub struct MemoryDatagramSocket {
+  inbound : @aqueue.Queue[@transport.Datagram]
+  sent : Array[@transport.Datagram]
+  max_datagram_size : Int32
+  mut closed : Bool
+}
+pub fn MemoryDatagramSocket::close(Self) -> Unit
+pub fn MemoryDatagramSocket::inject(Self, @transport.Datagram) -> Result[Unit, @transport.TransportError]
+pub fn MemoryDatagramSocket::new(max_datagram_size? : Int32) -> Result[Self, @transport.TransportError]
+pub async fn MemoryDatagramSocket::receive(Self, Int32) -> Result[@transport.Datagram, @transport.TransportError]
+pub async fn MemoryDatagramSocket::send(Self, @types.Endpoint, Bytes) -> Result[Unit, @transport.TransportError]
+pub fn MemoryDatagramSocket::sent(Self) -> Array[@transport.Datagram]
+pub impl @transport.DatagramSocket for MemoryDatagramSocket
+
+pub struct RecordingWriter {
+  writer_controller : @io.BinaryWriterController
+  bytes : Array[Byte]
+  mut writes : Int32
+  fail_after : Int32?
+}
+pub fn RecordingWriter::contents(Self) -> Bytes
+pub async fn RecordingWriter::flush_partial_data(Self) -> Unit
+pub fn RecordingWriter::new(fail_after? : Int32?) -> Self
+pub async fn RecordingWriter::write(Self, BytesView) -> Unit raise @io.WriterError
+pub async fn RecordingWriter::write_reader(Self, &@io.BinaryReader) -> Unit
+pub impl @io.BinaryWriter for RecordingWriter
+
+pub struct ZeroEntropy(Unit)
+pub fn ZeroEntropy::fill(Self, FixedArray[Byte]) -> Result[Unit, @transport.EntropyError]
+pub fn ZeroEntropy::new() -> Self
+pub impl @transport.Entropy for ZeroEntropy
+
+// Type aliases
+
+// Traits

@@ -1,0 +1,20 @@
+import {
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/socket",
+  "moonbitlang/core/encoding/utf8",
+  "ZSeanYves/MoonbitHTTP/adapter/native/client",
+  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @tls_native,
+  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @transport_native,
+  "ZSeanYves/MoonbitHTTP/application/client" @client_api,
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+} for "test"
+
+supported_targets = "+native"
+
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/socket",
+  ],
+)

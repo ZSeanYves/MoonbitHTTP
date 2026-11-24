@@ -1,8 +1,4 @@
 import {
-  "moonbitlang/core/async",
-} for "test"
-
-import {
   "moonbitlang/core/debug",
   "moonbitlang/core/encoding/utf8",
   "moonbit-community/flate",

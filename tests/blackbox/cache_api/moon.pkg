@@ -1,0 +1,4 @@
+import {
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/policy/cache",
+} for "test"

@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   native-tls-platform:
-    name: native TLS (${{ matrix.os }})
+    name: Native regression (${{ matrix.os }})
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -103,21 +103,19 @@ jobs:
             throw "OpenSSL 3.5 or newer is required; found $version"
           }
 
-      - name: Run Native QUIC suite
-        run: moon test protocol/quic --target native --no-parallelize --deny-warn --warn-list +73
+      - name: Run public API tests on Native
+        run: moon run tests/run.mbtx -- blackbox native
 
-      - name: Run Native packet protection vectors and resolver suite
-        run: moon test protocol/tls adapter/native/transport --target native --no-parallelize --deny-warn --warn-list +73
+      - name: Run private unit tests on Native
+        run: moon run tests/run.mbtx -- whitebox native
 
-      - name: Run Native TLS suite
-        run: moon test adapter/native/tls --target native --no-parallelize --deny-warn --warn-list +73
+      - name: Run integration tests on Native
+        timeout-minutes: 10
+        run: moon run tests/run.mbtx -- integration native
 
-      - name: Run Native client suite
-        run: moon test adapter/native/client --target native --no-parallelize --deny-warn --warn-list +73
-
-      - name: Run Native listener suite
-        timeout-minutes: 5
-        run: moon test adapter/native/server --target native --no-parallelize --deny-warn --warn-list +73
+      - name: Run Native TLS tests with AddressSanitizer
+        if: runner.os == 'macOS'
+        run: moon run repo-tools/scripts/validate_native_tls_asan.mbtx
 
   build-and-test:
     runs-on: ubuntu-latest
@@ -173,8 +171,21 @@ jobs:
           moon info --target all
           git diff --exit-code -- ':(glob)**/pkg.generated.mbti'
 
-      - name: Run tests
-        run: moon test --target all --no-parallelize --deny-warn --warn-list +73
+      - name: Verify every test belongs to exactly one suite
+        run: |
+          for target in native wasm wasm-gc js; do moon run tests/run.mbtx -- verify "$target"; done
+
+      - name: Run public API tests on portable backends
+        run: |
+          for target in wasm wasm-gc js; do moon run tests/run.mbtx -- blackbox "$target"; done
+
+      - name: Run private unit tests on portable backends
+        run: |
+          for target in wasm wasm-gc js; do moon run tests/run.mbtx -- whitebox "$target"; done
+
+      - name: Run integration tests on portable backends
+        run: |
+          for target in wasm wasm-gc js; do moon run tests/run.mbtx -- integration "$target"; done
 
       - name: Verify executed async tests on Native, Wasm and JS and synchronous QUIC on Wasm-GC
         run: moon run repo-tools/tools/check_runtime_tests.mbtx

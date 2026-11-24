@@ -1,0 +1,5 @@
+import {
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/protocol/http3",
+  "ZSeanYves/MoonbitHTTP/protocol/quic",
+} for "test"

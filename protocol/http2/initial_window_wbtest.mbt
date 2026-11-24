@@ -39,32 +39,6 @@ test "http2 local SETTINGS decrease takes effect only after ACK and restores con
 }
 
 ///|
-test "http2 acknowledged zero window still permits empty END_STREAM" {
-  let connection = H2Connection::new(Server)
-  connection.set_local_initial_window(0).unwrap()
-  connection
-  .receive(window_test_frame(H2_FRAME_SETTINGS, H2_FLAGS_ACK, 0, []))
-  .unwrap()
-  |> ignore
-  connection
-  .receive(window_test_frame(H2_FRAME_HEADERS, H2_FLAGS_END_HEADERS, 1, []))
-  .unwrap()
-  |> ignore
-  connection
-  .receive(window_test_frame(H2_FRAME_DATA, H2_FLAGS_END_STREAM, 1, []))
-  .unwrap()
-  |> ignore
-  connection
-  .receive(window_test_frame(H2_FRAME_HEADERS, H2_FLAGS_END_HEADERS, 3, []))
-  .unwrap()
-  |> ignore
-  assert_true(
-    connection.receive(window_test_frame(H2_FRAME_DATA, 0, 3, [b'x']))
-    is Err(StreamError(3, FlowControlError, _)),
-  )
-}
-
-///|
 test "http2 local SETTINGS acknowledgements preserve advertised order" {
   let connection = H2Connection::new(Server)
   connection.set_local_initial_window(9).unwrap()

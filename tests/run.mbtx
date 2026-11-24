@@ -1,0 +1,84 @@
+----
+import {
+  "moonbitlang/async@0.22.10",
+  "moonbitlang/async@0.22.10/process",
+  "moonbitlang/core/env",
+}
+----
+
+///|
+async fn inventory(paths : Array[String], target : String) -> Array[String] {
+  let (code, output, errors) = @process.collect_output("moon", [
+    "test", ..paths, "--target", target, "--outline",
+  ])
+  guard code == 0 else { fail(errors.text()) }
+  let rows : Array[String] = []
+  for line in output.text().split("\n") {
+    if line.trim().is_empty() { continue }
+    guard line.split_once(". ") is Some((_, row)) && row.contains(" index=") else {
+      fail("unrecognized moon test outline: " + line.to_owned())
+    }
+    rows.push(row.to_owned())
+  }
+  rows
+}
+
+///|
+fn classify(row : String) -> (String, String) raise {
+  guard row.split_once(" ") is Some((pkg, rest)) &&
+    pkg.strip_prefix("ZSeanYves/MoonbitHTTP/") is Some(owner) &&
+    rest.split_once(":") is Some((file, _)) else {
+    fail("unrecognized package or filename in test outline: " + row)
+  }
+  let dir = owner.to_owned()
+  let path = dir + "/" + file.to_owned()
+  if !dir.has_prefix("tests/") && file.has_suffix("_wbtest.mbt") {
+    let suite = if file.has_suffix("_integration_wbtest.mbt") { "integration" } else { "whitebox" }
+    return (suite, path)
+  }
+  if file.has_suffix("_test.mbt") {
+    if dir.has_prefix("tests/blackbox/") { return ("blackbox", dir) }
+    if dir.has_prefix("tests/integration/") { return ("integration", dir) }
+  }
+  fail("test outside its suite: " + path)
+}
+
+///|
+async fn main {
+  let args = @env.args()
+  guard args.length() == 3 || (args.length() == 4 && args[1] != "verify" && args[3] == "--outline") else {
+    fail("usage: moon run tests/run.mbtx -- <blackbox|whitebox|integration|verify> <native|wasm|wasm-gc|js> [--outline]")
+  }
+  let suite = args[1]
+  let target = args[2]
+  let groups = ["blackbox", "whitebox", "integration"]
+  guard ["native", "wasm", "wasm-gc", "js"].contains(target) else { fail("unknown target: " + target) }
+  let selections : Map[String, Set[String]] = Map([])
+  for group in groups { selections[group] = Set([]) }
+  let expected = inventory([], target)
+  for row in expected {
+    let (group, path) = classify(row)
+    selections[group].add(path)
+  }
+  if suite == "verify" {
+    let combined : Array[String] = []
+    for group in groups {
+      let paths = selections[group].iter().to_array()
+      guard !paths.is_empty() else { fail("empty \{group} suite on \{target}") }
+      combined.append(inventory(paths, target))
+    }
+    combined.sort()
+    expected.sort()
+    guard combined == expected else { fail("suite membership differs from moon test --target \{target} --outline") }
+    println("\{target}: all \{expected.length()} discovered test cases belong to exactly one suite")
+    return
+  }
+  guard groups.contains(suite) else { fail("unknown suite: " + suite) }
+  let paths = selections[suite].iter().to_array()
+  paths.sort()
+  guard !paths.is_empty() else { fail("no \{suite} tests for \{target}") }
+  let command = ["test", ..paths, "--target", target, "--no-parallelize", "--deny-warn", "--warn-list", "+73"]
+  if args.length() == 4 { command.push("--outline") }
+  let code = @process.run("moon", command)
+  guard code == 0 else { fail("\{suite} tests failed on \{target}: exit \{code}") }
+}

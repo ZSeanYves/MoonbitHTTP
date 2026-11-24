@@ -11,10 +11,6 @@ import {
   "ZSeanYves/MoonbitHTTP/internal/packet_crypto",
 }
 
-import {
-  "ZSeanYves/MoonbitHTTP/internal/test_support",
-} for "test"
-
 options(
   "is-main": false,
 )

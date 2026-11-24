@@ -1,0 +1,12 @@
+import {
+  "moonbitlang/core/async",
+  "ZSeanYves/MoonbitHTTP/adapter/native/server",
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+} for "test"
+
+supported_targets = "+native"
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/async" ],
+)

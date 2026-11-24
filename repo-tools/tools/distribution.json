@@ -14,13 +14,13 @@
     "application/**",
     "policy/**",
     "adapter/**",
-    "internal/test_support/**",
     "internal/http_fields/**",
     "internal/async_support/**",
     "internal/packet_crypto/**"
   ],
   "exclude": [
-    "adapter/native/tls/testdata/**"
+    "tests/**",
+    "**/*_wbtest.mbt"
   ],
   "required": [
     "moon.mod",
@@ -33,9 +33,6 @@
     "protocol/http2/moon.pkg",
     "protocol/http3/moon.pkg",
     "protocol/quic/moon.pkg",
-    "protocol/tls/moon.pkg",
-    "internal/test_support/native_tls_revocation/moon.pkg",
-    "internal/test_support/native_tls_revocation/revocation.mbt",
-    "internal/test_support/native_tls_revocation/revocation_test_stub.c"
+    "protocol/tls/moon.pkg"
   ]
 }

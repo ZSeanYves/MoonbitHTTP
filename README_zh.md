@@ -119,6 +119,8 @@ Native `with_http3_pool` 按 HTTPS 源共享握手和连接，`max_connections` 
 
 ## 验证状态
 
+在源码仓库执行 `moon run tests/run.mbtx -- blackbox native` 可运行公开 API 单元测试。将 `blackbox` 换成 `whitebox` 可运行包内白盒单测，换成 `integration` 可运行组件和网络联调，换成 `verify` 可核对每个用例恰好属于一组。目录和互操作命令见[测试指南](https://github.com/ZSeanYves/MoonbitHTTP/blob/main/tests/README.md)。
+
 仓库在 CI 中执行 Native、Wasm、Wasm-GC 和 JavaScript 严格检查与测试、架构检查、
 Native TLS 套件、HTTP/3/QUIC 互操作，以及受控 Native 性能/参考运行。这些是有界的
 开发和 loopback 验证，不单独证明公网容量、长时间可靠性、跨平台部署覆盖或完整的

@@ -1,0 +1,13 @@
+import {
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/aqueue",
+  "ZSeanYves/MoonbitHTTP/core/body",
+  "ZSeanYves/MoonbitHTTP/core/types",
+} for "test"
+
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/aqueue",
+  ],
+)

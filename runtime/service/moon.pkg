@@ -20,10 +20,6 @@ import {
   "moonbitlang/x/codec/base64",
 }
 
-import {
-  "ZSeanYves/MoonbitHTTP/adapter/callback",
-} for "test"
-
 options(
   "allow-experimental-packages": [
     "moonbitlang/core/async",

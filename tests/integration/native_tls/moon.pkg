@@ -1,0 +1,23 @@
+import {
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/fs",
+  "moonbitlang/core/async/socket",
+  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @tls_native,
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/internal/async_support",
+  "ZSeanYves/MoonbitHTTP/tests/support" @test_support,
+  "ZSeanYves/MoonbitHTTP/tests/support/native_tls_revocation" @revocation_test,
+  "ZSeanYves/MoonbitHTTP/protocol/quic",
+  "ZSeanYves/MoonbitHTTP/protocol/tls",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+} for "test"
+
+supported_targets = "+native"
+
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/fs",
+    "moonbitlang/core/async/socket",
+  ],
+)

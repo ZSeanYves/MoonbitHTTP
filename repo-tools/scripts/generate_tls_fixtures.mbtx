@@ -21,7 +21,7 @@ async fn copy_fixture(source : String, target : String) -> Unit {
 
 ///|
 async fn main {
-  let directory = "adapter/native/tls/testdata"
+  let directory = "tests/fixtures/tls"
   let generated = "_build/tls-fixtures"
   if !@fs.exists(directory) {
     @fs.mkdir(directory, recursive=true)

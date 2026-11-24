@@ -31,12 +31,8 @@ async fn main {
     _ => fail("usage: h3_smoke_server [--once]")
   }
   let endpoint = @types.Endpoint::new("udp", "127.0.0.1", 18443).unwrap()
-  let certificate = @fs.read_binary(
-    "adapter/native/tls/testdata/localhost.cert.pem",
-  )
-  let private_key = @fs.read_binary(
-    "adapter/native/tls/testdata/localhost.key.pem",
-  )
+  let certificate = @fs.read_binary("tests/fixtures/tls/localhost.cert.pem")
+  let private_key = @fs.read_binary("tests/fixtures/tls/localhost.key.pem")
   let options = {
     ..@transport.TlsOptions::defaults(),
     verify_peer: false,

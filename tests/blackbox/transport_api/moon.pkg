@@ -1,0 +1,9 @@
+import {
+  "moonbitlang/core/async",
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+} for "test"
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/async" ],
+)

@@ -19,7 +19,6 @@ supported_targets = "+native"
 import {
   "moonbitlang/core/async/fs",
   "ZSeanYves/MoonbitHTTP/adapter/native/client" @client_native,
-  "ZSeanYves/MoonbitHTTP/application/server" @server_api,
 } for "wbtest"
 
 options(

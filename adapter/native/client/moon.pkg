@@ -11,17 +11,9 @@ import {
   "ZSeanYves/MoonbitHTTP/adapter/native/transport" @transport_native,
 }
 
-import {
-  "moonbitlang/core/encoding/utf8",
-  "moonbitlang/core/async/socket",
-} for "test"
-
 supported_targets = "+native"
 
 options(
-  "allow-experimental-packages": [
-    "moonbitlang/core/async",
-    "moonbitlang/core/async/socket",
-  ],
+  "allow-experimental-packages": [ "moonbitlang/core/async" ],
   "is-main": false,
 )

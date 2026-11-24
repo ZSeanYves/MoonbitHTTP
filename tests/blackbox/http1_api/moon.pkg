@@ -1,0 +1,5 @@
+import {
+  "moonbitlang/core/encoding/utf8",
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/protocol/http1",
+} for "test"

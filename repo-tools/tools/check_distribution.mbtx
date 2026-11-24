@@ -49,7 +49,9 @@ fn manifest_strings(manifest : Json, field : String) -> Array[String] raise {
 
 ///|
 fn matches(path : String, pattern : String) -> Bool {
-  if pattern.has_suffix("/**") {
+  if pattern == "**/*_wbtest.mbt" {
+    path.has_suffix("_wbtest.mbt")
+  } else if pattern.has_suffix("/**") {
     let prefix = pattern[:pattern.length() - 3]
     path.has_prefix(prefix + "/")
   } else {

@@ -8,11 +8,13 @@ policy/cache
 protocol/tls
 policy/cookie
 protocol/quic
+tests/support
 protocol/http1
 protocol/http2
 protocol/http3
 runtime/service
 adapter/callback
+tests/benchmarks
 runtime/detection
 runtime/transport
 adapter/native/tls
@@ -21,16 +23,48 @@ application/server
 internal/http_fields
 adapter/native/client
 adapter/native/server
-internal/test_support
 policy/content_coding
+tests/blackbox/uv_api
 internal/async_support
 internal/packet_crypto
+tests/blackbox/tls_api
+tests/blackbox/auth_api
+tests/blackbox/body_api
+tests/blackbox/quic_api
 adapter/native/transport
+tests/blackbox/cache_api
+tests/blackbox/codec_api
+tests/blackbox/http1_api
+tests/blackbox/http2_api
+tests/blackbox/http3_api
+tests/blackbox/types_api
 examples/cmd/smoke_server
+tests/blackbox/client_api
+tests/blackbox/cookie_api
+tests/blackbox/server_api
+tests/blackbox/service_api
+tests/blackbox/callback_api
 examples/cmd/h3_smoke_client
 examples/cmd/h3_smoke_server
+tests/blackbox/detection_api
+tests/blackbox/transport_api
+tests/integration/native_tls
+tests/integration/quic_peers
 examples/cmd/streaming_client
-internal/test_support/native_tls_revocation
+tests/blackbox/native_tls_api
+tests/integration/http_service
+tests/blackbox/test_support_api
+tests/integration/http3_session
+tests/integration/native_client
+tests/integration/native_server
+tests/blackbox/native_client_api
+tests/blackbox/native_server_api
+tests/blackbox/content_coding_api
+tests/integration/client_requests
+tests/integration/native_transport
+tests/blackbox/native_transport_api
+tests/integration/server_supervisor
+tests/support/native_tls_revocation
 
 [imports: source kind target]
 core/body main core/types
@@ -48,6 +82,7 @@ runtime/service main core/body
 protocol/quic main protocol/tls
 runtime/service main core/types
 adapter/callback main adapter/uv
+tests/benchmarks main core/codec
 application/client main core/body
 protocol/http3 main protocol/quic
 runtime/detection main core/types
@@ -65,87 +100,181 @@ application/client main policy/cache
 internal/http_fields main core/types
 policy/content_coding main core/body
 protocol/quic main runtime/transport
+tests/benchmarks main protocol/http1
+tests/support main runtime/transport
 adapter/native/client main core/types
 adapter/native/server main core/types
 application/client main policy/cookie
-internal/test_support test core/types
 policy/content_coding main core/types
-runtime/service test adapter/callback
-adapter/native/tls wbtest protocol/tls
+tests/blackbox/uv_api test adapter/uv
 application/client main protocol/http1
 application/client main protocol/http2
 runtime/service main runtime/detection
 runtime/service main runtime/transport
-adapter/native/tls wbtest protocol/quic
+tests/blackbox/body_api test core/body
 application/client main runtime/service
+tests/blackbox/auth_api test core/types
+tests/blackbox/body_api test core/types
+tests/blackbox/quic_api test core/types
 adapter/native/client main protocol/quic
 adapter/native/server main protocol/quic
 adapter/native/transport main core/types
 examples/cmd/smoke_server main core/body
 protocol/http2 main internal/http_fields
 protocol/http3 main internal/http_fields
-protocol/quic test internal/test_support
 protocol/tls main internal/packet_crypto
+tests/blackbox/auth_api test policy/auth
+tests/blackbox/cache_api test core/types
+tests/blackbox/codec_api test core/codec
+tests/blackbox/http1_api test core/types
+tests/blackbox/http2_api test core/types
+tests/blackbox/http3_api test core/types
+tests/blackbox/tls_api test protocol/tls
+tests/blackbox/types_api test core/types
 adapter/native/client main protocol/http3
 adapter/native/server main protocol/http3
 adapter/native/tls main runtime/transport
 application/client main runtime/transport
 application/server main runtime/transport
 examples/cmd/smoke_server main core/types
-internal/test_support test protocol/http1
 protocol/quic main internal/packet_crypto
 runtime/service main internal/http_fields
+tests/blackbox/client_api test core/types
+tests/blackbox/cookie_api test core/types
 adapter/native/client main runtime/service
 adapter/native/server main runtime/service
+tests/blackbox/cache_api test policy/cache
+tests/blackbox/quic_api test protocol/quic
+tests/blackbox/quic_api test tests/support
 examples/cmd/h3_smoke_client main core/body
 examples/cmd/h3_smoke_server main core/body
 runtime/service main internal/async_support
+tests/blackbox/http3_api test protocol/quic
 adapter/native/client main runtime/transport
 adapter/native/server main runtime/transport
 examples/cmd/h3_smoke_client main core/types
 examples/cmd/h3_smoke_server main core/types
 examples/cmd/streaming_client main core/body
-internal/test_support main runtime/transport
+tests/blackbox/cookie_api test policy/cookie
+tests/blackbox/detection_api test core/types
+tests/blackbox/http1_api test protocol/http1
+tests/blackbox/http2_api test protocol/http2
+tests/blackbox/http3_api test protocol/http3
+tests/blackbox/transport_api test core/types
+tests/integration/native_tls test core/types
+tests/integration/quic_peers test core/types
 adapter/native/client main adapter/native/tls
 adapter/native/client main application/client
 adapter/native/server main adapter/native/tls
 adapter/native/server main application/server
 application/client main policy/content_coding
-application/client test internal/test_support
 examples/cmd/smoke_server main protocol/http2
 examples/cmd/streaming_client main core/types
+tests/blackbox/native_tls_api test core/types
+tests/blackbox/tls_api test runtime/transport
+tests/integration/http_service test core/body
 adapter/native/tls main internal/packet_crypto
 application/client main internal/async_support
 examples/cmd/smoke_server main runtime/service
-adapter/native/server wbtest application/server
-adapter/native/tls wbtest internal/test_support
+tests/integration/http_service test core/types
+tests/integration/native_server test core/body
+tests/integration/native_tls test protocol/tls
 adapter/native/transport main runtime/transport
 examples/cmd/h3_smoke_client main protocol/quic
 examples/cmd/h3_smoke_server main protocol/quic
+tests/blackbox/service_api test runtime/service
+tests/blackbox/test_support_api test core/types
+tests/integration/http3_session test core/types
+tests/integration/native_client test core/types
+tests/integration/native_server test core/types
+tests/integration/native_tls test protocol/quic
+tests/integration/native_tls test tests/support
+tests/integration/quic_peers test protocol/quic
+tests/integration/quic_peers test tests/support
 adapter/native/client main policy/content_coding
-adapter/native/tls wbtest internal/async_support
 examples/cmd/smoke_server main runtime/transport
+tests/blackbox/content_coding_api test core/body
+tests/blackbox/native_client_api test core/types
+tests/blackbox/native_server_api test core/types
+tests/integration/client_requests test core/body
 adapter/native/server main internal/async_support
-adapter/native/transport wbtest runtime/transport
 examples/cmd/h3_smoke_client main runtime/service
 examples/cmd/h3_smoke_server main runtime/service
 examples/cmd/smoke_server main adapter/native/tls
 examples/cmd/smoke_server main application/server
+tests/blackbox/callback_api test adapter/callback
+tests/blackbox/client_api test application/client
+tests/blackbox/content_coding_api test core/types
+tests/blackbox/server_api test application/server
+tests/integration/client_requests test core/types
 adapter/native/server wbtest adapter/native/client
+tests/blackbox/test_support_api test tests/support
+tests/integration/client_requests test policy/auth
+tests/integration/http3_session test protocol/quic
+tests/integration/http_service test protocol/http1
+tests/integration/http_service test protocol/http2
+tests/integration/native_server test protocol/quic
+tests/integration/native_transport test core/types
 adapter/native/client main adapter/native/transport
 adapter/native/server main adapter/native/transport
 examples/cmd/h3_smoke_client main runtime/transport
 examples/cmd/h3_smoke_server main runtime/transport
+tests/blackbox/detection_api test runtime/detection
+tests/blackbox/native_transport_api test core/types
+tests/blackbox/transport_api test runtime/transport
+tests/integration/client_requests test policy/cache
+tests/integration/http3_session test protocol/http3
+tests/integration/http_service test runtime/service
+tests/integration/native_server test protocol/http3
+tests/integration/native_tls test runtime/transport
+tests/integration/quic_peers test runtime/transport
 adapter/native/transport main internal/async_support
 examples/cmd/h3_smoke_server main application/server
 examples/cmd/smoke_server main adapter/native/server
 examples/cmd/streaming_client main runtime/transport
+tests/blackbox/native_tls_api test runtime/transport
+tests/integration/client_requests test tests/support
+tests/integration/http_service test adapter/callback
+tests/integration/native_server test runtime/service
+tests/integration/native_tls test adapter/native/tls
 examples/cmd/streaming_client main adapter/native/tls
 examples/cmd/streaming_client main application/client
+tests/blackbox/native_tls_api test adapter/native/tls
+tests/integration/client_requests test protocol/http2
+tests/blackbox/test_support_api test runtime/transport
+tests/integration/client_requests test runtime/service
+tests/integration/native_client test runtime/transport
+tests/integration/native_server test runtime/transport
 examples/cmd/h3_smoke_client main adapter/native/client
 examples/cmd/h3_smoke_server main adapter/native/server
+tests/blackbox/native_client_api test runtime/transport
+tests/blackbox/native_server_api test runtime/transport
+tests/integration/native_client test adapter/native/tls
+tests/integration/native_client test application/client
+tests/integration/native_server test adapter/native/tls
+tests/integration/native_server test application/server
 examples/cmd/streaming_client main adapter/native/client
+tests/blackbox/native_client_api test adapter/native/tls
+tests/integration/client_requests test runtime/transport
+tests/integration/native_tls test internal/async_support
+tests/integration/client_requests test application/client
+tests/integration/native_transport test runtime/transport
 examples/cmd/h3_smoke_client main adapter/native/transport
+tests/blackbox/native_transport_api test runtime/transport
+tests/integration/native_client test adapter/native/client
+tests/integration/native_server test adapter/native/client
+tests/integration/native_server test adapter/native/server
 examples/cmd/streaming_client main adapter/native/transport
-adapter/native/tls wbtest internal/test_support/native_tls_revocation
-internal/test_support/native_tls_revocation main internal/packet_crypto
+tests/blackbox/native_client_api test adapter/native/client
+tests/blackbox/native_client_api test policy/content_coding
+tests/blackbox/native_server_api test adapter/native/server
+tests/integration/server_supervisor test application/server
+tests/blackbox/content_coding_api test policy/content_coding
+tests/integration/client_requests test policy/content_coding
+tests/integration/native_client test adapter/native/transport
+tests/integration/native_server test adapter/native/transport
+tests/blackbox/native_client_api test adapter/native/transport
+tests/support/native_tls_revocation main internal/packet_crypto
+tests/integration/native_transport test adapter/native/transport
+tests/blackbox/native_transport_api test adapter/native/transport
+tests/integration/native_tls test tests/support/native_tls_revocation
