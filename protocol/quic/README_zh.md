@@ -1,32 +1,28 @@
-# `quic`
+# `protocol/quic`
 
-Status: canonical
-Scope: public QUIC packet, recovery, path, and driver
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[English](README.md) · [项目说明](../../README_zh.md)
 
-## 用途
-提供 QUIC packet/frame codec、connection/path state、transport parameters、丢包恢复、Retry/version、key phase 和 TLS/datagram driver。
+提供 QUIC v1 包和帧编解码、CRYPTO 与 STREAM 重组、流量控制、丢包恢复和连接 ID 管理。示例补齐一段乱序到达的 CRYPTO 数据。驱动连接时向 `poll(now_ms)` 传入时间戳并发送产出的数据报。使用 `send_stream_prefix` 按可用额度写入，并在确认 STREAM 帧时通知发送端释放重传状态，包括只含 FIN 的空帧。
 
-## 入口
-入口是 QuicDatagramDriver、QuicTlsDriver、QuicConnection、QuicRecovery、QuicTransportParameters、QuicRetryTokenManager。
+在 `moon.pkg` 中导入
 
-## 依赖与目标
-依赖 types、transport、portable tls，面向四目标协议核心。
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/protocol/quic",
+} for "test"
+```
 
-## 使用边界
-显式传入 role、endpoint、limits、clock、entropy、TLS；输入 datagram/timer 并执行 action。
+将示例保存为 `example_test.mbt`。
 
-## 不变量与范围
-packet space、frame legality、amplification、路径验证、Retry、丢包、并发 stream 和 key phase 是状态不变量；不解析 hostname、不打开 UDP。
+```moonbit
+test "reassemble out-of-order CRYPTO data" {
+  let crypto = @quic.QuicCryptoReassembler::new().unwrap()
+  assert_eq(crypto.feed(3L, b"lo").unwrap(), [])
+  let _ = crypto.feed(0L, b"hel").unwrap()
+  assert_eq(crypto.next_offset(), 5L)
+}
+```
 
-应用接收 `StreamData` 中的字节后，调用 `consume_stream_data(stream_id, count)`，每个字节只计一次。消费会释放接收存储，同时推进流和连接的字节窗口。推迟消费即可对活动流施加背压。接收端遇到 RESET 时会按最终大小归还剩余额度。两个方向都结束后，连接释放该流剩余的存储并补回对端的流数量额度。
+## 流量控制与恢复
 
-`QuicDatagramDriver::poll()` 负责发送窗口更新，驱动收到包确认后会释放发送端对应字节的额度。自定义传输层在握手中通告 `local_transport_params()`，可靠发送 `take_credit_updates()` 返回的帧，并对每个得到确认的 STREAM 和 RESET_STREAM 调用 `acknowledge_stream_frame(frame)`，其中也包括零字节 FIN。发送方向收到确认后才能归还流数量额度。按字节区间上报时，可在最终帧得到确认时向 `acknowledge_stream_data` 传入 `fin=true`。
-
-非阻塞发送可用 `QuicDatagramDriver::send_stream_prefix`。调用方发出返回的数据报，按返回的字节数推进游标，保留余下的数据，在后续收包或计时器回调时续写。发送受阻时偏移保持不变，只有最后一段携带 FIN。
-
-用 `stop_sending` 放弃尚未读取的输入。该方向停止交付数据，在途字节和最终大小继续计入流控。收到对端的停止请求时，应用通过 `SendStopped(id, code)` 清理该流的待发送数据。数据报驱动在 `poll()` 中发送复位，拥塞时保留、丢包后重发。自定义传输层需清除该流过期的 STREAM 重传，并可靠发送一同返回的 `SendFrame(ResetStream(...))`。
-
-## 规范文档
-- [中文总览](../../README_zh.md)
+应用每消费一段字节，调用一次 `consume_stream_data(stream_id, count)`。自定义传输需要可靠发送 `take_credit_updates()` 返回的帧，并在确认送达后调用 `acknowledge_stream_frame(frame)`。部分写入时保留尚未发送的后缀。放弃读取时调用 `stop_sending`，收到对端的 `SendStopped` 后丢弃该流待发送的数据。[连接 ID 支持范围](CID-SUPPORT.md)

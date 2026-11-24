@@ -1,24 +1,26 @@
-# `http1`
+# `protocol/http1`
 
-Status: canonical
-Scope: public HTTP/1 codec and state package
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[中文](README_zh.md) · [Project README](../../README.md)
 
-## Purpose
-Implements incremental request/response decoding, start-line and field validation, body framing, trailers, and encoders without I/O.
+Incrementally decode and encode HTTP/1.1 messages on a byte stream. Feed received bytes to a request or response decoder, then call `next()` until it returns `Ok(None)`. Handle headers, body data, trailers and message end separately. Call `finish_input()` at transport EOF so truncated messages are reported.
 
-## Entry points
-Use RequestDecoder, ResponseDecoder, request/response events, and body framing encoders; use service for async Reader/Writer drivers.
+In `moon.pkg`
 
-## Dependencies and targets
-Depends on types and codec; intended for Native, Wasm, Wasm-GC, and JS.
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/protocol/http1",
+} for "test"
+```
 
-## Usage
-Feed arbitrary fragments, consume every event, preserve over-read bytes, and select framing from the Body SizeHint through encoder APIs.
+Save as `example_test.mbt`.
 
-## Invariants and scope
-Ambiguous lengths, illegal trailers, request-smuggling combinations, and invalid method/target/header forms are rejected. Lifecycle belongs to service or client.
-
-## Canonical docs
-- [Root guide](../../README.md)
+```moonbit
+test "read headers across two chunks" {
+  let decoder = @http1.RequestDecoder::new()
+  decoder.feed(b"GET / HTTP/1.1\r\n").unwrap()
+  assert_true(decoder.next() is Ok(None))
+  decoder.feed(b"Host: example.com\r\n\r\n").unwrap()
+  assert_true(decoder.next() is Ok(Some(RequestHead(_))))
+  assert_true(decoder.next() is Ok(Some(RequestEnd)))
+}
+```

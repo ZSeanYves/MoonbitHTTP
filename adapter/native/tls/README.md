@@ -1,28 +1,35 @@
 # `adapter/native/tls`
 
-Status: canonical
-Scope: public Native OpenSSL TLS and QUIC-TLS adapter
-Source: working-tree (governed by Git)
-Last reviewed: 2026-11-23
+[中文](README_zh.md) · [Project README](../../../README.md)
 
-## Purpose
-Implements TlsProvider and QuicTlsProvider with OpenSSL. It pumps TLS records or QUIC CRYPTO through injected connections and never performs DNS or socket creation.
+Native only. `NativeTlsProvider` runs TLS over an existing byte stream with OpenSSL 3.x. `NativeQuicTlsProvider` handles QUIC handshakes with OpenSSL 3.5 or later in the 3.x series. Pass the peer identity, ALPN, trust anchors and any credentials in `TlsOptions` at handshake time. The stream provider constructor controls use of system trust roots.
 
-`NativeEntropy` fills caller-owned byte buffers with OpenSSL `RAND_bytes`. The native HTTP/3 client uses it for both its original destination ID and its local connection ID.
+In `moon.pkg`
 
-## Entry points
-Use NativeTlsProvider::new and NativeQuicTlsProvider::new with explicit trust anchors, PEM credentials, identity, and ALPN.
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @native_tls,
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+}
 
-## Dependencies and targets
-Depends on transport and Native OpenSSL FFI; +native only. Stream TLS needs OpenSSL 3; QUIC TLS needs OpenSSL 3.5+.
+supported_targets = "+native"
+```
 
-## Usage
-Inject the provider into a client, listener, or QuicTlsDriver. h3 ALPN is a QUIC setting and does not turn TCP into QUIC.
+Add this function to a `.mbt` file in the importing package.
 
-Call `SecureConnection::finish` after the last write to flush `close_notify` and release the stream. It completes once the local alert has been sent. Use `close` for immediate teardown. A peer TCP EOF without the TLS alert yields a receive error.
+```moonbit
+pub async fn secure(
+  stream : @transport.StreamConnection,
+  host : String,
+) -> Result[@transport.SecureConnection, @transport.TlsError] {
+  let tls = @native_tls.NativeTlsProvider::new()
+  tls.client_handshake(
+    stream,
+    @transport.TlsOptions::defaults().for_server_name(host),
+  )
+}
+```
 
-## Invariants and scope
-Certificate chain, validity, SAN identity, key matching, TLS version, and ALPN are checked before completion. 0-RTT is disabled. Native TLS accepts explicit PEM CRLs through `TlsOptions.revocation_lists`; set `require_crl` to fail closed and check every verified-chain certificate. A client can set `require_ocsp` to require a stapled DER OCSP response, while a server supplies that response through `ocsp_response`. OCSP is stapled-response validation only: this adapter never performs an online responder request or DNS/socket operation. Wasm has no native revocation provider.
+## Peer verification and shutdown
 
-## Canonical docs
-- [Root guide](../../../README.md)
+Use `TlsOptions.revocation_lists` for PEM CRLs and `require_crl` to require chain revocation checks. A server can staple a DER OCSP response via `ocsp_response`. A client can require a valid staple via `require_ocsp`. Verification uses the supplied response locally. After your final write, call `SecureConnection::finish` to send the local close notification. Use `close` for immediate teardown.

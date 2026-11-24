@@ -1,24 +1,22 @@
-# `codec`
+# `core/codec`
 
-Status: canonical
-Scope: public protocol-independent codec primitives
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[中文](README_zh.md) · [Project README](../../README.md)
 
-## Purpose
-Provides bounded incremental byte buffering, line/prefix inspection, structured errors, and the shared RFC 7541 Huffman codec.
+Use the bounded byte buffer for incremental input and the shared Huffman codec for HPACK and QPACK string literals. The buffer reports incomplete input and enforces configured size limits.
 
-## Entry points
-Use Buffer::new/feed/read_line/take and huffman_encode or huffman_decode.
+In `moon.pkg`
 
-## Dependencies and targets
-Has no local package dependency; intended for Native, Wasm, Wasm-GC, and JS.
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/core/codec",
+} for "test"
+```
 
-## Usage
-Give Buffer an explicit maximum and feed arbitrary fragments; translate CodecError at the owning protocol boundary.
+Save as `example_test.mbt`.
 
-## Invariants and scope
-Buffer growth is bounded. Huffman decoding rejects invalid codes, EOS in data, and invalid padding; HTTP field rules remain in protocol packages.
-
-## Canonical docs
-- [Root guide](../../README.md)
+```moonbit
+test "round-trip a Huffman string" {
+  let encoded = @codec.huffman_encode(b"www.example.com")
+  assert_eq(@codec.huffman_decode(encoded).unwrap(), b"www.example.com")
+}
+```

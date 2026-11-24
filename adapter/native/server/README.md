@@ -1,23 +1,50 @@
 # `adapter/native/server`
 
-> Status: Native adapter
-> Scope: Native server socket and capability wiring
-> Targets: Native only
+[中文](README_zh.md) · [Project README](../../../README.md)
 
-This package connects `server` lifecycle to Native sockets, resolver/policy,
-clock and TLS providers. Policy is evaluated before network resources are
-created; portable protocol packages stay independent of this adapter.
+Native only. Bind a listener to an application-selected endpoint and route requests to your handler. `NativeTcpListener::bind_http_tls` serves HTTP/1.1 and HTTP/2 according to ALPN. `NativeHttp3Listener::bind_http` serves HTTP/3 over UDP with TLS 1.3 and `h3` ALPN. Pass server credentials in `TlsOptions`.
 
-Use `NativeTcpListener::bind_http_tls` to serve HTTP requests with an
-async handler. The listener routes negotiated `h2` to the HTTP/2 driver and
-`http/1.1` to HTTP/1.1. A peer without ALPN can use HTTP/1.1 when the
-listener offers that protocol. Pass the resulting listener to
-`ServerSupervisor::serve` to manage active connections and shutdown.
+In `moon.pkg`
 
-After a successful exchange the listener flushes the provider's close notification. `shutdown_timeout_ms` bounds the flush (default 1,000 ms). Handler failure or cancellation closes the transport immediately.
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/adapter/native/server" @native_server,
+  "ZSeanYves/MoonbitHTTP/application/server",
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/MoonbitHTTP/core/body",
+}
 
-`NativeHttp3Listener::bind` accepts a numeric UDP endpoint, network policy, TLS 1.3 options with h3 ALPN, and a per-connection handler. Call `serve(supervisor)` on the bound listener. QUIC Initial retransmissions are associated with their source and original destination ID. Established connections use cryptographically generated 16-byte server IDs. Each peer has a bounded datagram queue. A full queue drops that peer's datagram and leaves recovery to QUIC. `begin_shutdown` on the supervisor stops admission while existing peers can still receive acknowledgments and finish their responses. A handler owns the per-connection event loop and dispatches application requests by stream ID.
+supported_targets = "+native"
+```
 
-Use `NativeHttp3Listener::bind_http` for an application handler taking `Request[BodyStream]` and returning `Response[B]`. The request carries HTTP/3, the origin-form target and a normalized Host header. A response may stream the request body directly, including trailers. Request body buffering is bounded per stream, and QUIC grants further body credit as the handler consumes bytes.
+Add this function to a `.mbt` file in the importing package.
 
-Calling `supervisor.begin_shutdown()` sends each typed HTTP/3 peer a GOAWAY boundary derived from the requests its handlers have accepted. Idle peers receive zero. Active handlers keep their flow-control windows and can finish their responses. The supervisor's grace deadline cancels unfinished handlers and releases their routes.
+```moonbit
+pub async fn[P : @transport.NetworkPolicy] serve_h3(
+  endpoint : @types.Endpoint,
+  policy : P,
+  tls : @transport.TlsOptions,
+  supervisor : @server.ServerSupervisor,
+) -> Unit {
+  let listener = @native_server.NativeHttp3Listener::bind_http(
+    endpoint,
+    policy,
+    tls,
+    fn(request) {
+      {
+        status: 200,
+        version: request.version,
+        headers: @types.HeaderMap::new(),
+        body: @body.FullBody::new(b"ok"),
+      }
+    },
+  ).unwrap_or_error()
+  defer listener.close()
+  listener.serve(supervisor).unwrap_or_error()
+}
+```
+
+## Shutdown
+
+Pass a TCP listener to `ServerSupervisor::serve`. For HTTP/3, call `listener.serve(supervisor)` as above. Calling `supervisor.begin_shutdown()` stops admission and sends GOAWAY to typed HTTP/3 peers. Accepted streams can finish until the grace deadline. Use the lower-level `NativeHttp3Listener::bind` when you need to own the connection event loop.

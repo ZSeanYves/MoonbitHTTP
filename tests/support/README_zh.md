@@ -1,24 +1,24 @@
 # `tests/support`
 
-Status: development
-Scope: test and white-box support; not a v1 runtime API
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[English](README.md) · [项目说明](../../README_zh.md)
 
-## 用途
-为协议和 transport 测试提供分片、故障注入、录制 writer、内存 datagram、固定时钟和零 entropy。
+仓库测试共用的辅助包。流式测试可使用 `RecordingWriter` 并注入读写错误；数据报测试可使用内存套接字；时间相关测试使用 `FixedClock`。发布归档排除测试包。
 
-## 入口
-测试入口是 fragment、FaultReader、RecordingWriter、MemoryDatagramSocket、FixedClock、ZeroEntropy。
+在 `moon.pkg` 中导入
 
-## 依赖与目标
-依赖 transport、async I/O、types；可供测试导入但不承诺 v1 兼容。
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/tests/support",
+} for "test"
+```
 
-## 使用边界
-将 fixture 注入 core/codec、protocol driver 和 capability，并断言可观察 action；显式保留失败和边界。
+将示例保存为 `example_test.mbt`。
 
-## 不变量与范围
-fixture 必须确定且有界；ZeroEntropy 和内存 socket 绝不可作为生产安全或网络 provider。
-
-## 规范文档
-- [中文总览](../../README_zh.md)
+```moonbit
+test "advance a test clock" {
+  let clock = @support.FixedClock::new(100L, 0L)
+  let before = clock.monotonic_millis()
+  clock.advance(25L).unwrap()
+  assert_eq(clock.monotonic_millis(), before + 25L)
+}
+```

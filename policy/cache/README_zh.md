@@ -1,24 +1,42 @@
-# `cache`
+# `policy/cache`
 
-Status: canonical
-Scope: public optional HTTP caching policy
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[English](README.md) · [项目说明](../../README_zh.md)
 
-## 用途
-解析缓存元数据并执行有界的新鲜度、条件请求、再验证和失效决策，不做网络或文件 I/O。
+`HttpCache` 提供有容量限制的内存响应缓存。向 `store` 传入请求头、响应头、正文字节和当前 Unix 时间（秒）。`lookup` 根据新鲜度和 `Vary` 匹配缓存；对过期条目，可使用命中结果中的校验字段发起条件请求，收到 304 后调用 `revalidate`。
 
-## 入口
-入口是 HttpCache、CacheConfig、CacheLimits、CacheHit 及缓存解析函数。
+在 `moon.pkg` 中导入
 
-## 依赖与目标
-依赖 types，面向四个编译目标，是客户端可选策略。
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/policy/cache",
+  "ZSeanYves/MoonbitHTTP/core/types",
+} for "test"
+```
 
-## 使用边界
-使用 HttpCache::new 创建实例，显式传入时钟值并通过方法处理元数据。
+将示例保存为 `example_test.mbt`。
 
-## 不变量与范围
-条目、指令、字段和字节均受限；不决定重试，也不负责持久化。
-
-## 规范文档
-- [中文总览](../../README_zh.md)
+```moonbit
+test "reuse a fresh response" {
+  let cache = @cache.HttpCache::new().unwrap()
+  let request : @types.Request[Unit] = {
+    http_method: Get,
+    uri: @types.Uri::parse("https://example.com/").unwrap(),
+    version: Http11,
+    headers: @types.HeaderMap::new(),
+    body: (),
+  }
+  let headers = @types.HeaderMap::new()
+  headers.append_string("cache-control", "max-age=60").unwrap()
+  let response : @types.Response[Unit] = {
+    status: 200,
+    version: Http11,
+    headers,
+    body: (),
+  }
+  let _ = cache.store(request, response, b"hello", 100L).unwrap()
+  guard cache.lookup(request, 110L) is Ok(CacheFresh(hit)) else {
+    fail("expected a cache hit")
+  }
+  assert_eq(hit.body(), b"hello")
+}
+```

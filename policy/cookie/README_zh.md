@@ -1,24 +1,28 @@
-# `cookie`
+# `policy/cookie`
 
-Status: canonical
-Scope: public optional cookie and public-suffix policy
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[English](README.md) · [项目说明](../../README_zh.md)
 
-## 用途
-解析 Cookie 字段，执行 domain/path/SameSite 规则，并在 CookieJar 中保存有界客户端状态。
+需要保存 Set-Cookie 并为后续请求选择 Cookie 时，显式启用 `CookieJar`。每次操作传入请求 URI 和当前 Unix 时间（秒）。Cookie 匹配考虑域名、路径、过期时间和 Secure 属性；涉及 SameSite 时使用 `CookieContext` 提供请求上下文。
 
-## 入口
-入口是 CookieJar、CookieContext、CookieLimits、store/store_string、cookie_header 和 public-suffix helper。
+在 `moon.pkg` 中导入
 
-## 依赖与目标
-依赖 types、IDNA 和 public-suffix 数据，面向四个编译目标。
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/policy/cookie",
+  "ZSeanYves/MoonbitHTTP/core/types",
+} for "test"
 
-## 使用边界
-显式启用并设置限制；保存响应 Cookie 时传入 URI 和时钟值，按目标 URI 请求 cookie_header。
+supported_targets = "js+native+wasm+wasm-gc"
+```
 
-## 不变量与范围
-非法域名、超大值、public-suffix 违规和 SameSite 约束会被拒绝；不负责持久化。
+将示例保存为 `example_test.mbt`。
 
-## 规范文档
-- [中文总览](../../README_zh.md)
+```moonbit
+test "send a cookie over HTTPS" {
+  let uri = @types.Uri::parse("https://example.com/account").unwrap()
+  let jar = @cookie.CookieJar::new(enabled=true).unwrap()
+  let _ = jar.store_string("id=42; Secure; Path=/", uri, 0L).unwrap()
+  let value = jar.cookie_header(uri, 1L).unwrap().unwrap()
+  assert_eq(value.to_string_lossy(), "id=42")
+}
+```

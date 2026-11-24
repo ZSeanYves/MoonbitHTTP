@@ -1,24 +1,24 @@
-# `auto`
+# `runtime/detection`
 
-Status: canonical
-Scope: public protocol-selection helper
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[中文](README_zh.md) · [Project README](../../README.md)
 
-## Purpose
-Non-consuming detection of HTTP/1, HTTP/2 prior knowledge, and h2c upgrade prefixes. It only classifies input.
+Select HTTP/1 or HTTP/2 from negotiated ALPN or incremental cleartext input. `Detector` retains every byte supplied to `feed`. Once decided, stop feeding it and pass `buffered()` to the chosen protocol driver, including bytes received after the preface. `is_h2c_upgrade` recognizes upgrade headers. The service driver validates the upgrade settings.
 
-## Entry points
-Use Detector::new, Detector::feed, Detector::buffered, select_protocol, and is_h2c_upgrade.
+In `moon.pkg`
 
-## Dependencies and targets
-Depends on types; intended for Native, Wasm, Wasm-GC, and JS.
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/runtime/detection",
+} for "test"
+```
 
-## Usage
-Feed fragments to one Detector and preserve buffered bytes for the selected service driver.
+Save as `example_test.mbt`.
 
-## Invariants and scope
-Detection is bounded and non-consuming. It does not validate a complete exchange, select HTTP/3, or open a socket.
-
-## Canonical docs
-- [Root guide](../../README.md)
+```moonbit
+test "detect a split HTTP/2 preface" {
+  let detector = @detection.Detector::new()
+  assert_true(detector.feed(b"PRI * HTTP/2.0\r\n") is Undetermined)
+  assert_true(detector.feed(b"\r\nSM\r\n\r\n") is Detected(Http2PriorKnowledge))
+  assert_eq(detector.buffered().length(), 24)
+}
+```

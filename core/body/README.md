@@ -1,24 +1,31 @@
-# `body`
+# `core/body`
 
-Status: canonical
-Scope: public core body and backpressure contract
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[中文](README_zh.md) · [Project README](../../README.md)
 
-## Purpose
-Defines the protocol-independent Body stream, Frame, SizeHint, bounded queues, cancellation, and explicit collection.
+`Body` yields data and trailer frames on demand. Use `EmptyBody` or `FullBody` for known content and `BodyStream::from_pull` for a producer. Consume frames as they arrive, or use `collect` with a byte limit when the entire body must fit in memory. Cancel a stream when abandoning it. The async example runs on Native, Wasm and JavaScript. Wasm-GC has compile-only coverage for this example.
 
-## Entry points
-Use EmptyBody, FullBody, QueueBody, BodyStream, BodyStream::from_pull, and collect; implement Body::next_frame and size_hint.
+In `moon.pkg`
 
-## Dependencies and targets
-Depends on types and the async queue capability; intended for Native, Wasm, Wasm-GC, and JS.
+```moonbit
+import {
+  "moonbitlang/core/async",
+  "ZSeanYves/MoonbitHTTP/core/body",
+} for "test"
 
-## Usage
-Use FullBody for known bytes, QueueBody for finite frames, and bounded BodyStream for producer/consumer work. Give collect an explicit maximum.
+options(
+  "allow-experimental-packages": ["moonbitlang/core/async"],
+)
+```
 
-## Invariants and scope
-The stream preserves Data, Trailers, completion, cancellation, and terminal errors. Queue and collection limits are enforced; framing stays in protocol packages.
+Save as `example_test.mbt`.
 
-## Canonical docs
-- [Root guide](../../README.md)
+```moonbit
+async test "collect a small body" {
+  let (bytes, trailers) = @body.collect(
+    @body.FullBody::new(b"hello"),
+    max_bytes=8,
+  )
+  assert_eq(bytes, b"hello")
+  assert_true(trailers is None)
+}
+```

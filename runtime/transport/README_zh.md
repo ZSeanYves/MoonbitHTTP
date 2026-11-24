@@ -1,24 +1,23 @@
-# `transport`
+# `runtime/transport`
 
-Status: canonical
-Scope: public host-capability contracts
-Source: working-tree (governed by Git)
-Last reviewed: 2026-11-23
+[English](README.md) · [项目说明](../../README_zh.md)
 
-## 用途
-定义 stream/datagram I/O、解析、network policy、clock、entropy、TLS、QUIC-TLS、endpoint 和类型化错误契约。
+定义字节流连接、数据报 I/O、DNS、网络策略、时钟和 TLS 握手接口。调用方可接入宿主实现，也可使用 Native 适配器。QUIC 的 TLS 身份应使用 HTTPS 源站名称，即使数据报端点使用数字 IP 地址。
 
-## 入口
-入口是 StreamConnection、Datagram、DatagramSocket、NameResolver、NetworkPolicy、Clock、Entropy、TlsProvider、QuicTlsProvider。
+在 `moon.pkg` 中导入
 
-## 依赖与目标
-依赖 types 与 portable async，面向四目标；具体 adapter 独立。
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+} for "test"
+```
 
-## 使用边界
-将所有 capability 显式传入 application/client、runtime/service、application/server、protocol/quic，并在构造边界校验 options 和 policy。
+将示例保存为 `example_test.mbt`。
 
-## 不变量与范围
-`resolve_endpoints` 接受端点、查询回调和 `ResolveOptions`。数字地址直接返回。主机名查询受超时和结果数量限制，候选地址按解析顺序去重，保留原 scheme 和端口。调用方负责在查询和连接前分别检查策略。
-
-## 规范文档
-- [中文总览](../../README_zh.md)
+```moonbit
+test "configure QUIC for an HTTPS origin" {
+  let options = @transport.TlsOptions::for_quic("example.com")
+  assert_eq(options.server_name, Some("example.com"))
+  assert_eq(options.alpn, ["h3"])
+}
+```

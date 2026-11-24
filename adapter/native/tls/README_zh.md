@@ -1,28 +1,35 @@
 # `adapter/native/tls`
 
-Status: canonical
-Scope: public Native OpenSSL TLS and QUIC-TLS adapter
-Source: working-tree (governed by Git)
-Last reviewed: 2026-11-23
+[English](README.md) · [项目说明](../../../README_zh.md)
 
-## 用途
-使用 OpenSSL 实现 TlsProvider 与 QuicTlsProvider，通过注入 connection 传递 TLS record/QUIC CRYPTO，不做 DNS 或 socket。
+仅支持 Native。`NativeTlsProvider` 使用 OpenSSL 3.x 在已有字节流上进行 TLS 握手。QUIC 握手使用 `NativeQuicTlsProvider`，需要 OpenSSL 3.5 或更高的 3.x 版本。握手时通过 `TlsOptions` 传入对端身份、ALPN、信任锚和所需凭据。流式 TLS 提供方的构造参数控制是否使用系统根证书。
 
-`NativeEntropy` 用 OpenSSL `RAND_bytes` 填充调用方的字节缓冲区。原生 HTTP/3 客户端用它生成初始目的连接 ID 和本地连接 ID。
+在 `moon.pkg` 中导入
 
-## 入口
-入口是 NativeTlsProvider::new、NativeQuicTlsProvider::new，显式传入 CA、PEM 凭据、identity 和 ALPN。
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @native_tls,
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+}
 
-## 依赖与目标
-依赖 transport 与 Native OpenSSL FFI，仅支持 native；普通 TLS 需要 OpenSSL 3，QUIC TLS 需要 3.5+。
+supported_targets = "+native"
+```
 
-## 使用边界
-将 provider 注入 application/client、adapter/native/server、QuicTlsDriver；h3 ALPN 是 QUIC 设置，不会把 TCP 变成 QUIC。
+将函数放入调用方包的 `.mbt` 文件中。
 
-应用完成最后一次写入后，调用 `SecureConnection::finish` 发送 `close_notify` 并释放流。该调用在本端发送完成后返回。调用 `close` 可立即释放连接。对端 TCP 在发送 TLS 关闭通知前断开时，读取将返回错误。
+```moonbit
+pub async fn secure(
+  stream : @transport.StreamConnection,
+  host : String,
+) -> Result[@transport.SecureConnection, @transport.TlsError] {
+  let tls = @native_tls.NativeTlsProvider::new()
+  tls.client_handshake(
+    stream,
+    @transport.TlsOptions::defaults().for_server_name(host),
+  )
+}
+```
 
-## 不变量与范围
-完成前检查证书链、有效期、SAN、key、TLS version、ALPN；0-RTT 关闭。Native TLS 可通过 `TlsOptions.revocation_lists` 注入 PEM CRL，设置 `require_crl` 后缺少或无效 CRL 会硬失败，并检查完整验证链。客户端设置 `require_ocsp` 后必须收到并验证 DER stapled OCSP；服务端通过 `ocsp_response` 提供该响应。OCSP 只验证显式 stapled response，不会在线访问 responder，也不会做 DNS/socket；Wasm 没有 native 撤销提供器。
+## 对端验证与关闭
 
-## 规范文档
-- [中文总览](../../../README_zh.md)
+通过 `TlsOptions.revocation_lists` 传入 PEM 格式的 CRL，可用 `require_crl` 要求检查证书链的吊销状态。服务端可通过 `ocsp_response` 附带 DER 格式的 OCSP 响应，客户端可用 `require_ocsp` 要求收到有效响应。适配器在本地验证附带的响应。最后一次写入后调用 `SecureConnection::finish` 发出本端的关闭通知；需要立即释放连接时调用 `close`。

@@ -1,142 +1,48 @@
-# 面向 MoonBit 的流式 HTTP 协议套件
+# MoonbitHTTP
 
-MoonbitHTTP 为 MoonBit 提供可移植的 HTTP/1.1、HTTP/2、HTTP/3、QUIC、TLS、
-流式 Body 和策略组件。`0.7.0` 是破坏性的 alpha 架构线，`1.0.0` 之前公共
-API 可能变化。
+[English](README.md)
 
-HTTP 编解码器与连接状态机接收字节和事件。QUIC 驱动另提供收发适配方法，
-通过调用方传入的 UDP 能力执行 I/O。Native 的 QUIC 包保护使用 OpenSSL 3 EVP，
-HTTP/3 握手要求 OpenSSL 3.5 或更新版本。Wasm 与 JS 的包保护使用实验性密码实现。
-当前工具链在 Wasm-GC 上运行同步协议测试，异步服务只验证编译。
-
-## 安装
-
-在 MoonBit 项目根目录运行以下命令，安装已发布的 `0.7.0` alpha 版本。
-
-```bash
-moon add ZSeanYves/MoonbitHTTP@0.7.0
-```
-
-当前源码请直接 clone 仓库并使用项目锁定的 MoonBit 工具链；发布前的源码验证
-以仓库 CI 和 release 检查为准。
-
-包目录下的 README 介绍用法，`pkg.generated.mbti` 列出公开 API。
-
-当前未发布源码提供 `with_http2_pool`，可向多个源站发起流式 HTTP/2
-请求并复用连接。Native 服务端可用 `NativeTcpListener::bind_http_tls` 在同一
-TLS 监听地址提供 HTTP/1.1 和 HTTP/2 服务。
-[客户端用法](application/client/README_zh.md) · [服务端用法](adapter/native/server/README_zh.md)
-
-## 包
-
-- `core/types`、`core/body`、`core/codec`：HTTP 值、流式 Body、取消、背压和
-  有界字节 codec。
-- `protocol/http1`、`protocol/http2`、`protocol/http3`、`protocol/quic`、
-  `protocol/tls`：增量 framing 和协议状态机；这些包不会打开 socket。
-- `runtime/transport`、`runtime/service`、`runtime/detection`：宿主能力契约、
-  协议探测、HTTP/1 与 HTTP/2 服务生命周期、h2c，以及 HTTP/3 连接作用域内的数据报收发。
-- `application/client`、`application/server`：请求编排、连接池和服务端分发契约。
-- `policy/auth`、`policy/cache`、`policy/cookie`、`policy/content_coding`：
-  可选 HTTP 策略。
-- `adapter/native/*`：Native TCP/UDP、resolver、clock、OpenSSL 普通 TLS 和
-  QUIC TLS 适配器。
-- `adapter/callback`：把宿主 callback 接入 async `BinaryReader`/`BinaryWriter`。
-
-### 命名约定
-
-同一个包内，每项公开操作只保留一个名称。移动包或重命名 API 时，同步迁移调用方，并在更新日志中记录变更。
-
-- 包路径用小写，按职责命名，如 `protocol/http2`、`adapter/callback`。源码文件用 `snake_case` 写明职责，如 `tcp_listener.mbt`。对应的黑盒和白盒测试分别以 `_test.mbt`、`_wbtest.mbt` 结尾。
-- 函数和方法用 `snake_case`。动作用动词，如 `send`。状态查询读作判断，如 `is_idle`。由回调限定资源使用期限的入口用 `with_` 开头。
-- 类型和 trait 用 `PascalCase`。具体类型写明它管理的对象，如 `Http2ClientConnection`。trait 写明调用方需要的能力，如 `NameResolver`。跨协议接口的类型名使用 `Http1`、`Http2`、`Http3`，函数名使用 `http1`、`http2`、`http3`。线上协议沿用 `h2c`、ALPN 标识 `h2` 等标准拼写。
+MoonbitHTTP 是 MoonBit 的流式 HTTP 协议库，支持 HTTP/1.1、HTTP/2、HTTP/3 和 QUIC v1。你可以单独使用协议编解码器，也可以将客户端、连接池或服务端监听器接入自己的应用。
 
 ## 功能
 
-- [x] **[portable] HTTP/1.1**：增量消息、framing、trailer、校验以及服务/客户端接入。
-- [x] **[portable] HTTP/2**：frame、HPACK、SETTINGS、GOAWAY/RST、多路复用、
-  流控、h2c 和具备生命周期管理的服务。
-- [x] **[portable] HTTP/3 与 QUIC 引擎**：QPACK、关键流、客户端与服务端流式会话、packet
-  protection、恢复、CID 和路径状态。
-- [x] **[portable] 统一 HTTP 值**：`Request`、`Response`、`HeaderMap`、URI、
-  authority、endpoint、限制和类型化错误。
-- [x] **[portable] 流式 Body**：有界队列、背压、取消、trailer 和显式 Body 所有权。
-- [x] **[portable] 可选策略**：认证、Cookie、缓存决策、重定向、重试和有界内容编码。
-- [x] **[host] 能力注入**：stream/datagram I/O、resolver、clock、entropy、TLS 和
-  `NetworkPolicy` 都是显式输入。
-- [x] **[host] Callback 接入**：`adapter/callback` 把宿主 callback 转为 async `BinaryReader`/`BinaryWriter`。
-- [x] **[native] TCP/UDP、DNS 与 Native client/server 适配器**：提供宿主 socket
-  和 resolver 接线；HTTP 语义与 HTTP/1.1 framing 分别对照
-  [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) 和
-  [RFC 9112](https://www.rfc-editor.org/rfc/rfc9112)。
-- [x] **[native] OpenSSL 普通 TLS**：在适配器边界执行证书身份和信任校验；TLS 1.3
-  对照 [RFC 8446](https://www.rfc-editor.org/rfc/rfc8446)，主机名身份规则对照
-  [RFC 6125](https://www.rfc-editor.org/rfc/rfc6125)。
-- [x] **[native] QUIC TLS provider**：OpenSSL 3.5+ 提供 Native QUIC TLS callback；
-  协议边界对照 [RFC 9001](https://www.rfc-editor.org/rfc/rfc9001) 与
-  [RFC 8446](https://www.rfc-editor.org/rfc/rfc8446)。
-- [x] **[native] HTTP/3/QUIC smoke 与互操作 driver**：Native loopback 和独立
-  driver 检查覆盖 [QUIC v1 RFC 9000](https://www.rfc-editor.org/rfc/rfc9000)、
-  [HTTP/3 RFC 9114](https://www.rfc-editor.org/rfc/rfc9114) 与
-  [QPACK RFC 9204](https://www.rfc-editor.org/rfc/rfc9204)。
+- **HTTP/1.1** — 增量解析和编码请求、响应，支持分块传输、尾部字段和连接复用。
+- **HTTP/2** — 支持帧编解码、HPACK、多路复用、流量控制、GOAWAY 和 h2c。
+- **HTTP/3 与 QUIC v1** — 支持 QPACK、请求流、包保护、丢包恢复和连接 ID 轮换。Wasm、Wasm-GC 和 JavaScript 的 QUIC 包保护使用实验性密码实现。
+- **流式请求与响应** — 支持分段读写正文、背压、取消和尾部字段。Native、Wasm 和 JavaScript 已运行异步服务测试；Wasm-GC 已运行同步协议测试，异步服务仅验证编译。
+- **HTTP 策略** — 可按需启用认证、Cookie、缓存、重定向、重试和内容解码。
+- **原生客户端与服务端** — 提供 TCP、UDP、DNS、HTTP 客户端、连接池和监听器。**仅 Native 支持内置网络适配器。**
+- **原生 TLS** — TCP 上的 TLS 使用 OpenSSL 3.x；HTTP/3 的 QUIC TLS 握手需要 OpenSSL 3.5 或更高的 3.x 版本。**仅 Native 支持内置 OpenSSL 适配器。**
+- **宿主 I/O 接入** — Wasm 和 JavaScript 可通过 `adapter/callback` 接入宿主提供的异步字节流。HTTP/3 还需宿主提供数据报传输和 QUIC TLS 握手能力。当前没有内置的浏览器 `fetch` 或 WebSocket 适配器。
 
-RFC 链接说明实现对照的协议契约，不表示所有可选扩展或部署配置都已实现。
+## 安装与使用
 
-## 目标支持
+在 MoonBit 项目中安装已发布的 `0.7.0`：
 
-| 能力 | Native | Wasm / Wasm-GC | JavaScript |
-| --- | --- | --- | --- |
-| core、codec、protocol、policy | 可编译和使用 | 可编译和使用 | 可编译和使用 |
-| HTTP/1.1 与 HTTP/2 service 接口 | 通过 adapter 可用 | Wasm 需宿主能力；Wasm-GC 仅验证编译 | 可用，需宿主能力 |
-| Native TCP/UDP/DNS/OpenSSL 适配器 | 支持 | 不支持 | 不支持 |
-| HTTP/3/QUIC 协议状态 | 流式客户端会话和受监管的 UDP 监听器 | 可编译使用，需宿主 datagram/TLS | 可编译使用，需宿主 datagram/TLS |
-| HTTP/3 网络 TLS | OpenSSL 3.5+ QUIC TLS provider | 宿主提供 | 宿主提供 |
-| 浏览器 `fetch`/WebSocket 接入 | 不适用 | 不承诺 | 不承诺 |
+```sh
+moon add ZSeanYves/MoonbitHTTP@0.7.0
+```
 
-“可编译使用”不等于自动获得网络访问。Wasm 和 JavaScript 必须提供所需宿主
-能力，也不能导入 `adapter/native/*`。
+下面的例子在四个后端都可以运行。先在 `moon.pkg` 中为测试导入 HTTP/1.1 包：
 
-## 示例
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/protocol/http1",
+} for "test"
+```
 
-`streaming_client` 示例接受 `h1`、`h2` 或 `h3`，支持 `get` 和 `upload`。访问本地 HTTP/1.1 服务可运行 `moon run examples/cmd/streaming_client --target native -- h1 get http://127.0.0.1:18080/`。
+在 `request_test.mbt` 中解析一条请求，然后运行 `moon test`：
 
-- [`examples/cmd/smoke_server`](examples/cmd/smoke_server/README.md)：有界的
-  Native HTTP/1.1 和 h2c 服务 smoke fixture。
-- [`examples/cmd/h3_smoke_server`](examples/cmd/h3_smoke_server/README_zh.md) 使用受监管的 UDP 监听器处理 HTTP/3 请求。
-- [`examples/cmd/h3_smoke_client`](examples/cmd/h3_smoke_client/README_zh.md) 在同一条经过认证的 HTTP/3 连接上并发收发两个请求。
+```moonbit
+test "decode a request" {
+  let decoder = @http1.RequestDecoder::new()
+  decoder.feed(b"GET /hello HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap()
+  guard decoder.next() is Ok(Some(RequestHead(head))) else {
+    fail("expected request headers")
+  }
+  assert_eq(head.uri.value, "/hello")
+  assert_true(decoder.next() is Ok(Some(RequestEnd)))
+}
+```
 
-请按示例包 README 中的仓库 runner 运行；这些 fixture 用于验证，不是部署模板。
-
-## 标准与范围
-
-HTTP/1.1 和 HTTP/2 具有最完整的应用覆盖。HTTP/2 framing 与 HPACK 对照
-[RFC 9113](https://www.rfc-editor.org/rfc/rfc9113) 和
-[RFC 7541](https://www.rfc-editor.org/rfc/rfc7541)。HTTP/3 与 QUIC 当前提供
-可流式读写的连接会话。原生客户端接受数字地址，也可使用显式解析器连接主机名。它在同一个经过认证的 HTTPS 源上并发发送请求并返回流式响应。HTTP/3 原生监听器可接入与 HTTP/1、HTTP/2 相同的流式请求处理器。它在同一个 UDP 套接字上按连接 ID 分发，使用 supervisor 限制并发连接，并在关闭时等待已接入的连接完成。
-
-Native TLS 与 QUIC 必须显式选择 provider。Wasm 和 JavaScript 不会自动获得浏览器
-网络、DNS、UDP 或 TLS。async runtime 使用协作式调度，宿主能力和应用 handler
-需要主动 yield，并让取消清理保持有界。
-
-Native `with_http3_pool` 按 HTTPS 源共享握手和连接，`max_connections` 同时限制建连中、可用和排空中的连接总数。
-
-## 验证状态
-
-在源码仓库执行 `moon run tests/run.mbtx -- blackbox native` 可运行公开 API 单元测试。将 `blackbox` 换成 `whitebox` 可运行包内白盒单测，换成 `integration` 可运行组件和网络联调，换成 `verify` 可核对每个用例恰好属于一组。目录和互操作命令见[测试指南](https://github.com/ZSeanYves/MoonbitHTTP/blob/main/tests/README.md)。
-
-仓库在 CI 中执行 Native、Wasm、Wasm-GC 和 JavaScript 严格检查与测试、架构检查、
-Native TLS 套件、HTTP/3/QUIC 互操作，以及受控 Native 性能/参考运行。这些是有界的
-开发和 loopback 验证，不单独证明公网容量、长时间可靠性、跨平台部署覆盖或完整的
-独立安全审计。
-
-各版本的变化见[更新日志](CHANGELOG.md)。
-
-## 注意事项
-
-- `0.7.0` 是 alpha 架构线，包路径可能发生破坏性变化。
-- Native QUIC TLS 需要 OpenSSL 3.5 或更高版本。
-- 浏览器 fetch/WebSocket adapter 和在线 OCSP 获取属于后续范围。
-- 可移植目标构建通过只证明包可编译，不证明该目标已经提供可用网络实现。
-
-## 许可证
-
-Apache License 2.0，见 [`LICENSE`](LICENSE)。
+当前源码的 Native 客户端和服务端入口已有调整。发送请求、配置连接池或绑定监听地址，可参阅对应的包文档。[客户端用法](adapter/native/client/README_zh.md) · [服务端用法](adapter/native/server/README_zh.md) · [更新日志](CHANGELOG.md)

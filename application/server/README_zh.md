@@ -1,24 +1,24 @@
-# `server`
+# `application/server`
 
-Status: canonical
-Scope: public server lifecycle and listener contracts
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[English](README.md) · [项目说明](../../README_zh.md)
 
-## 用途
-定义 server limits、生命周期、listener/accepted connection contract、监督、关闭和 metrics。
+用 `ServerSupervisor` 配合 `Listener` 接受连接、限制并发并协调关闭。监听器和请求处理函数由应用提供。`begin_shutdown` 停止接收新连接，并让已接收连接在配置的宽限期内结束。
 
-## 入口
-入口是 ServerSupervisor、ServerConfig、ServerLimits、Listener、AcceptedConnection、ServerMetrics。
+在 `moon.pkg` 中导入
 
-## 依赖与目标
-依赖 transport 与 async task；真实 socket 使用 adapter/native/server 或其他 listener adapter。
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/application/server",
+}
+```
 
-## 使用边界
-校验 ServerConfig，启动 Supervisor，传入 listener，并释放每个 accepted connection。
+将函数放入调用方包的 `.mbt` 文件中。
 
-## 不变量与范围
-连接上限、accept 错误统计、状态转换和优雅关闭由此负责；不绑定端口、不选择 HTTP framing。
-
-## 规范文档
-- [中文总览](../../README_zh.md)
+```moonbit
+pub async fn[L : @server.Listener] serve(listener : L) -> Unit {
+  let limits = { ..@server.ServerLimits::defaults(), max_connections: 128, }
+  let config = @server.ServerConfig::defaults().with_limits(limits)
+  let supervisor = @server.ServerSupervisor::new(config~).unwrap_or_error()
+  supervisor.serve(listener).unwrap_or_error()
+}
+```

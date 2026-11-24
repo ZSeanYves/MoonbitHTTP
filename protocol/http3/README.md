@@ -1,39 +1,30 @@
-# `http3`
+# `protocol/http3`
 
-Status: canonical
-Scope: public HTTP/3 session, codec, and state machines
-Source: working-tree (governed by Git)
-Last reviewed: 2026-11-23
+[中文](README_zh.md) · [Project README](../../README.md)
 
-## Purpose
-Implements HTTP/3 frames, fields, SETTINGS/control streams, QPACK, request streams, connection state, and QUIC stream actions.
+Decode HTTP/3 frames and QPACK field sections, or drive request and control streams together with `Http3Session`. The example decodes a single DATA frame from a request stream. For a live connection, `advance` drives QUIC and HTTP/3. Handle stream resets and GOAWAY in the connection loop.
 
-## Entry points
-Use Http3Connection, Http3Driver, frame types, QpackField, and QPACK encoder/decoder APIs.
+In `moon.pkg`
 
-## Dependencies and targets
-Depends on types, codec, and quic; protocol-core builds target Native, Wasm, Wasm-GC, and JS, while network use needs host adapters.
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/protocol/http3",
+} for "test"
+```
 
-## Connection sessions
+Save as `example_test.mbt`.
 
-Create one `Http3Session` per `QuicTlsDriver`. Give the session exclusive use of QUIC application streams. Feed the results of TLS `start`, `on_datagram` and `poll` to `advance`. Transmit each returned `Transport(SendDatagram(...))`, including datagrams accompanying `Failed`. Continue polling while the connection is idle.
+```moonbit
+test "decode a DATA frame" {
+  let decoder = @http3.Http3FrameDecoder::new().unwrap()
+  decoder.feed(b"\x00\x02hi").unwrap()
+  assert_true(decoder.next() is Ok(Some(H3Data(b"hi"))))
+  decoder.finish().unwrap()
+}
+```
 
-Request-stream DATA is delivered incrementally. A large frame may yield multiple `H3DataReceived` events. The standalone `Http3FrameDecoder` returns complete frames.
+## Driving a session
 
-A client calls `start_request(fields, fin=true)` for a bodyless request. A server receives `Message(H3HeadersReceived(...))` and can send its response before the upload completes. Both sides can queue DATA, trailers and FIN using `send_data`, `send_headers` and `finish`. Call `advance([], now_ms)` after application writes. A full output queue preserves the stream position for retry. Stream resets and stops remain directional; `cancel` aborts both directions. The owner handles UDP routing, socket lifetime and handshake failures.
+Give one session exclusive access to the QUIC application streams. Feed TLS driver actions from `start`, `on_datagram` and `poll` to `advance`. Transmit its datagrams even when the batch includes a failure. After queuing writes, call `advance([], now_ms)`. Retry `Http3WriteBlocked` after transport progress.
 
-## Usage
-Feed QUIC stream fragments to `Http3Driver::on_stream_data` and apply its actions in order. Dispatch end-of-message processing on `Event(H3MessageFinished(id))`. If QPACK instructions arrive after a request's FIN, the driver emits its completion on the encoder-stream callback after decoding the pending fields. Requests can arrive ahead of the peer control stream and use the initial settings.
-
-Forward QUIC `StreamReset` and `SendStopped` to `on_stream_reset` and `on_stop_sending`. A request input reset releases blocked QPACK fields. Aborting a critical stream yields `H3ClosedCriticalStream`. Local `cancel_request_stream` requests cancellation of both stream directions and emits the QPACK decoder instruction.
-
-## Invariants and scope
-Critical streams, duplicate fields, CONNECT settings gates, QPACK bounds, body lengths, and request lifecycle transitions are enforced here; sockets are outside.
-
-`Http3WriteBlocked` permits retry after further transport progress. A frame larger than the entire write budget raises `Http3LimitExceeded`. Call `defer_body_credit` for a pull-driven consumer and `consume_body(id, bytes_read)` as it reads or discards DATA. QUIC framing and the critical streams continue to receive credit.
-
-Use `Http3Session::send_goaway(first_rejected)` on a server control stream. Choose a client bidirectional stream ID above all requests the application might have processed. A subsequent frame may lower the boundary. The peer stops opening requests after the first GOAWAY. Already-open requests below the boundary can finish. [HTTP/3 connection shutdown](https://www.rfc-editor.org/rfc/rfc9114.html#section-5.2)
-
-## Canonical docs
-
-- [Root guide](../../README.md)
+The standalone decoder returns whole frames. A session can emit several data events for one frame. For a pull-based consumer, call `defer_body_credit` and then `consume_body` as bytes are read or discarded. Dispatch completion on `H3MessageFinished`, which may arrive after FIN if QPACK is blocked. A server starts graceful shutdown with `send_goaway(first_rejected)`. Admitted requests below the boundary can finish.

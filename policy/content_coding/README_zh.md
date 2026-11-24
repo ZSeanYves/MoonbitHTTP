@@ -1,24 +1,32 @@
-# `content_coding`
+# `policy/content_coding`
 
-Status: canonical
-Scope: public optional content-coding policy
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[English](README.md) · [项目说明](../../README_zh.md)
 
-## 用途
-解析并增量解码 gzip、deflate、Brotli 等响应 content coding。
+解码采用 `identity`、`gzip`、`deflate` 或 `br` 的响应正文。完整字节响应使用 `decode_bytes_response`，流式响应使用 `decode_response`。多层编码按相反顺序解开；可通过 `ContentCodingLimits` 限制输入、输出和编码层数。
 
-## 入口
-入口是 parse_content_codings、ContentCodingLimits、ContentDecoder、decode_response/decode_bytes_response。
+在 `moon.pkg` 中导入
 
-## 依赖与目标
-依赖 body、types 和 flate/Brotli codec；在依赖可用的四目标环境使用。
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/policy/content_coding",
+  "ZSeanYves/MoonbitHTTP/core/types",
+} for "test"
+```
 
-## 使用边界
-用 ContentCodingLimits 构造限制，解析响应头后使用 decode_response 包装 body。
+将示例保存为 `example_test.mbt`。
 
-## 不变量与范围
-解码输出独立受限；畸形流返回类型化错误，并在策略边界调整表示头。
-
-## 规范文档
-- [中文总览](../../README_zh.md)
+```moonbit
+test "decode a deflate response" {
+  let headers = @types.HeaderMap::new()
+  headers.append_string("content-encoding", "deflate").unwrap()
+  let response : @types.Response[Bytes] = {
+    status: 200,
+    version: Http11,
+    headers,
+    body: b"\x78\x9c\xcb\x48\xcd\xc9\xc9\x07\x00\x06\x2c\x02\x15",
+  }
+  let decoded = @content_coding.decode_bytes_response(response).unwrap()
+  assert_eq(decoded.body, b"hello")
+  assert_true(decoded.headers.get_string("content-encoding") is None)
+}
+```

@@ -1,24 +1,24 @@
 # `tests/support`
 
-Status: development
-Scope: test and white-box support; not a v1 runtime API
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[中文](README_zh.md) · [Project README](../../README.md)
 
-## Purpose
-Provides deterministic fragmentation, fault injection, recording writers, in-memory datagrams, fixed clocks, and zero entropy for tests.
+Test helpers used within this checkout. Exercise streaming code with `RecordingWriter` and injected read or write errors, datagram code with an in-memory socket, and time-dependent code with `FixedClock`. The module archive excludes test packages.
 
-## Entry points
-Use fragment, FaultReader, RecordingWriter, MemoryDatagramSocket, FixedClock, and ZeroEntropy only from tests.
+In `moon.pkg`
 
-## Dependencies and targets
-Depends on transport, async I/O, and types. Importable for tests but carries no v1 compatibility promise.
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/tests/support",
+} for "test"
+```
 
-## Usage
-Inject a fixture into a codec, driver, or capability contract and assert observable actions; keep failures and boundaries explicit.
+Save as `example_test.mbt`.
 
-## Invariants and scope
-Fixtures are deterministic and bounded. ZeroEntropy and in-memory sockets are never production security or network providers.
-
-## Canonical docs
-- [Root guide](../../README.md)
+```moonbit
+test "advance a test clock" {
+  let clock = @support.FixedClock::new(100L, 0L)
+  let before = clock.monotonic_millis()
+  clock.advance(25L).unwrap()
+  assert_eq(clock.monotonic_millis(), before + 25L)
+}
+```

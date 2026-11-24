@@ -1,24 +1,24 @@
-# `types`
+# `core/types`
 
-Status: canonical
-Scope: public protocol-independent data and error core
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[中文](README_zh.md) · [Project README](../../README.md)
 
-## Purpose
-Owns validated Request, Response, HeaderMap, methods, versions, Uri, Authority, IP addresses, endpoints, dates, limits, and shared errors.
+Construct requests and responses shared by all three HTTP versions. `Request[B]` and `Response[B]` carry the body type you choose. `Uri` parses request targets, and `HeaderMap` preserves repeated fields and matches names case-insensitively. Header values are bytes. Use `to_string_lossy()` for display.
 
-## Entry points
-Use HeaderMap, Uri, Authority, Endpoint, IpAddress, Limits, and generic Request[B]/Response[B] records.
+In `moon.pkg`
 
-## Dependencies and targets
-Has no local package dependency; intended for Native, Wasm, Wasm-GC, and JS.
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/core/types",
+} for "test"
+```
 
-## Usage
-Construct through validating constructors and propagate typed errors. Keep the body parameter generic until an owning layer selects a Body implementation.
+Save as `example_test.mbt`.
 
-## Invariants and scope
-Header names, URI authorities, IP literals, methods, and limits are validated at construction. No framing, socket, TLS, resolver, or policy implementation lives here.
-
-## Canonical docs
-- [Root guide](../../README.md)
+```moonbit
+test "look up a header" {
+  let headers = @types.HeaderMap::new()
+  headers.append_string("Content-Type", "text/plain").unwrap()
+  let value = headers.get_string("content-type").unwrap()
+  assert_eq(value.to_string_lossy(), "text/plain")
+}
+```

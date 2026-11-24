@@ -1,20 +1,28 @@
-# `quic`
+# `protocol/quic`
 
-> Status: protocol engine
-> Scope: QUIC packet protection, transport state and path actions
-> Targets: JS, Native, Wasm, Wasm-GC
+[中文](README_zh.md) · [Project README](../../README.md)
 
-`quic` is an incremental protocol state machine. It consumes injected
-runtime/transport TLS capabilities and emits actions for a driver; it does not create
-UDP sockets. Initial, Handshake and Application packet spaces, Retry/version
-negotiation and path validation remain explicit state transitions.
+QUIC v1 packet and frame codecs, CRYPTO and STREAM reassembly, flow control, loss recovery and connection IDs. The example fills a gap in the CRYPTO stream. When driving a connection, pass a timestamp to `poll(now_ms)` and send the resulting datagrams. Use `send_stream_prefix` for flow-controlled partial writes and report acknowledged STREAM frames, including empty FINs, to release retransmission state.
 
-After accepting bytes from a `StreamData` event, call `consume_stream_data(stream_id, count)` once for those bytes. Consumption releases receive storage and advances both byte windows. Delaying consumption applies backpressure on an active stream. A receive reset returns the remaining final-size credit. Once both directions finish, the connection releases any remaining storage and replenishes the peer's stream-count credit.
+In `moon.pkg`
 
-`QuicDatagramDriver::poll()` sends pending window updates, and the driver releases outstanding send bytes on packet acknowledgement. A custom transport advertises `local_transport_params()` during the handshake, reliably sends frames from `take_credit_updates()` and reports delivery with `acknowledge_stream_frame(frame)` for each acknowledged STREAM or RESET_STREAM. Report empty FINs as well. Stream-count credit is returned after the sending half has been acknowledged. A transport that reports ranges separately can pass `fin=true` to `acknowledge_stream_data` when the final frame is acknowledged.
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/protocol/quic",
+} for "test"
+```
 
-For nonblocking writes, `QuicDatagramDriver::send_stream_prefix` returns the accepted byte count and its datagram. Keep the remaining bytes until a later receive or timer callback. A blocked write preserves its offset and a final write carries FIN only on the last portion.
+Save as `example_test.mbt`.
 
-The [TLS package](../tls/README.md) provides the handshake and packet keys used by QUIC.
+```moonbit
+test "reassemble out-of-order CRYPTO data" {
+  let crypto = @quic.QuicCryptoReassembler::new().unwrap()
+  assert_eq(crypto.feed(3L, b"lo").unwrap(), [])
+  let _ = crypto.feed(0L, b"hel").unwrap()
+  assert_eq(crypto.next_offset(), 5L)
+}
+```
 
-Use `stop_sending` to relinquish unread input. It suppresses further data delivery for that half while still accounting for in-flight bytes and the final size. A peer stop produces `SendStopped(id, code)`. Drop queued output for that stream. The datagram driver sends the reset in `poll()` and retains it across congestion and packet loss. Custom transports must discard obsolete STREAM retransmissions and reliably send the accompanying `SendFrame(ResetStream(...))`.
+## Flow control and recovery
+
+Call `consume_stream_data(stream_id, count)` once for bytes accepted by the application. A custom transport must send the frames returned by `take_credit_updates()` reliably and call `acknowledge_stream_frame(frame)` on delivery. Keep the unwritten suffix after a partial write. Use `stop_sending` to abandon input. When the peer sends `SendStopped`, discard queued output for that stream. [Connection ID support](CID-SUPPORT.md)

@@ -1,26 +1,15 @@
 # `examples/cmd/smoke_server`
 
-Status: development
-Scope: Native HTTP service smoke executable
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[English](README.md) · [项目说明](../../../README_zh.md)
 
-## 用途
-运行本地 socket 检查使用的有界 HTTP/1 与 h2c service fixture。
+在本机试用 HTTP/1.1 和 h2c 的 Native 示例服务。从仓库根目录启动，默认监听 `127.0.0.1:18080`。GET 返回一段文本，POST 原样返回请求正文。可在另一终端用流式客户端示例或 curl 访问。
 
-## 入口
-通过仓库互操作 runner 运行 moon run examples/cmd/smoke_server。
+```sh
+moon run examples/cmd/smoke_server --target native
 
-## 依赖与目标
-依赖 service、body、types 和 async socket，仅支持 native。
+# 在另一终端运行
+curl http://127.0.0.1:18080/
+curl --data-binary 'hello' http://127.0.0.1:18080/echo
+```
 
-## 使用边界
-使用仓库 runner 控制端口、进程生命周期和客户端用例。
-
-## 不变量与范围
-不定义另一套协议实现，也不提供生产配置面。
-
-## 规范文档
-- [中文总览](../../../README_zh.md)
-
-Go 成对对照使用 `--echo-h1 PORT` 与 `--echo-h2 PORT CERT KEY`。两种模式均在回环地址接收请求、读取有大小上限的正文并原样返回。HTTP/2 模式使用仓库测试证书协商 TLS。
+需要缓冲正文的互操作用例时，在 `--` 后传入 `--echo-h1 PORT` 或 `--echo-h2 PORT CERT KEY`。后者使用传入的 PEM 文件提供 HTTP/2 over TLS。两种模式收集的请求正文上限均为 1 MiB。

@@ -1,28 +1,14 @@
 # `examples/cmd/h3_smoke_server`
 
-Status: development
-Scope: Native HTTP/3 interoperability executable
-Source: working-tree (governed by Git)
-Last reviewed: 2026-11-23
+[中文](README_zh.md) · [Project README](../../../README.md)
 
-## Purpose
-Provides a bounded loopback UDP fixture for HTTP/3 and QUIC interoperability. It is not a library or general-purpose server.
+A Native HTTP/3 example and interoperability fixture. It listens on `127.0.0.1:18443` over UDP, returns a text body for GET and echoes a POST body while asking the peer to rotate its destination connection ID. The example loads the repository’s loopback certificate and key. Run from the repository root with OpenSSL 3.5 or later in the 3.x series.
 
-## Entry points
-Run through repo-tools/tools/http3_interoperability.mbtx; it binds 127.0.0.1:18443 and serves bounded GET/POST cases.
+```sh
+moon run examples/cmd/h3_smoke_server --target native
 
-Pass `--once` to initiate supervisor shutdown as soon as the first handler starts. The fixture then finishes that exchange over HTTP/3 and exits. This allows an independent peer to observe GOAWAY while its upload is still in flight.
+# In a second terminal
+moon run examples/cmd/streaming_client --target native -- h3 get https://localhost:18443/ tests/fixtures/tls/localhost.cert.pem
+```
 
-POST requests also ask the peer to rotate the destination connection ID before the handler echoes the request body. The 256-byte initial stream window keeps a 4,096-byte upload in progress during rotation.
-
-## Dependencies and targets
-Uses `NativeHttp3Listener::bind` to access the connection and `serve_http3_connection` to run the streaming request handler. Native UDP and the OpenSSL QUIC TLS provider supply network I/O.
-
-## Usage
-Let the repository runner start and stop this executable. Never use its checked-in credentials for deployment.
-
-## Invariants and scope
-Connection, body, stream, and UDP work stays bounded; results are interoperability evidence, not pressure or performance guarantees.
-
-## Canonical docs
-- [Root guide](../../../README.md)
+Pass `-- --once` after `--target native` to begin draining when the first handler starts. The handler can finish its exchange before the server exits.

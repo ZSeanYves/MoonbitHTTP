@@ -1,11 +1,23 @@
-# `transport`
+# `runtime/transport`
 
-> Status: public capability contract
-> Scope: resolver, network policy, clock, stream/datagram and TLS interfaces
-> Targets: JS, Native, Wasm, Wasm-GC
+[中文](README_zh.md) · [Project README](../../README.md)
 
-`transport` is the only capability injection boundary. Portable drivers depend
-on these interfaces and never perform implicit DNS, socket creation or clock
-access. Native implementations are in [`adapter/native/transport`](../../adapter/native/transport/).
+Contracts for a stream connector, datagram I/O, DNS, network policy, time, and TLS handshakes. Supply implementations for your host or use the Native adapters. For QUIC, bind the TLS identity to the HTTPS origin even if the datagram peer is a numeric IP address.
 
-`resolve_endpoints` accepts an endpoint, lookup callback and `ResolveOptions`. Numeric endpoints pass through directly. Hostname lookups apply the configured deadline and result count, preserve candidate order, and keep the original scheme and port. The caller checks its network policy for the hostname and each numeric address it will connect to.
+In `moon.pkg`
+
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+} for "test"
+```
+
+Save as `example_test.mbt`.
+
+```moonbit
+test "configure QUIC for an HTTPS origin" {
+  let options = @transport.TlsOptions::for_quic("example.com")
+  assert_eq(options.server_name, Some("example.com"))
+  assert_eq(options.alpn, ["h3"])
+}
+```

@@ -1,24 +1,22 @@
-# `codec`
+# `core/codec`
 
-Status: canonical
-Scope: public protocol-independent codec primitives
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[English](README.md) · [项目说明](../../README_zh.md)
 
-## 用途
-提供有界增量字节缓冲、行/前缀检查、结构化错误和共享 Huffman 编解码。
+按片段接收输入时可使用有容量限制的字节缓冲区。HPACK 和 QPACK 的字符串字面量共用此包的 Huffman 编解码器。缓冲区会区分输入不完整与超出大小限制。
 
-## 入口
-入口是 Buffer::new/feed/read_line/take 以及 huffman_encode/decode。
+在 `moon.pkg` 中导入
 
-## 依赖与目标
-无本地包依赖，面向四个编译目标。
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/core/codec",
+} for "test"
+```
 
-## 使用边界
-给 Buffer 明确上限并接受任意分片；在协议边界转换 CodecError。
+将示例保存为 `example_test.mbt`。
 
-## 不变量与范围
-缓冲增长有界；Huffman 拒绝非法 code、数据中的 EOS 和非法 padding；字段规则由协议包负责。
-
-## 规范文档
-- [中文总览](../../README_zh.md)
+```moonbit
+test "round-trip a Huffman string" {
+  let encoded = @codec.huffman_encode(b"www.example.com")
+  assert_eq(@codec.huffman_decode(encoded).unwrap(), b"www.example.com")
+}
+```

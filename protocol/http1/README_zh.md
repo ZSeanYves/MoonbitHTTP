@@ -1,24 +1,26 @@
-# `http1`
+# `protocol/http1`
 
-Status: canonical
-Scope: public HTTP/1 codec and state package
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[English](README.md) · [项目说明](../../README_zh.md)
 
-## 用途
-实现增量 request/response decoder、start-line/字段校验、body framing、trailers 和 encoder，不做 I/O。
+在字节流上增量解析和编码 HTTP/1.1 消息。向请求或响应解码器送入已收到的字节，反复调用 `next()`，直至返回 `Ok(None)`。分别处理首部、正文数据、尾部字段和消息结束事件。底层流到达 EOF 时调用 `finish_input()` 检查消息是否完整。
 
-## 入口
-入口是 RequestDecoder、ResponseDecoder、事件类型和 framing encoder；异步 Reader/Writer 使用 service。
+在 `moon.pkg` 中导入
 
-## 依赖与目标
-依赖 types 和 codec，面向四个编译目标。
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/protocol/http1",
+} for "test"
+```
 
-## 使用边界
-输入任意分片并消费所有事件，保留 over-read；依据 Body SizeHint 选择 framing。
+将示例保存为 `example_test.mbt`。
 
-## 不变量与范围
-拒绝歧义长度、非法 trailer、请求走私组合和非法 method/target/header；生命周期由 runtime/service/application/client 负责。
-
-## 规范文档
-- [中文总览](../../README_zh.md)
+```moonbit
+test "read headers across two chunks" {
+  let decoder = @http1.RequestDecoder::new()
+  decoder.feed(b"GET / HTTP/1.1\r\n").unwrap()
+  assert_true(decoder.next() is Ok(None))
+  decoder.feed(b"Host: example.com\r\n\r\n").unwrap()
+  assert_true(decoder.next() is Ok(Some(RequestHead(_))))
+  assert_true(decoder.next() is Ok(Some(RequestEnd)))
+}
+```

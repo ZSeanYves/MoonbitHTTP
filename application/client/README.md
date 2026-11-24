@@ -1,37 +1,37 @@
-# `client`
+# `application/client`
 
-> Status: public application API
-> Scope: request execution, pooling and client policy over protocol drivers
-> Targets: JS, Native, Wasm, Wasm-GC
+[中文](README_zh.md) · [Project README](../../README.md)
 
-`client` owns application-facing request lifecycle and connection reuse. It
-receives transport capabilities and delegates framing to HTTP protocol
-packages. Native socket construction belongs in [`adapter/native/client`](../../adapter/native/client/).
+Execute requests over transport capabilities supplied by your application. Use `Http1Client::send` for byte bodies with redirect, retry and cache policies. `Http1PooledRoundTripper::execute_body` streams a single exchange, including chunked uploads and trailers. Consume or cancel each response body to release the connection.
 
-For a single exchange with streaming input and output, pass a `Request[B]`
-where `B : Body` to `Http1PooledRoundTripper::execute_body`. HTTP/1.1 uploads
-with an unknown size use chunked framing and can carry trailers. The executor
-pulls the next frame after the previous write completes. Read the response to
-completion or cancel its body to release the pool lease. Automatic redirect,
-retry and cache policy belong to the byte-oriented `Http1Client::send` API.
+In `moon.pkg`
 
-Set `Expect: 100-continue` on an HTTP/1.1 upload to send the headers before
-opening the body. A 100 response starts the upload. An early final response
-cancels the unopened producer and retires the connection after the response
-body is consumed. The client waits up to one second, capped by the configured
-response-header timeout, before proceeding with a silent peer. The same reader
-preserves partial responses across this wait. The caller can inspect a 417
-response and decide whether it can replay the upload without the expectation.
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/application/client",
+  "ZSeanYves/MoonbitHTTP/core/types",
+}
 
-Use `with_http2_pool` to send requests to direct HTTP/2 origins. The pool
-shares one opening or active session per origin and waits for the peer's
-initial SETTINGS before admitting requests. HTTPS requires negotiated `h2`.
-Cleartext origins use prior knowledge. Set `Http2PoolOptions.max_connections`
-to bound physical connections, including connections draining after GOAWAY.
-Call `execute_body` for streaming uploads and responses or `execute` for a
-bounded byte response. Consume or cancel streamed responses inside the scope.
-The scope closes its sockets and joins the connection workers on exit.
+supported_targets = "js+native+wasm+wasm-gc"
+```
 
-Use `with_http3_pool` with an authenticated connection opener, or call the native factory with a resolver and policy. Send absolute HTTPS requests with `Http3Client::send`. Concurrent callers for one origin share a handshake. Distinct hosts or ports require separate connections, even when they resolve to the same IP. A response holds its connection until its body is consumed or cancelled and its upload finishes. The pool retires idle connections when another origin needs the capacity.
+Add this function to a `.mbt` file in the importing package.
 
-For package and client API changes since 0.6, see the [changelog](../../CHANGELOG.md).
+```moonbit
+pub async fn get(client : @client.Http1Client, uri : @types.Uri) -> Bytes {
+  let response = client
+    .send({
+      http_method: Get,
+      uri,
+      version: Http11,
+      headers: @types.HeaderMap::new(),
+      body: b"",
+    })
+    .unwrap_or_error()
+  response.body
+}
+```
+
+## Multiplexed clients
+
+Use `with_http2_pool` for HTTP/2. HTTPS requires negotiated `h2`, and cleartext uses prior knowledge. Use `execute_body` for streaming or `execute` for a bounded byte response. For HTTP/3, pass an authenticated connection opener to `with_http3_pool` and send absolute HTTPS requests through `Http3Client::send`. The pool shares connections by origin. Finish reading or cancel streamed responses inside the pool scope.

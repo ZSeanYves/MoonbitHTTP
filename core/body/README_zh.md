@@ -1,24 +1,31 @@
-# `body`
+# `core/body`
 
-Status: canonical
-Scope: public core body and backpressure contract
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[English](README.md) · [项目说明](../../README_zh.md)
 
-## 用途
-定义与协议无关的 Body、Frame、SizeHint、有界队列、取消和显式收集。
+`Body` 由消费方按需读取数据帧和尾部字段。已知内容可用 `EmptyBody` 或 `FullBody`，按需生产数据可用 `BodyStream::from_pull`。通常逐帧消费；需要完整正文时可用 `collect` 指定字节上限。提前放弃读取时应取消流。 下方异步示例在 Native、Wasm 和 JavaScript 上运行，Wasm-GC 仅验证编译。
 
-## 入口
-入口是 EmptyBody、FullBody、QueueBody、BodyStream、from_pull、collect 以及 Body trait。
+在 `moon.pkg` 中导入
 
-## 依赖与目标
-依赖 types 和异步队列，面向四个编译目标。
+```moonbit
+import {
+  "moonbitlang/core/async",
+  "ZSeanYves/MoonbitHTTP/core/body",
+} for "test"
 
-## 使用边界
-已知字节用 FullBody，有限帧用 QueueBody，并发生产消费用有界 BodyStream；collect 必须给出上限。
+options(
+  "allow-experimental-packages": ["moonbitlang/core/async"],
+)
+```
 
-## 不变量与范围
-保留 Data、Trailers、完成、取消和终止错误；队列与收集均有上限，framing 仍由协议包负责。
+将示例保存为 `example_test.mbt`。
 
-## 规范文档
-- [中文总览](../../README_zh.md)
+```moonbit
+async test "collect a small body" {
+  let (bytes, trailers) = @body.collect(
+    @body.FullBody::new(b"hello"),
+    max_bytes=8,
+  )
+  assert_eq(bytes, b"hello")
+  assert_true(trailers is None)
+}
+```

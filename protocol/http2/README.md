@@ -1,24 +1,25 @@
-# `http2`
+# `protocol/http2`
 
-Status: canonical
-Scope: public HTTP/2 codec and state package
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[中文](README_zh.md) · [Project README](../../README.md)
 
-## Purpose
-Implements frame encoding/decoding, HPACK, stream and connection state, SETTINGS, GOAWAY/RST, and bounded flow control without I/O.
+Decode and encode HTTP/2 frames and HPACK header blocks, and track multiplexed streams and flow control with `H2Connection`. Use separate HPACK contexts for each direction and keep each context for the life of the connection. The peer decodes blocks in the order they were encoded.
 
-## Entry points
-Use FrameDecoder, H2Connection, HpackContext, H2Frame, and frame encoding functions; use service for concurrent I/O dispatch.
+In `moon.pkg`
 
-## Dependencies and targets
-Depends on types and codec; intended for Native, Wasm, Wasm-GC, and JS.
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/protocol/http2",
+} for "test"
+```
 
-## Usage
-Create a connection with explicit role and limits, feed frames, and apply returned actions. Keep body backpressure at the service boundary.
+Save as `example_test.mbt`.
 
-## Invariants and scope
-Frame size, stream IDs, pseudo-fields, SETTINGS roles, HPACK bounds, and both flow-control windows are checked before state changes.
-
-## Canonical docs
-- [Root guide](../../README.md)
+```moonbit
+test "exchange an HPACK header block" {
+  let sender = @http2.HpackContext::new()
+  let receiver = @http2.HpackContext::new()
+  let fields : Array[@http2.HpackHeader] = [{ name: "x-id", value: b"42", }]
+  let block = sender.encode_incremental(fields).unwrap()
+  assert_eq(receiver.decode(block).unwrap(), fields)
+}
+```

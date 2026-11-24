@@ -1,24 +1,27 @@
-# `auth`
+# `policy/auth`
 
-Status: canonical
-Scope: public optional policy
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[English](README.md) · [项目说明](../../README_zh.md)
 
-## 用途
-处理 Basic、Bearer 和 Digest 凭据及授权，不打开连接，也不实现协议驱动。
+解析认证质询，并为 Basic、Bearer 和 Digest 生成 Authorization 字段值。调用方将返回的 `HeaderValue` 加入发往指定源站的请求。使用 Digest 时可通过会话跟踪质询与 nonce 计数。
 
-## 入口
-入口是 BasicCredentials、BearerToken、DigestChallenge、DigestSession、DigestPolicy、AuthLimits 和 select_digest_challenge。
+在 `moon.pkg` 中导入
 
-## 依赖与目标
-依赖 types 与哈希支持，面向 Native、Wasm、Wasm-GC、JS。
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/policy/auth",
+} for "test"
 
-## 使用边界
-使用 new 构造并校验凭据，再取得 HeaderValue；处理 Digest challenge 时显式传入策略和限制。
+supported_targets = "js+native+wasm+wasm-gc"
+```
 
-## 不变量与范围
-凭据和 challenge 有大小上限；弱算法、未支持的 qop/charset 按策略拒绝；不持久化凭据。
+将示例保存为 `example_test.mbt`。
 
-## 规范文档
-- [中文总览](../../README_zh.md)
+```moonbit
+test "format a bearer credential" {
+  let token = @auth.BearerToken::new("example-token").unwrap()
+  assert_eq(
+    token.authorization().unwrap().to_string_lossy(),
+    "Bearer example-token",
+  )
+}
+```

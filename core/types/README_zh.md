@@ -1,24 +1,24 @@
-# `types`
+# `core/types`
 
-Status: canonical
-Scope: public protocol-independent data and error core
-Source: working-tree (governed by Git)
-Last reviewed: 2026-10-01
+[English](README.md) · [项目说明](../../README_zh.md)
 
-## 用途
-拥有经过校验的 Request、Response、HeaderMap、method、version、Uri、Authority、IP、endpoint、date、limits 和共享错误。
+构造三个 HTTP 版本共用的请求和响应。`Request[B]` 和 `Response[B]` 的正文类型由调用方选择。`Uri` 解析请求目标，`HeaderMap` 保留重复字段，按名称查找时忽略大小写。字段值以字节保存，显示时可以使用 `to_string_lossy()`。
 
-## 入口
-入口是 HeaderMap、Uri、Authority、Endpoint、IpAddress、Limits 以及泛型 Request[B]/Response[B]。
+在 `moon.pkg` 中导入
 
-## 依赖与目标
-无本地包依赖，面向四个编译目标。
+```moonbit
+import {
+  "ZSeanYves/MoonbitHTTP/core/types",
+} for "test"
+```
 
-## 使用边界
-通过校验构造器创建值并传播类型化错误；body 参数保持泛型，直到上层选择 Body 实现。
+将示例保存为 `example_test.mbt`。
 
-## 不变量与范围
-构造时校验 header name、URI authority、IP literal、method 和 limits；不包含 framing、socket、TLS、resolver、policy。
-
-## 规范文档
-- [中文总览](../../README_zh.md)
+```moonbit
+test "look up a header" {
+  let headers = @types.HeaderMap::new()
+  headers.append_string("Content-Type", "text/plain").unwrap()
+  let value = headers.get_string("content-type").unwrap()
+  assert_eq(value.to_string_lossy(), "text/plain")
+}
+```

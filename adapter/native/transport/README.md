@@ -1,15 +1,33 @@
 # `adapter/native/transport`
 
-> Status: Native adapter
-> Scope: TCP/UDP sockets, resolver and clock implementations
-> Targets: Native only
+[中文](README_zh.md) · [Project README](../../../README.md)
 
-This package implements the `transport` contracts using the host runtime. Its
-connectors receive a `NetworkPolicy` and authorize endpoints before opening a
-socket. It is not imported by portable protocol code.
+Native only. `TcpConnector` opens connections to numeric endpoints. Its caller checks the network policy before resolving names and connecting to each candidate. UDP socket APIs take the policy directly. `NativeResolver` resolves hostnames in system order and accepts numeric IP literals without DNS. `NativeClock` supplies monotonic and wall-clock time.
 
-`UdpSocket` accepts only numeric unicast peers, including IPv4-mapped IPv6.
-Multicast destinations are rejected before socket creation. `UdpServerSocket`
-preserves each datagram's actual source and authorizes each peer operation.
+In `moon.pkg`
 
-`NativeResolver` returns unique unscoped IPv4/IPv6 results in system `getaddrinfo` order, up to `max_results`. Resolution runs outside the event loop. Timeouts release the caller while outstanding system lookups finish within a process-wide limit of 16 workers.
+```moonbit
+import {
+  "moonbitlang/core/async",
+  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @native_transport,
+  "ZSeanYves/MoonbitHTTP/runtime/transport",
+} for "test"
+
+supported_targets = "+native"
+
+options(
+  "allow-experimental-packages": ["moonbitlang/core/async"],
+)
+```
+
+Save as `example_test.mbt`.
+
+```moonbit
+async test "resolve a numeric loopback address" {
+  let resolver = @native_transport.NativeResolver::new()
+  let addresses = resolver
+    .resolve("127.0.0.1", @transport.ResolveOptions::defaults())
+    .unwrap()
+  assert_eq(addresses.length(), 1)
+}
+```
