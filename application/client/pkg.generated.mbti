@@ -20,7 +20,6 @@ pub fn decide_retry(RetryPolicy, Int32, @types.Method, BodyReplayability, RetryC
 
 pub fn response_from_cache(@cache.CacheHit, @types.Method) -> @types.Response[Bytes]
 
-#alias(with_http2_client)
 pub async fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @transport.TlsProvider, P : @transport.NetworkPolicy, K : @transport.Clock, X] with_http2_pool(C, R, T, P, K, async (Http2Client) -> X, options? : Http2PoolOptions) -> X
 
 pub async fn[X] with_http3_pool(async (ClientEndpoint, async (@service.Http3ClientConnection) -> Unit, () -> Unit) -> Unit, async (Http3Client) -> X, max_connections? : Int32, server_name? : String?) -> X

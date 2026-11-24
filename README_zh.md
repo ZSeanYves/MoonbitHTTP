@@ -44,6 +44,8 @@ TLS 监听地址提供 HTTP/1.1 和 HTTP/2 服务。
 
 ### 命名约定
 
+同一个包内，每项公开操作只保留一个名称。移动包或重命名 API 时，同步迁移调用方，并在更新日志中记录变更。
+
 - 包路径用小写，按职责命名，如 `protocol/http2`、`adapter/callback`。源码文件用 `snake_case` 写明职责，如 `tcp_listener.mbt`。对应的黑盒和白盒测试分别以 `_test.mbt`、`_wbtest.mbt` 结尾。
 - 函数和方法用 `snake_case`。动作用动词，如 `send`。状态查询读作判断，如 `is_idle`。由回调限定资源使用期限的入口用 `with_` 开头。
 - 类型和 trait 用 `PascalCase`。具体类型写明它管理的对象，如 `Http2ClientConnection`。trait 写明调用方需要的能力，如 `NameResolver`。跨协议接口的类型名使用 `Http1`、`Http2`、`Http3`，函数名使用 `http1`、`http2`、`http3`。线上协议沿用 `h2c`、ALPN 标识 `h2` 等标准拼写。

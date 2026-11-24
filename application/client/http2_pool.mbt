@@ -30,7 +30,6 @@ pub fn Http2PoolOptions::defaults() -> Http2PoolOptions {
 ///|
 /// Open a bounded pool with explicit DNS, numeric connection policy, TLS and clock capabilities.
 /// HTTPS requires h2 ALPN. Cleartext HTTP uses HTTP/2 prior knowledge.
-#alias(with_http2_client)
 pub async fn[
   C : @transport.StreamConnector,
   R : @transport.NameResolver,

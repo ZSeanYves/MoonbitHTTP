@@ -11,7 +11,6 @@ pub fn ServerShutdown::new() -> ServerShutdown {
 }
 
 ///|
-#alias(started)
 pub fn ServerShutdown::has_started(self : ServerShutdown) -> Bool {
   self.started
 }
@@ -30,6 +29,3 @@ pub async fn ServerShutdown::wait(self : ServerShutdown) -> Unit noraise {
     self.changed.wait()
   }
 }
-
-///|
-pub type H3ServerShutdown = ServerShutdown

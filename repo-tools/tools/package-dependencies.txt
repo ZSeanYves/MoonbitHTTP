@@ -1,6 +1,5 @@
 [packages]
 core/body
-adapter/uv
 core/codec
 core/types
 policy/auth
@@ -24,7 +23,6 @@ internal/http_fields
 adapter/native/client
 adapter/native/server
 policy/content_coding
-tests/blackbox/uv_api
 internal/async_support
 internal/packet_crypto
 tests/blackbox/tls_api
@@ -81,7 +79,6 @@ protocol/http3 main core/types
 runtime/service main core/body
 protocol/quic main protocol/tls
 runtime/service main core/types
-adapter/callback main adapter/uv
 tests/benchmarks main core/codec
 application/client main core/body
 protocol/http3 main protocol/quic
@@ -106,7 +103,6 @@ adapter/native/client main core/types
 adapter/native/server main core/types
 application/client main policy/cookie
 policy/content_coding main core/types
-tests/blackbox/uv_api test adapter/uv
 application/client main protocol/http1
 application/client main protocol/http2
 runtime/service main runtime/detection

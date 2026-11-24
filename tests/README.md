@@ -4,7 +4,7 @@ Run from the module root. Each case belongs to one suite on each supported backe
 
 | Suite | Location | What it exercises |
 | --- | --- | --- |
-| `blackbox` | `tests/blackbox/<subject>_api/` | One package's public contract, including validation, codec vectors, policy decisions and backward compatibility. |
+| `blackbox` | `tests/blackbox/<subject>_api/` | One package's public contract, including validation, codec vectors and policy decisions. |
 | `whitebox` | `*_wbtest.mbt` beside the implementation | Private state, functions and invariants within one component. |
 | `integration` | `tests/integration/<scenario>/` | Components working together, including in-memory QUIC peers, HTTP request lifecycles and Native socket/TLS exchanges. |
 | `integration` with private assertions | `*_integration_wbtest.mbt` beside the implementation | Peer exchanges that also check internal state such as pending ACKs or listener routing entries. The integration command includes these cases. |

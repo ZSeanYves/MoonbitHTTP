@@ -7,7 +7,6 @@ import {
 }
 
 // Values
-#alias(detect_h2c_upgrade)
 pub fn is_h2c_upgrade(@types.HeaderMap) -> Bool
 
 pub fn select_protocol(String?, BytesView) -> Detection

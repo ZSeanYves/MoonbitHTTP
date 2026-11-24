@@ -461,7 +461,7 @@ async test "HTTP/1 final response interrupts a pending upload" {
     size_hint=@body.SizeHint::exact(1),
   )
   let response = conn.send(phase_timeout_request(body)) catch {
-    @service.Http1ClientTimeout::ClientConnectionTimeout(RequestBody) =>
+    @service.Http1ClientTimeout(RequestBody) =>
       fail("HTTP 413 was ready but send returned RequestBody timeout")
     error => raise error
   }

@@ -49,6 +49,8 @@ to serve HTTP/1.1 and HTTP/2 on the same TLS listener.
 
 ### Naming conventions
 
+Each public operation has one canonical name within its package. When an API moves or is renamed, update its callers and record the change in the changelog.
+
 - Package paths use lowercase names by responsibility, such as `protocol/http2` and `adapter/callback`. Source files use `snake_case` and name the feature they contain, such as `tcp_listener.mbt`. Related tests use `_test.mbt` or `_wbtest.mbt`.
 - Functions and methods use `snake_case`. Use a verb for an action (`send`), a question for a predicate (`is_idle`), and `with_…` when a callback owns a resource for a limited scope.
 - Types and traits use `PascalCase`. Name a concrete type for what it owns (`Http2ClientConnection`) and a trait for the capability its caller needs (`NameResolver`). Across protocols, use `Http1`, `Http2` and `Http3` in type names and `http1`, `http2` and `http3` in function names. Keep wire spellings such as `h2c` and the ALPN identifier `h2`.

@@ -1,6 +1,5 @@
 ///|
 #warnings("-unnecessary_annotation")
-#alias(H2ClientConfig)
 pub(all) struct Http2ClientConfig {
   limits : @types.Limits
   max_concurrent_streams : Int32
@@ -78,7 +77,6 @@ priv struct Http2ClientState {
 }
 
 ///|
-#alias(H2Client)
 pub struct Http2ClientConnection {
   priv shared : Http2ClientState
 }
@@ -306,7 +304,6 @@ pub fn Http2ClientConnection::close(self : Http2ClientConnection) -> Unit {
 }
 
 ///|
-#alias(with_h2_client_connection)
 pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, X] with_http2_client_connection(
   reader : R,
   writer : W,

@@ -1,13 +1,12 @@
 ///|
-/// Adapts async callbacks from uv.mbt or another event loop to BinaryReader/BinaryWriter.
-/// The adapter does not pin a uv version or add native dependencies to codecs.
+/// Adapts host callbacks to the async binary reader and writer interfaces.
 pub struct CallbackTransport {
   priv writer_controller : @aio.BinaryWriterController
   priv reader_controller : @aio.BinaryReaderController
-  read_callback : async (FixedArray[Byte], Int32, Int32) -> Int32
-  write_callback : async (Bytes, Int32, Int32) -> Int32
-  close_callback : () -> Unit
-  mut closed : Bool
+  priv read_callback : async (FixedArray[Byte], Int32, Int32) -> Int32
+  priv write_callback : async (Bytes, Int32, Int32) -> Int32
+  priv close_callback : () -> Unit
+  priv mut closed : Bool
 }
 
 ///|

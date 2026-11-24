@@ -1,6 +1,5 @@
 ///|
 #derive(Eq, Debug)
-#alias(H3ClientError)
 pub(all) suberror Http3ClientError {
   InvalidOrigin
   InvalidRequest(String)
@@ -20,7 +19,6 @@ priv struct H3ClientRequest {
 
 ///|
 /// A single authenticated HTTP/3 origin. Each send owns one request stream.
-#alias(H3Client)
 pub struct Http3ClientConnection {
   priv io : Http3ConnectionIo
   priv authority : @types.Authority
@@ -340,7 +338,6 @@ async fn Http3ClientConnection::read(self : Http3ClientConnection) -> Unit {
 /// Build an HTTP client on a verified connection. By default the HTTPS
 /// origin uses the authenticated hostname and the UDP peer port. Supply
 /// origin_port when a different transport port serves that HTTPS origin.
-#alias(with_h3_client)
 pub async fn[X] with_http3_client_connection(
   io : Http3ConnectionIo,
   run : async (Http3ClientConnection) -> X,

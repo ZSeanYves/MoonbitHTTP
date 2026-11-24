@@ -57,7 +57,6 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_connection(
 /// Use concurrent HTTP requests on one verified HTTPS origin. An explicit
 /// resolver enables hostname endpoints. All addresses share the handshake
 /// timeout, and the TLS options retain the authenticated origin identity.
-#alias(with_http3_client)
 pub async fn[P : @transport.NetworkPolicy, X] with_http3_client_connection(
   endpoint : @types.Endpoint,
   policy : P,

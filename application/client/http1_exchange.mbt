@@ -33,8 +33,7 @@ async fn[T] Http1PooledRoundTripper::exchange_result(
       Err(ClientConnection(ConnectionClosed))
     @service.Http1ClientError::RequestInProgress =>
       Err(ClientConnection(RequestInProgress))
-    @service.Http1ClientTimeout::ClientConnectionTimeout(phase) =>
-      Err(self.phase_timeout(phase))
+    @service.Http1ClientTimeout(phase) => Err(self.phase_timeout(phase))
     @http1.Http1Error::InvalidStartLine(detail) =>
       Err(ClientHttp1(InvalidStartLine(detail)))
     @http1.Http1Error::InvalidHeader(detail) =>

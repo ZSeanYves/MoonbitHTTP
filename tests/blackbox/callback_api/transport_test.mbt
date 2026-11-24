@@ -68,3 +68,22 @@ async test "callback progress stays within the supplied slice" {
     }
   }
 }
+
+///|
+async test "closing the transport calls the host once and rejects further writes" {
+  let mut closes = 0
+  let transport = @callback.CallbackTransport::new(
+    fn(_, _, _) { 0 },
+    fn(_, _, len) { len },
+    close_callback=fn() { closes += 1 },
+  )
+  transport.close()
+  transport.close()
+  assert_eq(closes, 1)
+  try transport.write(b"x") catch {
+    TransportError(@callback.CallbackTransportClosed, ..) => ()
+    err => raise err
+  } noraise {
+    _ => fail("expected the closed transport error")
+  }
+}

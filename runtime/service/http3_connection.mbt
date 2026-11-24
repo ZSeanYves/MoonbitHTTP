@@ -2,7 +2,6 @@
 /// Scoped I/O for one HTTP/3 connection on a dedicated datagram socket.
 /// One consumer reads event batches. The reader and recovery timer keep
 /// running while application code handles a batch.
-#alias(H3ConnectionIo)
 pub struct Http3ConnectionIo {
   session : @http3.Http3Session
   priv server_shutdown : ServerShutdown?

@@ -45,7 +45,6 @@ pub fn[
 
 ///|
 /// Run a bounded HTTP/2 pool over native TCP. HTTPS requires negotiated h2.
-#alias(with_http2_client)
 pub async fn[
   R : @transport.NameResolver,
   P : @transport.NetworkPolicy,

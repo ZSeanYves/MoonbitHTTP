@@ -1,7 +1,6 @@
 ///|
 /// A sequential HTTP/1 connection. A response body must be fully consumed
 /// before the next request is sent on the same connection.
-#alias(ClientConnection)
 pub struct Http1ClientConnection[R, W] {
   priv reader : R
   priv writer : W
@@ -25,7 +24,6 @@ priv enum Http1ClientState {
 
 ///|
 #derive(Eq, Debug)
-#alias(ClientConnectionError)
 pub(all) suberror Http1ClientError {
   ConnectionClosed
   RequestInProgress
@@ -44,7 +42,6 @@ fn[R, W] Http1ClientConnection::finish_response(
 
 ///|
 #derive(Eq, Debug)
-#alias(ClientConnectionPhase)
 pub(all) enum Http1ClientPhase {
   RequestHeaders
   RequestBody
@@ -54,9 +51,8 @@ pub(all) enum Http1ClientPhase {
 
 ///|
 #derive(Eq, Debug)
-#alias(ClientConnectionTimeout)
 pub(all) suberror Http1ClientTimeout {
-  ClientConnectionTimeout(Http1ClientPhase)
+  Http1ClientTimeout(Http1ClientPhase)
 }
 
 ///|
@@ -111,7 +107,7 @@ async fn[R : @aio.BinaryReader] client_read_with_timeout(
   phase : Http1ClientPhase,
 ) -> Bytes? {
   read_some_with_timeout(reader, max_len, timeout_ms) catch {
-    @async.TimeoutError => raise ClientConnectionTimeout(phase)
+    @async.TimeoutError => raise Http1ClientTimeout(phase)
     error => raise error
   }
 }
@@ -128,7 +124,7 @@ async fn[W : @aio.BinaryWriter] client_write_with_timeout(
     writer.write(bytes)
     on_written()
   }) catch {
-    @async.TimeoutError => raise ClientConnectionTimeout(phase)
+    @async.TimeoutError => raise Http1ClientTimeout(phase)
     error => raise error
   }
 }
@@ -176,7 +172,7 @@ async fn[R, W : @aio.BinaryWriter, B : @body.Body] Http1ClientConnection::write_
           @async.with_timeout(
             timeout,
             () => body.next_frame(),
-            error=ClientConnectionTimeout(RequestBody),
+            error=Http1ClientTimeout(RequestBody),
           )
         None => body.next_frame()
       }
@@ -323,11 +319,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] Http1Clie
     }
     match self.response_headers_timeout_ms {
       Some(ms) =>
-        @async.with_timeout(
-          ms,
-          wait,
-          error=ClientConnectionTimeout(ResponseHeaders),
-        )
+        @async.with_timeout(ms, wait, error=Http1ClientTimeout(ResponseHeaders))
       None => wait()
     }
   })

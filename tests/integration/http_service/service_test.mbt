@@ -227,7 +227,7 @@ async test "service: HTTP/1 request-header timeout closes the connection" {
     response_body_timeout_ms=None,
   ).unwrap()
   try client.send(phase_timeout_request(@body.EmptyBody::new())) catch {
-    @service.Http1ClientTimeout::ClientConnectionTimeout(RequestHeaders) => ()
+    @service.Http1ClientTimeout(RequestHeaders) => ()
     _ => fail("request-header timeout changed its phase")
   } noraise {
     _ => fail("blocked request headers did not time out")
@@ -267,7 +267,7 @@ async test "service: HTTP/1 request-body timeout cancels a stalled producer or w
       on_cancel=fn(_) { cancelled += 1 },
     )
     try client.send(phase_timeout_request(body)) catch {
-      @service.Http1ClientTimeout::ClientConnectionTimeout(RequestBody) => ()
+      @service.Http1ClientTimeout(RequestBody) => ()
       _ => fail("request-body timeout changed its phase")
     } noraise {
       _ => fail("blocked request body did not time out")
@@ -290,7 +290,7 @@ async test "service: HTTP/1 response-header timeout closes the connection" {
     response_body_timeout_ms=None,
   ).unwrap()
   try client.send(phase_timeout_request(@body.EmptyBody::new())) catch {
-    @service.Http1ClientTimeout::ClientConnectionTimeout(ResponseHeaders) => ()
+    @service.Http1ClientTimeout(ResponseHeaders) => ()
     _ => fail("response-header timeout changed its phase")
   } noraise {
     _ => fail("blocked response headers did not time out")
@@ -316,7 +316,7 @@ async test "service: HTTP/1 response-body timeout closes the connection" {
   let response = client.send(phase_timeout_request(@body.EmptyBody::new()))
   assert_true(!client.is_reusable())
   try response.body.next_frame() catch {
-    @service.Http1ClientTimeout::ClientConnectionTimeout(ResponseBody) => ()
+    @service.Http1ClientTimeout(ResponseBody) => ()
     _ => fail("response-body timeout changed its phase")
   } noraise {
     _ => fail("blocked response body did not time out")
@@ -407,7 +407,7 @@ async test "service: HTTP/2 client sends preface and receives streamed body" {
     writer.write(Bytes::from_array(input))
   })
   let writer : SignalingCaptureWriter = { bytes: [], signal: request_written, }
-  @service.with_h2_client_connection(reader, test_writer(writer), async fn(
+  @service.with_http2_client_connection(reader, test_writer(writer), async fn(
     client,
   ) {
     let headers = @types.HeaderMap::new()

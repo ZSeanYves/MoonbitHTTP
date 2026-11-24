@@ -4,6 +4,9 @@
 
 ### Breaking changes
 
+- Import `adapter/callback` for callback-based transports. The `adapter/uv` package has been removed. Use the transport’s read, write and close methods to invoke the host callbacks.
+- Service clients are `Http1ClientConnection`, `Http2ClientConnection` and `Http3ClientConnection`. Use `with_http2_client_connection` or `with_http3_client_connection` for one connection and `with_http2_pool` or `with_http3_pool` for a pool. The old names were removed.
+- Use `ServerShutdown::has_started` to query shutdown, `is_h2c_upgrade` for upgrade detection and `Http1ClientTimeout(phase)` to match an HTTP/1 timeout.
 - Custom stream adapters must implement `BinaryReader` and `BinaryWriter` from `moonbitlang/core/async/io`. The library now uses the async runtime bundled with MoonBit `0.10.22+124d61d05`.
 - Custom QUIC transports must pass acknowledgements for FIN and reset frames to `acknowledge_stream_frame` so the peer can open new streams.
 
@@ -15,7 +18,6 @@
 
 ### Changed
 
-- The callback transport is available at `adapter/callback`. Service clients for a single connection are now named `Http1ClientConnection`, `Http2ClientConnection` and `Http3ClientConnection`. Use `with_http2_pool` or `with_http3_pool` for pooled requests and `with_http3_client_connection` for one native HTTP/3 connection. The earlier import and API names remain available.
 - Published packages omit test fixtures, test helpers and the native OCSP/CRL fixture signer.
 - Native QUIC uses OpenSSL 3 for packet protection, key derivation and Retry integrity. The native HTTP/3 handshake requires OpenSSL 3.5 or later.
 - Native DNS lookups return multiple addresses per family in system order. Callers can time out while a system lookup is still running.
