@@ -139,13 +139,13 @@ async test "service HTTP2 client accepts small DATA frames sent before SETTINGS 
     consumed.get()
   })
   let writer : SignalingCaptureWriter = { bytes: [], signal: writes, }
-  let config : @service.H2ClientConfig = {
-    ..@service.H2ClientConfig::defaults(),
+  let config : @service.Http2ClientConfig = {
+    ..@service.Http2ClientConfig::defaults(),
     body_queue_capacity: 2,
     h2_receive_window_bytes: 9,
   }
   @async.with_timeout(1000, async fn() {
-    @service.with_h2_client_connection(
+    @service.with_http2_client_connection(
       reader,
       test_writer(writer),
       async fn(client) {

@@ -51,7 +51,7 @@ test "http2 request semantics require authority and constrain TE" {
   bad_te[4] = te
   assert_true(decode_h2_request(1, bad_te) is Ok(_))
   assert_true(
-    decode_client_response(1, [{ name: ":status", value: b"200", }, te])
+    decode_http2_response_head(1, [{ name: ":status", value: b"200", }, te])
     is Err(StreamError(1, ProtocolError, _)),
   )
 }

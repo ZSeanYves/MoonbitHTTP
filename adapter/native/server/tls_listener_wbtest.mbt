@@ -79,7 +79,7 @@ async test "native TLS HTTP listener finishes chunked and close-delimited respon
         assert_true(secure.is_authenticated())
         assert_eq(secure.alpn(), Some("http/1.1"))
         let io = @service.StreamIo::new(secure.transport)
-        let client = @service.ClientConnection::new(io, io).unwrap()
+        let client = @service.Http1ClientConnection::new(io, io).unwrap()
         let headers = @types.HeaderMap::new()
         headers.append_string("host", "localhost").unwrap()
         headers.append_string("connection", "close").unwrap()
@@ -256,7 +256,7 @@ async test "TLS HTTP/2 supervisor drains accepted streams and refuses new reques
         .unwrap()
       defer secure.close()
       let io = @service.StreamIo::new(secure.transport)
-      @service.with_h2_client_connection(io, io, async fn(client) {
+      @service.with_http2_client_connection(io, io, async fn(client) {
         fn request() -> @types.Request[@body.FullBody] {
           let headers = @types.HeaderMap::new()
           headers.append_string("host", "localhost").unwrap()

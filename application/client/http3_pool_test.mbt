@@ -44,7 +44,7 @@ async test "HTTP/3 pool validates before waiting and cancels a shared opener onl
           assert_true(exited.try_get() is None)
           for bad in ["https://other.test/", "http://api.test/"] {
             try ignore(pool.send(request(bad, bad))) catch {
-              @service.H3ClientError::InvalidOrigin => ()
+              @service.Http3ClientError::InvalidOrigin => ()
               error => raise error
             } noraise {
               _ => fail("invalid origin accepted")

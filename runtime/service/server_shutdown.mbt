@@ -11,7 +11,8 @@ pub fn ServerShutdown::new() -> ServerShutdown {
 }
 
 ///|
-pub fn ServerShutdown::started(self : ServerShutdown) -> Bool {
+#alias(started)
+pub fn ServerShutdown::has_started(self : ServerShutdown) -> Bool {
   self.started
 }
 

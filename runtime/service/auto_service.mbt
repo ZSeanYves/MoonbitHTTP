@@ -6,9 +6,9 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_aut
   config~ : ServerConfig = ServerConfig::defaults(),
   shutdown~ : ServerShutdown? = None,
 ) -> Unit {
-  let detector = @auto.Detector::new()
+  let detector = @detection.Detector::new()
   let prefix : Array[Byte] = []
-  let mut detection = @auto.Detection::Undetermined
+  let mut detection = @detection.Detection::Undetermined
   while detection == Undetermined && prefix.length() < 24 {
     match
       read_some_with_timeout(

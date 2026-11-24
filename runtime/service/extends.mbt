@@ -5,22 +5,22 @@ pub extend ServiceConfigError with Eq::{equal, not_equal}
 pub extend ServiceConfigError with @debug.Debug::{to_repr}
 
 ///|
-pub extend ClientConnectionPhase with Eq::{equal, not_equal}
+pub extend Http1ClientPhase with Eq::{equal, not_equal}
 
 ///|
-pub extend ClientConnectionPhase with @debug.Debug::{to_repr}
+pub extend Http1ClientPhase with @debug.Debug::{to_repr}
 
 ///|
-pub extend ClientConnectionTimeout with Eq::{equal, not_equal}
+pub extend Http1ClientTimeout with Eq::{equal, not_equal}
 
 ///|
-pub extend ClientConnectionTimeout with @debug.Debug::{to_repr}
+pub extend Http1ClientTimeout with @debug.Debug::{to_repr}
 
 ///|
-pub extend ClientConnectionError with Eq::{equal, not_equal}
+pub extend Http1ClientError with Eq::{equal, not_equal}
 
 ///|
-pub extend ClientConnectionError with @debug.Debug::{to_repr}
+pub extend Http1ClientError with @debug.Debug::{to_repr}
 
 ///|
 pub extend StreamIo with @aio.BinaryReader::{
@@ -49,7 +49,7 @@ pub extend StreamIo with @aio.BinaryWriter::{
 pub extend StreamIoError with @debug.Debug::{to_repr}
 
 ///|
-pub extend H3ClientError with Eq::{equal, not_equal}
+pub extend Http3ClientError with Eq::{equal, not_equal}
 
 ///|
-pub extend H3ClientError with @debug.Debug::{to_repr}
+pub extend Http3ClientError with @debug.Debug::{to_repr}

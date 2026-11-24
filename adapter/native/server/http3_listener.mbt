@@ -105,23 +105,23 @@ fn H3PeerSocket::finish(self : H3PeerSocket, error? : Error) -> Unit {
 ///|
 priv struct H3Admissions {
   pending : @aqueue.Queue[@server_api.AcceptedConnection]
-  shutdown : @service.H3ServerShutdown
+  shutdown : @service.ServerShutdown
 }
 
 ///|
 impl @server_api.Listener for H3Admissions with fn accept(self) {
-  if self.shutdown.started() {
+  if self.shutdown.has_started() {
     return Ok(None)
   }
   let result = self.pending.get() catch {
-    err => if self.shutdown.started() { return Ok(None) } else { raise err }
+    err => if self.shutdown.has_started() { return Ok(None) } else { raise err }
   }
   Ok(Some(result))
 }
 
 ///|
 impl @server_api.Listener for H3Admissions with fn close(self) {
-  if !self.shutdown.started() {
+  if !self.shutdown.has_started() {
     self.shutdown.begin()
     let queued = self.pending.try_get() catch { _ => None }
     if queued is Some(peer) {
@@ -156,7 +156,7 @@ pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
   endpoint : @types.Endpoint,
   policy : P,
   options : @transport.TlsOptions,
-  handler : async (@types.Endpoint, @service.H3ConnectionIo) -> Unit,
+  handler : async (@types.Endpoint, @service.Http3ConnectionIo) -> Unit,
   limits~ : @types.Limits = @types.Limits::defaults(),
   qpack_limits~ : @http3.QpackLimits = @http3.QpackLimits::defaults(),
   transport_params~ : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
@@ -195,7 +195,7 @@ pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
     Err(error) => return Err(AcceptFailed("\{Repr(error)}"))
   }
   let clock = @transport_native.NativeClock::new()
-  let shutdown = @service.H3ServerShutdown::new()
+  let shutdown = @service.ServerShutdown::new()
   let run_peer = async fn(
     peer : H3PeerSocket,
     source,
@@ -325,7 +325,7 @@ fn NativeHttp3Listener::route(
     return
   }
   guard initial is Some((destination, remote)) &&
-    !self.admissions.shutdown.started() else {
+    !self.admissions.shutdown.has_started() else {
     return
   }
   let id = destination.bytes()
@@ -382,7 +382,7 @@ pub async fn NativeHttp3Listener::serve(
   if self.serving {
     return Err(AlreadyRunning)
   }
-  if self.admissions.shutdown.started() {
+  if self.admissions.shutdown.has_started() {
     return Err(Closed)
   }
   self.serving = true

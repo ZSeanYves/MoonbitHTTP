@@ -2,9 +2,10 @@
 /// Scoped I/O for one HTTP/3 connection on a dedicated datagram socket.
 /// One consumer reads event batches. The reader and recovery timer keep
 /// running while application code handles a batch.
-pub struct H3ConnectionIo {
+#alias(H3ConnectionIo)
+pub struct Http3ConnectionIo {
   session : @http3.Http3Session
-  priv server_shutdown : H3ServerShutdown?
+  priv server_shutdown : ServerShutdown?
   priv authenticated_origin : @types.Endpoint?
   priv mut failure : Error?
   priv limits : @types.Limits
@@ -18,23 +19,23 @@ pub struct H3ConnectionIo {
 ///|
 /// Hand queued application writes to QUIC immediately. A blocked prefix
 /// remains queued for the background reader and timer.
-pub async fn H3ConnectionIo::flush(self : H3ConnectionIo) -> Unit {
+pub async fn Http3ConnectionIo::flush(self : Http3ConnectionIo) -> Unit {
   (self.flush_writes)()
 }
 
 ///|
 /// Request a change of this endpoint's QUIC connection ID. The peer can
 /// finish in-flight traffic while retirement and recovery run in the background.
-pub async fn H3ConnectionIo::rotate_local_connection_id(
-  self : H3ConnectionIo,
+pub async fn Http3ConnectionIo::rotate_local_connection_id(
+  self : Http3ConnectionIo,
 ) -> Unit {
   (self.rotate_cid)()
 }
 
 ///|
 /// Flush application writes and wait for the next batch of peer events.
-pub async fn H3ConnectionIo::next_events(
-  self : H3ConnectionIo,
+pub async fn Http3ConnectionIo::next_events(
+  self : Http3ConnectionIo,
 ) -> Array[@http3.Http3SessionAction] {
   self.flush()
   self.events.get()
@@ -57,8 +58,8 @@ pub async fn[
   socket : S,
   clock : K,
   options : @transport.TlsOptions,
-  run : async (H3ConnectionIo) -> X,
-  server_shutdown~ : H3ServerShutdown? = None,
+  run : async (Http3ConnectionIo) -> X,
+  server_shutdown~ : ServerShutdown? = None,
   limits~ : @types.Limits = @types.Limits::defaults(),
   qpack_limits~ : @http3.QpackLimits = @http3.QpackLimits::defaults(),
   handshake_timeout_ms~ : Int32 = 10000,

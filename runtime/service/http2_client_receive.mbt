@@ -1,5 +1,5 @@
 ///|
-fn decode_client_response(
+fn decode_http2_response_head(
   stream_id : Int32,
   fields : Array[@http2.HpackHeader],
 ) -> Result[(Int32, @types.HeaderMap), @http2.H2ProtocolError] {
@@ -83,8 +83,8 @@ fn decode_client_trailers(
 }
 
 ///|
-async fn H2ClientShared::deliver_headers(
-  self : H2ClientShared,
+async fn Http2ClientState::deliver_headers(
+  self : Http2ClientState,
   stream_id : Int32,
   fields : Array[@http2.HpackHeader],
   end_stream : Bool,
@@ -103,7 +103,8 @@ async fn H2ClientShared::deliver_headers(
     return
   }
   if !stream.response_started {
-    let (status, headers) = match decode_client_response(stream_id, fields) {
+    let (status, headers) = match
+      decode_http2_response_head(stream_id, fields) {
       Ok(value) => value
       Err(error) => raise error
     }
@@ -223,8 +224,8 @@ async fn H2ClientShared::deliver_headers(
 }
 
 ///|
-async fn H2ClientShared::deliver_data(
-  self : H2ClientShared,
+async fn Http2ClientState::deliver_data(
+  self : Http2ClientState,
   stream_id : Int32,
   data : Array[Byte],
   end_stream : Bool,
@@ -291,8 +292,8 @@ async fn H2ClientShared::deliver_data(
 }
 
 ///|
-async fn H2ClientShared::finish_header_block(
-  self : H2ClientShared,
+async fn Http2ClientState::finish_header_block(
+  self : Http2ClientState,
   stream_id : Int32,
   block : Array[Byte],
   end_stream : Bool,
@@ -310,7 +311,7 @@ async fn H2ClientShared::finish_header_block(
 }
 
 ///|
-async fn h2_client_reader_pump(shared : H2ClientShared) -> Unit {
+async fn h2_client_reader_pump(shared : Http2ClientState) -> Unit {
   let header_block : Array[Byte] = []
   let mut header_stream = 0
   let mut header_end_stream = false

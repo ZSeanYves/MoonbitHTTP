@@ -114,7 +114,7 @@ async fn[X] with_pool_peer(
   max_connections~ : Int32 = 2,
 ) -> X {
   let ip = @types.IpAddress::parse("127.0.0.1").unwrap()
-  @client.with_http2_client(
+  @client.with_http2_pool(
     connector,
     @transport.StaticResolver::new([("first.test", [ip]), ("second.test", [ip])]),
     @transport.UnsupportedProvider::new(),
@@ -260,7 +260,7 @@ async test "managed HTTPS checks negotiated h2 and authentication before sending
   let resolver = @transport.StaticResolver::new([
     ("first.test", [@types.IpAddress::parse("127.0.0.1").unwrap()]),
   ])
-  @client.with_http2_client(
+  @client.with_http2_pool(
     connector,
     resolver,
     tls,

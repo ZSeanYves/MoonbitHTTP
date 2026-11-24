@@ -1,0 +1,21 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "ZSeanYves/MoonbitHTTP/adapter/callback"
+
+import {
+  "ZSeanYves/MoonbitHTTP/adapter/uv",
+}
+
+// Values
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+pub using @uv {type CallbackCountError}
+
+pub using @uv {type CallbackTransport}
+
+pub using @uv {type CallbackTransportClosed}
+
+// Traits

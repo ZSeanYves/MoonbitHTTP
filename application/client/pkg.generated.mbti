@@ -20,9 +20,10 @@ pub fn decide_retry(RetryPolicy, Int32, @types.Method, BodyReplayability, RetryC
 
 pub fn response_from_cache(@cache.CacheHit, @types.Method) -> @types.Response[Bytes]
 
-pub async fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @transport.TlsProvider, P : @transport.NetworkPolicy, K : @transport.Clock, X] with_http2_client(C, R, T, P, K, async (Http2Client) -> X, options? : Http2PoolOptions) -> X
+#alias(with_http2_client)
+pub async fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @transport.TlsProvider, P : @transport.NetworkPolicy, K : @transport.Clock, X] with_http2_pool(C, R, T, P, K, async (Http2Client) -> X, options? : Http2PoolOptions) -> X
 
-pub async fn[X] with_http3_pool(async (ClientEndpoint, async (@service.H3Client) -> Unit, () -> Unit) -> Unit, async (Http3Client) -> X, max_connections? : Int32, server_name? : String?) -> X
+pub async fn[X] with_http3_pool(async (ClientEndpoint, async (@service.Http3ClientConnection) -> Unit, () -> Unit) -> Unit, async (Http3Client) -> X, max_connections? : Int32, server_name? : String?) -> X
 
 // Errors
 #derive(Eq, @debug.Debug)
@@ -41,7 +42,7 @@ pub(all) suberror ClientError {
   ClientBody(@body.BodyError)
   ClientTimeout(ClientPhase, Int64, Int64)
   ClientCancelled(String)
-  ClientConnection(@service.ClientConnectionError)
+  ClientConnection(@service.Http1ClientError)
   ClientHttp1(@http1.Http1Error)
   ClientHttp2(@http2.H2ProtocolError)
   ClientProtocol(String)
@@ -265,7 +266,7 @@ pub impl StreamingRoundTripper for Http2Client
 
 pub(all) struct Http2PoolOptions {
   max_connections : Int32
-  session : @service.H2ClientConfig
+  session : @service.Http2ClientConfig
   tls : @transport.TlsOptions
   connect_options : @transport.ConnectOptions
   resolve_options : @transport.ResolveOptions

@@ -54,7 +54,8 @@ pub fn Detector::buffered(self : Detector) -> Bytes {
 }
 
 ///|
-pub fn detect_h2c_upgrade(headers : @types.HeaderMap) -> Bool {
+#alias(detect_h2c_upgrade)
+pub fn is_h2c_upgrade(headers : @types.HeaderMap) -> Bool {
   headers.contains_list_token("connection", "upgrade") &&
   headers.contains_list_token("connection", "http2-settings") &&
   headers.contains_list_token("upgrade", "h2c") &&

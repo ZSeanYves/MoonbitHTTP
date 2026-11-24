@@ -1,6 +1,7 @@
 ///|
 #warnings("-unnecessary_annotation")
-pub(all) struct H2ClientConfig {
+#alias(H2ClientConfig)
+pub(all) struct Http2ClientConfig {
   limits : @types.Limits
   max_concurrent_streams : Int32
   body_queue_capacity : Int32
@@ -12,7 +13,7 @@ pub(all) struct H2ClientConfig {
 }
 
 ///|
-pub fn H2ClientConfig::defaults() -> H2ClientConfig {
+pub fn Http2ClientConfig::defaults() -> Http2ClientConfig {
   {
     limits: @types.Limits::defaults(),
     max_concurrent_streams: 100,
@@ -51,8 +52,8 @@ priv struct H2ClientStream {
 }
 
 ///|
-priv struct H2ClientShared {
-  config : H2ClientConfig
+priv struct Http2ClientState {
+  config : Http2ClientConfig
   runtime : @http2.H2Connection
   encoder : @http2.HpackContext
   decoder : @http2.HpackContext
@@ -77,13 +78,14 @@ priv struct H2ClientShared {
 }
 
 ///|
-pub struct H2Client {
-  priv shared : H2ClientShared
+#alias(H2Client)
+pub struct Http2ClientConnection {
+  priv shared : Http2ClientState
 }
 
 ///|
 async fn[B : @body.Body] send_h2_request_body(
-  shared : H2ClientShared,
+  shared : Http2ClientState,
   stream : H2ClientStream,
   body : B,
   expected : Int32?,
@@ -137,8 +139,8 @@ async fn[B : @body.Body] send_h2_request_body(
 }
 
 ///|
-async fn H2ClientShared::admit_stream(
-  self : H2ClientShared,
+async fn Http2ClientState::admit_stream(
+  self : Http2ClientState,
   end_stream : Bool,
 ) -> Int32 {
   for ;; {
@@ -178,8 +180,8 @@ async fn H2ClientShared::admit_stream(
 
 ///|
 #warnings("-unnecessary_annotation")
-pub async fn[B : @body.Body] H2Client::send(
-  self : H2Client,
+pub async fn[B : @body.Body] Http2ClientConnection::send(
+  self : Http2ClientConnection,
   request : @types.Request[B],
 ) -> @types.Response[@body.BodyStream] {
   let mut upload_owned = false
@@ -273,19 +275,23 @@ pub async fn[B : @body.Body] H2Client::send(
 
 ///|
 /// Whether this session can admit new requests, including requests waiting for a peer slot.
-pub fn H2Client::accepts_requests(self : H2Client) -> Bool {
+pub fn Http2ClientConnection::accepts_requests(
+  self : Http2ClientConnection,
+) -> Bool {
   self.shared.failure is None && !self.shared.draining
 }
 
 ///|
 /// Both directions of every application stream have finished.
-pub fn H2Client::is_idle(self : H2Client) -> Bool {
+pub fn Http2ClientConnection::is_idle(self : Http2ClientConnection) -> Bool {
   self.shared.streams.is_empty()
 }
 
 ///|
 /// Wait for the peer's initial stream limits before issuing a burst on a new connection.
-pub async fn H2Client::wait_for_settings(self : H2Client) -> Unit {
+pub async fn Http2ClientConnection::wait_for_settings(
+  self : Http2ClientConnection,
+) -> Unit {
   while !self.shared.received_settings {
     if self.shared.failure is Some(error) {
       raise error
@@ -295,16 +301,17 @@ pub async fn H2Client::wait_for_settings(self : H2Client) -> Unit {
 }
 
 ///|
-pub fn H2Client::close(self : H2Client) -> Unit {
+pub fn Http2ClientConnection::close(self : Http2ClientConnection) -> Unit {
   self.shared.close_with(None)
 }
 
 ///|
-pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, X] with_h2_client_connection(
+#alias(with_h2_client_connection)
+pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, X] with_http2_client_connection(
   reader : R,
   writer : W,
-  run : async (H2Client) -> X,
-  config~ : H2ClientConfig = H2ClientConfig::defaults(),
+  run : async (Http2ClientConnection) -> X,
+  config~ : Http2ClientConfig = Http2ClientConfig::defaults(),
   on_state_change~ : () -> Unit = fn() {  },
 ) -> X {
   match config.validate() {
@@ -312,7 +319,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, X] with_h2_client_con
     Err(error) => raise error
   }
   @async_support.with_group_result(async fn(group) {
-    let shared : H2ClientShared = {
+    let shared : Http2ClientState = {
       config,
       runtime: @http2.H2Connection::new(Client, limits=config.limits),
       encoder: @http2.HpackContext::new(
@@ -346,7 +353,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, X] with_h2_client_con
       close_notified: false,
       discarded_capacity: 0,
     }
-    let client : H2Client = { shared, }
+    let client : Http2ClientConnection = { shared, }
     group.add_defer(fn() { shared.close_with(None) })
     shared.write_bytes(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
     let receive_window = config.h2_receive_window_bytes

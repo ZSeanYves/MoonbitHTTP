@@ -122,7 +122,7 @@ async test "security HPACK: client decodes closed-stream headers before live res
       finished.get()
     })
     @async.with_timeout(1000, async fn() {
-      @service.with_h2_client_connection(reader, test_writer(writer), async fn(
+      @service.with_http2_client_connection(reader, test_writer(writer), async fn(
         client,
       ) {
         let first = client.send(security_request(Get))

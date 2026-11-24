@@ -22,7 +22,7 @@ async fn run_peer_soak(
   let download = Bytes::make(4096, b'Z')
   // One authenticated scope owns the connection for the whole measurement.
   // Each worker keeps one request in flight and checks complete response bytes.
-  @native_client.with_http3_client(
+  @native_client.with_http3_client_connection(
     endpoint,
     @transport.AllowAllPolicy::new(),
     tls,

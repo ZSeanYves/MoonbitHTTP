@@ -9,7 +9,7 @@ Last reviewed: 2026-11-23
 把 HTTP/1、HTTP/2 state machine 接到 async BinaryReader/BinaryWriter，覆盖 h2c、并发 dispatch、背压、deadline 和作用域关闭。
 
 ## 入口
-入口是 serve_http1_connection、serve_http1_or_h2c_connection、serve_http2_connection、serve_auto_connection、ClientConnection、with_h2_client_connection。
+入口是 serve_http1_connection、serve_http1_or_h2c_connection、serve_http2_connection、serve_auto_connection、Http1ClientConnection、with_http2_client_connection。
 
 ## 依赖与目标
 HTTP/3 使用可移植的 HTTP/3 与 QUIC 驱动、专用数据报套接字、时钟和 QUIC TLS provider。宿主套接字由 adapter 提供。
@@ -23,7 +23,7 @@ HTTP/3 使用可移植的 HTTP/3 与 QUIC 驱动、专用数据报套接字、�
 
 HTTP/1.1、HTTP/2、HTTP/3 服务端收到 `Expect: 100-continue` 时，如果仍在等请求正文，会先发 `100 Continue`。遇到不支持的期望值，会在调用 handler 前返回 `417`。HTTP/1.1 客户端等待许可最多一秒，也受响应头超时限制，等待期间收到最终响应会取消上传。
 
-可移植服务端可将同一个 `H3ServerShutdown` 作为 `server_shutdown` 传入各个 `with_http3_connection`。调用 `begin()` 后，各连接的流式处理循环停止接纳请求并发送 GOAWAY。调用方管理宽限期限。已建立的连接因错误或取消退出时，会在 `shutdown_timeout_ms` 内尝试发送 HTTP/3 应用层关闭帧。
+可移植服务端可将同一个 `ServerShutdown` 作为 `server_shutdown` 传入各个 `with_http3_connection`。调用 `begin()` 后，各连接的流式处理循环停止接纳请求并发送 GOAWAY。调用方管理宽限期限。已建立的连接因错误或取消退出时，会在 `shutdown_timeout_ms` 内尝试发送 HTTP/3 应用层关闭帧。
 
 reader task、body queue、流控释放、deadline、取消和 close 均受 service 作用域管理。
 
@@ -36,11 +36,11 @@ reader task、body queue、流控释放、deadline、取消和 close 均受 serv
 使用完整 `ServerConfig` 字面量的调用方需补充该字段，或使用
 `..ServerConfig::defaults()`。
 
-`serve_http3_connection(io, handler)` 为每个接纳的请求运行一个任务，处理器使用 HTTP/1 和 HTTP/2 同款流式请求和响应接口。单个处理器失败会重置对应请求流。响应提前完成时，服务使用 `STOP_SENDING(H3_NO_ERROR)` 停止余下的上传。通过 `on_request_error` 可观测单个处理器错误。`with_h3_client` 在连接作用域内并发处理带类型的客户端请求，允许应用继续消费已接收完整的响应。
+`serve_http3_connection(io, handler)` 为每个接纳的请求运行一个任务，处理器使用 HTTP/1 和 HTTP/2 同款流式请求和响应接口。单个处理器失败会重置对应请求流。响应提前完成时，服务使用 `STOP_SENDING(H3_NO_ERROR)` 停止余下的上传。通过 `on_request_error` 可观测单个处理器错误。`with_http3_client_connection` 在连接作用域内并发处理带类型的客户端请求，允许应用继续消费已接收完整的响应。
 
 ## 规范文档
 - [中文总览](../../README_zh.md)
 
-`H2Client::send` 等待本地容量和对端的并发流额度。SETTINGS 提高额度后可恢复等待的请求。GOAWAY 或连接关闭会唤醒等待者并返回错误。请求头已写出时，取消等待响应头的任务会复位对应的流。
+`Http2ClientConnection::send` 等待本地容量和对端的并发流额度。SETTINGS 提高额度后可恢复等待的请求。GOAWAY 或连接关闭会唤醒等待者并返回错误。请求头已写出时，取消等待响应头的任务会复位对应的流。
 
-`H3ConnectionIo::rotate_local_connection_id()` 可在请求进行期间通知对端切换目的连接 ID。原生客户端和监听器会自动签发一个备用 ID，对端退役后释放旧路由。可移植后端可在启动 QUIC 驱动时注入熵源和路由回调。[连接 ID 生命周期](../../protocol/quic/CID-SUPPORT.md)
+`Http3ConnectionIo::rotate_local_connection_id()` 可在请求进行期间通知对端切换目的连接 ID。原生客户端和监听器会自动签发一个备用 ID，对端退役后释放旧路由。可移植后端可在启动 QUIC 驱动时注入熵源和路由回调。[连接 ID 生命周期](../../protocol/quic/CID-SUPPORT.md)

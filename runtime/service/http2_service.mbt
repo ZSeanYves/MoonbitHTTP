@@ -339,7 +339,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
         dispatch(stream_id)
         return
       }
-      if (shutdown is Some(signal) && signal.started()) ||
+      if (shutdown is Some(signal) && signal.has_started()) ||
         pending.length() >= config.limits.max_concurrent_requests ||
         handlers.length() >= config.limits.max_concurrent_requests {
         streams.reset_stream(stream_id, RefusedStream)

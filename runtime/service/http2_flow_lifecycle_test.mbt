@@ -132,7 +132,7 @@ async test "H2 client consumption credit survives cancellation while another wri
   })
   defer reader.close()
   @async.with_timeout(1000, async fn() {
-    @service.with_h2_client_connection(reader, test_writer(writer), async fn(
+    @service.with_http2_client_connection(reader, test_writer(writer), async fn(
       client,
     ) {
       let response = client.send(security_request(Get))
@@ -278,7 +278,7 @@ async test "H2 interrupted upload frame closes connection before another frame i
   })
   defer reader.close()
   @async.with_timeout(1000, async fn() {
-    @service.with_h2_client_connection(
+    @service.with_http2_client_connection(
       reader,
       test_writer(writer),
       async fn(client) {
@@ -299,7 +299,7 @@ async test "H2 interrupted upload frame closes connection before another frame i
         assert_eq(writer.captured.length(), before)
       },
       config={
-        ..@service.H2ClientConfig::defaults(),
+        ..@service.Http2ClientConfig::defaults(),
         close_callback: Some(fn(_) {
           ignore(closed.try_put(()) catch { _ => false })
         }),
@@ -348,7 +348,7 @@ async test "H2 response cancellation refunds blocked and terminal bodies and pre
     })
     defer reader.close()
     @async.with_timeout(1000, async fn() {
-      @service.with_h2_client_connection(
+      @service.with_http2_client_connection(
         reader,
         test_writer(writer),
         async fn(client) {
@@ -362,7 +362,7 @@ async test "H2 response cancellation refunds blocked and terminal bodies and pre
           done.put(())
         },
         config={
-          ..@service.H2ClientConfig::defaults(),
+          ..@service.Http2ClientConfig::defaults(),
           body_queue_capacity: if terminal {
             2
           } else {
@@ -439,7 +439,7 @@ async test "H2 response cancellation stops an upload waiting for source data" {
   })
   defer reader.close()
   @async.with_timeout(1000, async fn() {
-    @service.with_h2_client_connection(reader, test_writer(writer), async fn(
+    @service.with_http2_client_connection(reader, test_writer(writer), async fn(
       client,
     ) {
       let response = client.send(
@@ -557,7 +557,7 @@ async test "H2 client refunds rejected and reset response DATA without double cr
     })
     defer reader.close()
     @async.with_timeout(1000, async fn() {
-      @service.with_h2_client_connection(
+      @service.with_http2_client_connection(
         reader,
         test_writer(writer),
         async fn(client) {
@@ -579,7 +579,7 @@ async test "H2 client refunds rejected and reset response DATA without double cr
           done.put(())
         },
         config={
-          ..@service.H2ClientConfig::defaults(),
+          ..@service.Http2ClientConfig::defaults(),
           body_queue_capacity: 1,
         },
       )
@@ -621,7 +621,7 @@ async test "H2 upload completion preserves blocked terminal response DATA and tr
     })
     defer reader.close()
     @async.with_timeout(1000, async fn() {
-      @service.with_h2_client_connection(
+      @service.with_http2_client_connection(
         reader,
         test_writer(writer),
         async fn(client) {
@@ -637,7 +637,7 @@ async test "H2 upload completion preserves blocked terminal response DATA and tr
           done.put(())
         },
         config={
-          ..@service.H2ClientConfig::defaults(),
+          ..@service.Http2ClientConfig::defaults(),
           body_queue_capacity: 1,
         },
       )
@@ -711,7 +711,7 @@ async test "H2 admission resumes on SETTINGS, resets an abandoned request and wa
     ignore(wire.wait_frame(@http2.H2_FRAME_PING, 0))
   }
   @async.with_timeout(2000, async fn() {
-    @service.with_h2_client_connection(reader, test_writer(wire), async fn(
+    @service.with_http2_client_connection(reader, test_writer(wire), async fn(
       client,
     ) {
       pause_admission()

@@ -22,7 +22,7 @@ moon add ZSeanYves/MoonbitHTTP@0.7.0
 
 包目录下的 README 介绍用法，`pkg.generated.mbti` 列出公开 API。
 
-当前未发布源码提供 `with_http2_client`，可向多个源站发起流式 HTTP/2
+当前未发布源码提供 `with_http2_pool`，可向多个源站发起流式 HTTP/2
 请求并复用连接。Native 服务端可用 `NativeTcpListener::bind_http_tls` 在同一
 TLS 监听地址提供 HTTP/1.1 和 HTTP/2 服务。
 [客户端用法](application/client/README_zh.md) · [服务端用法](adapter/native/server/README_zh.md)
@@ -40,7 +40,13 @@ TLS 监听地址提供 HTTP/1.1 和 HTTP/2 服务。
   可选 HTTP 策略。
 - `adapter/native/*`：Native TCP/UDP、resolver、clock、OpenSSL 普通 TLS 和
   QUIC TLS 适配器。
-- `adapter/uv`：把宿主 callback 接入 async `BinaryReader`/`BinaryWriter`。
+- `adapter/callback`：把宿主 callback 接入 async `BinaryReader`/`BinaryWriter`。
+
+### 命名约定
+
+- 包路径用小写，按职责命名，如 `protocol/http2`、`adapter/callback`。源码文件用 `snake_case` 写明职责，如 `tcp_listener.mbt`。对应的黑盒和白盒测试分别以 `_test.mbt`、`_wbtest.mbt` 结尾。
+- 函数和方法用 `snake_case`。动作用动词，如 `send`。状态查询读作判断，如 `is_idle`。由回调限定资源使用期限的入口用 `with_` 开头。
+- 类型和 trait 用 `PascalCase`。具体类型写明它管理的对象，如 `Http2ClientConnection`。trait 写明调用方需要的能力，如 `NameResolver`。跨协议接口的类型名使用 `Http1`、`Http2`、`Http3`，函数名使用 `http1`、`http2`、`http3`。线上协议沿用 `h2c`、ALPN 标识 `h2` 等标准拼写。
 
 ## 功能
 
@@ -55,7 +61,7 @@ TLS 监听地址提供 HTTP/1.1 和 HTTP/2 服务。
 - [x] **[portable] 可选策略**：认证、Cookie、缓存决策、重定向、重试和有界内容编码。
 - [x] **[host] 能力注入**：stream/datagram I/O、resolver、clock、entropy、TLS 和
   `NetworkPolicy` 都是显式输入。
-- [x] **[host] Callback 接入**：`adapter/uv` 把宿主 callback 转为 async `BinaryReader`/`BinaryWriter`。
+- [x] **[host] Callback 接入**：`adapter/callback` 把宿主 callback 转为 async `BinaryReader`/`BinaryWriter`。
 - [x] **[native] TCP/UDP、DNS 与 Native client/server 适配器**：提供宿主 socket
   和 resolver 接线；HTTP 语义与 HTTP/1.1 framing 分别对照
   [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) 和

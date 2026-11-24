@@ -84,7 +84,7 @@ async fn main {
     }
     "h2" => {
       let options = @client.Http2PoolOptions::defaults()
-      @native_client.with_http2_client(
+      @native_client.with_http2_pool(
         resolver,
         policy,
         clock,

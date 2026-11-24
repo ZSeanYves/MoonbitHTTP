@@ -12,6 +12,7 @@ protocol/http1
 protocol/http2
 protocol/http3
 runtime/service
+adapter/callback
 runtime/detection
 runtime/transport
 adapter/native/tls
@@ -46,7 +47,7 @@ protocol/http3 main core/types
 runtime/service main core/body
 protocol/quic main protocol/tls
 runtime/service main core/types
-runtime/service test adapter/uv
+adapter/callback main adapter/uv
 application/client main core/body
 protocol/http3 main protocol/quic
 runtime/detection main core/types
@@ -69,6 +70,7 @@ adapter/native/server main core/types
 application/client main policy/cookie
 internal/test_support test core/types
 policy/content_coding main core/types
+runtime/service test adapter/callback
 adapter/native/tls wbtest protocol/tls
 application/client main protocol/http1
 application/client main protocol/http2

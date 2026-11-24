@@ -51,12 +51,12 @@ async test "service: HTTP/2 client applies peer table limit before sending reque
       @http2.encode_response_frames(@http2.HpackContext::new(), 1, response).unwrap(),
     )
   })
-  let config : @service.H2ClientConfig = {
-    ..@service.H2ClientConfig::defaults(),
+  let config : @service.Http2ClientConfig = {
+    ..@service.Http2ClientConfig::defaults(),
     limits: { ..@types.Limits::defaults(), max_dynamic_table_bytes: 1024, },
   }
   @async.with_timeout(1000, async fn() {
-    @service.with_h2_client_connection(
+    @service.with_http2_client_connection(
       reader,
       test_writer(writer),
       async fn(client) {

@@ -1,6 +1,7 @@
 ///|
 #derive(Eq, Debug)
-pub(all) suberror H3ClientError {
+#alias(H3ClientError)
+pub(all) suberror Http3ClientError {
   InvalidOrigin
   InvalidRequest(String)
   ClientClosed
@@ -19,8 +20,9 @@ priv struct H3ClientRequest {
 
 ///|
 /// A single authenticated HTTP/3 origin. Each send owns one request stream.
-pub struct H3Client {
-  priv io : H3ConnectionIo
+#alias(H3Client)
+pub struct Http3ClientConnection {
+  priv io : Http3ConnectionIo
   priv authority : @types.Authority
   priv streams : Map[Int64, H3ClientRequest]
   priv spawn : (async () -> Unit) -> @async.Task[Unit]
@@ -30,7 +32,9 @@ pub struct H3Client {
 
 ///|
 /// A peer that is closing or has sent GOAWAY cannot accept new requests.
-pub fn H3Client::accepts_requests(self : H3Client) -> Bool {
+pub fn Http3ClientConnection::accepts_requests(
+  self : Http3ClientConnection,
+) -> Bool {
   self.terminal is None &&
   self.io.session.peer_goaway() is None &&
   !self.io.session.ended()
@@ -38,18 +42,23 @@ pub fn H3Client::accepts_requests(self : H3Client) -> Bool {
 
 ///|
 /// Includes responses retained by the caller and unfinished uploads.
-pub fn H3Client::is_idle(self : H3Client) -> Bool {
+pub fn Http3ClientConnection::is_idle(self : Http3ClientConnection) -> Bool {
   self.streams.is_empty()
 }
 
 ///|
-fn H3Client::notify_state_change(self : H3Client) -> Unit {
+fn Http3ClientConnection::notify_state_change(
+  self : Http3ClientConnection,
+) -> Unit {
   self.io.write_changed.broadcast()
   (self.state_changed)()
 }
 
 ///|
-fn H3Client::release(self : H3Client, stream : H3ClientRequest) -> Unit {
+fn Http3ClientConnection::release(
+  self : Http3ClientConnection,
+  stream : H3ClientRequest,
+) -> Unit {
   if stream.upload_done && stream.consumed {
     self.streams.remove(stream.incoming.id)
     self.notify_state_change()
@@ -57,8 +66,8 @@ fn H3Client::release(self : H3Client, stream : H3ClientRequest) -> Unit {
 }
 
 ///|
-fn H3Client::fail_request(
-  self : H3Client,
+fn Http3ClientConnection::fail_request(
+  self : Http3ClientConnection,
   id : Int64,
   error : Error,
   reset~ : Bool,
@@ -77,7 +86,10 @@ fn H3Client::fail_request(
 }
 
 ///|
-fn H3Client::stop_upload(self : H3Client, stream : H3ClientRequest) -> Unit {
+fn Http3ClientConnection::stop_upload(
+  self : Http3ClientConnection,
+  stream : H3ClientRequest,
+) -> Unit {
   stream.upload_done = true
   if stream.upload is Some(task) {
     task.cancel()
@@ -86,8 +98,8 @@ fn H3Client::stop_upload(self : H3Client, stream : H3ClientRequest) -> Unit {
 }
 
 ///|
-fn H3Client::close(
-  self : H3Client,
+fn Http3ClientConnection::close(
+  self : Http3ClientConnection,
   error : Error,
   preserve_complete~ : Bool,
 ) -> Unit {
@@ -107,10 +119,10 @@ fn H3Client::close(
 }
 
 ///|
-fn[B : @body.Body] H3Client::request_fields(
-  self : H3Client,
+fn[B : @body.Body] Http3ClientConnection::request_fields(
+  self : Http3ClientConnection,
   request : @types.Request[B],
-) -> Array[@http3.QpackField] raise H3ClientError {
+) -> Array[@http3.QpackField] raise Http3ClientError {
   let target = match
     @http_fields.request_target(request, "https", fallback=Some(self.authority)) {
     Ok(target) => target
@@ -142,8 +154,8 @@ fn[B : @body.Body] H3Client::request_fields(
 }
 
 ///|
-async fn H3Client::open(
-  self : H3Client,
+async fn Http3ClientConnection::open(
+  self : Http3ClientConnection,
   fields : Array[@http3.QpackField],
 ) -> Int64 {
   for ;; {
@@ -159,7 +171,7 @@ async fn H3Client::open(
         Err(Http3Protocol(Http3StreamError(_, H3RequestRejected, _))) if self.io.session.peer_goaway()
           is Some(first) =>
           // Transport progress can wake a sender before read() receives the event.
-          raise H3ClientError::Goaway(first)
+          raise Http3ClientError::Goaway(first)
         Err(error) => raise error
       }
     }
@@ -171,8 +183,8 @@ async fn H3Client::open(
 /// Send once on this origin. Drain or cancel the returned body inside the
 /// client scope. Requests may run concurrently and receive response headers
 /// while their upload producer is still running.
-pub async fn[B : @body.Body] H3Client::send(
-  self : H3Client,
+pub async fn[B : @body.Body] Http3ClientConnection::send(
+  self : Http3ClientConnection,
   request : @types.Request[B],
 ) -> @types.Response[@body.BodyStream] {
   let mut owned = false
@@ -217,8 +229,8 @@ pub async fn[B : @body.Body] H3Client::send(
 }
 
 ///|
-fn H3Client::response_head(
-  self : H3Client,
+fn Http3ClientConnection::response_head(
+  self : Http3ClientConnection,
   stream : H3ClientRequest,
   fields : Array[@http3.QpackField],
 ) -> Unit raise {
@@ -250,7 +262,7 @@ fn H3Client::response_head(
 }
 
 ///|
-async fn H3Client::read(self : H3Client) -> Unit {
+async fn Http3ClientConnection::read(self : Http3ClientConnection) -> Unit {
   while true {
     for action in self.io.next_events() {
       match action {
@@ -288,7 +300,11 @@ async fn H3Client::read(self : H3Client) -> Unit {
             self.stop_upload(stream)
           }
         Transport(StreamReset(id, code)) =>
-          self.fail_request(id, H3ClientError::PeerReset(id, code), reset=true)
+          self.fail_request(
+            id,
+            Http3ClientError::PeerReset(id, code),
+            reset=true,
+          )
         StreamFailed(id, code) =>
           self.fail_request(
             id,
@@ -298,7 +314,7 @@ async fn H3Client::read(self : H3Client) -> Unit {
             reset=false,
           )
         Message(H3GoawayReceived(first)) => {
-          self.terminal = Some(H3ClientError::Goaway(first))
+          self.terminal = Some(Http3ClientError::Goaway(first))
           self.notify_state_change()
           for id in self.streams.keys().to_array() {
             if id >= first {
@@ -324,14 +340,15 @@ async fn H3Client::read(self : H3Client) -> Unit {
 /// Build an HTTP client on a verified connection. By default the HTTPS
 /// origin uses the authenticated hostname and the UDP peer port. Supply
 /// origin_port when a different transport port serves that HTTPS origin.
-pub async fn[X] with_h3_client(
-  io : H3ConnectionIo,
-  run : async (H3Client) -> X,
+#alias(with_h3_client)
+pub async fn[X] with_http3_client_connection(
+  io : Http3ConnectionIo,
+  run : async (Http3ClientConnection) -> X,
   origin_port~ : Int32? = None,
   on_state_change~ : () -> Unit = fn() {  },
 ) -> X {
   guard io.authenticated_origin is Some(peer) else {
-    raise H3ClientError::InvalidOrigin
+    raise Http3ClientError::InvalidOrigin
   }
   let origin = match origin_port {
     None => peer
@@ -341,7 +358,7 @@ pub async fn[X] with_h3_client(
   let authority = @types.Authority::parse_endpoint(origin.authority()).unwrap_or_error()
   io.session.defer_body_credit()
   @async_support.with_group_result(async fn(group) {
-    let client : H3Client = {
+    let client : Http3ClientConnection = {
       io,
       authority,
       streams: Map([]),
@@ -350,7 +367,7 @@ pub async fn[X] with_h3_client(
       spawn: task => group.spawn(task, no_wait=true),
     }
     defer client.close(
-      io.failure.unwrap_or(H3ClientError::ClientClosed),
+      io.failure.unwrap_or(Http3ClientError::ClientClosed),
       preserve_complete=false,
     )
     group.spawn_bg(

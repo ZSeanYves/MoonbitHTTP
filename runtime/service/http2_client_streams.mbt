@@ -1,5 +1,5 @@
 ///|
-fn H2ClientShared::closed_error(_self : H2ClientShared) -> Error {
+fn Http2ClientState::closed_error(_self : Http2ClientState) -> Error {
   @http2.H2ProtocolError::ConnectionError(
     Cancel,
     "HTTP/2 client connection is closed",
@@ -7,8 +7,8 @@ fn H2ClientShared::closed_error(_self : H2ClientShared) -> Error {
 }
 
 ///|
-fn H2ClientShared::release_stream(
-  self : H2ClientShared,
+fn Http2ClientState::release_stream(
+  self : Http2ClientState,
   stream : H2ClientStream,
 ) -> Unit {
   if stream.request_finished && stream.response_finished && !stream.released {
@@ -23,8 +23,8 @@ fn H2ClientShared::release_stream(
 }
 
 ///|
-fn H2ClientShared::fail_stream(
-  self : H2ClientShared,
+fn Http2ClientState::fail_stream(
+  self : Http2ClientState,
   stream : H2ClientStream,
   error : Error,
 ) -> Unit {
@@ -42,8 +42,8 @@ fn H2ClientShared::fail_stream(
 }
 
 ///|
-fn H2ClientShared::discard_capacity(
-  self : H2ClientShared,
+fn Http2ClientState::discard_capacity(
+  self : Http2ClientState,
   amount : Int32,
 ) -> Unit {
   if amount > 0 && self.failure is None {
@@ -53,8 +53,8 @@ fn H2ClientShared::discard_capacity(
 }
 
 ///|
-async fn H2ClientShared::write_window_updates(
-  self : H2ClientShared,
+async fn Http2ClientState::write_window_updates(
+  self : Http2ClientState,
   updates : Array[@http2.H2Action],
 ) -> Unit {
   self.write_lock.acquire()
@@ -76,8 +76,8 @@ async fn H2ClientShared::write_window_updates(
 }
 
 ///|
-async fn H2ClientShared::release_discarded_capacity(
-  self : H2ClientShared,
+async fn Http2ClientState::release_discarded_capacity(
+  self : Http2ClientState,
 ) -> Unit {
   if self.failure is Some(_) {
     return
@@ -104,7 +104,10 @@ async fn H2ClientShared::release_discarded_capacity(
 }
 
 ///|
-fn H2ClientShared::close_with(self : H2ClientShared, error : Error?) -> Unit {
+fn Http2ClientState::close_with(
+  self : Http2ClientState,
+  error : Error?,
+) -> Unit {
   if self.failure is None {
     let failure = error.unwrap_or_else(fn() { self.closed_error() })
     self.failure = Some(failure)
@@ -128,8 +131,8 @@ fn H2ClientShared::close_with(self : H2ClientShared, error : Error?) -> Unit {
 }
 
 ///|
-async fn H2ClientShared::write_bytes(
-  self : H2ClientShared,
+async fn Http2ClientState::write_bytes(
+  self : Http2ClientState,
   bytes : Bytes,
 ) -> Unit {
   self.write_lock.acquire()
@@ -140,8 +143,8 @@ async fn H2ClientShared::write_bytes(
 ///|
 /// An interrupted partial frame makes the entire connection unusable. All
 /// writers check this under the shared lock before emitting subsequent bytes.
-async fn H2ClientShared::write_locked(
-  self : H2ClientShared,
+async fn Http2ClientState::write_locked(
+  self : Http2ClientState,
   bytes : Bytes,
 ) -> Unit {
   if self.failure is Some(_) {
@@ -161,8 +164,8 @@ async fn H2ClientShared::write_locked(
 ///|
 /// HPACK mutations and the resulting bytes share the wire's serialization
 /// point; parallel streams cannot encode in a different order from writes.
-async fn H2ClientShared::write_headers(
-  self : H2ClientShared,
+async fn Http2ClientState::write_headers(
+  self : Http2ClientState,
   encode : () -> Result[Bytes, @http2.H2ProtocolError],
 ) -> Unit {
   self.write_lock.acquire()
@@ -175,8 +178,8 @@ async fn H2ClientShared::write_headers(
 }
 
 ///|
-async fn H2ClientShared::release_capacity(
-  self : H2ClientShared,
+async fn Http2ClientState::release_capacity(
+  self : Http2ClientState,
   stream_id : Int32,
   amount : Int32,
 ) -> Unit {
@@ -202,8 +205,8 @@ async fn H2ClientShared::release_capacity(
 /// Claim body-consumption credit only after the write lock is held. A body
 /// cancellation can retire the credit while this callback waits for another
 /// writer; claiming it before that wait would lose the peer-visible window.
-async fn H2ClientShared::release_consumed_capacity(
-  self : H2ClientShared,
+async fn Http2ClientState::release_consumed_capacity(
+  self : Http2ClientState,
   stream_id : Int32,
   credit : H2ReceiveCredit,
   amount : Int32,
@@ -241,8 +244,8 @@ async fn H2ClientShared::release_consumed_capacity(
 }
 
 ///|
-async fn H2ClientShared::reset_stream_with_error(
-  self : H2ClientShared,
+async fn Http2ClientState::reset_stream_with_error(
+  self : Http2ClientState,
   stream_id : Int32,
   code : @http2.H2ErrorCode,
   error : Error,
@@ -265,8 +268,8 @@ async fn H2ClientShared::reset_stream_with_error(
 }
 
 ///|
-async fn H2ClientShared::reset_stream(
-  self : H2ClientShared,
+async fn Http2ClientState::reset_stream(
+  self : Http2ClientState,
   stream_id : Int32,
   code : @http2.H2ErrorCode,
   message : String,
@@ -281,8 +284,8 @@ async fn H2ClientShared::reset_stream(
 ///|
 /// Retire the stream immediately. A connection task owns the wire reset so a
 /// cancelled producer or consumer never has to wait for the writer lock.
-fn H2ClientShared::cancel_stream(
-  self : H2ClientShared,
+fn Http2ClientState::cancel_stream(
+  self : Http2ClientState,
   stream_id : Int32,
   error : Error,
 ) -> Unit {
@@ -298,7 +301,7 @@ fn H2ClientShared::cancel_stream(
 }
 
 ///|
-fn H2ClientShared::drain_blocked(self : H2ClientShared) -> Unit {
+fn Http2ClientState::drain_blocked(self : Http2ClientState) -> Unit {
   for stream_id, queue in self.blocked {
     guard self.streams.get(stream_id) is Some(stream) else {
       self.blocked.remove(stream_id)
@@ -342,8 +345,8 @@ fn H2ClientShared::drain_blocked(self : H2ClientShared) -> Unit {
 }
 
 ///|
-fn H2ClientShared::queue_blocked(
-  self : H2ClientShared,
+fn Http2ClientState::queue_blocked(
+  self : Http2ClientState,
   stream_id : Int32,
   frame : H2ClientBlockedFrame,
 ) -> Unit {

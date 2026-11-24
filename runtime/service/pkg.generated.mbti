@@ -25,43 +25,48 @@ pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, B : @body.Body] serve_h
 
 pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, B : @body.Body] serve_http2_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig, upgraded_request? : @types.Request[@body.BodyStream]?, upgrade_settings? : Bytes?, shutdown? : ServerShutdown?, finish_transport? : async () -> Unit) -> Unit
 
-pub async fn[B : @body.Body] serve_http3_connection(H3ConnectionIo, async (@types.Request[@body.BodyStream]) -> @types.Response[B], on_request_error? : (Int64, Error) -> Unit) -> Unit
+pub async fn[B : @body.Body] serve_http3_connection(Http3ConnectionIo, async (@types.Request[@body.BodyStream]) -> @types.Response[B], on_request_error? : (Int64, Error) -> Unit) -> Unit
 
-pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, X] with_h2_client_connection(R, W, async (H2Client) -> X, config? : H2ClientConfig, on_state_change? : () -> Unit) -> X
+#alias(with_h2_client_connection)
+pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, X] with_http2_client_connection(R, W, async (Http2ClientConnection) -> X, config? : Http2ClientConfig, on_state_change? : () -> Unit) -> X
 
-pub async fn[X] with_h3_client(H3ConnectionIo, async (H3Client) -> X, origin_port? : Int32?, on_state_change? : () -> Unit) -> X
+#alias(with_h3_client)
+pub async fn[X] with_http3_client_connection(Http3ConnectionIo, async (Http3ClientConnection) -> X, origin_port? : Int32?, on_state_change? : () -> Unit) -> X
 
-pub async fn[P : @transport.QuicTlsProvider, S : @transport.DatagramSocket, K : @transport.Clock, X] with_http3_connection(@quic.QuicTlsDriver[P], S, K, @transport.TlsOptions, async (H3ConnectionIo) -> X, server_shutdown? : ServerShutdown?, limits? : @types.Limits, qpack_limits? : @http3.QpackLimits, handshake_timeout_ms? : Int32, shutdown_timeout_ms? : Int32) -> X
+pub async fn[P : @transport.QuicTlsProvider, S : @transport.DatagramSocket, K : @transport.Clock, X] with_http3_connection(@quic.QuicTlsDriver[P], S, K, @transport.TlsOptions, async (Http3ConnectionIo) -> X, server_shutdown? : ServerShutdown?, limits? : @types.Limits, qpack_limits? : @http3.QpackLimits, handshake_timeout_ms? : Int32, shutdown_timeout_ms? : Int32) -> X
 
 // Errors
+#alias(ClientConnectionError)
 #derive(Eq, @debug.Debug)
-pub(all) suberror ClientConnectionError {
+pub(all) suberror Http1ClientError {
   ConnectionClosed
   RequestInProgress
 }
-pub fn ClientConnectionError::equal(Self, Self) -> Bool
-pub fn ClientConnectionError::not_equal(Self, Self) -> Bool
-pub fn ClientConnectionError::to_repr(Self) -> @debug.Repr
+pub fn Http1ClientError::equal(Self, Self) -> Bool
+pub fn Http1ClientError::not_equal(Self, Self) -> Bool
+pub fn Http1ClientError::to_repr(Self) -> @debug.Repr
 
+#alias(ClientConnectionTimeout)
 #derive(Eq, @debug.Debug)
-pub(all) suberror ClientConnectionTimeout {
-  ClientConnectionTimeout(ClientConnectionPhase)
+pub(all) suberror Http1ClientTimeout {
+  ClientConnectionTimeout(Http1ClientPhase)
 }
-pub fn ClientConnectionTimeout::equal(Self, Self) -> Bool
-pub fn ClientConnectionTimeout::not_equal(Self, Self) -> Bool
-pub fn ClientConnectionTimeout::to_repr(Self) -> @debug.Repr
+pub fn Http1ClientTimeout::equal(Self, Self) -> Bool
+pub fn Http1ClientTimeout::not_equal(Self, Self) -> Bool
+pub fn Http1ClientTimeout::to_repr(Self) -> @debug.Repr
 
+#alias(H3ClientError)
 #derive(Eq, @debug.Debug)
-pub(all) suberror H3ClientError {
+pub(all) suberror Http3ClientError {
   InvalidOrigin
   InvalidRequest(String)
   ClientClosed
   Goaway(Int64)
   PeerReset(Int64, Int64)
 }
-pub fn H3ClientError::equal(Self, Self) -> Bool
-pub fn H3ClientError::not_equal(Self, Self) -> Bool
-pub fn H3ClientError::to_repr(Self) -> @debug.Repr
+pub fn Http3ClientError::equal(Self, Self) -> Bool
+pub fn Http3ClientError::not_equal(Self, Self) -> Bool
+pub fn Http3ClientError::to_repr(Self) -> @debug.Repr
 
 #derive(Eq, @debug.Debug)
 pub(all) suberror ServiceConfigError {
@@ -83,36 +88,30 @@ pub(all) suberror StreamIoError {
 pub fn StreamIoError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
-pub struct ClientConnection[R, W] {
+#alias(ClientConnection)
+pub struct Http1ClientConnection[R, W] {
   // private fields
 }
-pub fn[R, W] ClientConnection::close(Self[R, W]) -> Unit
-pub fn[R, W] ClientConnection::is_closed(Self[R, W]) -> Bool
-pub fn[R, W] ClientConnection::is_reusable(Self[R, W]) -> Bool
-pub fn[R, W] ClientConnection::new(R, W, limits? : @types.Limits, read_size? : Int32, request_headers_timeout_ms? : Int32?, request_body_timeout_ms? : Int32?, response_headers_timeout_ms? : Int32?, on_incomplete_upload? : () -> Unit, response_body_timeout_ms? : Int32?) -> Result[Self[R, W], ServiceConfigError]
-pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, B : @body.Body] ClientConnection::send(Self[R, W], @types.Request[B]) -> @types.Response[@body.BodyStream]
+pub fn[R, W] Http1ClientConnection::close(Self[R, W]) -> Unit
+pub fn[R, W] Http1ClientConnection::is_closed(Self[R, W]) -> Bool
+pub fn[R, W] Http1ClientConnection::is_reusable(Self[R, W]) -> Bool
+pub fn[R, W] Http1ClientConnection::new(R, W, limits? : @types.Limits, read_size? : Int32, request_headers_timeout_ms? : Int32?, request_body_timeout_ms? : Int32?, response_headers_timeout_ms? : Int32?, on_incomplete_upload? : () -> Unit, response_body_timeout_ms? : Int32?) -> Result[Self[R, W], ServiceConfigError]
+pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, B : @body.Body] Http1ClientConnection::send(Self[R, W], @types.Request[B]) -> @types.Response[@body.BodyStream]
 
+#alias(ClientConnectionPhase)
 #derive(Eq, @debug.Debug)
-pub(all) enum ClientConnectionPhase {
+pub(all) enum Http1ClientPhase {
   RequestHeaders
   RequestBody
   ResponseHeaders
   ResponseBody
 }
-pub fn ClientConnectionPhase::equal(Self, Self) -> Bool
-pub fn ClientConnectionPhase::not_equal(Self, Self) -> Bool
-pub fn ClientConnectionPhase::to_repr(Self) -> @debug.Repr
+pub fn Http1ClientPhase::equal(Self, Self) -> Bool
+pub fn Http1ClientPhase::not_equal(Self, Self) -> Bool
+pub fn Http1ClientPhase::to_repr(Self) -> @debug.Repr
 
-pub struct H2Client {
-  // private fields
-}
-pub fn H2Client::accepts_requests(Self) -> Bool
-pub fn H2Client::close(Self) -> Unit
-pub fn H2Client::is_idle(Self) -> Bool
-pub async fn[B : @body.Body] H2Client::send(Self, @types.Request[B]) -> @types.Response[@body.BodyStream]
-pub async fn H2Client::wait_for_settings(Self) -> Unit
-
-pub(all) struct H2ClientConfig {
+#alias(H2ClientConfig)
+pub(all) struct Http2ClientConfig {
   limits : @types.Limits
   max_concurrent_streams : Int32
   body_queue_capacity : Int32
@@ -122,23 +121,35 @@ pub(all) struct H2ClientConfig {
   write_timeout_ms : Int32?
   close_callback : ((Error?) -> Unit)?
 }
-pub fn H2ClientConfig::defaults() -> Self
-pub fn H2ClientConfig::validate(Self) -> Result[Unit, ServiceConfigError]
+pub fn Http2ClientConfig::defaults() -> Self
+pub fn Http2ClientConfig::validate(Self) -> Result[Unit, ServiceConfigError]
 
-pub struct H3Client {
+#alias(H2Client)
+pub struct Http2ClientConnection {
   // private fields
 }
-pub fn H3Client::accepts_requests(Self) -> Bool
-pub fn H3Client::is_idle(Self) -> Bool
-pub async fn[B : @body.Body] H3Client::send(Self, @types.Request[B]) -> @types.Response[@body.BodyStream]
+pub fn Http2ClientConnection::accepts_requests(Self) -> Bool
+pub fn Http2ClientConnection::close(Self) -> Unit
+pub fn Http2ClientConnection::is_idle(Self) -> Bool
+pub async fn[B : @body.Body] Http2ClientConnection::send(Self, @types.Request[B]) -> @types.Response[@body.BodyStream]
+pub async fn Http2ClientConnection::wait_for_settings(Self) -> Unit
 
-pub struct H3ConnectionIo {
+#alias(H3Client)
+pub struct Http3ClientConnection {
+  // private fields
+}
+pub fn Http3ClientConnection::accepts_requests(Self) -> Bool
+pub fn Http3ClientConnection::is_idle(Self) -> Bool
+pub async fn[B : @body.Body] Http3ClientConnection::send(Self, @types.Request[B]) -> @types.Response[@body.BodyStream]
+
+#alias(H3ConnectionIo)
+pub struct Http3ConnectionIo {
   session : @http3.Http3Session
   // private fields
 }
-pub async fn H3ConnectionIo::flush(Self) -> Unit
-pub async fn H3ConnectionIo::next_events(Self) -> Array[@http3.Http3SessionAction]
-pub async fn H3ConnectionIo::rotate_local_connection_id(Self) -> Unit
+pub async fn Http3ConnectionIo::flush(Self) -> Unit
+pub async fn Http3ConnectionIo::next_events(Self) -> Array[@http3.Http3SessionAction]
+pub async fn Http3ConnectionIo::rotate_local_connection_id(Self) -> Unit
 
 pub(all) struct ServerConfig {
   limits : @types.Limits
@@ -158,8 +169,9 @@ pub struct ServerShutdown {
   // private fields
 }
 pub fn ServerShutdown::begin(Self) -> Unit
+#alias(started)
+pub fn ServerShutdown::has_started(Self) -> Bool
 pub fn ServerShutdown::new() -> Self
-pub fn ServerShutdown::started(Self) -> Bool
 pub async fn ServerShutdown::wait(Self) -> Unit noraise
 
 pub struct StreamIo {

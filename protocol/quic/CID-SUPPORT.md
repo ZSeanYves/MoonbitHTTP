@@ -21,7 +21,7 @@ socket supplies synchronous route reservation and release callbacks. A failed
 send releases the reservation. For backpressure the driver keeps one unsent
 candidate and retries on transport progress. `rotate_local_connection_id(now_ms)`
 returns datagrams to transmit. The HTTP/3 connection scope exposes the same
-operation as `H3ConnectionIo::rotate_local_connection_id()` and handles I/O.
+operation as `Http3ConnectionIo::rotate_local_connection_id()` and handles I/O.
 The operation can run during a request. Loss recovery retransmits the
 advertisement, and the peer's retirement triggers replenishment.
 

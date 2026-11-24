@@ -77,7 +77,7 @@ async fn main {
           ignore(client.send(foreign))
           false
         } catch {
-          @service.H3ClientError::InvalidOrigin => true
+          @service.Http3ClientError::InvalidOrigin => true
           error => raise error
         }
         guard rejected else {
@@ -101,7 +101,7 @@ async fn main {
     )
   })
   let wrong_name = { ..options, server_name: Some("wrong.test"), }
-  @native_client.with_http3_client(
+  @native_client.with_http3_client_connection(
     endpoint,
     @transport.AllowAllPolicy::new(),
     wrong_name,

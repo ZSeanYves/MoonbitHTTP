@@ -24,7 +24,7 @@ way to validate a checkout before publication.
 
 Package READMEs describe usage. The generated `pkg.generated.mbti` files list the public APIs.
 
-The source checkout adds `with_http2_client` for pooled streaming requests to
+The source checkout adds `with_http2_pool` for pooled streaming requests to
 direct HTTP/2 origins. Native servers can use `NativeTcpListener::bind_http_tls`
 to serve HTTP/1.1 and HTTP/2 on the same TLS listener.
 [Client usage](application/client/README.md) · [Server usage](adapter/native/server/README.md)
@@ -44,8 +44,14 @@ to serve HTTP/1.1 and HTTP/2 on the same TLS listener.
   opt-in HTTP policies.
 - `adapter/native/*`: Native TCP/UDP, resolver, clock, OpenSSL stream TLS and
   QUIC TLS adapters.
-- `adapter/uv`: callback-to-async `BinaryReader`/`BinaryWriter` integration for a host
+- `adapter/callback`: callback-to-async `BinaryReader`/`BinaryWriter` integration for a host
   runtime.
+
+### Naming conventions
+
+- Package paths use lowercase names by responsibility, such as `protocol/http2` and `adapter/callback`. Source files use `snake_case` and name the feature they contain, such as `tcp_listener.mbt`. Related tests use `_test.mbt` or `_wbtest.mbt`.
+- Functions and methods use `snake_case`. Use a verb for an action (`send`), a question for a predicate (`is_idle`), and `with_…` when a callback owns a resource for a limited scope.
+- Types and traits use `PascalCase`. Name a concrete type for what it owns (`Http2ClientConnection`) and a trait for the capability its caller needs (`NameResolver`). Across protocols, use `Http1`, `Http2` and `Http3` in type names and `http1`, `http2` and `http3` in function names. Keep wire spellings such as `h2c` and the ALPN identifier `h2`.
 
 ## Features
 
@@ -63,7 +69,7 @@ to serve HTTP/1.1 and HTTP/2 on the same TLS listener.
   decisions, redirects, retries, and bounded content-coding transforms.
 - [x] **[host] Capability injection** — stream/datagram I/O, resolver, clock,
   entropy, TLS, and `NetworkPolicy` are explicit inputs.
-- [x] **[host] Callback integration** — `adapter/uv` adapts host callbacks to
+- [x] **[host] Callback integration** — `adapter/callback` adapts host callbacks to
   async `BinaryReader`/`BinaryWriter` capabilities.
 - [x] **[native] TCP/UDP, DNS, and Native client/server adapters** — host
   sockets and resolver wiring; HTTP semantics and message behavior follow
@@ -119,7 +125,7 @@ README files; they are verification programs, not deployment templates.
 
 HTTP/1.1 and HTTP/2 have the broadest application coverage. HTTP/2 framing and
 HPACK target [RFC 9113](https://www.rfc-editor.org/rfc/rfc9113) and
-[RFC 7541](https://www.rfc-editor.org/rfc/rfc7541). The native HTTP/3 client accepts a numeric peer or a hostname with an explicit resolver and returns streaming responses. Use `with_http3_pool` for multiple HTTPS origins, or `with_http3_client` for one authenticated connection. The native HTTP/3 listener accepts the same streaming request handler as HTTP/1 and HTTP/2. It routes connection IDs on one UDP socket, and its supervisor bounds concurrent handshakes and drains active peers on shutdown.
+[RFC 7541](https://www.rfc-editor.org/rfc/rfc7541). The native HTTP/3 client accepts a numeric peer or a hostname with an explicit resolver and returns streaming responses. Use `with_http3_pool` for multiple HTTPS origins, or `with_http3_client_connection` for one authenticated connection. The native HTTP/3 listener accepts the same streaming request handler as HTTP/1 and HTTP/2. It routes connection IDs on one UDP socket, and its supervisor bounds concurrent handshakes and drains active peers on shutdown.
 
 Native TLS and QUIC require an explicitly selected provider. Wasm and
 JavaScript do not receive browser networking, DNS, UDP, or TLS automatically.

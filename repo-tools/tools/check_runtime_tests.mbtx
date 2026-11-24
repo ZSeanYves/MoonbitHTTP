@@ -6,9 +6,9 @@ import {
 ----
 
 ///|
-async fn require_test(target : String, package : String, name : String) -> Unit {
+async fn require_test(target : String, package_path : String, name : String) -> Unit {
   let (code, output, errors) = @process.collect_output("moon", [
-    "test", package, "--target", target, "--filter", name, "--deny-warn", "--warn-list", "+73",
+    "test", package_path, "--target", target, "--filter", name, "--deny-warn", "--warn-list", "+73",
   ])
   let report = output.text() + errors.text()
   guard code == 0 && report.contains("Total tests: 1, passed: 1, failed: 0.") else {

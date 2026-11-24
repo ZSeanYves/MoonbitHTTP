@@ -23,7 +23,7 @@ response-header timeout, before proceeding with a silent peer. The same reader
 preserves partial responses across this wait. The caller can inspect a 417
 response and decide whether it can replay the upload without the expectation.
 
-Use `with_http2_client` to send requests to direct HTTP/2 origins. The pool
+Use `with_http2_pool` to send requests to direct HTTP/2 origins. The pool
 shares one opening or active session per origin and waits for the peer's
 initial SETTINGS before admitting requests. HTTPS requires negotiated `h2`.
 Cleartext origins use prior knowledge. Set `Http2PoolOptions.max_connections`

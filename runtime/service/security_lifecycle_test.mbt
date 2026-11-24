@@ -192,7 +192,7 @@ async test "security lifecycle: H2 request header failure cancels body before up
   let outgoing = LifecycleFrames::new([Data(b"upload")])
   let reader = PhaseBlockingReader::new(b"")
   @async.with_timeout(1000, async fn() {
-    @service.with_h2_client_connection(
+    @service.with_http2_client_connection(
       reader,
       test_writer(LifecycleFailingWriter::{ typ: @http2.H2_FRAME_HEADERS, }),
       async fn(client) {

@@ -5,8 +5,12 @@ trait TestWriter {
 }
 
 ///|
-fn[W : TestWriter] test_writer(writer : W) -> @uv.CallbackTransport {
-  @uv.CallbackTransport::new(fn(_, _, _) { 0 }, async fn(bytes, offset, len) {
+fn[W : TestWriter] test_writer(writer : W) -> @callback.CallbackTransport {
+  @callback.CallbackTransport::new(fn(_, _, _) { 0 }, async fn(
+    bytes,
+    offset,
+    len,
+  ) {
     writer.write_once(bytes, offset~, len~)
   })
 }

@@ -49,7 +49,7 @@ async test "HTTP/3 hostname policy stops a forbidden lookup before DNS" {
   let endpoint = @types.Endpoint::new("udp", "origin.test", 443).unwrap()
   let resolver = @transport.StaticResolver::new([])
   try
-    @client.with_http3_client(
+    @client.with_http3_client_connection(
       endpoint,
       @transport.DenyAllPolicy::new(),
       @transport.TlsOptions::for_quic("origin.test"),
@@ -83,7 +83,7 @@ async test "HTTP/3 tries the next UDP address after a silent handshake" {
     ),
   ])
   try
-    @client.with_http3_client(
+    @client.with_http3_client_connection(
       endpoint,
       @transport.AllowAllPolicy::new(),
       @transport.TlsOptions::for_quic("localhost"),

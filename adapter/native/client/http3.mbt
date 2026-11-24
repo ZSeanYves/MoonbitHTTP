@@ -6,7 +6,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_connection(
   endpoint : @types.Endpoint,
   policy : P,
   options : @transport.TlsOptions,
-  run : async (@service.H3ConnectionIo) -> X,
+  run : async (@service.Http3ConnectionIo) -> X,
   limits~ : @types.Limits = @types.Limits::defaults(),
   qpack_limits~ : @http3.QpackLimits = @http3.QpackLimits::defaults(),
   transport_params~ : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
@@ -57,11 +57,12 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_connection(
 /// Use concurrent HTTP requests on one verified HTTPS origin. An explicit
 /// resolver enables hostname endpoints. All addresses share the handshake
 /// timeout, and the TLS options retain the authenticated origin identity.
-pub async fn[P : @transport.NetworkPolicy, X] with_http3_client(
+#alias(with_http3_client)
+pub async fn[P : @transport.NetworkPolicy, X] with_http3_client_connection(
   endpoint : @types.Endpoint,
   policy : P,
   options : @transport.TlsOptions,
-  run : async (@service.H3Client) -> X,
+  run : async (@service.Http3ClientConnection) -> X,
   origin_port~ : Int32? = None,
   on_state_change~ : () -> Unit = fn() {  },
   resolver~ : &@transport.NameResolver? = None,
@@ -73,7 +74,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_client(
   shutdown_timeout_ms~ : Int32 = 5000,
 ) -> X {
   if !options.verify_peer {
-    raise @service.H3ClientError::InvalidOrigin
+    raise @service.Http3ClientError::InvalidOrigin
   }
   let candidates = match resolver {
     None => [endpoint]
@@ -111,7 +112,12 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_client(
         options,
         async fn(io) {
           authenticated = true
-          @service.with_h3_client(io, run, origin_port~, on_state_change~)
+          @service.with_http3_client_connection(
+            io,
+            run,
+            origin_port~,
+            on_state_change~,
+          )
         },
         limits~,
         qpack_limits~,
@@ -167,13 +173,13 @@ pub async fn[R : @transport.NameResolver, P : @transport.NetworkPolicy, X] with_
   shutdown_timeout_ms~ : Int32 = 5000,
 ) -> X {
   if !tls.verify_peer {
-    raise @service.H3ClientError::InvalidOrigin
+    raise @service.Http3ClientError::InvalidOrigin
   }
   @client_api.with_http3_pool(
     async fn(endpoint, ready, changed) {
       let host = endpoint.transport.host()
       let peer = @types.Endpoint::new("udp", host, endpoint.transport.port()).unwrap_or_error()
-      with_http3_client(
+      with_http3_client_connection(
         peer,
         policy,
         { ..tls, server_name: Some(host), },

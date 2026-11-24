@@ -1,6 +1,6 @@
 ///|
 priv struct H3IncomingBody {
-  io : H3ConnectionIo
+  io : Http3ConnectionIo
   id : Int64
   chunks : @deque.Deque[Bytes]
   mut buffered_bytes : Int32
@@ -11,7 +11,7 @@ priv struct H3IncomingBody {
 }
 
 ///|
-fn H3IncomingBody::new(io : H3ConnectionIo, id : Int64) -> H3IncomingBody {
+fn H3IncomingBody::new(io : Http3ConnectionIo, id : Int64) -> H3IncomingBody {
   {
     io,
     id,
@@ -75,8 +75,8 @@ async fn H3IncomingBody::read(self : H3IncomingBody) -> @body.Frame? {
 }
 
 ///|
-async fn H3ConnectionIo::write_when_ready(
-  self : H3ConnectionIo,
+async fn Http3ConnectionIo::write_when_ready(
+  self : Http3ConnectionIo,
   write : () -> Result[Unit, @http3.Http3Error],
 ) -> Unit {
   while true {
@@ -99,8 +99,8 @@ fn h3_fields(headers : @types.HeaderMap) -> Array[@http3.QpackField] {
 }
 
 ///|
-async fn[B : @body.Body] H3ConnectionIo::write_body(
-  self : H3ConnectionIo,
+async fn[B : @body.Body] Http3ConnectionIo::write_body(
+  self : Http3ConnectionIo,
   id : Int64,
   body : B,
 ) -> Unit {

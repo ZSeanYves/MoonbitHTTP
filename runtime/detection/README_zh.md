@@ -9,7 +9,7 @@ Last reviewed: 2026-10-01
 无消耗地探测 HTTP/1、HTTP/2 prior knowledge 和 h2c 前缀，只负责分类。
 
 ## 入口
-入口是 Detector::new/feed/buffered、select_protocol 和 detect_h2c_upgrade。
+入口是 Detector::new/feed/buffered、select_protocol 和 is_h2c_upgrade。
 
 ## 依赖与目标
 依赖 types，面向四个编译目标。

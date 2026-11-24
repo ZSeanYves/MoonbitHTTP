@@ -71,8 +71,8 @@ fn h3_trailers(
 }
 
 ///|
-async fn[B : @body.Body] H3ConnectionIo::respond(
-  self : H3ConnectionIo,
+async fn[B : @body.Body] Http3ConnectionIo::respond(
+  self : Http3ConnectionIo,
   id : Int64,
   meth : @types.Method,
   response : @types.Response[B],
@@ -112,7 +112,7 @@ async fn[B : @body.Body] H3ConnectionIo::respond(
 /// Dispatch streamed requests on an authenticated server connection. Each
 /// handler owns its request body until its response has finished streaming.
 pub async fn[B : @body.Body] serve_http3_connection(
-  io : H3ConnectionIo,
+  io : Http3ConnectionIo,
   handler : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   on_request_error~ : (Int64, Error) -> Unit = (_, _) => (),
 ) -> Unit {
@@ -166,7 +166,7 @@ pub async fn[B : @body.Body] serve_http3_connection(
             if !io.session.can_write(id) {
               continue
             }
-            if (io.server_shutdown is Some(shutdown) && shutdown.started()) ||
+            if (io.server_shutdown is Some(shutdown) && shutdown.has_started()) ||
               active.length() >= io.limits.max_concurrent_requests {
               (io.cancel_request)(id, H3RequestRejected)
               continue

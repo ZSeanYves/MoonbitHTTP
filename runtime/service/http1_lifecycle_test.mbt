@@ -144,7 +144,7 @@ async test "service: HTTP/1 invalid response head cancels its unpolled body" {
 async test "service: HTTP/1 request body failure is cancelled once and preserves its cause" {
   let reader = PhaseBlockingReader::new(b"")
   let writer : CaptureWriter = { bytes: [], }
-  let client = @service.ClientConnection::new(reader, test_writer(writer)).unwrap()
+  let client = @service.Http1ClientConnection::new(reader, test_writer(writer)).unwrap()
   let cancelled : Array[Error] = []
   let body : Http1LifecycleBody = {
     failure: Some(Http1LifecycleFailure("request body")),
@@ -361,7 +361,7 @@ async test "a successful CONNECT leaves the sequential HTTP/1 connection" {
     peer.write(b"HTTP/1.1 200 OK\r\n\r\ntunnel")
   })
   defer reader.close()
-  let client = @service.ClientConnection::new(
+  let client = @service.Http1ClientConnection::new(
     reader,
     test_writer(CaptureWriter::{ bytes: [], }),
   ).unwrap()
@@ -447,7 +447,7 @@ async test "HTTP/1 final response interrupts a pending upload" {
     b"HTTP/1.1 413 Content Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
   )
   let writer : CaptureWriter = { bytes: [], }
-  let conn = @service.ClientConnection::new(
+  let conn = @service.Http1ClientConnection::new(
     reader,
     test_writer(writer),
     request_body_timeout_ms=Some(40),
@@ -461,9 +461,8 @@ async test "HTTP/1 final response interrupts a pending upload" {
     size_hint=@body.SizeHint::exact(1),
   )
   let response = conn.send(phase_timeout_request(body)) catch {
-    @service.ClientConnectionTimeout::@service.ClientConnectionTimeout(
-      RequestBody,
-    ) => fail("HTTP 413 was ready but send returned RequestBody timeout")
+    @service.Http1ClientTimeout::ClientConnectionTimeout(RequestBody) =>
+      fail("HTTP 413 was ready but send returned RequestBody timeout")
     error => raise error
   }
   assert_eq(response.status, 413)

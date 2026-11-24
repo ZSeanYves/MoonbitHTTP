@@ -18,5 +18,6 @@ test "auto: detects h2c only with all required fields" {
   )
   assert_eq(headers.append_string("upgrade", "h2c"), Ok(()))
   assert_eq(headers.append_string("http2-settings", "AAMAAABkAAQAAP__"), Ok(()))
-  assert_eq(@detection.detect_h2c_upgrade(headers), true)
+  assert_true(@detection.is_h2c_upgrade(headers))
+  assert_true(@detection.detect_h2c_upgrade(headers))
 }

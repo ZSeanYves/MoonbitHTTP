@@ -1,14 +1,14 @@
 ///|
 /// Scoped, direct-origin HTTP/2 executor.
 pub struct Http2Client {
-  priv pool : OriginPool[@service.H2Client]
+  priv pool : OriginPool[@service.Http2ClientConnection]
   priv max_body_bytes : Int32
 }
 
 ///|
 pub(all) struct Http2PoolOptions {
   max_connections : Int32
-  session : @service.H2ClientConfig
+  session : @service.Http2ClientConfig
   tls : @transport.TlsOptions
   connect_options : @transport.ConnectOptions
   resolve_options : @transport.ResolveOptions
@@ -19,7 +19,7 @@ pub(all) struct Http2PoolOptions {
 pub fn Http2PoolOptions::defaults() -> Http2PoolOptions {
   {
     max_connections: 32,
-    session: @service.H2ClientConfig::defaults(),
+    session: @service.Http2ClientConfig::defaults(),
     tls: @transport.TlsOptions::defaults(),
     connect_options: @transport.ConnectOptions::defaults(),
     resolve_options: @transport.ResolveOptions::defaults(),
@@ -30,6 +30,7 @@ pub fn Http2PoolOptions::defaults() -> Http2PoolOptions {
 ///|
 /// Open a bounded pool with explicit DNS, numeric connection policy, TLS and clock capabilities.
 /// HTTPS requires h2 ALPN. Cleartext HTTP uses HTTP/2 prior knowledge.
+#alias(with_http2_client)
 pub async fn[
   C : @transport.StreamConnector,
   R : @transport.NameResolver,
@@ -37,7 +38,7 @@ pub async fn[
   P : @transport.NetworkPolicy,
   K : @transport.Clock,
   X,
-] with_http2_client(
+] with_http2_pool(
   connector : C,
   resolver : R,
   tls_provider : T,
@@ -78,7 +79,7 @@ pub async fn[
       }
       defer connection.close()
       let io = @service.StreamIo::new(connection)
-      @service.with_h2_client_connection(
+      @service.with_http2_client_connection(
         io,
         io,
         async fn(client) {
@@ -90,8 +91,8 @@ pub async fn[
       )
       Ok(())
     },
-    @service.H2Client::accepts_requests,
-    @service.H2Client::is_idle,
+    @service.Http2ClientConnection::accepts_requests,
+    @service.Http2ClientConnection::is_idle,
     pool => run({ pool, max_body_bytes: config.limits.max_body_bytes, }),
   )
 }

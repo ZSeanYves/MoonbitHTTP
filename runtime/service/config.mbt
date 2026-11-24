@@ -94,8 +94,8 @@ pub fn ServerConfig::validate(
 }
 
 ///|
-pub fn H2ClientConfig::validate(
-  self : H2ClientConfig,
+pub fn Http2ClientConfig::validate(
+  self : Http2ClientConfig,
 ) -> Result[Unit, ServiceConfigError] {
   if validate_io(
       self.limits,

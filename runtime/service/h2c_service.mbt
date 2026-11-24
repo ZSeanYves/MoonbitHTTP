@@ -40,7 +40,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
         "request body before request head",
       )
   }
-  if !@auto.detect_h2c_upgrade(head.headers) {
+  if !@detection.is_h2c_upgrade(head.headers) {
     serve_http1_connection_inner(
       input,
       writer,

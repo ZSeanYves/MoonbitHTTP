@@ -479,7 +479,7 @@ async test "HTTP/3 typed client: cancel a duplex response and reuse one stream s
     ).unwrap()
     @async.with_task_group(async fn(group) {
       let serving = group.spawn(async fn() { listener.serve(supervisor) })
-      @client_native.with_http3_client(
+      @client_native.with_http3_client_connection(
         endpoint,
         policy,
         { ..client_tls, alpn: ["h3"], },
@@ -509,7 +509,7 @@ async test "HTTP/3 typed client: cancel a duplex response and reuse one stream s
               }),
             )
           catch {
-            @service.H3ClientError::InvalidRequest(_) => ()
+            @service.Http3ClientError::InvalidRequest(_) => ()
             error => raise error
           } noraise {
             _ => fail("accepted a known-empty upload with 100-continue")
@@ -648,7 +648,7 @@ async test "HTTP/3 typed client: a complete response survives peer close during 
           ],
         ),
       ])
-      @client_native.with_http3_client(
+      @client_native.with_http3_client_connection(
         destination,
         routes,
         { ..ct, alpn: ["h3"], },
@@ -679,7 +679,7 @@ async test "HTTP/3 typed client: a complete response survives peer close during 
       // A transport-shaped error from the application must propagate once.
       let mut callbacks = 0
       try
-        @client_native.with_http3_client(
+        @client_native.with_http3_client_connection(
           destination,
           routes,
           { ..ct, alpn: ["h3"], },
@@ -762,7 +762,9 @@ async test "HTTP/3 supervisor sends each peer its GOAWAY boundary and drains a l
           assert_true(goaway)
         })
       })
-      @client_native.with_http3_client(endpoint, policy, tls, async fn(client) {
+      @client_native.with_http3_client_connection(endpoint, policy, tls, async fn(
+        client,
+      ) {
         fn request() -> @types.Request[@body.FullBody] {
           {
             http_method: Get,
@@ -778,7 +780,7 @@ async test "HTTP/3 supervisor sends each peer its GOAWAY boundary and drains a l
           idle_ready.get()
           let waiting = requests.spawn(async fn() {
             ignore(client.send(request())) catch {
-              @service.H3ClientError::Goaway(first) => return first
+              @service.Http3ClientError::Goaway(first) => return first
               error => raise error
             }
             fail("request admitted after shutdown")
@@ -798,7 +800,7 @@ async test "HTTP/3 supervisor sends each peer its GOAWAY boundary and drains a l
           assert_eq(bytes, payload)
           assert_eq(serving.wait(), Ok(()))
           try ignore(client.send(request())) catch {
-            @service.H3ClientError::Goaway(4L) => ()
+            @service.Http3ClientError::Goaway(4L) => ()
             error => raise error
           } noraise {
             _ => fail("closed peer admitted another request")

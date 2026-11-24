@@ -16,12 +16,12 @@ import {
   "ZSeanYves/MoonbitHTTP/protocol/http2",
   "ZSeanYves/MoonbitHTTP/protocol/http3",
   "ZSeanYves/MoonbitHTTP/protocol/quic",
-  "ZSeanYves/MoonbitHTTP/runtime/detection" @auto,
+  "ZSeanYves/MoonbitHTTP/runtime/detection",
   "moonbitlang/x/codec/base64",
 }
 
 import {
-  "ZSeanYves/MoonbitHTTP/adapter/uv",
+  "ZSeanYves/MoonbitHTTP/adapter/callback",
 } for "test"
 
 options(

@@ -43,7 +43,7 @@ fn security_h2_response_head(
 ///|
 async fn security_h2_response(
   frames : Bytes,
-  consume : async (@service.H2Client) -> Unit,
+  consume : async (@service.Http2ClientConnection) -> Unit,
   max_body_bytes~ : Int32 = 64,
 ) -> Unit {
   let ready : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
@@ -59,11 +59,16 @@ async fn security_h2_response(
   let writer : SecurityCaptureWriter = { bytes: [], ready, writes: 0, }
   let limits = { ..@types.Limits::defaults(), max_body_bytes, }
   @async.with_timeout(1000, async fn() {
-    @service.with_h2_client_connection(reader, test_writer(writer), consume, config={
-      ..@service.H2ClientConfig::defaults(),
-      limits,
-      body_queue_capacity: 1,
-    })
+    @service.with_http2_client_connection(
+      reader,
+      test_writer(writer),
+      consume,
+      config={
+        ..@service.Http2ClientConfig::defaults(),
+        limits,
+        body_queue_capacity: 1,
+      },
+    )
   })
 }
 
@@ -115,7 +120,10 @@ async test "service HTTP/1 EOF before final headers is terminal" {
     let reader = @aio.MemoryReader(async fn(writer) { writer.write(prefix) })
     let ready : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
     let writer : SecurityCaptureWriter = { bytes: [], ready, writes: 0, }
-    let client = @service.ClientConnection::new(reader, test_writer(writer)).unwrap()
+    let client = @service.Http1ClientConnection::new(
+      reader,
+      test_writer(writer),
+    ).unwrap()
     let request = { ..security_request(Get), version: Http11, }
     try
       @async.with_timeout(1000, async fn() { ignore(client.send(request)) })
@@ -229,7 +237,7 @@ async test "service HTTP/2 rejects response frames after trailers" {
   })
   let writer : SecurityCaptureWriter = { bytes: [], ready, writes: 0, }
   @async.with_timeout(1000, async fn() {
-    @service.with_h2_client_connection(
+    @service.with_http2_client_connection(
       reader,
       test_writer(writer),
       async fn(client) {
@@ -237,7 +245,10 @@ async test "service HTTP/2 rejects response frames after trailers" {
         assert_eq(result.status, 200)
         @async.sleep(100)
       },
-      config={ ..@service.H2ClientConfig::defaults(), body_queue_capacity: 1, },
+      config={
+        ..@service.Http2ClientConfig::defaults(),
+        body_queue_capacity: 1,
+      },
     )
   })
   let encoded = Bytes::from_array(writer.bytes[24:].to_owned())

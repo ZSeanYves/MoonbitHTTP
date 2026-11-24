@@ -1,7 +1,8 @@
 ///|
 /// A sequential HTTP/1 connection. A response body must be fully consumed
 /// before the next request is sent on the same connection.
-pub struct ClientConnection[R, W] {
+#alias(ClientConnection)
+pub struct Http1ClientConnection[R, W] {
   priv reader : R
   priv writer : W
   priv limits : @types.Limits
@@ -24,14 +25,15 @@ priv enum Http1ClientState {
 
 ///|
 #derive(Eq, Debug)
-pub(all) suberror ClientConnectionError {
+#alias(ClientConnectionError)
+pub(all) suberror Http1ClientError {
   ConnectionClosed
   RequestInProgress
 }
 
 ///|
-fn[R, W] ClientConnection::finish_response(
-  self : ClientConnection[R, W],
+fn[R, W] Http1ClientConnection::finish_response(
+  self : Http1ClientConnection[R, W],
 ) -> Unit {
   match self.state {
     Active => self.state = Ready
@@ -42,7 +44,8 @@ fn[R, W] ClientConnection::finish_response(
 
 ///|
 #derive(Eq, Debug)
-pub(all) enum ClientConnectionPhase {
+#alias(ClientConnectionPhase)
+pub(all) enum Http1ClientPhase {
   RequestHeaders
   RequestBody
   ResponseHeaders
@@ -51,14 +54,15 @@ pub(all) enum ClientConnectionPhase {
 
 ///|
 #derive(Eq, Debug)
-pub(all) suberror ClientConnectionTimeout {
-  ClientConnectionTimeout(ClientConnectionPhase)
+#alias(ClientConnectionTimeout)
+pub(all) suberror Http1ClientTimeout {
+  ClientConnectionTimeout(Http1ClientPhase)
 }
 
 ///|
 /// Builds a sequential HTTP/1 client with independent phase timeouts. `None`
 /// disables only the named phase; all positive values are milliseconds.
-pub fn[R, W] ClientConnection::new(
+pub fn[R, W] Http1ClientConnection::new(
   reader : R,
   writer : W,
   limits~ : @types.Limits = @types.Limits::defaults(),
@@ -68,7 +72,7 @@ pub fn[R, W] ClientConnection::new(
   response_headers_timeout_ms~ : Int32? = Some(30000),
   on_incomplete_upload~ : () -> Unit = fn() {  },
   response_body_timeout_ms~ : Int32? = Some(30000),
-) -> Result[ClientConnection[R, W], ServiceConfigError] {
+) -> Result[Http1ClientConnection[R, W], ServiceConfigError] {
   let timeouts : Array[(String, Int32?)] = [
     ("request headers", request_headers_timeout_ms),
     ("request body", request_body_timeout_ms),
@@ -104,7 +108,7 @@ async fn[R : @aio.BinaryReader] client_read_with_timeout(
   reader : R,
   max_len : Int32,
   timeout_ms : Int32?,
-  phase : ClientConnectionPhase,
+  phase : Http1ClientPhase,
 ) -> Bytes? {
   read_some_with_timeout(reader, max_len, timeout_ms) catch {
     @async.TimeoutError => raise ClientConnectionTimeout(phase)
@@ -117,7 +121,7 @@ async fn[W : @aio.BinaryWriter] client_write_with_timeout(
   writer : W,
   bytes : Bytes,
   timeout_ms : Int32?,
-  phase : ClientConnectionPhase,
+  phase : Http1ClientPhase,
   on_written~ : () -> Unit = fn() {  },
 ) -> Unit {
   io_with_timeout(timeout_ms, async fn() {
@@ -132,21 +136,25 @@ async fn[W : @aio.BinaryWriter] client_write_with_timeout(
 ///|
 /// Marks the HTTP/1 client connection unusable. Physical transport shutdown is
 /// owned by the caller's Reader/Writer adapter.
-pub fn[R, W] ClientConnection::close(self : ClientConnection[R, W]) -> Unit {
+pub fn[R, W] Http1ClientConnection::close(
+  self : Http1ClientConnection[R, W],
+) -> Unit {
   self.state = Closed
 }
 
 ///|
 /// A connection is reusable only after the previous response reached its
 /// terminal frame and neither peer requested closure.
-pub fn[R, W] ClientConnection::is_reusable(
-  self : ClientConnection[R, W],
+pub fn[R, W] Http1ClientConnection::is_reusable(
+  self : Http1ClientConnection[R, W],
 ) -> Bool {
   self.state is Ready
 }
 
 ///|
-pub fn[R, W] ClientConnection::is_closed(self : ClientConnection[R, W]) -> Bool {
+pub fn[R, W] Http1ClientConnection::is_closed(
+  self : Http1ClientConnection[R, W],
+) -> Bool {
   match self.state {
     Closed | CloseAfterBody => true
     Ready | Active => false
@@ -154,8 +162,8 @@ pub fn[R, W] ClientConnection::is_closed(self : ClientConnection[R, W]) -> Bool 
 }
 
 ///|
-async fn[R, W : @aio.BinaryWriter, B : @body.Body] ClientConnection::write_upload(
-  self : ClientConnection[R, W],
+async fn[R, W : @aio.BinaryWriter, B : @body.Body] Http1ClientConnection::write_upload(
+  self : Http1ClientConnection[R, W],
   framing : @http1.BodyFraming,
   body : B,
   on_wire_end~ : () -> Unit = fn() {  },
@@ -186,8 +194,8 @@ async fn[R, W : @aio.BinaryWriter, B : @body.Body] ClientConnection::write_uploa
 }
 
 ///|
-async fn[R : @aio.BinaryReader, W] ClientConnection::read_response_head(
-  self : ClientConnection[R, W],
+async fn[R : @aio.BinaryReader, W] Http1ClientConnection::read_response_head(
+  self : Http1ClientConnection[R, W],
   decoder : @http1.ResponseDecoder,
   timeout_ms : Int32?,
   on_continue~ : () -> Unit = fn() {  },
@@ -231,8 +239,8 @@ async fn[R : @aio.BinaryReader, W] ClientConnection::read_response_head(
 ///|
 /// One reader owns the decoder for the entire exchange, including the
 /// Continue grace period. Only the upload worker is cancelled on an early head.
-async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] ClientConnection::exchange_upload(
-  self : ClientConnection[R, W],
+async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] Http1ClientConnection::exchange_upload(
+  self : Http1ClientConnection[R, W],
   decoder : @http1.ResponseDecoder,
   framing : @http1.BodyFraming,
   body : B,
@@ -326,8 +334,8 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] ClientCon
 }
 
 ///|
-pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] ClientConnection::send(
-  self : ClientConnection[R, W],
+pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] Http1ClientConnection::send(
+  self : Http1ClientConnection[R, W],
   request : @types.Request[B],
 ) -> @types.Response[@body.BodyStream] {
   match self.state {

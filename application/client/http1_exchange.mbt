@@ -1,5 +1,5 @@
 ///|
-fn http1_pool_phase(phase : @service.ClientConnectionPhase) -> ClientPhase {
+fn http1_pool_phase(phase : @service.Http1ClientPhase) -> ClientPhase {
   match phase {
     RequestHeaders => ClientRequestHeaders
     RequestBody => ClientRequestBody
@@ -11,7 +11,7 @@ fn http1_pool_phase(phase : @service.ClientConnectionPhase) -> ClientPhase {
 ///|
 fn Http1PooledRoundTripper::phase_timeout(
   self : Http1PooledRoundTripper,
-  phase : @service.ClientConnectionPhase,
+  phase : @service.Http1ClientPhase,
 ) -> ClientError {
   let timeout = (match phase {
     RequestHeaders => self.options.timeouts.request_headers_ms
@@ -29,11 +29,11 @@ async fn[T] Http1PooledRoundTripper::exchange_result(
 ) -> Result[T, ClientError] {
   Ok(run()) catch {
     @service.StreamIoError::StreamIoError(error) => Err(ClientTransport(error))
-    @service.ClientConnectionError::ConnectionClosed =>
+    @service.Http1ClientError::ConnectionClosed =>
       Err(ClientConnection(ConnectionClosed))
-    @service.ClientConnectionError::RequestInProgress =>
+    @service.Http1ClientError::RequestInProgress =>
       Err(ClientConnection(RequestInProgress))
-    @service.ClientConnectionTimeout::ClientConnectionTimeout(phase) =>
+    @service.Http1ClientTimeout::ClientConnectionTimeout(phase) =>
       Err(self.phase_timeout(phase))
     @http1.Http1Error::InvalidStartLine(detail) =>
       Err(ClientHttp1(InvalidStartLine(detail)))
