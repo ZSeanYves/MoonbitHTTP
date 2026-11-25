@@ -402,3 +402,31 @@ test "retry: Retry-After accepts delay-seconds and HTTP-date with hard caps" {
     Ok(RetryAfterMillis(100L)),
   )
 }
+
+///|
+test "redirect: a POST can become a GET on the same URI only once" {
+  let uri = test_uri("https://example.com/form")
+  let tracker = @client.RedirectTracker::new(
+    uri,
+    @client.RedirectPolicy::limited().unwrap(),
+  ).unwrap()
+  let headers = @types.HeaderMap::new()
+  let next = tracker
+    .follow(uri, "/form", 303, Post, headers, NonReplayableBody)
+    .unwrap_or_error()
+  assert_eq(next.http_method, Get)
+  assert_true(next.drop_body)
+  assert_true(
+    tracker.follow(next.uri, "/form", 303, Get, headers, ReplayableBody)
+    is Err(RedirectLoop),
+  )
+
+  let same = @client.RedirectTracker::new(
+    uri,
+    @client.RedirectPolicy::limited().unwrap(),
+  ).unwrap()
+  assert_true(
+    same.follow(uri, "/form", 307, Post, headers, ReplayableBody)
+    is Err(RedirectLoop),
+  )
+}

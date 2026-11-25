@@ -386,3 +386,55 @@ test "cache policy: must-revalidate disables stale-if-error fallback" {
     _ => assert_true(false)
   }
 }
+
+///|
+test "cache selects the most recent matching Vary response for lookup and revalidation" {
+  let cache = @cache.HttpCache::new().unwrap()
+  let fr = cache_test_request(Get, "/doc")
+  fr.headers.append_string("accept-language", "fr").unwrap()
+  for
+    (vary, date, body, tag) in [
+      ("", 10L, b"default", "\"default\""),
+      ("accept-language", 20L, b"bonjour", "\"fr\""),
+      ("accept-encoding", 15L, b"identity", "\"enc\""),
+    ] {
+    let response = cache_test_response(
+      200,
+      "max-age=60",
+      body,
+      date,
+      etag=Some(tag),
+    )
+    if vary != "" {
+      response.headers.append_string("vary", vary).unwrap()
+    }
+    ignore(cache.store(fr, response, body, 21L).unwrap())
+  }
+  guard cache.lookup(fr, 22L).unwrap() is CacheFresh(hit) else {
+    fail("expected fresh variant")
+  }
+  assert_eq(hit.body(), b"bonjour")
+  let conditional = {
+    ..fr,
+    headers: @cache.conditional_request_headers(fr.headers, hit),
+  }
+  let headers = @types.HeaderMap::new()
+  headers.append_string("etag", "\"fr\"").unwrap()
+  assert_eq(
+    cache
+    .revalidate(
+      conditional,
+      { status: 304, version: Http11, headers, body: (), },
+      23L,
+    )
+    .unwrap()
+    .body(),
+    b"bonjour",
+  )
+  let other = cache_test_request(Get, "/doc")
+  other.headers.append_string("accept-encoding", "gzip").unwrap()
+  guard cache.lookup(other, 24L).unwrap() is CacheFresh(fallback) else {
+    fail("expected default")
+  }
+  assert_eq(fallback.body(), b"default")
+}

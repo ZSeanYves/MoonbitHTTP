@@ -217,6 +217,75 @@ async test "client auth: Digest challenge is retried with a fresh authorization 
 }
 
 ///|
+async test "client: redirect renews the Digest challenge budget but counts toward retry limits" {
+  let first = test_uri("https://first.test/")
+  let second = test_uri("https://second.test/")
+  let options = {
+    ..@client.RequestOptions::defaults(),
+    redirect: @client.RedirectPolicy::limited().unwrap(),
+    retry: @client.RetryPolicy::idempotent(max_attempts=5).unwrap(),
+  }
+  let client = @client.Client::new(
+    options~,
+    authorize_redirect=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
+    wait=_ => fail("all five attempts have already been used"),
+  ).unwrap()
+  let credentials = @auth.DigestCredentials::new("user", "password").unwrap()
+  for origin in [first, second] {
+    client.set_digest_auth(origin, credentials, fn() { Ok("cnonce") }).unwrap()
+  }
+  let seen : Array[(@types.Uri, Bool)] = []
+  let executor = @client.ClosureRoundTripper::new(request => {
+    seen.push(
+      (request.uri, request.headers.get_string("authorization") is Some(_)),
+    )
+    let headers = @types.HeaderMap::new()
+    let status = match seen.length() {
+      1 | 2 | 4 => {
+        let attempt = seen.length()
+        let stale = if attempt == 2 { ", stale=true" } else { "" }
+        headers
+        .append_string(
+          "www-authenticate",
+          "Digest realm=\"test\", nonce=\"n\{attempt}\", algorithm=SHA-256, qop=\"auth\"" +
+          stale,
+        )
+        .unwrap()
+        401
+      }
+      3 => {
+        headers.append_string("location", second.value).unwrap()
+        302
+      }
+      _ => 503
+    }
+    Ok({ status, version: Http11, headers, body: b"", })
+  })
+  let response = client
+    .send(
+      executor,
+      {
+        http_method: Get,
+        uri: first,
+        version: Http11,
+        headers: @types.HeaderMap::new(),
+        body: b"",
+      },
+      0L,
+    )
+    .unwrap()
+  assert_eq(response.status, 503)
+  assert_eq(seen, [
+    (first, false),
+    (first, true),
+    (first, true),
+    (second, false),
+    (second, true),
+  ])
+}
+
+///|
 async test "client auth: Digest does not replay an undeclared nonempty body" {
   let origin = test_uri("http://example.test/")
   let credentials = @auth.DigestCredentials::new("user", "password").unwrap()

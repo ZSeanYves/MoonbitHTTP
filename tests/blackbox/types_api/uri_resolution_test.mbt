@@ -47,3 +47,23 @@ test "uri resolution: rejects credentials and control bytes" {
     @types.Uri::resolve_reference(origin, "/next") is Err(InvalidRequestTarget),
   )
 }
+
+///|
+test "uri resolution: normalize only literal dot segments in a Location with authority" {
+  let base = @types.Uri::parse("https://base.test/a").unwrap()
+  for
+    (location, expected) in [
+      ("http://origin.test/docs/../index", "http://origin.test/index"),
+      ("//origin.test/a/./b/..", "https://origin.test/a/"),
+      ("https://origin.test/a//../b", "https://origin.test/a/b"),
+      ("https://origin.test/a//.", "https://origin.test/a//"),
+      (
+        "https://origin.test/%2e%2e/x?q=/a/../b#frag", "https://origin.test/%2e%2e/x?q=/a/../b",
+      ),
+    ] {
+    assert_eq(
+      @types.Uri::resolve_reference(base, location).unwrap().value,
+      expected,
+    )
+  }
+}

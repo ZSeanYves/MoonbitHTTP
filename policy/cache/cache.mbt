@@ -13,6 +13,7 @@ struct CacheEntry {
   vary_signature : String
   response : @types.Response[Unit]
   body : Bytes
+  date_seconds : Int64
   stored_at : Int64
   initial_age : Int64
   freshness_lifetime : Int64
@@ -359,6 +360,33 @@ fn HttpCache::cache_remove_at(self : HttpCache, index : Int32) -> Unit {
 }
 
 ///|
+fn HttpCache::matching_entry(
+  self : HttpCache,
+  key : String,
+  headers : @types.HeaderMap,
+) -> CacheEntry? {
+  let mut selected : CacheEntry? = None
+  for entry in self.entries {
+    if !cache_entry_matches(entry, key, headers) {
+      continue
+    }
+    if selected is Some(previous) {
+      // RFC 9111 §4.1 prefers a matching Vary response over a default.
+      // Within either group, use Date; insertion order breaks ties.
+      if entry.vary.is_empty() != previous.vary.is_empty() {
+        if entry.vary.is_empty() {
+          continue
+        }
+      } else if entry.date_seconds < previous.date_seconds {
+        continue
+      }
+    }
+    selected = Some(entry)
+  }
+  selected
+}
+
+///|
 fn HttpCache::cache_enforce_limits(self : HttpCache) -> Unit {
   while self.entries.length() > self.config.limits.max_entries ||
         self.total_bytes > self.config.limits.max_total_bytes {
@@ -515,6 +543,7 @@ pub fn HttpCache::store(
     vary_signature,
     response: copied_response,
     body,
+    date_seconds,
     stored_at: now_seconds,
     initial_age,
     freshness_lifetime: lifetime,
@@ -591,20 +620,12 @@ pub fn HttpCache::lookup(
       },
     )
   }
-  let mut selected = -1
-  for index, entry in self.entries {
-    if cache_entry_matches(entry, key, request.headers) {
-      selected = index
-      break
-    }
-  }
-  if selected < 0 {
+  guard self.matching_entry(key, request.headers) is Some(entry) else {
     if request_control.only_if_cached {
       return Ok(OnlyIfCachedMiss)
     }
     return Ok(CacheMiss)
   }
-  let entry = self.entries[selected]
   entry.last_used = self.cache_tick()
   let age = cache_add_saturating(
     entry.initial_age,

@@ -379,6 +379,7 @@ pub struct RedirectTracker {
   policy : RedirectPolicy
   visited : Map[String, Bool]
   mut followed : Int32
+  // private fields
 }
 pub fn RedirectTracker::follow(Self, @types.Uri, String, Int32, @types.Method, @types.HeaderMap, BodyReplayability) -> Result[RedirectDecision, RedirectError]
 pub fn RedirectTracker::new(@types.Uri, RedirectPolicy) -> Result[Self, RedirectError]

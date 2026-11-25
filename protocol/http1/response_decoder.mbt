@@ -118,7 +118,9 @@ fn ResponseDecoder::next_impl(
         if framing is ContentLength(size) && size > self.limits.max_body_bytes {
           return Err(LimitExceeded("message body"))
         }
-        self.state = ResponseBodyState(BodyDecoder::new(framing, self.limits))
+        self.state = ResponseBodyState(
+          BodyDecoder::new(framing, self.limits, eof=self.eof),
+        )
         Ok(Some(ResponseHead({ status, version, headers, body: (), })))
       } else {
         if count + 1 > self.limits.max_header_count ||

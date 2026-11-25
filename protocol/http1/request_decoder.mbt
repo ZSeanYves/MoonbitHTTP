@@ -120,7 +120,9 @@ fn RequestDecoder::next_impl(
         if framing is ContentLength(size) && size > self.limits.max_body_bytes {
           return Err(LimitExceeded("message body"))
         }
-        self.state = RequestBody(BodyDecoder::new(framing, self.limits))
+        self.state = RequestBody(
+          BodyDecoder::new(framing, self.limits, eof=self.eof),
+        )
         Ok(Some(RequestHead({ http_method, uri, version, headers, body: (), })))
       } else {
         if count + 1 > self.limits.max_header_count ||

@@ -29,6 +29,7 @@ priv enum BodyEvent {
 fn BodyDecoder::new(
   framing : BodyFraming,
   limits : @types.Limits,
+  eof~ : Bool,
 ) -> BodyDecoder {
   let state = match framing {
     NoBody => BodyEnd
@@ -37,7 +38,7 @@ fn BodyDecoder::new(
     Chunked => BodyChunkSize
     CloseDelimited => BodyClose
   }
-  { state, total: 0, limits, eof: false, }
+  { state, total: 0, limits, eof, }
 }
 
 ///|

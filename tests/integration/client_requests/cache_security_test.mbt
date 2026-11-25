@@ -26,7 +26,16 @@ async test "security: cache fallback covers transport errors and 5xx with explic
       )
       .unwrap()
       |> ignore
+      let delays : Array[Int64] = []
       let client = @client.Client::new(
+        options={
+          ..@client.RequestOptions::defaults(),
+          retry: @client.RetryPolicy::idempotent(
+            max_attempts=2,
+            base_delay_ms=25L,
+          ).unwrap(),
+        },
+        wait=delay => delays.push(delay),
         cache~,
         cache_enabled=true,
         authorize_redirect=fn(_, _) { Ok(()) },
@@ -35,7 +44,7 @@ async test "security: cache fallback covers transport errors and 5xx with explic
       let executor = @client.ClosureRoundTripper::new(sent => {
         assert_true(sent.headers.get_string("if-none-match") is Some(_))
         if transport_failure {
-          Err(ClientProtocol("network unavailable"))
+          Err(ClientTransport(Closed))
         } else {
           Ok({
             status: 503,
@@ -56,7 +65,18 @@ async test "security: cache fallback covers transport errors and 5xx with explic
         },
         0L,
       )
-      if control == "max-age=0, stale-if-error=30" {
+      let allows_fallback = control == "max-age=0, stale-if-error=30"
+      // A transport failure can use the fallback immediately. A 503 first
+      // uses the configured retry, even when the cached response is eligible.
+      assert_eq(
+        delays,
+        if transport_failure && allows_fallback {
+          []
+        } else {
+          [25L]
+        },
+      )
+      if allows_fallback {
         assert_eq(result.unwrap().body, b"old")
       } else if transport_failure {
         assert_true(result is Err(_))

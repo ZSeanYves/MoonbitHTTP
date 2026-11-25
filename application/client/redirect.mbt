@@ -11,6 +11,7 @@ pub(all) struct RedirectDecision {
 pub struct RedirectTracker {
   policy : RedirectPolicy
   visited : Map[String, Bool]
+  priv mut visited_for_method : Map[String, Bool]
   mut followed : Int32
 }
 
@@ -39,9 +40,8 @@ pub fn RedirectTracker::new(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let visited : Map[String, Bool] = Map([])
-  visited.set(key, true)
-  Ok({ policy, visited, followed: 0, })
+  let visited = Map([(key, true)])
+  Ok({ policy, visited, visited_for_method: visited, followed: 0, })
 }
 
 ///|
@@ -134,9 +134,14 @@ pub fn RedirectTracker::follow(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  if self.visited.get(key) is Some(_) {
+  // A redirect can rewrite the method only to GET. Once rewritten, all
+  // subsequent requests in this chain keep that method.
+  if next_method != http_method {
+    self.visited_for_method = Map([])
+  } else if self.visited_for_method.contains(key) {
     return Err(RedirectLoop)
   }
+  self.visited_for_method.set(key, true)
   self.visited.set(key, true)
   self.followed += 1
   let cross_origin = !current_endpoint.same_origin(next_endpoint)

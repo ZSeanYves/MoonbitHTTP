@@ -144,3 +144,18 @@ test "types: response body rules" {
   assert_eq(@types.response_allows_body(Get, 204), false)
   assert_eq(@types.response_allows_body(Connect, 200), false)
 }
+
+///|
+test "uri: a question mark in the fragment does not start a query" {
+  for
+    (value, query) in [
+      ("https://example.test/guide#/search?q=moonbit", None),
+      ("/guide?lang=en#/search?q=moonbit", Some("lang=en")),
+      ("/guide?#/search?q=moonbit", Some("")),
+    ] {
+    let uri = @types.Uri::parse(value).unwrap_or_error()
+    assert_eq(uri.query, query)
+    assert_eq(uri.fragment, Some("/search?q=moonbit"))
+    assert_true(uri.validate() is Ok(_))
+  }
+}

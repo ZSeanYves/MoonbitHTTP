@@ -81,3 +81,50 @@ async test "client http1 round trip: decoded body limit closes on overflow" {
   }
   assert_true(executor.execute(request) is Err(ClientHttp1(_)))
 }
+
+///|
+async test "HTTP/1 follows a POST with a GET at the normalized absolute Location" {
+  let connector : FacadeTestConnector = {
+    responses: [
+      b"HTTP/1.1 303 See Other\r\nLocation: http://origin.test/docs/../form\r\nContent-Length: 0\r\n\r\n",
+      b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
+    ],
+    response_index: 0,
+    connect_hosts: [],
+    writes: [],
+    closes: 0,
+  }
+  let resolver = @transport.StaticResolver::new([
+    ("origin.test", [@types.IpAddress::parse("192.0.2.10").unwrap()]),
+  ])
+  let client = @client.Http1Client::from_capabilities(
+    connector,
+    resolver,
+    @transport.UnsupportedProvider::new(),
+    @transport.AllowAllPolicy::new(),
+    @test_support.FixedClock::new(0L, 0L),
+    options={
+      ..@client.RequestOptions::defaults(),
+      redirect: @client.RedirectPolicy::limited().unwrap(),
+    },
+  ).unwrap()
+  defer client.close()
+  let request = pooled_request(
+    "http://origin.test/form",
+    @types.HeaderMap::new(),
+  )
+  let response = client
+    .send({ ..request, http_method: Post, })
+    .unwrap_or_error()
+  assert_eq(response.status, 200)
+  assert_eq(response.body, b"ok")
+  assert_eq(connector.writes.length(), 2)
+  assert_true(
+    @utf8.decode_lossy(connector.writes[0]).has_prefix(
+      "POST /form HTTP/1.1\r\n",
+    ),
+  )
+  assert_true(
+    @utf8.decode_lossy(connector.writes[1]).has_prefix("GET /form HTTP/1.1\r\n"),
+  )
+}

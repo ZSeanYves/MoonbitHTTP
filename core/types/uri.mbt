@@ -387,27 +387,22 @@ fn split_path_query_fragment(
   bytes : BytesView,
   start : Int32,
 ) -> Result[(String, String?, String?), UriError] {
-  let query_mark = find_byte(bytes, b'?', start)
   let fragment_mark = find_byte(bytes, b'#', start)
-  if query_mark >= 0 && fragment_mark >= 0 && fragment_mark < query_mark {
-    return Err(InvalidCharacter(offset=query_mark))
-  }
-  let path_end = if query_mark >= 0 {
-    query_mark
-  } else if fragment_mark >= 0 {
+  let query_end = if fragment_mark >= 0 {
     fragment_mark
   } else {
     bytes.length()
   }
+  let query_mark = find_byte(bytes[:query_end], b'?', start)
+  let path_end = if query_mark >= 0 { query_mark } else { query_end }
   match validate_uri_component(bytes[start:path_end], start, true, false) {
     Ok(_) => ()
     Err(error) => return Err(error)
   }
   let query = if query_mark >= 0 {
-    let end = if fragment_mark >= 0 { fragment_mark } else { bytes.length() }
     match
       validate_uri_component(
-        bytes[query_mark + 1:end],
+        bytes[query_mark + 1:query_end],
         query_mark + 1,
         true,
         true,
@@ -415,7 +410,7 @@ fn split_path_query_fragment(
       Ok(_) => ()
       Err(error) => return Err(error)
     }
-    Some(uri_text(bytes[query_mark + 1:end]))
+    Some(uri_text(bytes[query_mark + 1:query_end]))
   } else {
     None
   }
@@ -647,36 +642,22 @@ fn uri_last_slash(bytes : BytesView) -> Int32 {
 
 ///|
 fn remove_dot_segments(path : String) -> String {
-  let absolute = path.has_prefix("/")
-  let trailing = path.has_suffix("/") ||
-    path.has_suffix("/.") ||
-    path.has_suffix("/..")
-  let segments : Array[String] = []
-  for view in path.split("/") {
-    let segment = view.to_owned()
-    if segment == "." {
-      continue
-    }
-    if segment == ".." {
-      if !segments.is_empty() && segments[segments.length() - 1] != "" {
-        ignore(segments.pop())
-      }
-      continue
-    }
-    segments.push(segment)
+  // Resolution passes an empty path or an absolute path under an authority.
+  if !path.contains(".") {
+    return path
   }
-  if trailing && (segments.is_empty() || segments[segments.length() - 1] != "") {
+  let segments : Array[String] = []
+  for segment in path[1:].split("/") {
+    match segment {
+      "." => ()
+      ".." => ignore(segments.pop())
+      _ => segments.push(segment.to_owned())
+    }
+  }
+  if path.has_suffix("/.") || path.has_suffix("/..") {
     segments.push("")
   }
-  let mut normalized = segments.join("/")
-  if absolute && !normalized.has_prefix("/") {
-    normalized = "/" + normalized
-  }
-  if absolute && normalized == "" {
-    "/"
-  } else {
-    normalized
-  }
+  "/" + segments.join("/")
 }
 
 ///|
@@ -691,6 +672,27 @@ fn uri_absolute_prefix(base : Uri) -> Result[String, UriError] {
     None => return Err(InvalidRequestTarget)
   }
   Ok(scheme + "://" + authority.value)
+}
+
+///|
+fn resolve_absolute_reference(text : String) -> Result[Uri, UriError] {
+  let uri = match Uri::parse(text) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  let prefix = match uri_absolute_prefix(uri) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  let path = remove_dot_segments(uri.path)
+  if path == uri.path {
+    return Ok(uri)
+  }
+  let query = match uri.query {
+    Some(value) => "?" + value
+    None => ""
+  }
+  Uri::parse(prefix + path + query)
 }
 
 ///|
@@ -725,21 +727,7 @@ pub fn Uri::resolve_reference(
     let colon = find_byte(reference_bytes, b':', 0)
     let delimiter = earliest_delimiter(reference_bytes, 0)
     if colon > 0 && colon < delimiter {
-      let absolute = match Uri::parse(reference_text) {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      let absolute = match absolute.without_fragment() {
-        Ok(value) => value
-        Err(error) => return Err(error)
-      }
-      if absolute.form != AbsoluteForm || absolute.authority is None {
-        return Err(InvalidRequestTarget)
-      }
-      if absolute.authority is Some(value) && value.userinfo is Some(_) {
-        return Err(UserinfoNotAllowed)
-      }
-      return Ok(absolute)
+      return resolve_absolute_reference(reference_text)
     }
   }
   if reference_text.has_prefix("//") {
@@ -747,14 +735,7 @@ pub fn Uri::resolve_reference(
       Some(value) => value
       None => return Err(InvalidRequestTarget)
     }
-    let result = match Uri::parse(scheme + ":" + reference_text) {
-      Ok(value) => value
-      Err(error) => return Err(error)
-    }
-    if result.authority is Some(value) && value.userinfo is Some(_) {
-      return Err(UserinfoNotAllowed)
-    }
-    return Ok(result)
+    return resolve_absolute_reference(scheme + ":" + reference_text)
   }
   if reference_text.has_prefix("/") {
     let question = find_byte(reference_bytes, b'?', 0)

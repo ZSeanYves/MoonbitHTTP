@@ -63,17 +63,9 @@ pub fn HttpCache::revalidate(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let mut selected = -1
-  for index, entry in self.entries {
-    if cache_entry_matches(entry, key, request.headers) {
-      selected = index
-      break
-    }
-  }
-  if selected < 0 {
+  guard self.matching_entry(key, request.headers) is Some(old) else {
     return Err(NotCacheable("304 has no matching stored representation"))
   }
-  let old = self.entries[selected]
   let response_etag = match cache_validator(not_modified.headers, "etag") {
     Ok(value) => value
     Err(error) => return Err(error)
