@@ -5,6 +5,7 @@ async fn run_peer_soak(
   trust_file : String,
   seconds : Int32,
   workers : Int32,
+  mixed~ : Bool,
 ) -> Unit {
   guard seconds >= 1 && seconds <= 3600 && workers >= 1 && workers <= 32 else {
     fail("expected 1–3600 seconds and 1–32 concurrent workers")
@@ -32,13 +33,15 @@ async fn run_peer_soak(
       let start = @transport.Clock::monotonic_millis(clock)
       let deadline = start + seconds.to_int64() * 1000L
       let mut pairs = 0L
+      let mut large_pairs = 0L
       defer {
         let elapsed = @transport.Clock::monotonic_millis(clock) - start
         let snapshot : Json = {
           "workers": workers,
           "elapsed_ms": elapsed.to_int(),
           "completed_pairs": pairs.to_double(),
-          "verified_response_bytes": (pairs * 8192L).to_double(),
+          "large_pairs": large_pairs.to_double(),
+          "verified_response_bytes": (pairs * 8192L + large_pairs * 126976L).to_double(),
         }
         println(snapshot.stringify())
       }
@@ -46,6 +49,13 @@ async fn run_peer_soak(
         for worker in 0..<workers {
           group.spawn_bg(async fn() {
             let payload = echo_payload(worker)
+            let large = mixed && worker == 0
+            let get_size = if large { 131072 } else { 4096 }
+            let expected = if large {
+              Bytes::make(get_size, b'Z')
+            } else {
+              download
+            }
             while true {
               @async.with_timeout(30000, async fn() {
                 check_body(
@@ -53,11 +63,16 @@ async fn run_peer_soak(
                   payload,
                 )
                 check_body(
-                  client.send(request(base + "/4096", Get, b"")),
-                  download,
+                  client.send(
+                    request(base + "/" + get_size.to_string(), Get, b""),
+                  ),
+                  expected,
                 )
               })
               pairs += 1L
+              if large {
+                large_pairs += 1L
+              }
               if @transport.Clock::monotonic_millis(clock) >= deadline {
                 break
               }

@@ -19,6 +19,7 @@ async fn record(
   command : String,
   args : Array[String],
   success? : Bool = true,
+  monitor? : Bool = false,
   timeout_ms? : Int = 30000,
 ) -> String {
   let stdout = @process.redirect_to_file(
@@ -48,13 +49,30 @@ async fn record(
     )
   })
   let exit = @async.with_timeout_opt(timeout_ms, async fn() {
-    @process.run(
-      command,
-      args,
-      stdout~,
-      stderr~,
-      cancel_handler=@process.graceful_cancel(timeout=1000, signal=if args.contains("--quic-log") { SIGINT } else { SIGTERM }),
-    )
+    @async.with_task_group(async fn(group) {
+      let proc = @process.spawn(group, command, args, stdout~, stderr~, no_wait=true,
+        cancel_handler=@process.graceful_cancel(timeout=1000, signal=if args.contains("--quic-log") { SIGINT } else { SIGTERM }))
+      if monitor {
+        let samples : Array[Json] = []
+        let start = @bench.monotonic_clock_start()
+        let sampler = group.spawn(async fn() {
+          while true {
+            let (code, out, _) = @process.collect_output("ps", ["-p", proc.pid.to_string(), "-o", "rss=,time="])
+            if code == 0 { samples.push({ "elapsed_us": @bench.monotonic_clock_end(start),
+              "rss_kib_cpu_time": out.text().trim().to_owned() }) }
+            @async.sleep(5000)
+          }
+        }, no_wait=true)
+        defer {
+          sampler.cancel()
+          @async.protect_from_cancel(async fn() {
+            @fs.write_file(directory + "/" + name + ".resources.json", Json::array(samples), create_mode=CreateNew)
+          })
+        }
+        return proc.wait()
+      }
+      proc.wait()
+    })
   })
   status = exit.unwrap_or(-1)
   state = if exit is None { "timed_out" } else { "exited" }
@@ -877,6 +895,7 @@ async fn peer_soak(
   duration : String,
   concurrency : String,
   impair : Bool,
+  mixed : Bool,
 ) -> Unit {
   let seconds = decimal(duration)
   let workers = decimal(concurrency)
@@ -906,7 +925,8 @@ async fn peer_soak(
   @fs.write_file(directory + "/configuration.json", configuration, create_mode=CreateNew)
   async fn measure(endpoint : @socket.Addr) -> String {
     let args = ["--peer-soak", endpoint.to_string(), authority, ca, duration, concurrency]
-    record(directory, "client", "./" + binary, args, timeout_ms=seconds * 1000 + 60000)
+    if mixed { args.push("--mixed") }
+    record(directory, "client", "./" + binary, args, timeout_ms=seconds * 1000 + 60000, monitor=true)
   }
   let summaries = []
   let outcome : Result[Json, Error] = try {
@@ -917,9 +937,10 @@ async fn peer_soak(
     }
     let stats = @json.parse(@fs.read_file(directory + "/client.stdout").text())
     guard stats is { "elapsed_ms": Number(elapsed, ..), "completed_pairs": Number(pairs, ..),
-      "verified_response_bytes": Number(bytes, ..), "workers": Number(active, ..), .. } &&
+      "verified_response_bytes": Number(bytes, ..), "large_pairs": Number(large, ..), "workers": Number(active, ..), .. } &&
       elapsed >= (seconds * 1000).to_double() && active == workers.to_double() &&
-      pairs >= active && bytes == pairs * 8192.0 else {
+      pairs >= active && (if mixed { large >= 1.0 } else { large == 0.0 }) &&
+      bytes == pairs * 8192.0 + large * 126976.0 else {
       fail("peer soak did not verify the requested workload")
     }
     Ok(stats)
@@ -948,10 +969,10 @@ async fn main {
   let args = @env.args()
   if args.length() > 1 && args[1] == "--peer-soak" {
     guard args is [_, _, address, authority, ca, seconds, workers, ..tail] &&
-      (tail.is_empty() || tail is ["--impair"]) else {
-      fail("usage: --peer-soak UDP_ADDRESS HTTPS_AUTHORITY CA_FILE SECONDS WORKERS [--impair]")
+      tail.iter().all(flag => flag == "--mixed" || flag == "--impair") else {
+      fail("usage: --peer-soak UDP_ADDRESS HTTPS_AUTHORITY CA_FILE SECONDS WORKERS [--impair] [--mixed]")
     }
-    peer_soak(address, authority, ca, seconds, workers, !tail.is_empty())
+    peer_soak(address, authority, ca, seconds, workers, tail.contains("--impair"), tail.contains("--mixed"))
     return
   }
   if args is [_, "--peer-restart", reference] {

@@ -32,13 +32,16 @@ async fn check_body(
 ///|
 async fn main {
   let args = @env.args()
-  if args is [_, "--peer-soak", address, authority, ca, seconds, workers] {
+  if args
+    is [_, "--peer-soak", address, authority, ca, seconds, workers, .. tail] &&
+    (tail.is_empty() || tail is ["--mixed"]) {
     run_peer_soak(
       address,
       authority,
       ca,
       @string.parse_int(seconds),
       @string.parse_int(workers),
+      mixed=!tail.is_empty(),
     ) catch {
       @quic.QuicError::Tls(cause) => fail("QUIC TLS failure: \{Repr(cause)}")
       @quic.QuicError::ConnectionClosed(code, reason) =>

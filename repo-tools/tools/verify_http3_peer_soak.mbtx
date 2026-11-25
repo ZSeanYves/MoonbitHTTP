@@ -61,7 +61,7 @@ async fn main {
       }
       match message {
         "HTTP request POST /echo" => posts += 1L
-        "HTTP request GET /4096" => gets += 1L
+        "HTTP request GET /4096" | "HTTP request GET /131072" => gets += 1L
         "Connection close received (code 0x100, reason )" => closed = true
         _ => fail("unexpected peer event: \{message}")
       }

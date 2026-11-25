@@ -291,6 +291,54 @@ jobs:
           path: _build/public-evidence/windows.json
           retention-days: 14
 
+  sustained-h3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - *checkout-history
+      - *setup-moon
+      - *registry-update
+      - *linux-packages
+      - *openssl-cache
+      - *openssl-build
+      - name: Prepare pinned independent HTTP/3 peer
+        run: moon run repo-tools/tools/prepare_http3_interop.mbtx
+      - name: Measure sustained connection reuse and delayed paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _build/soak-public
+          for profile in sustained delayed; do
+            seconds=1800
+            flags=(--mixed)
+            if [[ "$profile" == delayed ]]; then
+              seconds=60
+              flags+=(--impair)
+              sudo tc qdisc add dev lo root netem delay 20ms rate 200mbit limit 2000
+            fi
+            log="_build/$profile-aioquic.log"
+            _build/interop-aioquic/venv/bin/python _build/interop-aioquic/upstream/examples/http3_server.py --host 127.0.0.1 --port 18452 --certificate tests/fixtures/tls/localhost.cert.pem --private-key tests/fixtures/tls/localhost.key.pem >"$log" 2>&1 &
+            peer=$!
+            trap 'kill "$peer" 2>/dev/null || true; if [[ "$profile" == delayed ]]; then sudo tc qdisc del dev lo root || true; fi' EXIT
+            moon run repo-tools/tools/http3_interoperability.mbtx -- --peer-soak 127.0.0.1:18452 localhost:18452 tests/fixtures/tls/localhost.cert.pem "$seconds" 4 "${flags[@]}" | tee "_build/$profile-run.log"
+            dir=$(sed -n 's/^HTTP\/3 peer soak evidence: //p' "_build/$profile-run.log")
+            moon run repo-tools/tools/verify_http3_peer_soak.mbtx -- "$dir/result.json" "$log" >"_build/soak-public/$profile-peer.json"
+            jq '.measurement' "$dir/result.json" >"_build/soak-public/$profile-client.json"
+            cp "$dir/client.resources.json" "_build/soak-public/$profile-resources.json"
+            cat "_build/soak-public/$profile-client.json" >> "$GITHUB_STEP_SUMMARY"
+            kill "$peer"
+            wait "$peer" || true
+            if [[ "$profile" == delayed ]]; then sudo tc qdisc del dev lo root; fi
+            trap - EXIT
+          done
+      - name: Retain sustained connection measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sustained-h3-${{ github.run_attempt }}
+          path: _build/soak-public/*.json
+          retention-days: 14
+
   frozen-package:
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -301,13 +349,15 @@ jobs:
       - *linux-packages
       - *openssl-cache
       - *openssl-build
+      - name: Resolve pinned dependencies before freezing the package
+        run: moon check --target native --deny-warn --warn-list +73
       - name: Verify frozen package and release evidence
         run: moon run repo-tools/tools/release_evidence.mbtx
 
 
   acceptance:
     if: always()
-    needs: [build-and-test, native-tls-platform, interoperability, performance, frozen-package]
+    needs: [build-and-test, native-tls-platform, interoperability, performance, sustained-h3, frozen-package]
     runs-on: ubuntu-latest
     steps:
       - name: Require all verification jobs to pass
