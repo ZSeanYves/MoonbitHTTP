@@ -175,6 +175,7 @@ pub async fn[R : @transport.NameResolver, P : @transport.NetworkPolicy, X] with_
   if !tls.verify_peer {
     raise @service.Http3ClientError::InvalidOrigin
   }
+  let clock = @transport_native.NativeClock::new()
   @client_api.with_http3_pool(
     async fn(endpoint, ready, changed) {
       let host = endpoint.transport.host()
@@ -197,5 +198,6 @@ pub async fn[R : @transport.NameResolver, P : @transport.NetworkPolicy, X] with_
     run,
     max_connections~,
     server_name=tls.server_name,
+    now_millis=() => clock.monotonic_millis(),
   )
 }

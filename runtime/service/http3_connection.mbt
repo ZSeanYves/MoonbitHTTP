@@ -85,8 +85,19 @@ pub async fn[
   let mut peer_close : @quic.QuicError? = None
   let mut connected = false
   let packets = tls.datagram_driver()
+  let flush_needed = @cond_var.Cond()
+  let mut requested = 0L
+  let mut completed = 0L
+  let mut write_failure : Error? = None
+  let send_lock = @async.Mutex()
+  fn request_flush() -> Int64 {
+    requested += 1L
+    flush_needed.signal()
+    requested
+  }
   let mut reset_error : @http3.Http3Error? = None
   fn cancel_request(id : Int64, code : @http3.H3ErrorCode) -> Unit {
+    defer ignore(request_flush())
     match session.cancel(id, code~) {
       Ok(_) | Err(Http3StreamError(_, H3RequestCancelled, _)) => ()
       Err(error) => reset_error = Some(error)
@@ -115,31 +126,36 @@ pub async fn[
       raise error
     }
     let batch = []
-    let advanced = session.advance(actions, clock.monotonic_millis())
-    // Sending a datagram yields. Only a batch that observed a terminal
-    // session can report its end or close the application event queue.
-    let terminal = session.ended()
-    if !advanced.is_empty() || !actions.is_empty() {
-      write_changed.broadcast()
-    }
-    for event in advanced {
-      match event {
-        Transport(SendDatagram(_, _) as packet) =>
-          packets.send_action(socket, packet).unwrap_or_error()
-        Failed(error) => raise error
-        Transport(ConnectionClosed(code, reason)) => {
-          let error = @quic.QuicError::ConnectionClosed(code, reason)
-          if !connected || !@http3.peer_closed_normally(packets.connection()) {
-            raise error
+    let terminal = {
+      send_lock.acquire()
+      defer send_lock.release()
+      let advanced = session.advance(actions, clock.monotonic_millis())
+      // Sending a datagram yields. Only a batch that observed a terminal
+      // session can report its end or close the application event queue.
+      let terminal = session.ended()
+      for event in advanced {
+        match event {
+          Transport(SendDatagram(_, _) as packet) =>
+            packets.send_action(socket, packet).unwrap_or_error()
+          Failed(error) => raise error
+          Transport(ConnectionClosed(code, reason)) => {
+            let error = @quic.QuicError::ConnectionClosed(code, reason)
+            if !connected || !@http3.peer_closed_normally(packets.connection()) {
+              raise error
+            }
+            // Preserve previously delivered batches, including a final response.
+            // A further read observes the close after buffered events are consumed.
+            peer_close = Some(error)
           }
-          // Preserve previously delivered batches, including a final response.
-          // A further read observes the close after buffered events are consumed.
-          peer_close = Some(error)
+          Transport(StreamReset(_, _) | SendStopped(_, _)) => batch.push(event)
+          Transport(_) => ()
+          other => batch.push(other)
         }
-        Transport(StreamReset(_, _) | SendStopped(_, _)) => batch.push(event)
-        Transport(_) => ()
-        other => batch.push(other)
       }
+      if !advanced.is_empty() || !actions.is_empty() {
+        write_changed.broadcast()
+      }
+      terminal
     }
     if terminal &&
       peer_close is None &&
@@ -189,7 +205,18 @@ pub async fn[
         .unwrap_or_error(),
       )
     },
-    flush_writes: async fn() { dispatch([]) },
+    flush_writes: async fn() {
+      let ticket = request_flush()
+      while completed < ticket &&
+            write_failure is None &&
+            !closing &&
+            peer_close is None {
+        write_changed.wait()
+      }
+      if write_failure is Some(error) {
+        raise error
+      }
+    },
   }
   @async_support.with_group_result(async fn(group) {
     // The request tasks may live in a pool outside this connection scope.
@@ -200,6 +227,8 @@ pub async fn[
           task() catch {
             error if io.failure is None && !@async.is_being_cancelled() => {
               io.failure = Some(error)
+              write_failure = Some(error)
+              write_changed.broadcast()
               raise error
             }
             error => raise error
@@ -208,6 +237,19 @@ pub async fn[
         no_wait=true,
       )
     }
+    // Cancellation of a single request can stop waiting for its ticket while
+    // the connection owner finishes sending the datagrams already emitted by QUIC.
+    spawn_driver(async fn() {
+      while true {
+        while completed == requested {
+          flush_needed.wait()
+        }
+        let ticket = requested
+        dispatch([])
+        completed = ticket
+        write_changed.broadcast()
+      }
+    })
     spawn_driver(async fn() {
       dispatch(tls.start(options, clock.monotonic_millis()).unwrap_or_error())
       while peer_close is None {

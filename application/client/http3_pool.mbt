@@ -2,6 +2,7 @@
 /// Scoped HTTP/3 executor. Connections are keyed by the complete HTTPS origin.
 pub struct Http3Client {
   priv pool : OriginPool[@service.Http3ClientConnection]
+  priv now_millis : () -> Int64
   priv pinned_host : String?
 }
 
@@ -18,6 +19,7 @@ pub async fn[X] with_http3_pool(
   run : async (Http3Client) -> X,
   max_connections~ : Int32 = 32,
   server_name~ : String? = None,
+  now_millis~ : () -> Int64 = @async.now,
 ) -> X {
   let pinned_host = server_name.map(name => {
     @types.Endpoint::new("https", name, 443).unwrap_or_error().host()
@@ -31,7 +33,7 @@ pub async fn[X] with_http3_pool(
     },
     @service.Http3ClientConnection::accepts_requests,
     @service.Http3ClientConnection::is_idle,
-    pool => run({ pool, pinned_host, }),
+    pool => run({ pool, pinned_host, now_millis, }),
   )
 }
 
@@ -40,9 +42,15 @@ pub async fn[X] with_http3_pool(
 pub async fn[B : @body.Body] Http3Client::send(
   self : Http3Client,
   request : @types.Request[B],
+  timeouts? : ClientTimeouts,
 ) -> @types.Response[@body.BodyStream] {
+  if timeouts is Some(limits) && limits.validate() is Err(error) {
+    request.body.cancel(error)
+    raise error
+  }
+  let timeout = phase_timeouts(timeouts, self.now_millis)
   self.pool
-  .exchange(request, (client, request) => client.send(request), validate_origin=endpoint => {
+  .exchange(request, (client, request) => client.send(request, timeout?), validate_origin=endpoint => {
     if !endpoint.secure ||
       (self.pinned_host is Some(host) && host != endpoint.transport.host()) {
       raise @service.Http3ClientError::InvalidOrigin

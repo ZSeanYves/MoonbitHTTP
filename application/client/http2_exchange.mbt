@@ -29,26 +29,7 @@ pub async fn[B : @body.Body] Http2Client::execute_body(
       request.headers,
       include_proxy_authorization=false,
     )
-    let timeout = timeouts.map(limits => {
-      fn(phase : @service.HttpClientPhase) -> (Int32, Error)? {
-        let ms = match phase {
-          RequestHeaders => limits.request_headers_ms
-          RequestBody => limits.request_body_ms
-          ResponseHeaders => limits.response_headers_ms
-          ResponseBody => limits.response_body_ms
-        }
-        ms.map(ms => {
-          (
-            ms,
-            client_phase_timeout(
-              http_pool_phase(phase),
-              (self.now_millis)(),
-              ms,
-            ),
-          )
-        })
-      }
-    })
+    let timeout = phase_timeouts(timeouts, self.now_millis)
     client.send({ ..request, version: Http2, headers, }, timeout?)
   }) catch {
     error => Err(http2_client_error(error))

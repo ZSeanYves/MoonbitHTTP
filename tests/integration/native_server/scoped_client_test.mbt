@@ -131,48 +131,71 @@ async test "scoped client sends GET and incremental POST over all four wire vers
 }
 
 ///|
-async test "a stalled H2 stream times out independently of its peer" {
+async fn check_stalled_stream(version : @types.Version) -> Unit {
   let (client_tls, server_tls) = listener_tls_options()
-  let endpoint = unused_tcp_endpoint()
   let policy = @transport.AllowAllPolicy::new()
   let supervisor = @server_api.ServerSupervisor::new().unwrap()
-  let listener = @server.NativeTcpListener::bind_http_tls(
-    endpoint,
-    policy,
-    @tls_native.NativeTlsProvider::new(),
-    { ..server_tls, alpn: ["h2"], },
-    async fn(req) {
-      if req.uri.path == "/head" {
-        @async.sleep(600)
-      }
-      if req.uri.path == "/upload" {
-        ignore(@body.collect(req.body))
-      }
-      let slow = req.uri.path == "/body"
-      let mut sent = false
-      {
-        status: 200,
-        version: Http2,
-        headers: @types.HeaderMap::new(),
-        body: @body.BodyStream::from_pull(async fn() {
-          if sent {
-            return None
-          }
-          sent = true
-          if slow {
-            @async.sleep(600)
-          }
-          Some(Data(b"ok"))
-        }),
-      }
-    },
-  ).unwrap()
-  defer listener.close()
+  let handler = async fn(
+    req : @types.Request[@body.BodyStream],
+  ) -> @types.Response[@body.BodyStream] {
+    if req.uri.path == "/head" {
+      @async.sleep(200)
+    }
+    if req.uri.path == "/upload" {
+      ignore(@body.collect(req.body))
+    }
+    let slow = req.uri.path == "/body"
+    let mut sent = false
+    {
+      status: 200,
+      version: req.version,
+      headers: @types.HeaderMap::new(),
+      body: @body.BodyStream::from_pull(async fn() {
+        if sent {
+          return None
+        }
+        sent = true
+        if slow {
+          @async.sleep(200)
+        }
+        Some(Data(b"ok"))
+      }),
+    }
+  }
+  let tls = {
+    ..server_tls,
+    alpn: [if version == Http2 { "h2" } else { "h3" }],
+  }
+  let (endpoint, close, serve) = if version == Http2 {
+    let endpoint = unused_tcp_endpoint()
+    let listener = @server.NativeTcpListener::bind_http_tls(
+      endpoint,
+      policy,
+      @tls_native.NativeTlsProvider::new(),
+      tls,
+      handler,
+    ).unwrap()
+    (
+      endpoint,
+      () => listener.close(),
+      async fn() { supervisor.serve(listener).unwrap() },
+    )
+  } else {
+    let (endpoint, listener) = bind_test_listener(endpoint => {
+      @server.NativeHttp3Listener::bind_http(endpoint, policy, tls, handler)
+    })
+    (
+      endpoint,
+      () => listener.close(),
+      async fn() { listener.serve(supervisor).unwrap() },
+    )
+  }
+  defer close()
   let origin = @types.Uri::parse(
     "https://127.0.0.1:" + endpoint.port().to_string() + "/",
   ).unwrap()
   @async.with_task_group(async fn(group) {
-    let server = group.spawn(() => supervisor.serve(listener))
+    let server = group.spawn(serve)
     let options = @client_api.RequestOptions::defaults()
     @client_native.with_client(
       async fn(client) {
@@ -182,13 +205,17 @@ async test "a stalled H2 stream times out independently of its peer" {
             ("/body", ClientResponseBody),
             ("/upload", ClientRequestBody),
           ] {
+          let mut cancelled = 0
           let blocked = group.spawn(async fn() {
             let upload = if path == "/upload" {
               @client_api.Upload::once(
-                @body.BodyStream::from_pull(async fn() {
-                  @async.sleep(2000)
-                  None
-                }),
+                @body.BodyStream::from_pull(
+                  async fn() {
+                    @async.sleep(2000)
+                    None
+                  },
+                  on_cancel=_ => cancelled += 1,
+                ),
               )
             } else {
               @client_api.Upload::bytes(b"")
@@ -218,6 +245,9 @@ async test "a stalled H2 stream times out independently of its peer" {
           )
           assert_eq(@body.collect(ok.body).0, b"ok")
           blocked.wait()
+          if path == "/upload" {
+            assert_eq(cancelled, 1)
+          }
         }
         let ok = client.send(
           client.request(Get, origin, @client_api.Upload::bytes(b"")),
@@ -225,23 +255,211 @@ async test "a stalled H2 stream times out independently of its peer" {
         assert_eq(@body.collect(ok.body).0, b"ok")
         assert_eq(supervisor.metrics().accepted(), 1L)
       },
-      version=Http2,
+      version~,
       policy~,
       max_connections=1,
-      tls={ ..client_tls, alpn: ["h2"], server_name: None, },
+      tls={ ..client_tls, alpn: tls.alpn, server_name: None, },
       options={
         ..options,
         timeouts: {
           ..options.timeouts,
-          request_body_ms: Some(100),
-          response_headers_ms: Some(350),
-          response_body_ms: Some(150),
+          request_body_ms: Some(20),
+          response_headers_ms: Some(40),
+          response_body_ms: Some(40),
           total_ms: Some(4000),
         },
       },
     )
     supervisor.begin_shutdown().unwrap()
-    server.wait().unwrap()
+    server.wait()
+  })
+}
+
+///|
+async test "a stalled H2 stream times out independently of its peer" {
+  check_stalled_stream(Http2)
+}
+
+///|
+async test "a stalled H3 stream times out independently of its peer" {
+  check_stalled_stream(Http3)
+}
+
+///|
+async test "H3 request headers cover local admission and an unlimited stage resumes" {
+  let (client_tls, server_tls) = listener_tls_options()
+  let policy = @transport.AllowAllPolicy::new()
+  let seen : Array[String] = []
+  let (endpoint, listener) = bind_test_listener(endpoint => {
+    @server.NativeHttp3Listener::bind_http(
+      endpoint,
+      policy,
+      { ..server_tls, alpn: ["h3"], },
+      req => {
+        seen.push(req.uri.path)
+        {
+          status: 200,
+          version: Http3,
+          headers: @types.HeaderMap::new(),
+          body: @body.FullBody::new(b"ok"),
+        }
+      },
+    )
+  })
+  defer listener.close()
+  let origin = @types.Uri::parse("https://127.0.0.1:\{endpoint.port()}/first").unwrap()
+  let supervisor = @server_api.ServerSupervisor::new().unwrap()
+  @async.with_task_group(async fn(group) {
+    let server = group.spawn(async fn() { listener.serve(supervisor).unwrap() })
+    let defaults = @client_api.RequestOptions::defaults()
+    for
+      (header_ms, total_ms, expected) in [
+        (Some(40), Some(3000), Some(@client_api.ClientRequestHeaders)),
+        (None, Some(3000), None),
+      ] {
+      seen.clear()
+      @client_native.with_client(
+        async fn(client) {
+          let first = client.send(
+            client.request(Get, origin, @client_api.Upload::bytes(b"")),
+          )
+          let mut cancelled = 0
+          let mut started = false
+          let second = group.spawn(async fn() {
+            started = true
+            let upload = @body.BodyStream::from_pull(() => None, on_cancel=_ => {
+              cancelled += 1
+            })
+            try {
+              let res = client.send(
+                client.request(
+                  Get,
+                  origin.resolve_reference("/second").unwrap(),
+                  @client_api.Upload::once(upload),
+                ),
+              )
+              ignore(@body.collect(res.body))
+              None
+            } catch {
+              @client_api.ClientError::ClientTimeout(phase, _, _) => Some(phase)
+              error => raise error
+            }
+          })
+          while !started {
+            @async.pause()
+          }
+          if expected is None {
+            assert_eq(seen, ["/first"])
+            ignore(@body.collect(first.body))
+          }
+          assert_eq(second.wait(), expected)
+          if expected is Some(_) {
+            assert_eq(seen, ["/first"])
+            assert_eq(cancelled, 1)
+            ignore(@body.collect(first.body))
+          }
+          let third = client.send(
+            client.request(
+              Get,
+              origin.resolve_reference("/third").unwrap(),
+              @client_api.Upload::bytes(b""),
+            ),
+          )
+          assert_eq(@body.collect(third.body).0, b"ok")
+        },
+        version=Http3,
+        policy~,
+        max_connections=1,
+        tls={ ..client_tls, alpn: ["h3"], server_name: None, },
+        options={
+          ..defaults,
+          limits: @types.Limits::new(max_concurrent_requests=1).unwrap(),
+          timeouts: {
+            ..defaults.timeouts,
+            request_headers_ms: header_ms,
+            total_ms,
+          },
+        },
+      )
+    }
+    assert_eq(supervisor.metrics().accepted(), 2L)
+    supervisor.begin_shutdown().unwrap()
+    server.wait()
+  })
+}
+
+///|
+async test "H3 HEADERS blocked by peer credit consume the header budget" {
+  let (client_tls, server_tls) = listener_tls_options()
+  let policy = @transport.AllowAllPolicy::new()
+  let mut calls = 0
+  let (peer, listener) = bind_test_listener(endpoint => {
+    @server.NativeHttp3Listener::bind_http(
+      endpoint,
+      policy,
+      { ..server_tls, alpn: ["h3"], },
+      req => {
+        calls += 1
+        {
+          status: 200,
+          version: req.version,
+          headers: @types.HeaderMap::new(),
+          body: @body.FullBody::new(b""),
+        }
+      },
+      transport_params={
+        ..@quic.QuicTransportParams::defaults(),
+        initial_max_stream_data_bidi_remote: 0L,
+      },
+    )
+  })
+  defer listener.close()
+  let uri = @types.Uri::parse("https://127.0.0.1:\{peer.port()}/").unwrap()
+  let supervisor = @server_api.ServerSupervisor::new().unwrap()
+  @async.with_task_group(async fn(group) {
+    let server = group.spawn(async fn() { listener.serve(supervisor).unwrap() })
+    let options = @client_api.RequestOptions::defaults()
+    for
+      (headers_ms, total_ms, expected) in [
+        (40, 3000, @client_api.ClientRequestHeaders),
+        (5000, 300, ClientTotal),
+      ] {
+      @client_native.with_client(
+        async fn(client) {
+          let mut cancelled = 0
+          let upload = @body.BodyStream::from_pull(
+            () => fail("upload polled before HEADERS"),
+            on_cancel=_ => cancelled += 1,
+          )
+          try
+            client.send(
+              client.request(Post, uri, @client_api.Upload::once(upload)),
+            )
+          catch {
+            @client_api.ClientError::ClientTimeout(phase, _, _) =>
+              assert_eq(phase, expected)
+            error => raise error
+          } noraise {
+            _ => fail("blocked HEADERS returned a response")
+          }
+          assert_eq(cancelled, 1)
+        },
+        version=Http3,
+        policy~,
+        tls={ ..client_tls, alpn: ["h3"], server_name: None, },
+        options={
+          ..options,
+          timeouts: {
+            ..options.timeouts,
+            request_headers_ms: Some(headers_ms),
+            total_ms: Some(total_ms),
+          },
+        },
+      )
+    }
+    assert_eq(calls, 0)
+    supervisor.begin_shutdown().unwrap()
+    server.wait()
   })
 }
 

@@ -103,10 +103,20 @@ async fn[B : @body.Body] Http3ConnectionIo::write_body(
   self : Http3ConnectionIo,
   id : Int64,
   body : B,
+  timeout~ : ((HttpClientPhase) -> (Int32, Error)?)? = None,
 ) -> Unit {
   // DATA uses a one-byte type and at most a two-byte length at this chunk size.
   let chunk_size = (self.limits.max_buffer_bytes - 3).max(1).min(16383)
-  while body.next_frame() is Some(frame) {
+  async fn send_frame(write : () -> Result[Unit, @http3.Http3Error]) -> Unit {
+    wait_client_phase(RequestBody, timeout, async fn() {
+      self.write_when_ready(write)
+      while timeout is Some(_) && self.session.stream_write_pending(id) {
+        self.write_changed.wait()
+      }
+    })
+  }
+  while wait_client_phase(RequestBody, timeout, () => body.next_frame())
+        is Some(frame) {
     match frame {
       Data(bytes) => {
         let mut offset = 0
@@ -117,15 +127,15 @@ async fn[B : @body.Body] Http3ConnectionIo::write_body(
           } else {
             bytes[offset:offset + count].to_owned()
           }
-          self.write_when_ready(fn() { self.session.send_data(id, chunk) })
+          send_frame(fn() { self.session.send_data(id, chunk) })
           offset += count
         }
       }
       Trailers(headers) => {
         let fields = h3_fields(headers)
-        self.write_when_ready(fn() { self.session.send_headers(id, fields) })
+        send_frame(fn() { self.session.send_headers(id, fields) })
       }
     }
   }
-  self.write_when_ready(fn() { self.session.finish(id) })
+  send_frame(fn() { self.session.finish(id) })
 }

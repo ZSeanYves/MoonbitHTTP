@@ -11,6 +11,7 @@ pub(all) suberror Http3ClientError {
 ///|
 priv struct H3ClientRequest {
   incoming : H3IncomingBody
+  timeout : ((HttpClientPhase) -> (Int32, Error)?)?
   head : @aqueue.Queue[@types.Response[@body.BodyStream]]
   mut upload : @async.Task[Unit]?
   mut upload_done : Bool
@@ -184,46 +185,63 @@ async fn Http3ClientConnection::open(
 pub async fn[B : @body.Body] Http3ClientConnection::send(
   self : Http3ClientConnection,
   request : @types.Request[B],
+  timeout? : (HttpClientPhase) -> (Int32, Error)?,
 ) -> @types.Response[@body.BodyStream] {
   let mut owned = false
   defer (if !owned { request.body.cancel(@body.BodyError::Cancelled) })
-  let id = self.open(self.request_fields(request))
-  let stream : H3ClientRequest = {
-    incoming: H3IncomingBody::new(self.io, id),
-    head: Queue(kind=Blocking(1)),
-    upload: None,
-    upload_done: false,
-    consumed: false,
-  }
-  self.streams[id] = stream
+  let (id, stream) = wait_client_phase(RequestHeaders, timeout, async fn() {
+    let id = self.open(self.request_fields(request))
+    let stream : H3ClientRequest = {
+      incoming: H3IncomingBody::new(self.io, id),
+      head: Queue(kind=Blocking(1)),
+      timeout,
+      upload: None,
+      upload_done: false,
+      consumed: false,
+    }
+    self.streams[id] = stream
+    errdefer self.fail_request(id, @body.BodyError::Cancelled, reset=true)
+    self.io.flush()
+    while self.io.session.stream_write_pending(id) {
+      if stream.incoming.failure is Some(error) {
+        raise error
+      }
+      self.io.write_changed.wait()
+    }
+    if stream.incoming.failure is Some(error) {
+      raise error
+    }
+    (id, stream)
+  })
   errdefer self.fail_request(id, @body.BodyError::Cancelled, reset=true)
-  owned = true
-  stream.upload = Some(
-    (self.spawn)(async fn() {
-      defer {
-        stream.upload = None
-        stream.upload_done = true
-        self.release(stream)
-      }
-      with_outgoing_body_scope(request.body, async fn() {
-        self.io.flush()
-        self.io.write_body(id, request.body)
-      }) catch {
-        @http3.Http3Error::Http3StreamError(stream_id, H3RequestCancelled, _) if stream_id ==
-          id &&
-          !self.io.session.can_write(id) =>
-          // The transport has already stopped the upload. The reader still
-          // owns the response, which can finish successfully after STOP_SENDING.
-          ()
-        error =>
-          if !stream.upload_done && !@async.is_being_cancelled() {
-            stream.upload = None
-            self.fail_request(id, error, reset=true)
-          }
-      }
-    }),
-  )
-  stream.head.get()
+  if !stream.upload_done {
+    owned = true
+    stream.upload = Some(
+      (self.spawn)(async fn() {
+        defer {
+          stream.upload = None
+          stream.upload_done = true
+          self.release(stream)
+        }
+        with_outgoing_body_scope(request.body, async fn() {
+          self.io.write_body(id, request.body, timeout~)
+        }) catch {
+          @http3.Http3Error::Http3StreamError(stream_id, H3RequestCancelled, _) if stream_id ==
+            id &&
+            !self.io.session.can_write(id) =>
+            // The transport has already stopped the upload. The reader still
+            // owns the response, which can finish successfully after STOP_SENDING.
+            ()
+          error =>
+            if !stream.upload_done && !@async.is_being_cancelled() {
+              stream.upload = None
+              self.fail_request(id, error, reset=true)
+            }
+        }
+      }),
+    )
+  }
+  wait_client_phase(ResponseHeaders, timeout, () => stream.head.get())
 }
 
 ///|
@@ -247,7 +265,11 @@ fn Http3ClientConnection::response_head(
     }
   }
   let body = @body.BodyStream::from_pull(
-    () => stream.incoming.read(),
+    () => {
+      wait_client_phase(ResponseBody, stream.timeout, () => {
+        stream.incoming.read()
+      })
+    },
     on_terminate=fn(error) {
       if error is None {
         stream.consumed = true

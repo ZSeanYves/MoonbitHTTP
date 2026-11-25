@@ -119,7 +119,7 @@ pub struct Http3ClientConnection {
 }
 pub fn Http3ClientConnection::accepts_requests(Self) -> Bool
 pub fn Http3ClientConnection::is_idle(Self) -> Bool
-pub async fn[B : @body.Body] Http3ClientConnection::send(Self, @types.Request[B]) -> @types.Response[@body.BodyStream]
+pub async fn[B : @body.Body] Http3ClientConnection::send(Self, @types.Request[B], timeout? : (HttpClientPhase) -> (Int32, Error)?) -> @types.Response[@body.BodyStream]
 
 pub struct Http3ConnectionIo {
   session : @http3.Http3Session

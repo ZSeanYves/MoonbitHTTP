@@ -524,6 +524,15 @@ pub fn Http3Session::writes_pending(self : Http3Session) -> Bool {
 }
 
 ///|
+/// True while a prefix or FIN for this stream is waiting for the QUIC sender.
+pub fn Http3Session::stream_write_pending(
+  self : Http3Session,
+  id : Int64,
+) -> Bool {
+  self.writes.streams.contains(id)
+}
+
+///|
 /// Withhold QUIC receive credit for subsequently delivered body bytes until
 /// the consumer reads or discards them. Framing and critical streams keep
 /// their automatic credit. Call once before driving a streaming application.

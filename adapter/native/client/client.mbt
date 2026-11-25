@@ -125,7 +125,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_client(
         policy,
         pool => {
           serve(async fn(request) {
-            let response = pool.send(request) catch {
+            let response = pool.send(request, timeouts=options.timeouts) catch {
               error => raise native_http3_error(error)
             }
             response.map_body(body => @client_api.IncomingBody::wrap(body))

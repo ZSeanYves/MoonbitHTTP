@@ -82,7 +82,7 @@ pub struct Http2ClientConnection {
 }
 
 ///|
-async fn[T] h2_wait(
+async fn[T] wait_client_phase(
   phase : HttpClientPhase,
   timeout : ((HttpClientPhase) -> (Int32, Error)?)?,
   work : async () -> T,
@@ -114,11 +114,11 @@ async fn[B : @body.Body] send_h2_request_body(
   let result : Result[Unit, Error] = Ok(
     write_h2_body(
       stream.id,
-      () => h2_wait(RequestBody, timeout, () => body.next_frame()),
+      () => wait_client_phase(RequestBody, timeout, () => body.next_frame()),
       expected,
       false,
       chunk => {
-        h2_wait(RequestBody, timeout, async fn() {
+        wait_client_phase(RequestBody, timeout, async fn() {
           write_h2_data_chunk(
             stream.id,
             chunk,
@@ -138,9 +138,11 @@ async fn[B : @body.Body] send_h2_request_body(
           )
         })
       },
-      bytes => h2_wait(RequestBody, timeout, () => shared.write_bytes(bytes)),
+      bytes => {
+        wait_client_phase(RequestBody, timeout, () => shared.write_bytes(bytes))
+      },
       trailers => {
-        h2_wait(RequestBody, timeout, async fn() {
+        wait_client_phase(RequestBody, timeout, async fn() {
           shared.write_headers(() => {
             @http2.encode_trailers(shared.encoder, stream.id, trailers)
           })
@@ -289,7 +291,7 @@ pub async fn[B : @body.Body] Http2ClientConnection::send(
     request.body.cancel(@body.BodyError::Cancelled)
   })
   let hint = request.body.size_hint().exact_size()
-  let (stream, expected) = h2_wait(RequestHeaders, timeout, () => {
+  let (stream, expected) = wait_client_phase(RequestHeaders, timeout, () => {
     self.shared.send_request_headers(request, hint)
   })
   let body = stream.body
@@ -303,11 +305,13 @@ pub async fn[B : @body.Body] Http2ClientConnection::send(
     upload_owned = true
     stream.upload = Some((self.shared.spawn)(producer))
   }
-  let response = h2_wait(ResponseHeaders, timeout, () => stream.head.get())
+  let response = wait_client_phase(ResponseHeaders, timeout, () => {
+    stream.head.get()
+  })
   guard timeout is Some(_) else { return response.map_body(_ => body) }
   response.map_body(_ => {
     @body.BodyStream::from_pull(
-      () => h2_wait(ResponseBody, timeout, () => body.next_frame()),
+      () => wait_client_phase(ResponseBody, timeout, () => body.next_frame()),
       size_hint=body.size_hint(),
       on_terminate=reason => {
         body.cancel(reason.unwrap_or(@body.BodyError::Cancelled))

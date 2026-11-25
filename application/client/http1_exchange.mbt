@@ -1,4 +1,24 @@
 ///|
+fn phase_timeouts(
+  timeouts : ClientTimeouts?,
+  now_millis : () -> Int64,
+) -> ((@service.HttpClientPhase) -> (Int32, Error)?)? {
+  timeouts.map(limits => {
+    fn(phase : @service.HttpClientPhase) -> (Int32, Error)? {
+      let ms = match phase {
+        RequestHeaders => limits.request_headers_ms
+        RequestBody => limits.request_body_ms
+        ResponseHeaders => limits.response_headers_ms
+        ResponseBody => limits.response_body_ms
+      }
+      ms.map(ms => {
+        (ms, client_phase_timeout(http_pool_phase(phase), now_millis(), ms))
+      })
+    }
+  })
+}
+
+///|
 fn http_pool_phase(phase : @service.HttpClientPhase) -> ClientPhase {
   match phase {
     RequestHeaders => ClientRequestHeaders

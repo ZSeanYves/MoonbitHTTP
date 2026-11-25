@@ -20,3 +20,15 @@ Redirects, retries, authentication and caching share one client. Cache entries c
 For direct protocol control, the H1 and H2 pool methods `execute_body` and the H3 pool method `Http3Client::send` execute a single exchange.
 
 Use `response.body.read_batch(64)` to request up to 64 frames in one read. It waits for that count, trailers, or EOF. A trailing header frame is included once. An empty array marks EOF. Use `next_frame()` when an individual frame should be delivered as soon as it arrives. Single and batch reads may alternate within the same client scope.
+
+### Request lifecycle
+
+| Public operation | HTTP/1 | HTTP/2 and HTTP/3 |
+| --- | --- | --- |
+| Send headers on a ready session | The header write has its own deadline. | One deadline covers stream admission and the complete header write. |
+| Upload or receive content | A stalled read or write consumes the corresponding body budget. An interrupted message retires the connection. | A stalled producer, stream write or body read consumes its stage budget. Cancellation releases the stream. Other streams can continue. |
+| Await response headers | The final response head completes the phase. A timeout ends this exchange. | The final response head completes the phase. A timeout resets the request stream. |
+| Begin graceful server shutdown | The handler already admitted finishes. Idle keep-alives wake, and buffered later requests are skipped. | The server drains accepted streams and stops admission. |
+| Inspect a redirect or trailers | The default returns the original response. Explicit rejection raises a redirect error. Buffered H1 and H2 exchanges expose initial headers and trailers separately. | The same redirect policies apply. Streaming callers consume trailers through the body interface. |
+
+DNS and TCP connect have separate budgets on TCP paths. H3 has DNS and a QUIC/TLS handshake budget. H2/H3 wait for a ready pooled connection before starting the request-header stage. The total budget begins at the logical send and includes remaining response consumption. The Native H1 transport also honors `idle_ms` on socket reads and writes. A stage timeout carries the corresponding `ClientPhase` in `ClientTimeout`.
