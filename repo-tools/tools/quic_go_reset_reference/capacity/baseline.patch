@@ -10,10 +10,7 @@ index 5f41b8b..8894f2c 100644
    priv server_shutdown : ServerShutdown?
    priv authenticated_origin : @types.Endpoint?
    priv mut failure : Error?
-@@ -15,6 +16,11 @@ pub struct Http3ConnectionIo {
-   priv flush_writes : async () -> Unit
- }
- 
+@@ -18,3 +19,8 @@ pub struct Http3ConnectionIo {
 +///|
 +pub fn Http3ConnectionIo::poll_counts(self : Http3ConnectionIo) -> (Int64, Int64) {
 +  (self.timer_polls, self.timer_polls)
