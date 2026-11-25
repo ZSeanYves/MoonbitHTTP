@@ -37,6 +37,7 @@ pub fn Buffer::peek_prefix(Self, Int32) -> Bytes
 pub fn Buffer::read_line(Self, Int32) -> Result[Bytes, CodecError]
 pub fn Buffer::starts_with(Self, BytesView) -> Bool
 pub fn Buffer::take(Self, Int32) -> Bytes
+pub fn Buffer::take_array(Self, Int32) -> Array[Byte]
 
 #derive(Eq, @debug.Debug)
 pub(all) enum HuffmanError {

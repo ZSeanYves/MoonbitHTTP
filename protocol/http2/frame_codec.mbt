@@ -71,7 +71,7 @@ fn FrameDecoder::next_impl(
   if self.buffer.length() < header.length {
     return Ok(None)
   }
-  let payload = self.buffer.take(header.length).to_array()
+  let payload = self.buffer.take_array(header.length)
   self.pending = None
   Ok(Some({ header, payload, }))
 }

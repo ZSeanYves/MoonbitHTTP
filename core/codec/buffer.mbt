@@ -70,6 +70,17 @@ pub fn Buffer::take(self : Buffer, count : Int32) -> Bytes {
 }
 
 ///|
+/// Take an owned array for wire APIs whose payload representation is Array.
+/// Skip the intermediate immutable Bytes allocation on this path.
+#internal(http2_frame)
+pub fn Buffer::take_array(self : Buffer, count : Int32) -> Array[Byte] {
+  let count = count.max(0).min(self.length())
+  let start = self.start
+  self.start += count
+  self.bytes[start:self.start].to_owned()
+}
+
+///|
 pub fn Buffer::find_crlf(self : Buffer) -> Int32? {
   for i in (self.start + 1)..<self.bytes.length() {
     if self.bytes[i - 1] == b'\r' && self.bytes[i] == b'\n' {
