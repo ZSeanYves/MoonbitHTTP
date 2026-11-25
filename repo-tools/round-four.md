@@ -2,36 +2,36 @@
 
 Baseline `37655164e23695acf8e9706a8284cb95bf06fd62`. Page numbers refer to the seven-page ecosystem review dated 2026-11-25. Candidate acceptance requires a new verification record on one immutable commit. Each result needs its platform, test entry, implementation revision and independent evidence. Registry installation of the candidate has a separate post-publication sign-off.
 
-| ID | Review page | Finding | Original evidence | Candidate status |
-|---|---:|---|---|---|
-| 01 | 7 | HTTP/3 key update under loss/reordering | CI / loopback | Pending |
-| 02 | 2 | Split Cookie at the H2/H3 handler | handler probe | Pending |
-| 03 | 2 | HPACK before and after SETTINGS ACK | protocol probe | Pending |
-| 04 | 2 | H3 request authority | protocol probe | Pending |
-| 05 | 2 | GOAWAY direction and ordering | protocol probe | Pending |
-| 06 | 2 | Asymmetric QPACK tables | protocol probe | Pending |
-| 07 | 2 | Large Content-Length metadata | H1 probe / H2 source | Pending |
-| 08 | 3 | H3 per-stage time budgets | Native loopback | Pending |
-| 09 | 3 | H1 keep-alive drain | JS and Native / TLS source | Pending |
-| 10 | 3 | Concurrent cache versions | JS and Native | Pending |
-| 11 | 3 | 206 byte ranges | JS and Native | Pending |
-| 12 | 3 | Stale-while-revalidate | JS and Native | Pending |
-| 13 | 3 | Strong ETag comparison | public helper | Pending |
-| 14 | 4 | Manual redirect responses | client probe | Pending |
-| 15 | 4 | Buffered trailers | source | Pending |
-| 16 | 4 | Encapsulation of live H3/QPACK state | public interface | Pending |
-| 17 | 4 | Native listener error identity | source | Pending |
-| 18 | 6 | OpenSSL trust sources | source / platform risk | Pending |
-| 19 | 6 | Verified mTLS identity | source | Pending |
-| 20 | 6 | Same-IP UDP port rebinding | source | Pending |
-| 21 | 6 | Native TLS lifetime | ASan configuration | Pending |
-| 22 | 6 | Backend capability matrix | source / CI | Pending |
-| 23 | 5 | Paired H1/H2 service throughput | 8 local windows | Pending |
-| 24 | 5 | Body path CPU, copies and latency | source / profile required | Pending |
-| 25 | 5 | H2 origin pool saturation | source / capacity risk | Pending |
-| 26 | 5 | Idle H3 scheduling | source / estimate | Pending |
-| 27 | 5 | Sustained H3 connection reuse | soak coverage gap | Pending |
-| 28 | 6 | Stable and candidate package consumers | registry consumer | Pending |
+| ID | Review page | Finding | Original evidence | Implementation commits | Verification platform | Test or evidence entry |
+|---|---:|---|---|---|---|---|
+| 01 | 7 | HTTP/3 key update under loss/reordering | CI / loopback | [`c5e9527`](https://github.com/ZSeanYves/http/commit/c5e9527), [`7d4bd44`](https://github.com/ZSeanYves/http/commit/7d4bd44) | Linux ×3, macOS | [http3_interoperability.mbtx](../repo-tools/tools/http3_interoperability.mbtx) — Original peer timed out on instrumented Linux. Independent 20-run control on macOS passed. |
+| 02 | 2 | Split Cookie at the H2/H3 handler | handler probe | [`a8851f0`](https://github.com/ZSeanYves/http/commit/a8851f0) | Wasm/Native | [service_conformance_wbtest.mbt](../runtime/service/service_conformance_wbtest.mbt) — Compare single/split Cookie and separate Set-Cookie. |
+| 03 | 2 | HPACK before and after SETTINGS ACK | protocol probe | [`a45753f`](https://github.com/ZSeanYves/http/commit/a45753f) | portable/Native | [hpack_settings_test.mbt](../tests/blackbox/http2_api/hpack_settings_test.mbt) — Exercise in-flight blocks and multiple SETTINGS acknowledgements. |
+| 04 | 2 | H3 request authority | protocol probe | [`e692e77`](https://github.com/ZSeanYves/http/commit/e692e77) | portable/Native | [connection_test.mbt](../tests/blackbox/http3_api/connection_test.mbt) — Resolve Host and :authority at validation and dispatch. |
+| 05 | 2 | GOAWAY direction and ordering | protocol probe | [`098c41b`](https://github.com/ZSeanYves/http/commit/098c41b) | portable/Native | [session_test.mbt](../tests/integration/http3_session/session_test.mbt) — Compare two GOAWAY roles and finish admitted streams. |
+| 06 | 2 | Asymmetric QPACK tables | protocol probe | [`deb75d9`](https://github.com/ZSeanYves/http/commit/deb75d9) | portable/Native | [qpack_test.mbt](../tests/blackbox/http3_api/qpack_test.mbt) — Check asymmetric table sizes, wrap and stream unblocking. |
+| 07 | 2 | Large Content-Length metadata | H1 probe / H2 source | [`8f49b5f`](https://github.com/ZSeanYves/http/commit/8f49b5f) | portable/Native | [types_test.mbt](../tests/blackbox/types_api/types_test.mbt) — Cross-check H1 conformance and H2 runtime metadata on HEAD/304. |
+| 08 | 3 | H3 per-stage time budgets | Native loopback | [`d00b91a`](https://github.com/ZSeanYves/http/commit/d00b91a), [`20e1e33`](https://github.com/ZSeanYves/http/commit/20e1e33) | Native | [scoped_client_test.mbt](../tests/integration/native_server/scoped_client_test.mbt) — Observe admission, write, upload, response and cleanup at the public client. |
+| 09 | 3 | H1 keep-alive drain | JS and Native / TLS source | [`1f3bb41`](https://github.com/ZSeanYves/http/commit/1f3bb41) | portable/Native | [http1_lifecycle_test.mbt](../tests/integration/http_service/http1_lifecycle_test.mbt) — Exercise admitted, pipelined and idle connections during shutdown. |
+| 10 | 3 | Concurrent cache versions | JS and Native | [`f0168ad`](https://github.com/ZSeanYves/http/commit/f0168ad) | portable/Native | [cache_test.mbt](../tests/blackbox/cache_api/cache_test.mbt) — Order fills and invalidations across both completion orders. |
+| 11 | 3 | 206 byte ranges | JS and Native | [`d910bab`](https://github.com/ZSeanYves/http/commit/d910bab) | portable/Native | [client_test.mbt](../tests/integration/client_requests/client_test.mbt) — Reassemble encoded 206 slices and check 200 decoding. |
+| 12 | 3 | Stale-while-revalidate | JS and Native | [`08ea3c9`](https://github.com/ZSeanYves/http/commit/08ea3c9) | JS/Native | [cache_conditions_test.mbt](../tests/integration/client_requests/cache_conditions_test.mbt) — Count origin validations and check variant isolation. |
+| 13 | 3 | Strong ETag comparison | public helper | [`d910bab`](https://github.com/ZSeanYves/http/commit/d910bab) | portable/Native | [cache_test.mbt](../tests/blackbox/cache_api/cache_test.mbt) — Compare strong/weak tags in both orders. |
+| 14 | 4 | Manual redirect responses | client probe | [`7f33fa8`](https://github.com/ZSeanYves/http/commit/7f33fa8) | JS/Native | [client_test.mbt](../tests/integration/client_requests/client_test.mbt) — Read the original redirect status, Location and body. |
+| 15 | 4 | Buffered trailers | source | [`7f33fa8`](https://github.com/ZSeanYves/http/commit/7f33fa8) | JS/Native | [http1_wire_test.mbt](../tests/integration/client_requests/http1_wire_test.mbt) — Compare buffered responses and streaming trailers; include H2 integration. |
+| 16 | 4 | Encapsulation of live H3/QPACK state | public interface | [`addf9e1`](https://github.com/ZSeanYves/http/commit/addf9e1) | portable/Native | [driver_test.mbt](../tests/blackbox/http3_api/driver_test.mbt) — Check public observations across blocking, release and cancel; diff generated interfaces. |
+| 17 | 4 | Native listener error identity | source | [`62efa69`](https://github.com/ZSeanYves/http/commit/62efa69) | Native ×3 | [supervisor_lifecycle_test.mbt](../tests/integration/server_supervisor/supervisor_lifecycle_test.mbt) — Compare Native listener failures and supervisor termination reason. |
+| 18 | 6 | OpenSSL trust sources | source / platform risk | [`31fe9d0`](https://github.com/ZSeanYves/http/commit/31fe9d0), [`fe68c7a`](https://github.com/ZSeanYves/http/commit/fe68c7a) | Native ×3 | [default_trust_test.mbt](../tests/integration/native_tls/default_trust_test.mbt) — Perform four handshakes in a new process with real OpenSSL trust paths. |
+| 19 | 6 | Verified mTLS identity | source | [`16f80da`](https://github.com/ZSeanYves/http/commit/16f80da) | Native ×3 | [scoped_client_test.mbt](../tests/integration/native_server/scoped_client_test.mbt) — Distinguish two verified client identities in H1/H2/H3. |
+| 20 | 6 | Same-IP UDP port rebinding | source | [`eb459b0`](https://github.com/ZSeanYves/http/commit/eb459b0) | Native | [http3_listener_test.mbt](../tests/integration/native_server/http3_listener_test.mbt) — Keep an active request on the same connection after a UDP port change. |
+| 21 | 6 | Native TLS lifetime | ASan configuration | [`4ce12f2`](https://github.com/ZSeanYves/http/commit/4ce12f2), [`e91603e`](https://github.com/ZSeanYves/http/commit/e91603e) | macOS/Linux | [validate_native_tls_asan.mbtx](../repo-tools/scripts/validate_native_tls_asan.mbtx) — Run ASan and Linux LSan; read independent SSL/CTX/BIO/QUIC ownership counters. |
+| 22 | 6 | Backend capability matrix | source / CI | [`fec5d84`](https://github.com/ZSeanYves/http/commit/fec5d84) | JS/Wasm/Wasm-GC/Native | [check_runtime_tests.mbtx](../repo-tools/tools/check_runtime_tests.mbtx) — Compare executed fixtures to the bilingual backend matrix. |
+| 23 | 5 | Paired H1/H2 service throughput | 8 local windows | [`531519b`](https://github.com/ZSeanYves/http/commit/531519b), [`fb90ef3`](https://github.com/ZSeanYves/http/commit/fb90ef3), [`b106095`](https://github.com/ZSeanYves/http/commit/b106095) | fixed macOS M4 | [go_net_http_reference.mbtx](../repo-tools/tools/go_net_http_reference.mbtx) — Rebuild 3765516; run --candidate-gate for five paired windows per protocol. |
+| 24 | 5 | Body path CPU, copies and latency | source / profile required | [`44e7501`](https://github.com/ZSeanYves/http/commit/44e7501), [`0eb3844`](https://github.com/ZSeanYves/http/commit/0eb3844), [`e8a217c`](https://github.com/ZSeanYves/http/commit/e8a217c), [`b106095`](https://github.com/ZSeanYves/http/commit/b106095), [`ed79d90`](https://github.com/ZSeanYves/http/commit/ed79d90) | fixed macOS M4 | [main.go](../repo-tools/tools/go_net_http_reference/main.go) — Compare CPU stacks, allocations and waits separately from gate timing. |
+| 25 | 5 | H2 origin pool saturation | source / capacity risk | [`e5c3292`](https://github.com/ZSeanYves/http/commit/e5c3292), [`148c378`](https://github.com/ZSeanYves/http/commit/148c378) | JS/Native | [http2_pool_test.mbt](../tests/integration/client_requests/http2_pool_test.mbt) — Measure admission and completion at peer 1/32 and origin 1/2. |
+| 26 | 5 | Idle H3 scheduling | source / estimate | [`52e4aaf`](https://github.com/ZSeanYves/http/commit/52e4aaf), [`4d6ece2`](https://github.com/ZSeanYves/http/commit/4d6ece2), [`20e1e33`](https://github.com/ZSeanYves/http/commit/20e1e33) | fixed macOS M4 | [http3_idle_capacity.mbtx](../repo-tools/tools/http3_idle_capacity.mbtx) — Capture 0/100/1,000 idle, mixed requests and loss recovery in both builds. |
+| 27 | 5 | Sustained H3 connection reuse | soak coverage gap | [`18cc373`](https://github.com/ZSeanYves/http/commit/18cc373), [`00dd1d1`](https://github.com/ZSeanYves/http/commit/00dd1d1) | Linux | [verify_http3_peer_soak.mbtx](../repo-tools/tools/verify_http3_peer_soak.mbtx) — Check one peer connection, transferred bytes, queue peaks, resource samples and closure. |
+| 28 | 6 | Stable and candidate package consumers | registry consumer | [`fec5d84`](https://github.com/ZSeanYves/http/commit/fec5d84) | Native | [verify_consumers.mbtx](../repo-tools/tools/verify_consumers.mbtx) — Install published 0.8.2 and frozen 0.9.0 independently. Repeat registry install after publication. |
 
 ## Original witnesses
 
