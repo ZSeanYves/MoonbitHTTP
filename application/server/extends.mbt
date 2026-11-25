@@ -5,12 +5,6 @@ pub extend ServerState with Eq::{equal, not_equal}
 pub extend ServerState with @debug.Debug::{to_repr}
 
 ///|
-pub extend ServerPhase with Eq::{equal, not_equal}
-
-///|
-pub extend ServerPhase with @debug.Debug::{to_repr}
-
-///|
 pub extend ServerError with Eq::{equal, not_equal}
 
 ///|

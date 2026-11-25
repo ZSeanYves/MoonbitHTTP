@@ -81,7 +81,6 @@ pub fn RetryError::to_repr(Self) -> @debug.Repr
 // Types and methods
 #derive(Eq, @debug.Debug)
 pub(all) enum BodyReplayability {
-  ReplayNotRequired
   ReplayableBody
   NonReplayableBody
 }
@@ -364,7 +363,6 @@ pub fn RedirectPolicy::to_repr(Self) -> @debug.Repr
 
 pub struct RedirectTracker {
   policy : RedirectPolicy
-  visited : Map[String, Bool]
   mut followed : Int32
   // private fields
 }

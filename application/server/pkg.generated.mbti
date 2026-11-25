@@ -92,17 +92,6 @@ pub fn ServerMetrics::rejected(Self) -> Int64
 pub fn ServerMetrics::to_repr(Self) -> @debug.Repr
 
 #derive(Eq, @debug.Debug)
-pub(all) enum ServerPhase {
-  Accept
-  Connection
-  Handler
-  Shutdown
-}
-pub fn ServerPhase::equal(Self, Self) -> Bool
-pub fn ServerPhase::not_equal(Self, Self) -> Bool
-pub fn ServerPhase::to_repr(Self) -> @debug.Repr
-
-#derive(Eq, @debug.Debug)
 pub(all) enum ServerState {
   Starting
   Running

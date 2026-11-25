@@ -46,3 +46,11 @@ test "decode a request" {
 ```
 
 For Native clients, connection pools and server listeners, see the package guides. [Native client](adapter/native/client/README.md) · [Native server](adapter/native/server/README.md) · [Changelog](CHANGELOG.md)
+
+
+## Migrating to this branch
+
+- Observe server events with `ServerEvent` and query the current state with `ServerState`. The former `ServerPhase` enum has been removed.
+- Pass `ReplayableBody` for an empty body in redirect and retry decisions. Use `NonReplayableBody` for one-shot uploads.
+- `RedirectTracker` keeps its per-method loop detection private. Callers that need a redirect history can record the URI returned by each successful `follow`.
+- The low-level HTTP/3 client and service connection functions accept `Some(milliseconds)` or `None` for `handshake_timeout_ms`. Omitting it keeps the 10-second default. The scoped client uses `ClientTimeouts.tls_ms`.

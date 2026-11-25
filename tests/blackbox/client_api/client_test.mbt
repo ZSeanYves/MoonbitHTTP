@@ -140,7 +140,7 @@ test "redirect: cross-origin hops strip authorization and preserve safe fields" 
       307,
       Get,
       test_request_headers(),
-      ReplayNotRequired,
+      ReplayableBody,
     )
     .unwrap()
   assert_true(decision.cross_origin)
@@ -199,19 +199,12 @@ test "redirect: downgrade, loops, limits, and disabled policy fail closed" {
       301,
       Get,
       @types.HeaderMap::new(),
-      ReplayNotRequired,
+      ReplayableBody,
     )
     is Err(RedirectDowngradeDenied),
   )
   let next = tracker
-    .follow(
-      initial,
-      "/next",
-      301,
-      Get,
-      @types.HeaderMap::new(),
-      ReplayNotRequired,
-    )
+    .follow(initial, "/next", 301, Get, @types.HeaderMap::new(), ReplayableBody)
     .unwrap()
   assert_true(
     tracker.follow(
@@ -220,7 +213,7 @@ test "redirect: downgrade, loops, limits, and disabled policy fail closed" {
       301,
       Get,
       @types.HeaderMap::new(),
-      ReplayNotRequired,
+      ReplayableBody,
     )
     is Err(RedirectLimitExceeded(1)),
   )
@@ -235,7 +228,7 @@ test "redirect: downgrade, loops, limits, and disabled policy fail closed" {
       301,
       Get,
       @types.HeaderMap::new(),
-      ReplayNotRequired,
+      ReplayableBody,
     )
     is Err(RedirectDisabled),
   )
@@ -249,14 +242,7 @@ test "redirect: loop detection uses normalized origins" {
     @client.RedirectPolicy::limited(max_redirects=4).unwrap(),
   ).unwrap()
   let next = tracker
-    .follow(
-      initial,
-      "/next",
-      301,
-      Get,
-      @types.HeaderMap::new(),
-      ReplayNotRequired,
-    )
+    .follow(initial, "/next", 301, Get, @types.HeaderMap::new(), ReplayableBody)
     .unwrap()
   assert_true(
     tracker.follow(
@@ -265,7 +251,7 @@ test "redirect: loop detection uses normalized origins" {
       301,
       Get,
       @types.HeaderMap::new(),
-      ReplayNotRequired,
+      ReplayableBody,
     )
     is Err(RedirectLoop),
   )
@@ -279,7 +265,7 @@ test "retry: bounded exponential backoff applies only to allowed failures" {
     max_delay_ms=1000L,
   ).unwrap()
   assert_eq(
-    @client.decide_retry(policy, 1, Get, ReplayNotRequired, RetryConnectFailure),
+    @client.decide_retry(policy, 1, Get, ReplayableBody, RetryConnectFailure),
     Ok(RetryAfterMillis(100L)),
   )
   assert_eq(
@@ -287,14 +273,14 @@ test "retry: bounded exponential backoff applies only to allowed failures" {
       policy,
       2,
       Get,
-      ReplayNotRequired,
+      ReplayableBody,
       RetryStatus(503),
       jitter_ms=25L,
     ),
     Ok(RetryAfterMillis(225L)),
   )
   assert_eq(
-    @client.decide_retry(policy, 3, Get, ReplayNotRequired, RetryConnectFailure),
+    @client.decide_retry(policy, 3, Get, ReplayableBody, RetryConnectFailure),
     Ok(DoNotRetry),
   )
   assert_eq(
@@ -302,19 +288,13 @@ test "retry: bounded exponential backoff applies only to allowed failures" {
       policy,
       1,
       Get,
-      ReplayNotRequired,
+      ReplayableBody,
       RetryTlsVerificationFailed,
     ),
     Ok(DoNotRetry),
   )
   assert_eq(
-    @client.decide_retry(
-      policy,
-      1,
-      Get,
-      ReplayNotRequired,
-      RetryBodyPartiallySent,
-    ),
+    @client.decide_retry(policy, 1, Get, ReplayableBody, RetryBodyPartiallySent),
     Ok(DoNotRetry),
   )
 }
@@ -359,7 +339,7 @@ test "retry: Retry-After accepts delay-seconds and HTTP-date with hard caps" {
       policy,
       1,
       Get,
-      ReplayNotRequired,
+      ReplayableBody,
       RetryStatus(429),
       retry_after=Some("3"),
     ),
@@ -370,7 +350,7 @@ test "retry: Retry-After accepts delay-seconds and HTTP-date with hard caps" {
       policy,
       1,
       Get,
-      ReplayNotRequired,
+      ReplayableBody,
       RetryStatus(503),
       retry_after=Some("999999999999999999999999"),
     ),
@@ -381,7 +361,7 @@ test "retry: Retry-After accepts delay-seconds and HTTP-date with hard caps" {
       policy,
       1,
       Get,
-      ReplayNotRequired,
+      ReplayableBody,
       RetryStatus(503),
       retry_after=Some("Sun, 06 Nov 1994 08:49:40 GMT"),
       now_seconds=784111777L,
@@ -393,7 +373,7 @@ test "retry: Retry-After accepts delay-seconds and HTTP-date with hard caps" {
       policy,
       1,
       Get,
-      ReplayNotRequired,
+      ReplayableBody,
       RetryStatus(503),
       retry_after=Some("invalid"),
     ),

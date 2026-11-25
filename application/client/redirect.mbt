@@ -10,17 +10,15 @@ pub(all) struct RedirectDecision {
 ///|
 pub struct RedirectTracker {
   policy : RedirectPolicy
-  visited : Map[String, Bool]
   priv mut visited_for_method : Map[String, Bool]
   mut followed : Int32
 }
 
 ///|
-fn redirect_key(uri : @types.Uri) -> Result[String, RedirectError] {
-  let endpoint = match ClientEndpoint::from_uri(uri) {
-    Ok(value) => value
-    Err(_) => return Err(InvalidRedirectLocation)
-  }
+fn redirect_key(
+  uri : @types.Uri,
+  endpoint : ClientEndpoint,
+) -> Result[String, RedirectError] {
   let target = match uri.origin_form() {
     Ok(value) => value
     Err(_) => return Err(InvalidRedirectLocation)
@@ -33,15 +31,29 @@ pub fn RedirectTracker::new(
   initial : @types.Uri,
   policy : RedirectPolicy,
 ) -> Result[RedirectTracker, RedirectError] {
+  RedirectTracker::from_endpoint(
+    initial,
+    ClientEndpoint::from_uri(initial),
+    policy,
+  )
+}
+
+///|
+fn RedirectTracker::from_endpoint(
+  initial : @types.Uri,
+  endpoint : Result[ClientEndpoint, ClientError],
+  policy : RedirectPolicy,
+) -> Result[RedirectTracker, RedirectError] {
   if policy.enabled && policy.max_redirects < 1 {
     return Err(RedirectLimitExceeded(policy.max_redirects))
   }
-  let key = match redirect_key(initial) {
+  guard endpoint is Ok(endpoint) else { return Err(InvalidRedirectLocation) }
+  let key = match redirect_key(initial, endpoint) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
   let visited = Map([(key, true)])
-  Ok({ policy, visited, visited_for_method: visited, followed: 0, })
+  Ok({ policy, visited_for_method: visited, followed: 0, })
 }
 
 ///|
@@ -100,6 +112,25 @@ pub fn RedirectTracker::follow(
   headers : @types.HeaderMap,
   body_replayability : BodyReplayability,
 ) -> Result[RedirectDecision, RedirectError] {
+  let current_endpoint = ClientEndpoint::from_uri(current)
+  self
+  .resolve(
+    current, current_endpoint, location, status, http_method, headers, body_replayability,
+  )
+  .map(pair => pair.0)
+}
+
+///|
+fn RedirectTracker::resolve(
+  self : RedirectTracker,
+  current : @types.Uri,
+  current_endpoint : Result[ClientEndpoint, ClientError],
+  location : String,
+  status : Int32,
+  http_method : @types.Method,
+  headers : @types.HeaderMap,
+  body_replayability : BodyReplayability,
+) -> Result[(RedirectDecision, ClientEndpoint), RedirectError] {
   if !self.policy.enabled {
     return Err(RedirectDisabled)
   }
@@ -117,9 +148,8 @@ pub fn RedirectTracker::follow(
     Ok(value) => value
     Err(_) => return Err(InvalidRedirectLocation)
   }
-  let current_endpoint = match ClientEndpoint::from_uri(current) {
-    Ok(value) => value
-    Err(_) => return Err(InvalidRedirectLocation)
+  guard current_endpoint is Ok(current_endpoint) else {
+    return Err(InvalidRedirectLocation)
   }
   let next_endpoint = match ClientEndpoint::from_uri(uri) {
     Ok(value) => value
@@ -130,7 +160,7 @@ pub fn RedirectTracker::follow(
     !self.policy.allow_https_downgrade {
     return Err(RedirectDowngradeDenied)
   }
-  let key = match redirect_key(uri) {
+  let key = match redirect_key(uri, next_endpoint) {
     Ok(value) => value
     Err(error) => return Err(error)
   }
@@ -142,14 +172,18 @@ pub fn RedirectTracker::follow(
     return Err(RedirectLoop)
   }
   self.visited_for_method.set(key, true)
-  self.visited.set(key, true)
   self.followed += 1
   let cross_origin = !current_endpoint.same_origin(next_endpoint)
-  Ok({
-    uri,
-    http_method: next_method,
-    headers: redirect_headers(headers, cross_origin, drop_body),
-    drop_body,
-    cross_origin,
-  })
+  Ok(
+    (
+      {
+        uri,
+        http_method: next_method,
+        headers: redirect_headers(headers, cross_origin, drop_body),
+        drop_body,
+        cross_origin,
+      },
+      next_endpoint,
+    ),
+  )
 }

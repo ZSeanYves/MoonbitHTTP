@@ -46,3 +46,11 @@ test "decode a request" {
 ```
 
 在 Native 上发送请求、配置连接池或绑定监听地址，可参阅对应的包文档。[客户端用法](adapter/native/client/README_zh.md) · [服务端用法](adapter/native/server/README_zh.md) · [更新日志](CHANGELOG.md)
+
+
+## 本分支的接口迁移
+
+- 用 `ServerEvent` 观察服务端事件，用 `ServerState` 查询当前状态。原来的 `ServerPhase` 已移除。
+- 直接调用重试或重定向策略时，用 `ReplayableBody` 表示空正文。一次性上传使用 `NonReplayableBody`。
+- `RedirectTracker` 内部维护当前方法的循环检测集合。需要完整历史时，调用者可记录每次 `follow` 返回的目标 URI。
+- 底层 HTTP/3 客户端与服务连接的 `handshake_timeout_ms` 接受 `Some(毫秒数)` 或 `None`。省略时仍为 10 秒。高层客户端沿用 `ClientTimeouts.tls_ms`。

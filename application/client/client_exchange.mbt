@@ -108,7 +108,11 @@ fn ClientExchange::new(
   request : @types.Request[Upload],
 ) -> ClientExchange raise ClientError {
   let endpoint = ClientEndpoint::from_uri(request.uri).unwrap_or_error()
-  let redirects = RedirectTracker::new(request.uri, client.options.redirect)
+  let redirects = RedirectTracker::from_endpoint(
+      request.uri,
+      Ok(endpoint),
+      client.options.redirect,
+    )
     .map_err(error => ClientRedirect(error))
     .unwrap_or_error()
   {
@@ -388,9 +392,10 @@ fn ClientExchange::follow_redirect(
   location : String,
 ) -> Unit raise ClientError {
   let request = self.request
-  let decision = self.redirects
-    .follow(
+  let (decision, endpoint) = self.redirects
+    .resolve(
       request.uri,
+      Ok(self.endpoint),
       location,
       status,
       request.http_method,
@@ -399,7 +404,6 @@ fn ClientExchange::follow_redirect(
     )
     .map_err(error => ClientRedirect(error))
     .unwrap_or_error()
-  let endpoint = ClientEndpoint::from_uri(decision.uri).unwrap_or_error()
   (self.client.authorize_redirect)(endpoint.transport, Redirect)
   .map_err(error => ClientPolicy(error))
   .unwrap_or_error()

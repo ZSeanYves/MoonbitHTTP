@@ -9,15 +9,6 @@ pub(all) enum ServerState {
 
 ///|
 #derive(Eq, Debug)
-pub(all) enum ServerPhase {
-  Accept
-  Connection
-  Handler
-  Shutdown
-}
-
-///|
-#derive(Eq, Debug)
 pub(all) suberror ServerError {
   InvalidConfig(String)
   AlreadyRunning

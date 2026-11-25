@@ -223,7 +223,6 @@ pub fn RetryPolicy::validate(self : RetryPolicy) -> Result[Unit, RetryError] {
 ///|
 #derive(Eq, Debug)
 pub(all) enum BodyReplayability {
-  ReplayNotRequired
   ReplayableBody
   NonReplayableBody
 }
