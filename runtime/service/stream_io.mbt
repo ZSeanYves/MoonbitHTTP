@@ -49,9 +49,7 @@ impl @aio.BinaryReaderImpl for StreamIo with fn raw_read_impl(
           Failed(Receive, "stream returned an empty non-EOF read"),
         )
       }
-      for index in 0..<bytes.length() {
-        destination[offset + index] = bytes[index]
-      }
+      destination.blit_from_bytes(offset, bytes, 0, bytes.length())
       bytes.length()
     }
   }
@@ -82,7 +80,11 @@ impl @aio.BinaryWriterImpl for StreamIo with fn raw_write_impl(
   offset~,
   len~,
 ) {
-  let bytes = source[offset:offset + len].to_owned()
+  let bytes = if offset == 0 && len == source.length() {
+    source
+  } else {
+    source[offset:offset + len].to_owned()
+  }
   match self.connection.write(bytes) {
     Ok(_) => len
     Err(error) => raise StreamIoError(error)

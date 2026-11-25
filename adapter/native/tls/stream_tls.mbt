@@ -131,7 +131,8 @@ async fn NativeTlsSession::receive(
   if self.input_generation != generation {
     return Ok(())
   }
-  match self.connection.read(16384) {
+  // A full TLS record also carries its record header and authentication tag.
+  match self.connection.read(32 * 1024) {
     Err(error) => Err(error)
     Ok(None) => Err(Failed(Receive, "TLS stream ended without close_notify"))
     Ok(Some(bytes)) => {
@@ -206,7 +207,18 @@ async fn NativeTlsSession::read(
       Ok(_) => ()
     }
     match status {
-      1 => return Ok(Some(Bytes::from_array(buffer[:count.val].to_owned())))
+      1 => {
+        let bytes = buffer.unsafe_reinterpret_as_bytes()
+        return Ok(
+          Some(
+            if count.val == bytes.length() {
+              bytes
+            } else {
+              bytes[:count.val].to_owned()
+            },
+          ),
+        )
+      }
       6 => return Ok(None)
       2 =>
         match self.receive(generation) {
@@ -237,7 +249,7 @@ async fn NativeTlsSession::write(
     let status = self.ssl.write(
       bytes,
       offset,
-      (bytes.length() - offset).min(16384),
+      (bytes.length() - offset).min(32 * 1024),
       count,
     )
     let failure = if status < 0 {

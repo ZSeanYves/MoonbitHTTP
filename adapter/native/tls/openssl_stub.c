@@ -603,7 +603,9 @@ MOONBIT_FFI_EXPORT int moon_http_tls_feed(HttpTls *self, moonbit_bytes_t bytes) 
 }
 MOONBIT_FFI_EXPORT moonbit_bytes_t moon_http_tls_drain(HttpTls *self) {
   size_t size = self->initialized == 1 ? p_BIO_ctrl_pending(self->output) : 0;
-  if (size > 16384) size = 16384;
+  /* The write path submits at most 32 KiB of plaintext. Include record
+     overhead so a full application write normally drains in one syscall. */
+  if (size > 65536) size = 65536;
   moonbit_bytes_t out = moonbit_make_bytes((int)size, 0);
   if (size) p_BIO_read(self->output, out, (int)size);
   return out;
