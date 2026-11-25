@@ -2,6 +2,7 @@
 /// Scoped, direct-origin HTTP/2 executor.
 pub struct Http2Client {
   priv pool : OriginPool[@service.Http2ClientConnection]
+  priv now_millis : () -> Int64
   priv max_body_bytes : Int32
 }
 
@@ -92,7 +93,13 @@ pub async fn[
     },
     @service.Http2ClientConnection::accepts_requests,
     @service.Http2ClientConnection::is_idle,
-    pool => run({ pool, max_body_bytes: config.limits.max_body_bytes, }),
+    pool => {
+      run({
+        pool,
+        now_millis: () => clock.monotonic_millis(),
+        max_body_bytes: config.limits.max_body_bytes,
+      })
+    },
   )
 }
 

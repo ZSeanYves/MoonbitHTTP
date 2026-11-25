@@ -11,6 +11,8 @@ struct H2PoolConnector {
   peers : Array[H2PoolPeer]
   mut fail_initial_read : Bool
   opened : @aqueue.Queue[H2PoolPeer]
+  writing : @aqueue.Queue[Unit]
+  release_write : @aqueue.Queue[Unit]
   mut hold_settings : Bool
 }
 
@@ -21,6 +23,8 @@ fn H2PoolConnector::new() -> H2PoolConnector {
     fail_initial_read: false,
     opened: Queue(kind=Unbounded),
     hold_settings: false,
+    writing: Queue(kind=Blocking(1)),
+    release_write: Queue(kind=Blocking(1)),
   }
 }
 
@@ -77,7 +81,13 @@ impl @transport.StreamConnector for H2PoolConnector with fn connect(
           for field in fields {
             match field.name {
               ":authority" => peer.authorities.push(field.value)
-              ":path" => hold = field.value == b"/hold"
+              ":path" => {
+                hold = field.value == b"/hold"
+                if field.value == b"/hold-write" {
+                  self.writing.put(())
+                  self.release_write.get()
+                }
+              }
               "proxy-authorization" | "host" => fail("unexpected origin header")
               _ => ()
             }
@@ -338,5 +348,48 @@ async test "one burst to a new origin evicts only one idle connection from a ful
       assert_eq(client.connection_count(), 3)
     },
     max_connections=3,
+  )
+}
+
+///|
+async test "H2 request header timeout while queued for the writer preserves the connection" {
+  let connector = H2PoolConnector::new()
+  connector.hold_settings = true
+  with_pool_peer(
+    connector,
+    async fn(client) {
+      @async.with_task_group(async fn(group) {
+        let request = pooled_request(
+          "http://first.test/",
+          @types.HeaderMap::new(),
+        )
+        let writing = group.spawn(() => {
+          client.execute({
+            ..request,
+            uri: request.uri.resolve_reference("/hold-write").unwrap(),
+          })
+        })
+        let peer = connector.opened.get()
+        peer.replies.put(
+          Bytes::from_array(
+            @http2.encode_settings_frame([{ id: 3, value: 8, }], false),
+          ),
+        )
+        connector.writing.get()
+        let result = client.execute_body(
+          request.map_body(_ => @body.EmptyBody::new()),
+          timeouts={
+            ..@client.ClientTimeouts::defaults(),
+            request_headers_ms: Some(50),
+          },
+        )
+        assert_true(result is Err(ClientTimeout(ClientRequestHeaders, _, _)))
+        connector.release_write.put(())
+        assert_eq(writing.wait().unwrap().status, 200)
+        assert_eq(client.execute(request).unwrap().status, 200)
+        assert_eq(connector.peers.length(), 1)
+      })
+    },
+    max_connections=1,
   )
 }

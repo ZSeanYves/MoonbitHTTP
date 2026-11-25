@@ -20,6 +20,10 @@ pub async fn[B : @body.Body] Http2Client::execute_body(
   request : @types.Request[B],
   timeouts? : ClientTimeouts,
 ) -> Result[@types.Response[@body.BodyStream], ClientError] {
+  if timeouts is Some(limits) && limits.validate() is Err(error) {
+    request.body.cancel(error)
+    return Err(error)
+  }
   self.pool.exchange(request, async fn(client, request) {
     let headers = client_wire_headers(
       request.headers,
@@ -34,7 +38,14 @@ pub async fn[B : @body.Body] Http2Client::execute_body(
           ResponseBody => limits.response_body_ms
         }
         ms.map(ms => {
-          (ms, client_phase_timeout(http_pool_phase(phase), @async.now(), ms))
+          (
+            ms,
+            client_phase_timeout(
+              http_pool_phase(phase),
+              (self.now_millis)(),
+              ms,
+            ),
+          )
         })
       }
     })

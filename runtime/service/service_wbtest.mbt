@@ -43,7 +43,10 @@ async test "HTTP/2 writers enforce the declared length before DATA, trailers and
         () => body.next_frame(),
         expected,
         false,
-        amount => amount,
+        chunk => {
+          writes += 1
+          chunk.length()
+        },
         _ => writes += 1,
         _ => fail("sent premature trailers"),
       )

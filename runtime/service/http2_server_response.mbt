@@ -52,22 +52,27 @@ async fn[W : @aio.BinaryWriter, B : @body.Body] H2ServerStreams::send_response(
     () => response.body.next_frame(),
     expected,
     end_on_headers,
-    async fn(requested) {
-      for ;; {
-        let capacity = self.connection
+    chunk => {
+      write_h2_data_chunk(
+        stream_id,
+        chunk,
+        self.write_lock,
+        requested => {
+          self.connection
           .reserve_send_capacity(stream_id, requested)
           .unwrap_or_error()
-        if capacity > 0 {
-          return capacity
-        }
-        if self.input_ended {
-          raise @http2.H2ProtocolError::ConnectionError(
-            ProtocolError,
-            "HTTP/2 peer closed before granting send capacity",
-          )
-        }
-        self.window_signal.wait()
-      }
+        },
+        async fn() {
+          if self.input_ended {
+            raise @http2.H2ProtocolError::ConnectionError(
+              ProtocolError,
+              "HTTP/2 peer closed before granting send capacity",
+            )
+          }
+          self.window_signal.wait()
+        },
+        bytes => write_with_timeout(writer, bytes, write_timeout_ms),
+      )
     },
     bytes => write_h2_frame(self.write_lock, writer, bytes, write_timeout_ms),
     trailers => {

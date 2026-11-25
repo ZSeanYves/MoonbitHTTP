@@ -103,36 +103,39 @@ async fn[B : @body.Body] send_h2_request_body(
   timeout : ((HttpClientPhase) -> (Int32, Error)?)?,
 ) -> Unit {
   errdefer body.cancel(@body.BodyError::Cancelled)
-  let mut failure : Error = @http2.H2ProtocolError::StreamError(
+  errdefer shared.cancel_stream(
     stream.id,
-    Cancel,
-    "request body producer failed",
+    @http2.H2ProtocolError::StreamError(
+      stream.id,
+      Cancel,
+      "request body producer failed",
+    ),
   )
-  errdefer shared.cancel_stream(stream.id, failure)
   let result : Result[Unit, Error] = Ok(
     write_h2_body(
       stream.id,
       () => h2_wait(RequestBody, timeout, () => body.next_frame()),
       expected,
       false,
-      requested => {
+      chunk => {
         h2_wait(RequestBody, timeout, async fn() {
-          for ;; {
-            if stream.request_finished || shared.failure is Some(_) {
-              raise shared.closed_error()
-            }
-            shared.runtime_lock.acquire()
-            let result = shared.runtime.reserve_send_capacity(
-              stream.id,
-              requested,
-            )
-            shared.runtime_lock.release()
-            let capacity = result.unwrap_or_error()
-            if capacity > 0 {
-              return capacity
-            }
-            stream.window_signal.wait()
-          }
+          write_h2_data_chunk(
+            stream.id,
+            chunk,
+            shared.write_lock,
+            requested => {
+              shared.runtime_lock.acquire()
+              defer shared.runtime_lock.release()
+              if stream.request_finished || shared.failure is Some(_) {
+                raise shared.closed_error()
+              }
+              shared.runtime
+              .reserve_send_capacity(stream.id, requested)
+              .unwrap_or_error()
+            },
+            () => stream.window_signal.wait(),
+            bytes => shared.write_locked(bytes),
+          )
         })
       },
       bytes => h2_wait(RequestBody, timeout, () => shared.write_bytes(bytes)),
@@ -148,7 +151,7 @@ async fn[B : @body.Body] send_h2_request_body(
     error => Err(error)
   }
   if result is Err(error) {
-    failure = error
+    shared.cancel_stream(stream.id, error)
     raise error
   }
   shared.runtime_lock.acquire()

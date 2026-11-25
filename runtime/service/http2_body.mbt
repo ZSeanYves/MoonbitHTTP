@@ -31,8 +31,8 @@ async fn write_h2_body(
   read : async () -> @body.Frame?,
   expected : Int32?,
   end_on_headers : Bool,
-  reserve : async (Int32) -> Int32,
-  write_bytes : async (Bytes) -> Unit,
+  write_chunk : async (BytesView) -> Int32,
+  write_end : async (Bytes) -> Unit,
   write_trailers : async (@types.HeaderMap) -> Unit,
 ) -> Unit {
   let mut remaining = expected
@@ -58,14 +58,10 @@ async fn write_h2_body(
         }
         let mut offset = 0
         while offset < data.length() {
-          let capacity = reserve(
-            (data.length() - offset).min(@http2.H2_DEFAULT_MAX_FRAME_SIZE),
+          let length = (data.length() - offset).min(
+            @http2.H2_DEFAULT_MAX_FRAME_SIZE,
           )
-          let chunk = data[offset:offset + capacity].to_owned()
-          write_bytes(
-            @http2.encode_data_frames(stream_id, chunk, false).unwrap_or_error(),
-          )
-          offset += capacity
+          offset += write_chunk(data[offset:offset + length])
         }
       }
       Trailers(trailers) => {
@@ -89,8 +85,40 @@ async fn write_h2_body(
     )
   }
   if !ended {
-    write_bytes(
-      @http2.encode_data_frames(stream_id, b"", true).unwrap_or_error(),
-    )
+    write_end(@http2.encode_data_frames(stream_id, b"", true).unwrap_or_error())
+  }
+}
+
+///|
+/// Reserve flow credit under the writer lock. A stream cancelled in the
+/// writer queue has not consumed credit for bytes it never sent.
+async fn write_h2_data_chunk(
+  stream_id : Int32,
+  chunk : BytesView,
+  lock : @async.Mutex,
+  reserve : async (Int32) -> Int32,
+  wait : async () -> Unit,
+  write : async (Bytes) -> Unit,
+) -> Int32 {
+  for ;; {
+    let capacity = {
+      lock.acquire()
+      defer lock.release()
+      let capacity = reserve(chunk.length())
+      if capacity > 0 {
+        write(
+          @http2.encode_data_frames(
+            stream_id,
+            chunk[:capacity].to_owned(),
+            false,
+          ).unwrap_or_error(),
+        )
+      }
+      capacity
+    }
+    if capacity > 0 {
+      return capacity
+    }
+    wait()
   }
 }
