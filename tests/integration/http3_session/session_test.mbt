@@ -234,6 +234,11 @@ test "http3 session: GOAWAY rejects a crossing request and preserves the accepte
   assert_true(
     server.session.send_goaway(1L) is Err(Http3ConnectionError(H3IdError, _)),
   )
+  client.session.send_goaway(@quic.QUIC_MAX_VARINT).unwrap()
+  client.session.send_goaway(0L).unwrap()
+  assert_true(
+    client.session.send_goaway(1L) is Err(Http3ConnectionError(H3IdError, _)),
+  )
   server.session.send_goaway(12L).unwrap()
   server.session.send_goaway(8L).unwrap()
   server.session.send_goaway(late).unwrap()
@@ -250,6 +255,10 @@ test "http3 session: GOAWAY rejects a crossing request and preserves the accepte
   for tick in 1..<15 {
     pump_sessions(client, server, tick.to_int64() * 25L)
   }
+  assert_true(
+    server.events.contains(Message(H3GoawayReceived(@quic.QUIC_MAX_VARINT))),
+  )
+  assert_true(server.events.contains(Message(H3GoawayReceived(0L))))
   let cutoffs = client.events.filter_map(fn(event) {
     if event is Message(H3GoawayReceived(first)) {
       Some(first)

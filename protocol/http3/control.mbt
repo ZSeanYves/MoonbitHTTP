@@ -270,11 +270,13 @@ pub fn Http3Connection::receive_control_frame(
       actions.push(H3MaxPushIdReceived(push_id))
     }
     H3Goaway(id) => {
-      if (id & 3L) != 0L {
+      if id < 0L ||
+        id > @quic.QUIC_MAX_VARINT ||
+        (self.role == H3Client && (id & 3L) != 0L) {
         return Err(
           Http3ConnectionError(
             H3IdError,
-            "server GOAWAY ID is not a client request stream",
+            "invalid GOAWAY identifier for peer role",
           ),
         )
       }

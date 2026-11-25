@@ -302,7 +302,8 @@ fn Http3Session::receive(
     StreamData(id, bytes, fin) => {
       let result = if self.stops.contains(id) {
         Ok([])
-      } else if (id & 3L) == 0L &&
+      } else if self.driver.connection.role == H3Server &&
+        (id & 3L) == 0L &&
         self.sent_goaway is Some(first) &&
         id >= first {
         self.abort_stream(id, H3RequestRejected) catch {

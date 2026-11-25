@@ -184,28 +184,23 @@ pub fn Http3Session::finish(
 }
 
 ///|
-/// Send a server GOAWAY on the control stream. The caller must choose a
-/// boundary above every request it might have processed. Further GOAWAYs
+/// Send GOAWAY with the first rejected request stream ID (server) or Push ID
+/// (client). The caller must account for items already accepted. Further GOAWAYs
 /// may lower that boundary. Retry Http3WriteBlocked after advancing the session.
 pub fn Http3Session::send_goaway(
   self : Http3Session,
   first_rejected : Int64,
 ) -> Result[Unit, Http3Error] {
-  if self.ended || !self.initialized || self.driver.connection.role != H3Server {
+  if self.ended || !self.initialized {
     return Err(
-      Http3ConnectionError(
-        H3InternalError,
-        "GOAWAY requires an open server session",
-      ),
+      Http3ConnectionError(H3InternalError, "GOAWAY requires an open session"),
     )
   }
   if first_rejected < 0L ||
     first_rejected > @quic.QUIC_MAX_VARINT ||
-    (first_rejected & 3L) != 0L ||
+    (self.driver.connection.role == H3Server && (first_rejected & 3L) != 0L) ||
     (self.sent_goaway is Some(previous) && first_rejected > previous) {
-    return Err(
-      Http3ConnectionError(H3IdError, "invalid server GOAWAY boundary"),
-    )
+    return Err(Http3ConnectionError(H3IdError, "invalid GOAWAY boundary"))
   }
   if self.sent_goaway == Some(first_rejected) {
     return Ok(())
