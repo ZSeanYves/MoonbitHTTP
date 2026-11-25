@@ -108,7 +108,7 @@ pub fn Http3Session::start_request(
       .map_err(e => Http3Transport(e))
       .unwrap_or_error()
     if actual != id {
-      self.ended = true
+      self.end_session()
       raise Http3Protocol(
         Http3ConnectionError(
           H3StreamCreationError,

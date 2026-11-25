@@ -28,3 +28,7 @@ test "decode a DATA frame" {
 一个会话独占 QUIC 应用流。将 TLS 驱动在 `start`、`on_datagram` 和 `poll` 中返回的动作交给 `advance`。即使同批动作包含失败，也要发送其中的数据报。应用排入写操作后调用 `advance([], now_ms)`；遇到 `Http3WriteBlocked` 时，等传输层取得进展后重试。
 
 独立解码器返回完整帧，会话则可能为一个帧产生多次数据事件。按需读取正文时先用 `defer_body_credit`，再按实际读取或丢弃的字节数调用 `consume_body`。以 `H3MessageFinished` 判定消息完成，QPACK 阻塞时该事件可能晚于 FIN。服务端可用 `send_goaway(first_rejected)` 开始排空，边界以下已接收的请求可继续完成。
+
+## 迁移到 0.9 的驱动诊断接口
+
+通过 `driver.blocked_bytes()` 和 `driver.blocked_stream_count()` 查询等待解码的数据量及流数。连接、失败原因、本地控制流和 QPACK 流 ID 可通过已有同名方法读取。公开接口已移除 `decoders`、`kinds`、`prefixes`、`blocked_frames` 和 `pending_fin`。在 `QpackDecoder` 上使用 `capacity()`、`table_size()`、`total_inserts()` 和 `blocked_stream_count()`。调用者可保留构造时的配置，并从流操作的返回值读取错误。表 `blocked` 和队列 `encoder_buffer` 已私有化。

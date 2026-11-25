@@ -28,3 +28,7 @@ test "decode a DATA frame" {
 Give one session exclusive access to the QUIC application streams. Feed TLS driver actions from `start`, `on_datagram` and `poll` to `advance`. Transmit its datagrams even when the batch includes a failure. After queuing writes, call `advance([], now_ms)`. Retry `Http3WriteBlocked` after transport progress.
 
 The standalone decoder returns whole frames. A session can emit several data events for one frame. For a pull-based consumer, call `defer_body_credit` and then `consume_body` as bytes are read or discarded. Dispatch completion on `H3MessageFinished`, which may arrive after FIN if QPACK is blocked. A server starts graceful shutdown with `send_goaway(first_rejected)`. Admitted requests below the boundary can finish.
+
+## Migrating driver diagnostics to 0.9
+
+Use `driver.blocked_bytes()` and `driver.blocked_stream_count()` for retained input. Read the connection, failure, and local control and QPACK stream IDs using their existing methods. The internal fields `decoders`, `kinds`, `prefixes`, `blocked_frames`, and `pending_fin` have been removed from the public interface. On `QpackDecoder`, use `capacity()`, `table_size()`, `total_inserts()`, and `blocked_stream_count()`. Track configuration at construction and use the errors returned by stream operations. The `blocked` map and `encoder_buffer` queue are private.

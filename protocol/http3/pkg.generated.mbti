@@ -5,7 +5,6 @@ import {
   "ZSeanYves/http/core/types",
   "ZSeanYves/http/protocol/quic",
   "moonbitlang/core/debug",
-  "moonbitlang/core/set",
 }
 
 // Values
@@ -255,18 +254,10 @@ pub fn Http3Connection::remote_unidirectional_closed(Self, Int64) -> Result[Unit
 pub fn Http3Connection::stream_phase(Self, Int64) -> H3MessagePhase?
 
 pub struct Http3Driver {
-  connection : Http3Connection
-  decoders : Map[Int64, Http3FrameDecoder]
-  kinds : Map[Int64, H3UnidirectionalStream]
-  prefixes : Map[Int64, Bytes]
-  blocked_frames : Map[Int64, Array[Http3Frame]]
-  mut blocked_bytes : Int32
-  pending_fin : @set.Set[Int64]
-  mut failure : Http3Error?
-  local_control_stream : Int64
-  local_qpack_encoder_stream : Int64
-  local_qpack_decoder_stream : Int64
+  // private fields
 }
+pub fn Http3Driver::blocked_bytes(Self) -> Int32
+pub fn Http3Driver::blocked_stream_count(Self) -> Int32
 pub fn Http3Driver::cancel_request_stream(Self, Int64) -> Result[Array[H3DriverAction], Http3Error]
 pub fn Http3Driver::connection(Self) -> Http3Connection
 pub fn Http3Driver::encode_data(Self, Bytes, fin? : Bool) -> Result[(Bytes, Bool), Http3Error]
@@ -350,13 +341,6 @@ pub fn QpackDecodeResult::not_equal(Self, Self) -> Bool
 pub fn QpackDecodeResult::to_repr(Self) -> @debug.Repr
 
 pub struct QpackDecoder {
-  limits : QpackLimits
-  mut table_size : Int32
-  mut capacity : Int32
-  mut total_inserts : Int64
-  blocked : Map[Int64, Int64]
-  mut encoder_buffer : Array[Byte]
-  mut failure : Http3Error?
   // private fields
 }
 pub fn QpackDecoder::blocked_stream_count(Self) -> Int32

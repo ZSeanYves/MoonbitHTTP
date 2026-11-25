@@ -14,14 +14,14 @@ pub(all) enum QpackDecodeResult {
 
 ///|
 pub struct QpackDecoder {
-  limits : QpackLimits
+  priv limits : QpackLimits
   priv mut entries : Array[QpackDynamicEntry]
-  mut table_size : Int32
-  mut capacity : Int32
-  mut total_inserts : Int64
-  blocked : Map[Int64, Int64]
-  mut encoder_buffer : Array[Byte]
-  mut failure : Http3Error?
+  priv mut table_size : Int32
+  priv mut capacity : Int32
+  priv mut total_inserts : Int64
+  priv blocked : Map[Int64, Int64]
+  priv mut encoder_buffer : Array[Byte]
+  priv mut failure : Http3Error?
 }
 
 ///|

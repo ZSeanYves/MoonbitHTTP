@@ -13,17 +13,17 @@ pub(all) enum H3DriverAction {
 
 ///|
 pub struct Http3Driver {
-  connection : Http3Connection
-  decoders : Map[Int64, Http3FrameDecoder]
-  kinds : Map[Int64, H3UnidirectionalStream]
-  prefixes : Map[Int64, Bytes]
-  blocked_frames : Map[Int64, Array[Http3Frame]]
-  mut blocked_bytes : Int32
-  pending_fin : Set[Int64]
-  mut failure : Http3Error?
-  local_control_stream : Int64
-  local_qpack_encoder_stream : Int64
-  local_qpack_decoder_stream : Int64
+  priv connection : Http3Connection
+  priv decoders : Map[Int64, Http3FrameDecoder]
+  priv kinds : Map[Int64, H3UnidirectionalStream]
+  priv prefixes : Map[Int64, Bytes]
+  priv blocked_frames : Map[Int64, Array[Http3Frame]]
+  priv mut blocked_bytes : Int32
+  priv pending_fin : Set[Int64]
+  priv mut failure : Http3Error?
+  priv local_control_stream : Int64
+  priv local_qpack_encoder_stream : Int64
+  priv local_qpack_decoder_stream : Int64
 }
 
 ///|
@@ -97,11 +97,37 @@ pub fn Http3Driver::initial_control_bytes(
 }
 
 ///|
+/// Wire bytes retained while QPACK field sections await dynamic entries.
+pub fn Http3Driver::blocked_bytes(self : Http3Driver) -> Int32 {
+  self.blocked_bytes
+}
+
+///|
+pub fn Http3Driver::blocked_stream_count(self : Http3Driver) -> Int32 {
+  self.connection.decoder.blocked_stream_count()
+}
+
+///|
+fn Http3Driver::release_input(self : Http3Driver) -> Unit {
+  self.blocked_frames.clear()
+  self.blocked_bytes = 0
+  self.pending_fin.clear()
+  self.decoders.clear()
+  self.kinds.clear()
+  self.prefixes.clear()
+  self.connection.blocked_sections.clear()
+  self.connection.streams.clear()
+  self.connection.decoder.blocked.clear()
+  self.connection.decoder.encoder_buffer.clear()
+}
+
+///|
 fn Http3Driver::h3_driver_fail(
   self : Http3Driver,
   error : Http3Error,
 ) -> Result[Array[H3DriverAction], Http3Error] {
   self.failure = Some(error)
+  self.release_input()
   Err(error)
 }
 

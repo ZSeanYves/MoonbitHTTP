@@ -173,10 +173,20 @@ test "http3 driver: blocked QPACK frame bytes are bounded and reclaimed" {
     driver.on_stream_data(0L, blocked_frame, false)
     is Err(Http3LimitExceeded("HTTP/3 blocked QPACK frames", 32)),
   )
+  assert_eq(driver.blocked_bytes(), 32)
+  assert_eq(driver.blocked_stream_count(), 1)
   ignore(driver.cancel_request_stream(0L).unwrap())
+  assert_eq(driver.blocked_bytes(), 0)
+  assert_eq(driver.blocked_stream_count(), 0)
   // Cancellation releases both the QPACK blocked-stream slot and the retained
   // frame-byte budget, so a new request stream can be blocked normally.
   assert_true(driver.on_stream_data(4L, blocked_frame, false) is Ok(_))
+  assert_true(
+    driver.on_stream_data(2L, b"", true)
+    is Err(Http3ConnectionError(H3ClosedCriticalStream, _)),
+  )
+  assert_eq(driver.blocked_bytes(), 0)
+  assert_eq(driver.blocked_stream_count(), 0)
 }
 
 ///|

@@ -437,7 +437,7 @@ pub fn Http3Session::advance(
       }
     }
     if terminal {
-      self.ended = true
+      self.end_session()
       return out
     }
     if self.initialized {
@@ -466,7 +466,7 @@ pub fn Http3Session::advance(
     }
   } catch {
     error => {
-      self.ended = true
+      self.end_session()
       let code = match error {
         Http3Protocol(Http3ConnectionError(code, _)) => code
         Http3Protocol(Http3LimitExceeded(_, _) | Http3WriteBlocked) =>
@@ -486,6 +486,12 @@ pub fn Http3Session::advance(
 }
 
 ///|
+fn Http3Session::end_session(self : Http3Session) -> Unit {
+  self.ended = true
+  self.driver.release_input()
+}
+
+///|
 /// Terminate this session and reject further application writes. When keys are
 /// available the owner sends the returned application CONNECTION_CLOSE.
 /// The default code reports an orderly HTTP/3 shutdown.
@@ -497,7 +503,7 @@ pub fn Http3Session::close(
   if self.ended {
     return Ok(None)
   }
-  self.ended = true
+  self.end_session()
   if self.quic.state() != Established {
     return Ok(None)
   }
