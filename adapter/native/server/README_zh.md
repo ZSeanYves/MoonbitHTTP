@@ -4,6 +4,8 @@
 
 仅支持 Native。由应用选择监听端点，并将请求交给自己的处理函数。`NativeTcpListener::bind_http_tls` 按 ALPN 提供 HTTP/1.1 和 HTTP/2；`NativeHttp3Listener::bind_http` 在 UDP 上提供 HTTP/3，使用 TLS 1.3 和 `h3` ALPN。服务端证书与私钥通过 `TlsOptions` 传入。
 
+未传入服务配置时，TLS 监听器每次最多读取一条 16 KiB 的 TLS 记录。HTTP/2 连接接收窗为 256 KiB，各条流共享这份额度，单条流的接收窗也为 256 KiB。传入 `config` 可以指定更小的窗口和其他读取大小。
+
 在 `moon.pkg` 中导入
 
 ```moonbit

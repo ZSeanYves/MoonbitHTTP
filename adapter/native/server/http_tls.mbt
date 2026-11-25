@@ -11,7 +11,7 @@ pub async fn[
   provider : T,
   tls : @transport.TlsOptions,
   handler : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
-  config~ : @service.ServerConfig = @service.ServerConfig::defaults(),
+  config~ : @service.ServerConfig = native_tls_server_config(),
   handshake_timeout_ms~ : Int32 = 10000,
   shutdown_timeout_ms~ : Int32 = 1000,
   dual_stack~ : Bool = true,
@@ -117,4 +117,16 @@ pub async fn[
     listener.shutdown = Some(shutdown)
     listener
   })
+}
+
+///|
+/// A TLS record can carry 16 KiB. Let concurrent H2 streams use the
+/// configured connection buffer without waiting after the first 65,535 bytes.
+fn native_tls_server_config() -> @service.ServerConfig {
+  let config = @service.ServerConfig::defaults()
+  {
+    ..config,
+    read_size: 16 * 1024,
+    h2_receive_window_bytes: config.limits.max_buffer_bytes,
+  }
 }

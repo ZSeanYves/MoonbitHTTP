@@ -4,6 +4,8 @@
 
 Native only. Bind a listener to an application-selected endpoint and route requests to your handler. `NativeTcpListener::bind_http_tls` serves HTTP/1.1 and HTTP/2 according to ALPN. `NativeHttp3Listener::bind_http` serves HTTP/3 over UDP with TLS 1.3 and `h3` ALPN. Pass server credentials in `TlsOptions`.
 
+Without an explicit service configuration the TLS listener reads up to one 16 KiB TLS record at a time and advertises a 256 KiB HTTP/2 receive window shared across streams. Each stream is also limited to 256 KiB. Pass `config` to choose a smaller window or a different read size.
+
 In `moon.pkg`
 
 ```moonbit
