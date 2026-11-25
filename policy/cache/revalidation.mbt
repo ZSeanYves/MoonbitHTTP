@@ -115,7 +115,12 @@ pub fn HttpCache::revalidate(
     Err(error) => return Err(error)
   }
   match self.lookup(request, now_seconds) {
-    Ok(CacheFresh(hit) | CacheStale(hit) | CacheRevalidate(hit)) => Ok(hit)
+    Ok(
+      CacheFresh(hit)
+      | CacheStale(hit)
+      | CacheStaleWhileRevalidate(hit, _)
+      | CacheRevalidate(hit),
+    ) => Ok(hit)
     Ok(CacheMiss | OnlyIfCachedMiss) =>
       Err(NotCacheable("refreshed representation is unavailable"))
     Err(error) => Err(error)

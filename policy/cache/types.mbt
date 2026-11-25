@@ -127,6 +127,7 @@ pub(all) enum CacheLookup {
   OnlyIfCachedMiss
   CacheFresh(CacheHit)
   CacheStale(CacheHit)
+  CacheStaleWhileRevalidate(CacheHit, Int64)
   CacheRevalidate(CacheHit)
 }
 

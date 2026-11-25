@@ -730,18 +730,18 @@ pub fn HttpCache::lookup(
     request_age_ok &&
     !entry.no_cache &&
     !entry.must_revalidate &&
-    (
-      max_stale_ok ||
-      (
-        entry.stale_while_revalidate > 0L &&
-        stale <= entry.stale_while_revalidate
+    remaining <= 0L {
+    let swr = entry.stale_while_revalidate > 0L &&
+      stale <= entry.stale_while_revalidate
+    if swr || max_stale_ok {
+      let hit = cache_entry_hit(
+        entry, request, age, stale, allow_error_fallback,
       )
-    ) {
-    return Ok(
-      CacheStale(
-        cache_entry_hit(entry, request, age, stale, allow_error_fallback),
-      ),
-    )
+      if swr && !request_control.only_if_cached {
+        return Ok(CacheStaleWhileRevalidate(hit, entry.order))
+      }
+      return Ok(CacheStale(hit))
+    }
   }
   if request_control.only_if_cached {
     Ok(OnlyIfCachedMiss)

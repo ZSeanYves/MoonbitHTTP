@@ -215,6 +215,10 @@ fn ClientExchange::prepare_request(
     Ok(CacheMiss) => SendRequest(request, digest, deferred_auth, None)
     Ok(CacheFresh(hit) | CacheStale(hit)) =>
       LocalResponse(self.cached_response(hit))
+    Ok(CacheStaleWhileRevalidate(hit, generation)) => {
+      self.refresh_in_background(request, generation)
+      LocalResponse(self.cached_response(hit))
+    }
     Ok(OnlyIfCachedMiss) =>
       LocalResponse({
         status: 504,
@@ -234,6 +238,62 @@ fn ClientExchange::prepare_request(
       )
     Err(_) => raise ClientProtocol("cache lookup failed")
   }
+}
+
+///|
+/// A cache refresh owns its empty GET and body consumption inside the client
+/// scope. Never reopen the original caller's upload to refresh a representation.
+fn ClientExchange::refresh_in_background(
+  self : ClientExchange,
+  request : @types.Request[Upload],
+  generation : Int64,
+) -> Unit {
+  let client = self.client
+  let key = (
+    generation,
+    request.headers.get_string("authorization").map(v => v.bytes),
+    request.headers.get_string("cookie").map(v => v.bytes),
+  )
+  if client.refreshing.contains(key) ||
+    client.refreshing.length() >= client.cache.len() {
+    return
+  }
+  let headers = self.request.headers.copy()
+  for
+    name in [
+      "if-none-match", "if-modified-since", "if-match", "if-unmodified-since", "content-length",
+      "transfer-encoding", "content-encoding", "expect", "trailer",
+    ] {
+    headers.remove(@types.HeaderName::parse(name).unwrap())
+  }
+  headers.append_string("cache-control", "no-cache").unwrap()
+  client.refreshing.add(key)
+  client.group.spawn_bg(
+    async fn() {
+      defer client.refreshing.remove(key)
+      // An invalidation between scheduling and execution also cancels a refresh.
+      guard client.cache.lookup(
+          request.map_body(_ => ()),
+          (client.wall_clock_seconds)(),
+        )
+        is Ok(CacheStaleWhileRevalidate(_, current)) &&
+        current == generation else {
+        return
+      }
+      let response = client.send({
+        ..request,
+        headers,
+        http_method: Get,
+        body: Upload::bytes(b""),
+      })
+      defer response.body.cancel(@body.BodyError::Cancelled)
+      while response.body.next_frame() is Some(_) {
+        ()
+      }
+    },
+    no_wait=true,
+    allow_failure=true,
+  )
 }
 
 ///|

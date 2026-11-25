@@ -242,3 +242,96 @@ async test "an invalidated revalidation retries with the caller's original heade
     )
   }
 }
+
+///|
+async test "SWR coalesces stale reads and refreshes within the window" {
+  for status in [200, 304] {
+    let now = Ref(0L)
+    let calls = Ref(0)
+    let started : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+    let release : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+    let cache = @cache.HttpCache::new().unwrap()
+    let request = pooled_request(
+      "http://origin.test/swr",
+      @types.HeaderMap::new(),
+    )
+    let headers = @types.HeaderMap::new()
+    headers.append_string("etag", "\"v1\"").unwrap()
+    headers
+    .append_string("cache-control", "max-age=1, stale-while-revalidate=30")
+    .unwrap()
+    cache
+    .store(
+      request.map_body(_ => ()),
+      { status: 200, version: Http11, headers, body: (), },
+      b"v1",
+      0L,
+    )
+    .unwrap()
+    |> ignore
+    @client.with_client(
+      async fn(client) {
+        now.val = 2L
+        let local_only = @types.HeaderMap::new()
+        local_only.append_string("cache-control", "only-if-cached").unwrap()
+        assert_eq(
+          send_bytes(client, { ..request, headers: local_only, }).body,
+          b"v1",
+        )
+        assert_eq(calls.val, 0)
+        assert_eq(send_bytes(client, request).body, b"v1")
+        @async.with_timeout(1000, () => started.get())
+        now.val = 15L
+        assert_eq(send_bytes(client, request).body, b"v1")
+        assert_eq(calls.val, 1)
+        release.put(())
+        @async.with_timeout(1000, async fn() {
+          while !(cache.lookup(request.map_body(_ => ()), now.val).unwrap()
+                is CacheFresh(_)) {
+            @async.pause()
+          }
+        })
+        now.val = 40L
+        assert_eq(
+          send_bytes(client, request).body,
+          if status == 200 {
+            b"v2"
+          } else {
+            b"v1"
+          },
+        )
+        assert_eq(calls.val, 1)
+      },
+      version=Http11,
+      exchange=byte_peer(req => {
+        calls.val += 1
+        assert_eq(
+          req.headers.get_string("if-none-match").unwrap().to_string_lossy(),
+          "\"v1\"",
+        )
+        started.put(())
+        release.get()
+        let fields = @types.HeaderMap::new()
+        fields.append_string("cache-control", "max-age=100").unwrap()
+        fields
+        .append_string("etag", if status == 200 { "\"v2\"" } else { "\"v1\"" })
+        .unwrap()
+        Ok({
+          status,
+          version: Http11,
+          headers: fields,
+          body: if status == 200 {
+            b"v2"
+          } else {
+            b""
+          },
+        })
+      }),
+      cache~,
+      cache_enabled=true,
+      wall_clock_seconds=() => now.val,
+      now_millis=() => 0L,
+      authorize_redirect=(_, _) => Ok(()),
+    )
+  }
+}

@@ -21,6 +21,7 @@ pub struct Client {
   ]
   priv group : @async.TaskGroup
   priv wall_clock_seconds : () -> Int64
+  priv refreshing : Set[(Int64, Bytes?, Bytes?)]
   priv bodies : Map[Int64, IncomingBody]
   priv mut next_id : Int64
   priv mut closed : Bool
@@ -91,6 +92,7 @@ pub async fn[X] with_client(
       exchange,
       group,
       wall_clock_seconds,
+      refreshing: Set([]),
       bodies: Map([]),
       next_id: 0L,
       closed: false,
