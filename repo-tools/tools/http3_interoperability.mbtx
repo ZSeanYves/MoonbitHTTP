@@ -7,6 +7,7 @@ import {
   "moonbitlang/core/env",
   "moonbitlang/core/bench",
   "moonbitlang/core/int",
+  "moonbitlang/core/string",
   "moonbitlang/core/json",
   "moonbitlang/x@0.5.9/crypto",
 }
@@ -590,13 +591,17 @@ async fn request_case(
   @fs.mkdir(case_dir)
   let started = @bench.monotonic_clock_start()
   let mut verified = false
+  let server_log = directory + "/server.stderr"
+  let server_offset = if extras.contains("--key-update") && @fs.exists(server_log) {
+    @fs.read_file(server_log).text().length()
+  } else { 0 }
   if extras.contains("--key-update") {
     println("Running " + name)
   }
   defer {
     if extras.contains("--key-update") {
       @async.protect_from_cancel(async fn() {
-        key_update_evidence(directory, name, started, verified)
+        key_update_evidence(directory, name, started, verified, server_offset)
       })
     }
   }
@@ -679,10 +684,19 @@ async fn request_case(
 }
 
 ///|
-async fn key_update_evidence(directory : String, name : String, started : @bench.Timestamp, verified : Bool) -> Unit {
+async fn key_update_evidence(directory : String, name : String, started : @bench.Timestamp, verified : Bool, server_offset : Int) -> Unit {
   let prefix = directory + "/" + name
   let logs = if @fs.exists(prefix + ".stderr") { @fs.read_file(prefix + ".stderr").text() } else { "" }
   let events : Array[Json] = []
+  let server_events : Array[Json] = []
+  let server_log = @fs.read_file(directory + "/server.stderr").text()
+  for line in server_log[server_offset:].split("\n") {
+    if line.split(" ").to_array() is ["h3-event", us, kind] &&
+      ["handshake-ready", "handler-entered", "handler-returned", "connection-finished"].contains(kind.to_owned()) {
+      let elapsed = @string.parse_int64(us) catch { _ => continue }
+      server_events.push({ "elapsed_us": elapsed.to_double(), "kind": kind.to_owned() })
+    }
+  }
   for filename in @fs.readdir(prefix) {
     if filename.has_suffix(".qlog") {
       let trace = @json.parse(@fs.read_file(prefix + "/" + filename).text()) catch { _ => Json::null() }
@@ -727,7 +741,7 @@ async fn key_update_evidence(directory : String, name : String, started : @bench
     "alpn_negotiated": logs.contains("ALPN negotiated protocol h3"),
     "key_update_requested": logs.contains("Requesting key update"),
     "response_received": logs.contains("Response received"), "client": process,
-    "qlog_events": events, "loopback_proxy_events": proxy,
+    "qlog_events": events, "server_events": server_events, "loopback_proxy_events": proxy,
   }
   @fs.write_file(prefix + ".public.json", report, create_mode=CreateNew)
 }
@@ -1114,7 +1128,7 @@ async fn main {
     let server = @process.spawn(
       group,
       executable,
-      [],
+      if build_server { ["--observe"] } else { [] },
       stdout~,
       stderr~,
       cancel_handler=@process.graceful_cancel(timeout=1000),

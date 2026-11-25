@@ -25,10 +25,20 @@ fn echo(
 
 ///|
 async fn main {
-  let once = match @env.args() {
-    [_] => false
-    [_, "--once"] => true
-    _ => fail("usage: h3_smoke_server [--once]")
+  let (once, observe) = match @env.args() {
+    [_] => (false, false)
+    [_, "--once"] => (true, false)
+    [_, "--observe"] => (false, true)
+    _ => fail("usage: h3_smoke_server [--once | --observe]")
+  }
+  let start = @bench.monotonic_clock_start()
+  async fn mark(kind : String) -> Unit {
+    if observe {
+      let elapsed = @bench.monotonic_clock_end(start).to_int64()
+      @stdio.stderr.write(
+        @utf8.encode("h3-event " + elapsed.to_string() + " " + kind + "\n"),
+      )
+    }
   }
   let endpoint = @types.Endpoint::new("udp", "127.0.0.1", 18443).unwrap()
   let certificate = @fs.read_binary("tests/fixtures/tls/localhost.cert.pem")
@@ -52,15 +62,20 @@ async fn main {
     @transport.AllowAllPolicy::new(),
     options,
     (_, io) => {
+      mark("handshake-ready")
       @service.serve_http3_connection(io, async fn(request) {
+        mark("handler-entered")
         if request.http_method == Post {
           io.rotate_local_connection_id()
         }
         if once {
           supervisor.begin_shutdown().unwrap_or_error()
         }
-        echo(request)
+        let response = echo(request)
+        mark("handler-returned")
+        response
       })
+      mark("connection-finished")
     },
     limits={ ..@types.Limits::defaults(), max_body_bytes: 65536, },
     transport_params={
