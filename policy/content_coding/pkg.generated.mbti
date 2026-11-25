@@ -4,9 +4,6 @@ package "ZSeanYves/http/policy/content_coding"
 import {
   "ZSeanYves/http/core/body",
   "ZSeanYves/http/core/types",
-  "hustcer/fbr/decode",
-  "moonbit-community/flate/gzip",
-  "moonbit-community/flate/zlib",
   "moonbitlang/core/debug",
 }
 
@@ -38,13 +35,6 @@ pub fn ContentCodingError::not_equal(Self, Self) -> Bool
 pub fn ContentCodingError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
-pub struct BrotliSink {
-  chunks : Array[Bytes]
-  mut chunk_index : Int32
-  mut chunk_offset : Int32
-  mut final_seen : Bool
-}
-
 #derive(Eq, @debug.Debug)
 pub(all) enum ContentCoding {
   Identity
@@ -81,14 +71,7 @@ pub fn ContentDecodePoll::not_equal(Self, Self) -> Bool
 pub fn ContentDecodePoll::to_repr(Self) -> @debug.Repr
 
 pub struct ContentDecoder {
-  coding : ContentCoding
-  backend : DecoderBackend
-  limits : ContentCodingLimits
-  mut encoded_bytes : Int32
-  mut decoded_bytes : Int32
-  mut finished : Bool
-  mut input_ended : Bool
-  mut failure : ContentCodingError?
+  // private fields
 }
 pub fn ContentDecoder::decoded_bytes(Self) -> Int32
 pub fn ContentDecoder::encoded_bytes(Self) -> Int32
@@ -97,14 +80,7 @@ pub fn ContentDecoder::new(ContentCoding, limits? : ContentCodingLimits) -> Resu
 pub fn ContentDecoder::step(Self, BytesView, end? : Bool) -> Result[DecodeStep, ContentCodingError]
 
 pub struct ContentDecoderChain {
-  decoders : Array[ContentDecoder]
-  pending : Array[Bytes?]
-  offsets : Array[Int32]
-  upstream_done : Array[Bool]
-  statuses : Array[DecodeStatus]
-  mut awaiting_input : Bool
-  mut finished : Bool
-  mut failure : ContentCodingError?
+  // private fields
 }
 pub fn ContentDecoderChain::feed(Self, BytesView, end? : Bool) -> Result[Unit, ContentCodingError]
 pub fn ContentDecoderChain::new(Array[ContentCoding], limits? : ContentCodingLimits) -> Result[Self, ContentCodingError]
@@ -131,26 +107,13 @@ pub fn DecodeStep::not_equal(Self, Self) -> Bool
 pub fn DecodeStep::to_repr(Self) -> @debug.Repr
 
 pub struct DecodedBody[B] {
-  source : B
-  decoder : ContentDecoderChain
-  hint : @body.SizeHint
-  mut source_done : Bool
-  mut pending_trailers : @types.HeaderMap?
-  mut terminal : Bool
-  mut failure : Error?
+  // private fields
 }
 pub fn[B : @body.Body] DecodedBody::cancel(Self[B], Error) -> Unit
 pub fn[B : @body.Body] DecodedBody::new(B, Array[ContentCoding], limits? : ContentCodingLimits) -> Result[Self[B], ContentCodingError]
 pub async fn[B : @body.Body] DecodedBody::next_frame(Self[B]) -> @body.Frame?
 pub fn[B : @body.Body] DecodedBody::size_hint(Self[B]) -> @body.SizeHint
 pub impl[B : @body.Body] @body.Body for DecodedBody[B]
-
-pub enum DecoderBackend {
-  IdentityDecoder
-  GzipDecoder(@gzip.Decoder)
-  ZlibDecoder(@zlib.Decoder)
-  BrotliDecoder(@decode.UnbrotliStream, BrotliSink)
-}
 
 // Type aliases
 

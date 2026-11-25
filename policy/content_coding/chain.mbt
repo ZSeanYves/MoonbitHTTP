@@ -17,14 +17,14 @@ priv enum StagePoll {
 /// A pull-driven decoding pipeline. Sender-applied codings are decoded in
 /// reverse order and each stage retains at most one bounded hand-off chunk.
 pub struct ContentDecoderChain {
-  decoders : Array[ContentDecoder]
-  pending : Array[Bytes?]
-  offsets : Array[Int32]
-  upstream_done : Array[Bool]
-  statuses : Array[DecodeStatus]
-  mut awaiting_input : Bool
-  mut finished : Bool
-  mut failure : ContentCodingError?
+  priv decoders : Array[ContentDecoder]
+  priv pending : Array[Bytes?]
+  priv offsets : Array[Int32]
+  priv upstream_done : Array[Bool]
+  priv statuses : Array[DecodeStatus]
+  priv mut awaiting_input : Bool
+  priv mut finished : Bool
+  priv mut failure : ContentCodingError?
 }
 
 ///|

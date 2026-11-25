@@ -2,13 +2,13 @@
 /// A streaming body adapter that decodes content codings without collecting
 /// the response. Trailers are held until every decoder reaches a clean end.
 pub struct DecodedBody[B] {
-  source : B
-  decoder : ContentDecoderChain
-  hint : @body.SizeHint
-  mut source_done : Bool
-  mut pending_trailers : @types.HeaderMap?
-  mut terminal : Bool
-  mut failure : Error?
+  priv source : B
+  priv decoder : ContentDecoderChain
+  priv hint : @body.SizeHint
+  priv mut source_done : Bool
+  priv mut pending_trailers : @types.HeaderMap?
+  priv mut terminal : Bool
+  priv mut failure : Error?
 }
 
 ///|

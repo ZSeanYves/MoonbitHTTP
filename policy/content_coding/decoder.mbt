@@ -1,5 +1,5 @@
 ///|
-pub struct BrotliSink {
+priv struct BrotliSink {
   chunks : Array[Bytes]
   mut chunk_index : Int32
   mut chunk_offset : Int32
@@ -38,7 +38,7 @@ fn BrotliSink::has_output(self : BrotliSink) -> Bool {
 }
 
 ///|
-pub enum DecoderBackend {
+priv enum DecoderBackend {
   IdentityDecoder
   GzipDecoder(@gzip.Decoder)
   ZlibDecoder(@zlib.Decoder)
@@ -48,14 +48,14 @@ pub enum DecoderBackend {
 ///|
 /// A bounded, incremental decoder for one HTTP content coding.
 pub struct ContentDecoder {
-  coding : ContentCoding
-  backend : DecoderBackend
-  limits : ContentCodingLimits
-  mut encoded_bytes : Int32
-  mut decoded_bytes : Int32
-  mut finished : Bool
-  mut input_ended : Bool
-  mut failure : ContentCodingError?
+  priv coding : ContentCoding
+  priv backend : DecoderBackend
+  priv limits : ContentCodingLimits
+  priv mut encoded_bytes : Int32
+  priv mut decoded_bytes : Int32
+  priv mut finished : Bool
+  priv mut input_ended : Bool
+  priv mut failure : ContentCodingError?
 }
 
 ///|

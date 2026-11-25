@@ -176,6 +176,7 @@ test "content coding: each public step emits no more than configured chunk size"
   let compressed = @zlib.compress(original)
   let limits = content_test_limits(4096, 4096)
   let decoder = @content_coding.ContentDecoder::new(Deflate, limits~).unwrap()
+  assert_false(decoder.is_finished())
   let mut offset = 0
   for ;; {
     let step = decoder.step(compressed[offset:], end=true).unwrap()
@@ -186,5 +187,7 @@ test "content coding: each public step emits no more than configured chunk size"
     }
   }
   assert_eq(offset, compressed.length())
+  assert_eq(decoder.encoded_bytes(), offset)
   assert_eq(decoder.decoded_bytes(), original.length())
+  assert_true(decoder.is_finished())
 }
