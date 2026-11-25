@@ -35,7 +35,9 @@ async fn ClientExchange::authenticated_response(
     frame
   }
   response.map_body(_ => {
-    IncomingBody::new(read, source.size_hint(), reason => source.cancel(reason))
+    IncomingBody::new(Single(read), source.size_hint(), reason => {
+      source.cancel(reason)
+    })
   })
 }
 
@@ -46,43 +48,41 @@ fn ClientExchange::deliver(
   fill : @cache.CacheFill?,
   upload : IncomingBody,
 ) -> @types.Response[IncomingBody] raise ClientError {
+  guard fill is Some(pending) &&
+    pending.prepare(response.map_body(_ => ()), self.now_seconds)
+    is Some(commit) else {
+    let result = self.decode_response(response)
+    result.body.on_done(() => upload.cancel(@body.BodyError::Cancelled))
+    return result
+  }
   let mut trailers = None
   let raw = response.body
-  let commit = fill.bind(pending => {
-    pending.prepare(response.map_body(_ => ()), self.now_seconds)
-  })
-  let tapped = match (fill, commit) {
-    (Some(pending), Some(_)) =>
-      IncomingBody::new(
-        async fn() {
-          let frame = raw.next_frame()
-          match frame {
-            Some(Data(data)) => pending.append(data)
-            Some(Trailers(fields)) => trailers = Some(fields.copy())
-            None => ()
-          }
-          frame
-        },
-        raw.size_hint(),
-        reason => raw.cancel(reason),
-      )
-    _ => raw
-  }
+  let tapped = IncomingBody::new(
+    Single(async fn() {
+      let frame = raw.next_frame()
+      match frame {
+        Some(Data(data)) => pending.append(data)
+        Some(Trailers(fields)) => trailers = Some(fields.copy())
+        None => ()
+      }
+      frame
+    }),
+    raw.size_hint(),
+    reason => raw.cancel(reason),
+  )
   let decoded = self.decode_response(response.map_body(_ => tapped))
   let body = decoded.body
   let delivered = IncomingBody::new(
-    async fn() {
+    Single(async fn() {
       let frame = body.next_frame()
-      if frame is (None | Some(Trailers(_))) && commit is Some(finish) {
-        finish(trailers)
+      if frame is (None | Some(Trailers(_))) {
+        commit(trailers)
       }
       frame
-    },
+    }),
     body.size_hint(),
     reason => {
-      if fill is Some(pending) {
-        pending.discard()
-      }
+      pending.discard()
       body.cancel(reason)
     },
     done=() => upload.cancel(@body.BodyError::Cancelled),

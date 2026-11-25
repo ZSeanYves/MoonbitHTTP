@@ -228,56 +228,12 @@ pub async fn Client::send(
   let id = self.next_id
   self.next_id += 1L
   let mut timer : @async.Task[Unit]? = None
-  let demand = @cond_var.Cond()
-  let ready = @cond_var.Cond()
-  let mut reader : @async.Task[Unit]? = None
-  let mut answer : Result[@body.Frame?, Error]? = None
-  let result = IncomingBody::new(
-    async fn() {
-      if reader is None {
-        reader = Some(
-          self.group.spawn(
-            async fn() {
-              for ;; {
-                let frame = Ok(source.next_frame()) catch {
-                  error => Err(error)
-                }
-                answer = Some(frame)
-                ready.signal()
-                guard frame is Ok(Some(Data(_))) else { return }
-                demand.wait()
-              }
-            },
-            no_wait=true,
-            allow_failure=true,
-          ),
-        )
-      } else {
-        demand.signal()
-      }
-      while answer is None {
-        ready.wait()
-      }
-      let frame = answer.unwrap()
-      answer = None
-      frame.unwrap_or_error()
-    },
-    source.size_hint(),
-    error => {
-      if reader is Some(task) {
-        task.cancel()
-      }
-      answer = Some(Err(error))
-      ready.signal()
-      source.cancel(error)
-    },
-    done=fn() {
-      self.bodies.remove(id)
-      if timer is Some(task) {
-        task.cancel()
-      }
-    },
-  )
+  let result = self.scoped_response(source, () => {
+    self.bodies.remove(id)
+    if timer is Some(task) {
+      task.cancel()
+    }
+  })
   self.bodies.set(id, result)
   if timeout is Some(ms) {
     let remaining = (client_deadline(start, ms) - (self.now_millis)().max(start)).min(

@@ -18,3 +18,5 @@ pub async fn get(client : @client.Client, uri : @types.Uri) -> Bytes {
 重定向、重试、认证和缓存由同一个客户端处理。缓存只提交完整表示；内容解码与 Digest 验证出错会终止读取。Digest `auth-int` 响应受正文上限约束，验证后才交付。总时限覆盖读取响应的整个生命周期。
 
 直接驱动连接时，H1、H2 使用各自池的 `execute_body`，H3 使用 `Http3Client::send`。这些入口各执行一次协议交换。
+
+调用 `response.body.read_batch(64)` 可以一次请求最多 64 帧。读满、收到 trailers 或到达 EOF 时返回。尾部字段只返回一次，空数组表示正文结束。需要逐帧即时处理时使用 `next_frame()`。两种读取方式可以在同一客户端作用域内交替使用。

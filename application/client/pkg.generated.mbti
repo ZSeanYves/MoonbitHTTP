@@ -262,6 +262,7 @@ pub struct IncomingBody {
 }
 pub fn IncomingBody::cancel(Self, Error) -> Unit
 pub async fn IncomingBody::next_frame(Self) -> @body.Frame?
+pub async fn IncomingBody::read_batch(Self, Int32) -> Array[@body.Frame]
 pub fn IncomingBody::size_hint(Self) -> @body.SizeHint
 pub fn[B : @body.Body] IncomingBody::wrap(B) -> Self
 pub impl @body.Body for IncomingBody

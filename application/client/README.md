@@ -18,3 +18,5 @@ The example imports `application/client`, `core/types` and `core/body`. Use `Upl
 Redirects, retries, authentication and caching share one client. Cache entries commit after complete consumption. Decoding and integrity failures terminate the body. Digest `auth-int` responses are buffered up to the configured body limit and verified before delivery. The total deadline extends through response consumption.
 
 For direct protocol control, the H1 and H2 pool methods `execute_body` and the H3 pool method `Http3Client::send` execute a single exchange.
+
+Use `response.body.read_batch(64)` to request up to 64 frames in one read. It waits for that count, trailers, or EOF. A trailing header frame is included once. An empty array marks EOF. Use `next_frame()` when an individual frame should be delivered as soon as it arrives. Single and batch reads may alternate within the same client scope.

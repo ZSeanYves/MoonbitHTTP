@@ -579,3 +579,56 @@ async test "reading a response requires demand and a second reader cannot cancel
     },
   )
 }
+
+///|
+async test "batch demand preserves boundaries, trailers and interleaved single reads" {
+  let mut pulls = 0
+  let trailers = @types.HeaderMap::new()
+  trailers.append_string("x-end", "yes").unwrap()
+  @client.with_client(
+    async fn(client) {
+      let res = client.send(
+        client.request(
+          Get,
+          test_uri("http://origin.test/"),
+          @client.Upload::bytes(b""),
+        ),
+      )
+      try ignore(res.body.read_batch(0)) catch {
+        @client.ClientError::ClientInvalidOptions(_) => ()
+        e => raise e
+      } noraise {
+        _ => fail("accepted zero demand")
+      }
+      assert_eq(pulls, 0)
+      assert_eq(res.body.read_batch(2).length(), 2)
+      @async.pause()
+      assert_eq(pulls, 2)
+      assert_true(res.body.next_frame() is Some(Data(b"x")))
+      assert_true(res.body.read_batch(3) is [Trailers(_)])
+      assert_true(res.body.read_batch(4).is_empty())
+      assert_true(res.body.next_frame() is None)
+      assert_eq(pulls, 4)
+    },
+    version=Http11,
+    wall_clock_seconds=() => 0L,
+    now_millis=() => 0L,
+    authorize_redirect=(_, _) => Ok(()),
+    exchange=req => {
+      let body = @body.BodyStream::from_pull(() => {
+        pulls += 1
+        if pulls < 4 {
+          Some(Data(b"x"))
+        } else {
+          Some(Trailers(trailers))
+        }
+      })
+      {
+        status: 200,
+        version: req.version,
+        headers: @types.HeaderMap::new(),
+        body: @client.IncomingBody::wrap(body),
+      }
+    },
+  )
+}
