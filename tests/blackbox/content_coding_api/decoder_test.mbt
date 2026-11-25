@@ -84,8 +84,8 @@ test "content coding: gzip and deflate decode across every byte boundary" {
   let original = b"incremental content decoding must preserve every byte"
   let limits = content_test_limits(4096, 4096)
   let cases : Array[(@content_coding.ContentCoding, Bytes)] = [
-    (Gzip, @gzip.gzip_compress(original)),
-    (Deflate, @zlib.zlib_compress(original)),
+    (Gzip, @gzip.compress(original)),
+    (Deflate, @zlib.compress(original)),
   ]
   for entry in cases {
     let (coding, encoded) = entry
@@ -114,8 +114,8 @@ test "content coding: Brotli is incremental and bounded" {
 ///|
 test "content coding: stacked encodings are removed in reverse order" {
   let original = b"first gzip, then zlib on the wire"
-  let gzip = @gzip.gzip_compress(original)
-  let encoded = @zlib.zlib_compress(gzip)
+  let gzip = @gzip.compress(original)
+  let encoded = @zlib.compress(gzip)
   assert_eq(
     content_test_collect(
       [Gzip, Deflate],
@@ -134,7 +134,7 @@ test "content coding: malformed, truncated, and trailing streams fail closed" {
     content_test_collect([Gzip], b"not-gzip!!", limits)
     is Err(InvalidEncodedBody(Gzip)),
   )
-  let valid = @gzip.gzip_compress(b"payload")
+  let valid = @gzip.compress(b"payload")
   assert_true(
     content_test_collect([Gzip], valid[:valid.length() - 1].to_owned(), limits)
     is Err(TruncatedEncodedBody(Gzip)),
@@ -150,7 +150,7 @@ test "content coding: malformed, truncated, and trailing streams fail closed" {
 ///|
 test "content coding: encoded and decoded byte limits stop compression bombs" {
   let large = FixedArray::make(4096, b'a').unsafe_reinterpret_as_bytes()
-  let compressed = @gzip.gzip_compress(large)
+  let compressed = @gzip.compress(large)
   assert_eq(
     content_test_collect(
       [Gzip],
@@ -173,7 +173,7 @@ test "content coding: encoded and decoded byte limits stop compression bombs" {
 ///|
 test "content coding: each public step emits no more than configured chunk size" {
   let original = FixedArray::make(100, b'z').unsafe_reinterpret_as_bytes()
-  let compressed = @zlib.zlib_compress(original)
+  let compressed = @zlib.compress(original)
   let limits = content_test_limits(4096, 4096)
   let decoder = @content_coding.ContentDecoder::new(Deflate, limits~).unwrap()
   let mut offset = 0

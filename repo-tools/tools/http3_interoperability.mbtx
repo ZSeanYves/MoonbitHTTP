@@ -7,7 +7,7 @@ import {
   "moonbitlang/core/env",
   "moonbitlang/core/int",
   "moonbitlang/core/json",
-  "moonbitlang/x@0.5.5/crypto",
+  "moonbitlang/x@0.5.9/crypto",
 }
 ----
 
@@ -509,7 +509,7 @@ fn check_rotating_upload(trace : String, size : Int) -> Unit raise {
   let mut uploaded_on_replacement = false
   let mut replenished = false
   for event in events {
-    if event is { "name": "transport:packet_received", "data": { "frames": Array(frames), .. }, .. } {
+    if event is { "name": "quic:packet_received", "data": { "frames": Array(frames), .. }, .. } {
       for frame in frames {
         match frame {
           { "frame_type": "max_data", "maximum": Number(value, ..), .. } =>
@@ -523,11 +523,11 @@ fn check_rotating_upload(trace : String, size : Int) -> Unit raise {
         }
       }
     }
-    if event is { "name": "transport:packet_sent", "data": { "header": { "dcid": String(id), .. }, "frames": Array(frames), .. }, .. } && replacement == Some(id) {
+    if event is { "name": "quic:packet_sent", "data": { "header": { "dcid": String(id), .. }, "frames": Array(frames), .. }, .. } && replacement == Some(id) {
       for frame in frames {
         match frame {
           { "frame_type": "retire_connection_id", "sequence_number": 0, .. } => retired_initial = true
-          { "frame_type": "stream", "stream_id": 0, "length": Number(size, ..), .. } if size > 0.0 => uploaded_on_replacement = true
+          { "frame_type": "stream", "stream_id": 0, "raw": { "length": Number(size, ..), .. }, .. } if size > 0.0 => uploaded_on_replacement = true
           _ => ()
         }
       }
@@ -652,10 +652,6 @@ async fn reverse_client_case(directory : String, python : String, source : Strin
   let app = source + "/examples/demo.py"
   let server_hash = file_hash(script)
   let app_hash = file_hash(app)
-  if server_hash != "504e85ad00ea5e093ebe4a05b415077456dfad39186864e37229fd4ae7a6a9e8" ||
-      app_hash != "8e80272bbc8e52cd709fe6bde9daf03dc85963faddbbded11f440488c1914928" {
-    fail("independent server or ASGI application differs from pinned upstream")
-  }
   let binary = build_smoke_client()
   let reservation = @socket.UdpServer(@socket.Addr::parse("127.0.0.1:18444"))
   reservation.close()
@@ -695,7 +691,7 @@ async fn reverse_client_case(directory : String, python : String, source : Strin
         let data = @json.parse(@fs.read_file(traces + "/" + name).text()) catch { _ => continue }
         if data is { "traces": [{ "events": Array(events), .. }], .. } {
           verified = events.any(event => {
-            event is { "name": "transport:packet_received", "data": { "frames": Array(frames), .. }, .. } &&
+            event is { "name": "quic:packet_received", "data": { "frames": Array(frames), .. }, .. } &&
             frames.any(f => f is { "frame_type": "connection_close", "error_space": "application", "error_code": 256, .. })
           })
           if verified { break }
@@ -735,7 +731,11 @@ async fn check_peer_restart(reference : String) -> Unit {
   ignore(record(directory, "generate-key", "openssl", ["rand", "-out", secret, "32"]))
   let fixture = "tests/fixtures/tls/localhost"
   let server_args = [fixture + ".cert.pem", fixture + ".key.pem", secret]
-  let peer_version = "github.com/quic-go/quic-go v0.55.0 h1:zccPQIqYCXDt5NmcEabyYvOnomjs8Tlwl7tISjJh9Mk="
+  let sums = @fs.read_file("repo-tools/tools/quic_go_reset_reference/go.sum").text()
+  let versions = sums.split("\n").filter(line => {
+    line.has_prefix("github.com/quic-go/quic-go ") && !line.contains("/go.mod ")
+  }).to_array()
+  guard versions is [peer_version] else { fail("expected one quic-go binary checksum in go.sum") }
   async fn wait_for(child : @process.Process, log : String, line : String, probe : @process.Process?) -> Unit {
     while !@fs.read_file(log).text().split("\n").any(entry => entry == line) {
       if child.try_wait() is Some(code) { fail("peer exited with \{code} before \{line}. See \{log}.") }
@@ -752,7 +752,7 @@ async fn check_peer_restart(reference : String) -> Unit {
           stderr=@process.redirect_to_file(directory + "/" + name + ".stderr", create_mode=CreateNew),
           no_wait=true)
         wait_for(child, log, "LISTENING", None)
-        guard @fs.read_file(log).text().contains("PEER " + peer_version + "\n") else {
+        guard @fs.read_file(log).text().contains("PEER " + peer_version.to_owned() + "\n") else {
           fail("restart reference does not report the pinned quic-go build")
         }
         child
@@ -960,24 +960,25 @@ async fn main {
   let upstream = record(directory, "aioquic-revision", "git", [
     "-C", source, "rev-parse", "HEAD",
   ])
-  if upstream.trim() != "cb103537126bbcc58752fd5bc7c8ac88bf552c01" {
-    fail("aioquic example is not the pinned 1.3.0 commit")
+  if upstream.trim() != "b541fe0d30e03799214cfb2ba6e15101390e6a3f" {
+    fail("aioquic example is not the pinned aioquic revision")
   }
   let dependencies = record(directory, "python-dependencies", python, [
     "-m", "pip", "freeze",
   ])
-  if !dependencies.contains("aioquic==1.3.0\n") {
-    fail("aioquic 1.3.0 is required")
+  let required = @fs.read_file("repo-tools/tools/http3-requirements.txt").text()
+  let pins = required.split("\n").filter(line => line.has_prefix("aioquic==")).to_array()
+  guard pins is [pin] && dependencies.split("\n").any(line => line == pin) else {
+    fail("installed aioquic differs from http3-requirements.txt")
   }
   ignore(record(directory, "python-version", python, ["--version"]))
   ignore(record(directory, "openssl-version", "openssl", ["version", "-a"]))
   ignore(record(directory, "moon-version", "moon", ["version", "--all"]))
   let server_hash = file_hash(server_path)
   let source_hash = file_hash(client)
-  if source_hash !=
-    "7eab21d50460f0b4f55a18f110bd5d1901e336fef8f4ca5597d8794f1d2381bc" {
-    fail("upstream aioquic HTTP/3 client source was modified")
-  }
+  ignore(record(directory, "aioquic-example-integrity", "git", [
+    "-C", source, "diff", "--exit-code", "HEAD", "--", "examples",
+  ]))
   let reverse_result : Json = if reverse { reverse_client_case(directory, python, source) } else { Json::null() }
   let reservation = @socket.UdpServer(@socket.Addr::parse("127.0.0.1:18443"))
   reservation.close()

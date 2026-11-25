@@ -29,7 +29,7 @@ impl @body.Body for ContentTrackingBody with fn cancel(self, _error) {
 ///|
 async test "content coding body: streams decoded data before trailers" {
   let original = b"decoded data remains a streaming body"
-  let compressed = @gzip.gzip_compress(original)
+  let compressed = @gzip.compress(original)
   let trailers = @types.HeaderMap::new()
   trailers.append_string("x-checksum", "ok").unwrap()
   let source = @body.QueueBody::new([
@@ -56,7 +56,7 @@ async test "content coding body: streams decoded data before trailers" {
 ///|
 async test "content coding response: removes metadata for the encoded representation" {
   let original = b"representation metadata"
-  let compressed = @zlib.zlib_compress(original)
+  let compressed = @zlib.compress(original)
   let headers = @types.HeaderMap::new()
   headers.append_string("content-encoding", "deflate").unwrap()
   headers
@@ -86,7 +86,7 @@ async test "content coding response: removes metadata for the encoded representa
 ///|
 async test "content coding body: a decompression limit cancels its upstream once" {
   let original = FixedArray::make(4096, b'a').unsafe_reinterpret_as_bytes()
-  let compressed = @gzip.gzip_compress(original)
+  let compressed = @gzip.compress(original)
   let source : ContentTrackingBody = {
     frames: [Data(compressed)],
     cursor: 0,

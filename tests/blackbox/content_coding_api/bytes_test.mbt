@@ -1,7 +1,7 @@
 ///|
 async test "content coding bytes response: decodes and removes representation metadata" {
   let original = b"bounded byte response"
-  let encoded = @gzip.gzip_compress(original)
+  let encoded = @gzip.compress(original)
   let headers = @types.HeaderMap::new()
   headers.append_string("content-encoding", "gzip").unwrap()
   headers.append_string("content-length", encoded.length().to_string()).unwrap()
@@ -25,7 +25,7 @@ async test "content coding bytes response: decodes and removes representation me
 ///|
 async test "content coding bytes response: decoded limit is enforced" {
   let original = FixedArray::make(1024, b'a').unsafe_reinterpret_as_bytes()
-  let encoded = @gzip.gzip_compress(original)
+  let encoded = @gzip.compress(original)
   let headers = @types.HeaderMap::new()
   headers.append_string("content-encoding", "gzip").unwrap()
   let response : @types.Response[Bytes] = {

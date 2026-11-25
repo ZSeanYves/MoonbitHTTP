@@ -356,7 +356,7 @@ async test "client auth: Digest does not replay an undeclared nonempty body" {
 ///|
 async test "client content coding: advertised gzip is decoded under the shared body limit" {
   let original = b"client response body"
-  let encoded = @gzip.gzip_compress(original)
+  let encoded = @gzip.compress(original)
   let mut seen_encoding : String? = None
   let exchange = byte_peer(fn(request) {
     seen_encoding = match request.headers.get_string("accept-encoding") {

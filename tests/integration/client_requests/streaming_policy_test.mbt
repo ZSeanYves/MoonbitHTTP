@@ -222,7 +222,7 @@ async test "unread and blocked response bodies expire and close their source onc
 ///|
 async test "cache commits the encoded representation and trailers only after clean consumption" {
   let uri = test_uri("http://origin.test/cached")
-  let encoded = @gzip.gzip_compress(b"hello")
+  let encoded = @gzip.compress(b"hello")
   let headers = @types.HeaderMap::new()
   headers.append_string("content-encoding", "gzip").unwrap()
   headers.append_string("cache-control", "max-age=60").unwrap()

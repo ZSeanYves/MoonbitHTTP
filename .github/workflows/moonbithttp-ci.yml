@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup MoonBit
-        uses: hustcer/setup-moonbit@9199da0ab63ea0c0bab1dc15f03d76e17ed4f75f # v1.22
+        uses: hustcer/setup-moonbit@618b32d610fecdbe9069cefcc01b7bcdb03ede29 # v1.26
         with:
           version: 0.10.22+124d61d05
 
@@ -41,9 +41,9 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y build-essential perl curl ca-certificates
 
-      - name: Build pinned OpenSSL 3.5 on Ubuntu
+      - name: Build pinned OpenSSL 3.6 on Ubuntu
         if: runner.os == 'Linux'
-        run: moon run repo-tools/scripts/install_ci_openssl.mbtx
+        run: moon run repo-tools/scripts/install_ci_openssl.mbtx -- 3.6
 
       - name: Verify pinned OpenSSL on Ubuntu
         if: runner.os == 'Linux'
@@ -85,8 +85,8 @@ jobs:
           major=${version%%.*}
           rest=${version#*.}
           minor=${rest%%.*}
-          if [ "$major" -lt 3 ] || { [ "$major" -eq 3 ] && [ "$minor" -lt 5 ]; }; then
-            echo "OpenSSL 3.5 or newer is required; found $version"
+          if [ "$major" -ne 3 ] || [ "$minor" -lt 5 ]; then
+            echo "OpenSSL 3.x (3.5 or later) is required; found $version"
             exit 1
           fi
 
@@ -99,8 +99,8 @@ jobs:
           & $openssl version -a
           $version = (& $openssl version).Split()[1]
           $parts = $version.Split('.')
-          if ([int]$parts[0] -lt 3 -or ([int]$parts[0] -eq 3 -and [int]$parts[1] -lt 5)) {
-            throw "OpenSSL 3.5 or newer is required; found $version"
+          if ([int]$parts[0] -ne 3 -or [int]$parts[1] -lt 5) {
+            throw "OpenSSL 3.x (3.5 or later) is required; found $version"
           }
 
       - name: Run public API tests on Native
@@ -129,7 +129,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup MoonBit
-        uses: hustcer/setup-moonbit@9199da0ab63ea0c0bab1dc15f03d76e17ed4f75f # v1.22
+        uses: hustcer/setup-moonbit@618b32d610fecdbe9069cefcc01b7bcdb03ede29 # v1.26
         with:
           version: 0.10.22+124d61d05
 
@@ -142,8 +142,8 @@ jobs:
       - name: Cache pinned OpenSSL 3.5 LTS runtime
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: _build/ci-openssl/install
-          key: openssl-3.5.8-linux-${{ runner.arch }}-shared-${{ hashFiles('repo-tools/scripts/install_ci_openssl.mbtx') }}
+          path: _build/ci-openssl/3.5.*/install
+          key: openssl-3.5-lts-linux-${{ runner.arch }}-shared-${{ hashFiles('repo-tools/scripts/install_ci_openssl.mbtx') }}
 
       - name: Build and select OpenSSL with QUIC TLS callbacks
         run: moon run repo-tools/scripts/install_ci_openssl.mbtx

@@ -8,19 +8,21 @@ version = "0.8.2"
 warnings = "-result_error_return"
 
 import {
-  "moonbitlang/x@0.5.5",
-  "mizchi/crater-browser-http@0.19.0",
+  "moonbitlang/async@0.22.10",
+  "moonbitlang/x@0.5.9",
+  "mizchi/crater-browser-http@0.19.2",
   "moonbit-community/normalization@0.5.2",
   "moonbit-community/idna@0.5.2",
+  "moonbit-community/punycode@0.8.1",
   "mizchi/experimental_crypto@0.0.2",
   "cc06b/mooncry@0.95.0",
-  "moonbit-community/flate@0.8.4",
+  "moonbit-community/flate@0.10.0",
   "hustcer/fbr@0.8.2",
 }
 
 readme = "README.md"
 
-repository = "https://github.com/ZSeanYves/MoonbitHTTP"
+repository = "https://github.com/ZSeanYves/http"
 
 license = "Apache-2.0"
 

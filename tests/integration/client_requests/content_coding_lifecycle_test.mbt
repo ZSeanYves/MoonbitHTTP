@@ -2,7 +2,7 @@
 async test "pooled content decoding: codec EOF releases lease and preserves reuse" {
   let payload = b"pooled compressed response"
   let cases = [
-    ("deflate", @zlib.zlib_compress(payload)),
+    ("deflate", @zlib.compress(payload)),
     ("br", Bytes::from_array(@fbr.brotli_sync(payload.to_fixedarray()))),
   ]
   for entry in cases {

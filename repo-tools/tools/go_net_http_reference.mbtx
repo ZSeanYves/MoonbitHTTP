@@ -6,7 +6,7 @@ import {
   "moonbitlang/core/env",
   "moonbitlang/core/json",
   "moonbitlang/async@0.22.10/socket",
-  "moonbitlang/x@0.5.5/crypto",
+  "moonbitlang/x@0.5.9/crypto",
 }
 ----
 

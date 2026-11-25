@@ -2,7 +2,7 @@
 async test "content coding lifecycle: deflate and Brotli consume source EOF and preserve trailers" {
   let original = b"streaming resource lifetime"
   let cases = [
-    (@content_coding.ContentCoding::Deflate, @zlib.zlib_compress(original)),
+    (@content_coding.ContentCoding::Deflate, @zlib.compress(original)),
     (Brotli, Bytes::from_array(@fbr.brotli_sync(original.to_fixedarray()))),
   ]
   for entry in cases {
@@ -42,7 +42,7 @@ async test "content coding lifecycle: deflate and Brotli consume source EOF and 
 async test "content coding lifecycle: encoded fragments after codec EOS cancel the source" {
   let original = b"payload"
   let cases = [
-    (@content_coding.ContentCoding::Deflate, @zlib.zlib_compress(original)),
+    (@content_coding.ContentCoding::Deflate, @zlib.compress(original)),
     (Brotli, Bytes::from_array(@fbr.brotli_sync(original.to_fixedarray()))),
   ]
   for entry in cases {
@@ -68,7 +68,7 @@ async test "content coding lifecycle: encoded fragments after codec EOS cancel t
 
 ///|
 async test "content coding lifecycle: inner EOS still validates an outer gzip trailer" {
-  let encoded = @gzip.gzip_compress(@zlib.zlib_compress(b"nested"))
+  let encoded = @gzip.compress(@zlib.compress(b"nested"))
   let source : ContentTrackingBody = {
     frames: [Data(encoded[:encoded.length() - 8].to_owned())],
     cursor: 0,
@@ -86,7 +86,7 @@ async test "content coding lifecycle: inner EOS still validates an outer gzip tr
 
 ///|
 async test "content coding lifecycle: cancelling a pull after codec EOS releases its source" {
-  let compressed = @zlib.zlib_compress(b"payload")
+  let compressed = @zlib.compress(b"payload")
   let waiting = @async.Semaphore::Semaphore(1, initial_value=0)
   let reached = @async.Semaphore::Semaphore(1, initial_value=0)
   let mut cursor = 0
