@@ -117,16 +117,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_client(
         pool => {
           serve(async fn(request) {
             let response = pool.send(request) catch {
-              @service.Http3ClientError::Goaway(id) =>
-                raise @client_api.ClientError::ClientHttp3(Goaway(id))
-              @service.Http3ClientError::PeerReset(id, code) if code ==
-                @http3.H3ErrorCode::H3RequestRejected.wire_value() =>
-                raise @client_api.ClientError::ClientH3Rejected(id)
-              @service.Http3ClientError::PeerReset(id, code) =>
-                raise @client_api.ClientError::ClientHttp3(PeerReset(id, code))
-              @http3.Http3Error::Http3StreamError(id, H3RequestRejected, _) =>
-                raise @client_api.ClientError::ClientH3Rejected(id)
-              error => raise error
+              error => raise native_http3_error(error)
             }
             response.map_body(body => @client_api.IncomingBody::wrap(body))
           })
@@ -140,5 +131,37 @@ pub async fn[P : @transport.NetworkPolicy, X] with_client(
         },
         handshake_timeout_ms=options.timeouts.tls_ms.unwrap_or(10000),
       )
+  }
+}
+
+///|
+fn native_http3_error(error : Error) -> Error {
+  match error {
+    @service.Http3ClientError::Goaway(id) =>
+      @client_api.ClientError::ClientHttp3(Goaway(id))
+    @service.Http3ClientError::PeerReset(id, code) if code ==
+      @http3.H3ErrorCode::H3RequestRejected.wire_value() =>
+      @client_api.ClientError::ClientH3Rejected(id)
+    @service.Http3ClientError::PeerReset(id, code) =>
+      @client_api.ClientError::ClientHttp3(PeerReset(id, code))
+    @http3.Http3Error::Http3StreamError(id, H3RequestRejected, _) =>
+      @client_api.ClientError::ClientH3Rejected(id)
+    @http3.Http3SessionError::Http3Transport(cause) => native_http3_error(cause)
+    @http3.Http3SessionError::Http3Protocol(cause) => native_http3_error(cause)
+    @quic.QuicError::Transport(cause) => native_http3_error(cause)
+    @quic.QuicError::Tls(cause) => @client_api.ClientError::ClientTls(cause)
+    @quic.QuicError::Policy(cause) | @transport.TransportError::Policy(cause) =>
+      @client_api.ClientError::ClientPolicy(cause)
+    @transport.TransportError::Failed(op, message) =>
+      @client_api.ClientError::ClientTransport(Failed(op, message))
+    @transport.TransportError::Timeout(op) =>
+      @client_api.ClientError::ClientTransport(Timeout(op))
+    @transport.TransportError::SystemFailure(op, code, message) =>
+      @client_api.ClientError::ClientTransport(SystemFailure(op, code, message))
+    @transport.TransportError::NativeFailure(op, code, status, message) =>
+      @client_api.ClientError::ClientTransport(
+        NativeFailure(op, code, status, message),
+      )
+    _ => error
   }
 }

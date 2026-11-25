@@ -10,7 +10,7 @@ async fn ClientExchange::authenticated_response(
     response.headers.contains_list_token("trailer", "authentication-info") {
     let (raw, trailers) = @body.collect(
       response.body,
-      max_bytes=self.config.options.limits.max_body_bytes,
+      max_bytes=self.client.options.limits.max_body_bytes,
     ) catch {
       @body.BodyLimitExceeded(limit~) => raise ClientBodyLimit(limit)
       error => raise error
@@ -48,10 +48,14 @@ fn ClientExchange::deliver(
 ) -> @types.Response[IncomingBody] raise ClientError {
   let mut trailers = None
   let raw = response.body
-  let original = {
-    ..response.map_body(_ => ()),
-    headers: response.headers.copy(),
-  }
+  let commit = fill.map(pending => {
+    let original = {
+      ..response.map_body(_ => ()),
+      headers: response.headers.copy(),
+    }
+    let received_at = self.now_seconds
+    () => pending.commit(original, trailers, received_at)
+  })
   let tapped = match fill {
     None => raw
     Some(pending) =>
@@ -74,8 +78,8 @@ fn ClientExchange::deliver(
   let delivered = IncomingBody::new(
     async fn() {
       let frame = body.next_frame()
-      if frame is (None | Some(Trailers(_))) && fill is Some(pending) {
-        pending.commit(original, trailers, self.now_seconds)
+      if frame is (None | Some(Trailers(_))) && commit is Some(finish) {
+        finish()
       }
       frame
     },

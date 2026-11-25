@@ -44,16 +44,11 @@ async fn main {
   } else {
     None
   }
-  let version : @types.Version = match args[1] {
-    "h1" => Http11
-    "h2" => Http2
-    "h3" => Http3
+  let (version, tls) = match args[1] {
+    "h1" => (@types.Version::Http11, @transport.TlsOptions::defaults())
+    "h2" => (Http2, @transport.TlsOptions::defaults())
+    "h3" => (Http3, @transport.TlsOptions::quic_defaults())
     _ => fail("expected h1, h2 or h3")
-  }
-  let tls = if version == Http3 {
-    @transport.TlsOptions::quic_defaults()
-  } else {
-    @transport.TlsOptions::defaults()
   }
   @native_client.with_client(
     client => exchange(client, uri, upload),

@@ -1,25 +1,20 @@
 ///|
-priv struct ClientConfig {
-  options : RequestOptions
-  proxy : ProxyConfig
-  tls : @transport.TlsOptions
-  cookie_jar : @cookie.CookieJar
-  cache : @cache.HttpCache
-  mut cache_enabled : Bool
-  wait : async (Int64) -> Unit
-  authorize_redirect : (@types.Endpoint, @transport.PolicyOperation) -> Result[
+pub struct Client {
+  priv options : RequestOptions
+  priv proxy : ProxyConfig
+  priv tls : @transport.TlsOptions
+  priv cookie_jar : @cookie.CookieJar
+  priv cache : @cache.HttpCache
+  priv mut cache_enabled : Bool
+  priv wait : async (Int64) -> Unit
+  priv authorize_redirect : (@types.Endpoint, @transport.PolicyOperation) -> Result[
     Unit,
     @transport.PolicyError,
   ]
-  now_millis : () -> Int64
-  auth : ClientAuthStore
-  mut content_decoding : Bool
-  content_coding_limits : @content_coding.ContentCodingLimits
-}
-
-///|
-pub struct Client {
-  priv config : ClientConfig
+  priv now_millis : () -> Int64
+  priv auth : ClientAuthStore
+  priv mut content_decoding : Bool
+  priv content_coding_limits : @content_coding.ContentCodingLimits
   priv version : @types.Version
   priv exchange : async (@types.Request[IncomingBody]) -> @types.Response[
     IncomingBody,
@@ -78,23 +73,20 @@ pub async fn[X] with_client(
     Ok(_) => ()
     Err(_) => raise ClientInvalidOptions("invalid content coding limits")
   }
-  let config : ClientConfig = {
-    options,
-    proxy,
-    tls,
-    cookie_jar,
-    cache,
-    cache_enabled,
-    wait,
-    authorize_redirect,
-    now_millis,
-    auth: ClientAuthStore::new(),
-    content_decoding,
-    content_coding_limits,
-  }
   @async_support.with_group_result(async fn(group) {
     let client : Client = {
-      config,
+      options,
+      proxy,
+      tls,
+      cookie_jar,
+      cache,
+      cache_enabled,
+      wait,
+      authorize_redirect,
+      now_millis,
+      auth: ClientAuthStore::new(),
+      content_decoding,
+      content_coding_limits,
       version,
       exchange,
       group,
@@ -115,22 +107,22 @@ pub async fn[X] with_client(
 
 ///|
 pub fn Client::options(self : Client) -> RequestOptions {
-  self.config.options
+  self.options
 }
 
 ///|
 pub fn Client::proxy(self : Client) -> ProxyConfig {
-  self.config.proxy
+  self.proxy
 }
 
 ///|
 pub fn Client::tls(self : Client) -> @transport.TlsOptions {
-  self.config.tls
+  self.tls
 }
 
 ///|
 pub fn Client::set_cache_enabled(self : Client, enabled : Bool) -> Unit {
-  self.config.cache_enabled = enabled
+  self.cache_enabled = enabled
 }
 
 ///|
@@ -138,29 +130,29 @@ pub fn Client::set_cache_enabled(self : Client, enabled : Bool) -> Unit {
 /// client advertises the supported codings unless the caller supplied an
 /// `Accept-Encoding` field.
 pub fn Client::set_content_decoding(self : Client, enabled : Bool) -> Unit {
-  self.config.content_decoding = enabled
+  self.content_decoding = enabled
 }
 
 ///|
 pub fn Client::content_decoding(self : Client) -> Bool {
-  self.config.content_decoding
+  self.content_decoding
 }
 
 ///|
 pub fn Client::content_coding_limits(
   self : Client,
 ) -> @content_coding.ContentCodingLimits {
-  self.config.content_coding_limits
+  self.content_coding_limits
 }
 
 ///|
 pub fn Client::cookie_jar(self : Client) -> @cookie.CookieJar {
-  self.config.cookie_jar
+  self.cookie_jar
 }
 
 ///|
 pub fn Client::cache(self : Client) -> @cache.HttpCache {
-  self.config.cache
+  self.cache
 }
 
 ///|
@@ -187,12 +179,12 @@ pub async fn Client::send(
   if request.version != self.version {
     raise ClientInvalidOptions("request version differs from client version")
   }
-  let start = (self.config.now_millis)().max(0L)
-  let timeout = self.config.options.timeouts.total_ms
+  let start = (self.now_millis)().max(0L)
+  let timeout = self.options.timeouts.total_ms
   let timeout_error = fn(ms : Int32) {
     ClientError::ClientTimeout(
       ClientTotal,
-      ((self.config.now_millis)() - start).max(ms.to_int64()),
+      ((self.now_millis)() - start).max(ms.to_int64()),
       client_deadline(start, ms),
     )
   }
@@ -270,8 +262,9 @@ pub async fn Client::send(
   )
   self.bodies.set(id, result)
   if timeout is Some(ms) {
-    let remaining = (client_deadline(start, ms) -
-    (self.config.now_millis)().max(start)).min(ms.to_int64())
+    let remaining = (client_deadline(start, ms) - (self.now_millis)().max(start)).min(
+      ms.to_int64(),
+    )
     if remaining <= 0L {
       let error = timeout_error(ms)
       result.cancel(error)

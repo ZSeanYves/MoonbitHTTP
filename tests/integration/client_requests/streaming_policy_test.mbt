@@ -4,6 +4,57 @@ fn incoming(bytes : Bytes) -> @client.IncomingBody {
 }
 
 ///|
+async test "HTTP/3 retries a rejected request and preserves unrelated stream errors" {
+  for
+    (cause, retry) in [
+      (@client.ClientError::ClientH3Rejected(4L), true),
+      (ClientHttp3(Goaway(4L)), true),
+      (ClientHttp3(PeerReset(0L, 0x10cL)), false),
+    ] {
+    let mut calls = 0
+    @client.with_client(
+      async fn(client) {
+        let req = client.request(
+          Get,
+          test_uri("https://example.test/"),
+          @client.Upload::bytes(b""),
+        )
+        try {
+          let res = client.send(req)
+          assert_true(retry)
+          assert_eq(@body.collect(res.body).0, b"ok")
+        } catch {
+          @client.ClientError::ClientHttp3(PeerReset(0L, 0x10cL)) =>
+            assert_false(retry)
+          error => raise error
+        }
+        assert_eq(calls, if retry { 2 } else { 1 })
+      },
+      version=Http3,
+      options={
+        ..@client.RequestOptions::defaults(),
+        retry: @client.RetryPolicy::idempotent(max_attempts=2, base_delay_ms=0L).unwrap(),
+      },
+      now_millis=() => 0L,
+      wall_clock_seconds=() => 0L,
+      authorize_redirect=(_, _) => Ok(()),
+      exchange=req => {
+        calls += 1
+        if calls == 1 {
+          raise cause
+        }
+        {
+          status: 200,
+          version: req.version,
+          headers: @types.HeaderMap::new(),
+          body: incoming(b"ok"),
+        }
+      },
+    )
+  }
+}
+
+///|
 async test "once and reopen uploads distinguish a preserving redirect from a rewrite" {
   for status in [303, 307, 308] {
     for replay in [true, false] {

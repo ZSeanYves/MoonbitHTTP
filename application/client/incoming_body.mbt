@@ -1,12 +1,15 @@
 ///|
 /// A readable, cancellable body. Consuming trailers or EOF completes its ownership scope.
 pub struct IncomingBody {
-  priv read : async () -> @body.Frame?
   priv hint : @body.SizeHint
-  priv stop : (Error) -> Unit
-  priv done : () -> Unit
-  priv mut ended : Bool
-  priv mut failure : Error?
+  priv mut state : IncomingState
+}
+
+///|
+priv enum IncomingState {
+  Readable(async () -> @body.Frame?, (Error) -> Unit, () -> Unit)
+  Finished
+  Failed(Error)
 }
 
 ///|
@@ -16,7 +19,7 @@ fn IncomingBody::new(
   stop : (Error) -> Unit,
   done~ : () -> Unit = () => (),
 ) -> IncomingBody {
-  { read, hint, stop, done, ended: false, failure: None, }
+  { hint, state: Readable(read, stop, done), }
 }
 
 ///|
@@ -33,35 +36,37 @@ pub impl @body.Body for IncomingBody with fn size_hint(self) {
 
 ///|
 pub impl @body.Body for IncomingBody with fn cancel(self, reason) {
-  if !self.ended {
-    self.ended = true
-    self.failure = Some(reason)
-    (self.stop)(reason)
-    (self.done)()
+  if self.state is Readable(_, stop, done) {
+    self.state = Failed(reason)
+    stop(reason)
+    done()
   }
 }
 
 ///|
 pub impl @body.Body for IncomingBody with fn next_frame(self) {
-  if self.failure is Some(reason) {
-    raise reason
-  }
-  if self.ended {
-    return None
+  let (read, done) = match self.state {
+    Failed(reason) => raise reason
+    Finished => return None
+    Readable(read, _, done) => (read, done)
   }
   errdefer self.cancel(@body.BodyError::Cancelled)
-  let frame = (self.read)() catch {
+  let frame = read() catch {
     reason => {
-      self.cancel(reason)
-      raise self.failure.unwrap_or(reason)
+      let first = match self.state {
+        Failed(saved) => saved
+        _ => reason
+      }
+      self.cancel(first)
+      raise first
     }
   }
-  if self.failure is Some(reason) {
+  if self.state is Failed(reason) {
     raise reason
   }
   if frame is (None | Some(Trailers(_))) {
-    self.ended = true
-    (self.done)()
+    self.state = Finished
+    done()
   }
   frame
 }

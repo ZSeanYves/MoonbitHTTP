@@ -283,7 +283,7 @@ pub fn Client::set_basic_auth(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  self.config.auth.entries.set(key, Basic(credentials))
+  self.auth.entries.set(key, Basic(credentials))
   Ok(())
 }
 
@@ -297,7 +297,7 @@ pub fn Client::set_bearer_auth(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  self.config.auth.entries.set(key, Bearer(token))
+  self.auth.entries.set(key, Bearer(token))
   Ok(())
 }
 
@@ -324,7 +324,7 @@ pub fn Client::set_digest_auth(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  self.config.auth.entries.set(
+  self.auth.entries.set(
     key,
     Digest({ credentials, policy, limits, cnonce, session: None, }),
   )
@@ -340,6 +340,6 @@ pub fn Client::clear_auth(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  self.config.auth.entries.remove(key)
+  self.auth.entries.remove(key)
   Ok(())
 }

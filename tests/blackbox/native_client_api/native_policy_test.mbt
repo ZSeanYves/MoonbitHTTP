@@ -1,22 +1,24 @@
 ///|
-async test "native HTTP/1 factory honors an explicit network policy" {
-  @client.with_client(
-    async fn(client) {
-      let request = client.request(
-        Get,
-        @types.Uri::parse("http://example.test/").unwrap(),
-        @client_api.Upload::bytes(b""),
-      )
-      try ignore(client.send(request)) catch {
-        @client_api.ClientError::ClientPolicy(_) => ()
-        err => raise err
-      } noraise {
-        _ => fail("denied request succeeded")
-      }
-    },
-    version=Http11,
-    policy=@transport.DenyAllPolicy::new(),
-  )
+async test "native client enforces the network policy for each protocol" {
+  for version in [@types.Version::Http10, Http11, Http2, Http3] {
+    @client.with_client(
+      async fn(client) {
+        let request = client.request(
+          Get,
+          @types.Uri::parse("https://example.test/").unwrap(),
+          @client_api.Upload::bytes(b""),
+        )
+        try ignore(client.send(request)) catch {
+          @client_api.ClientError::ClientPolicy(_) => ()
+          err => raise err
+        } noraise {
+          _ => fail("denied request succeeded")
+        }
+      },
+      version~,
+      policy=@transport.DenyAllPolicy::new(),
+    )
+  }
 }
 
 ///|

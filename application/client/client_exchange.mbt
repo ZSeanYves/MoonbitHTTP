@@ -1,7 +1,7 @@
 ///|
 /// State for one send, shared only by its redirects and retries.
 priv struct ClientExchange {
-  config : ClientConfig
+  client : Client
   mut now_seconds : Int64
   redirects : RedirectTracker
   mut request : @types.Request[Upload]
@@ -27,23 +27,19 @@ async fn Client::send_inner(
   self : Client,
   request : @types.Request[Upload],
 ) -> @types.Response[IncomingBody] {
-  let exchange = ClientExchange::new(
-    self.config,
-    request,
-    (self.wall_clock_seconds)(),
-  )
+  let exchange = ClientExchange::new(self, request)
   for attempt = 1 {
-    exchange.now_seconds = (self.wall_clock_seconds)()
     let action = match exchange.prepare_request() {
       LocalResponse(response) => return response
       SendRequest(outgoing, digest, deferred_auth, stale) =>
-        exchange.attempt(self, outgoing, digest, deferred_auth, stale, attempt)
+        exchange.attempt(outgoing, digest, deferred_auth, stale, attempt)
     }
     match action {
       Complete(response) => return response
-      RetryAfter(delay) => (self.config.wait)(delay)
+      RetryAfter(delay) => (self.wait)(delay)
       SendAgain => ()
     }
+    exchange.now_seconds = (self.wall_clock_seconds)()
     continue attempt + 1
   }
 }
@@ -52,7 +48,6 @@ async fn Client::send_inner(
 /// Owns one network attempt. All its resources are released before the caller waits or retries.
 async fn ClientExchange::attempt(
   self : ClientExchange,
-  client : Client,
   outgoing : @types.Request[Upload],
   digest : SignedAttempt?,
   deferred_auth : Bool,
@@ -67,7 +62,7 @@ async fn ClientExchange::attempt(
       Reopen(_) => {
         let (data, trailers) = @body.collect(
           source,
-          max_bytes=self.config.options.limits.max_body_bytes,
+          max_bytes=self.client.options.limits.max_body_bytes,
         ) catch {
           @body.BodyLimitExceeded(limit~) => raise ClientBodyLimit(limit)
           error => raise error
@@ -79,19 +74,20 @@ async fn ClientExchange::attempt(
   } else {
     (source, digest)
   }
-  let fill = if self.config.cache_enabled {
-    self.config.cache.begin_fill(outgoing.map_body(_ => ()))
+  let fill = if self.client.cache_enabled {
+    self.client.cache.begin_fill(outgoing.map_body(_ => ()))
   } else {
     None
   }
   defer (if !handed_off && fill is Some(pending) { pending.discard() })
-  let result = Ok((client.exchange)(outgoing.map_body(_ => upload))) catch {
+  let result = Ok((self.client.exchange)(outgoing.map_body(_ => upload))) catch {
     error => Err(error)
   }
   match result {
     Err(error) => self.handle_failure(error, stale, attempt)
     Ok(raw) => {
       defer (if !handed_off { raw.body.cancel(@body.BodyError::Cancelled) })
+      self.now_seconds = (self.client.wall_clock_seconds)()
       let response = self.authenticated_response(raw, authorization)
       match self.handle_response(outgoing, response, stale, attempt) {
         None => {
@@ -107,18 +103,16 @@ async fn ClientExchange::attempt(
 
 ///|
 fn ClientExchange::new(
-  config : ClientConfig,
+  client : Client,
   request : @types.Request[Upload],
-  now_seconds : Int64,
 ) -> ClientExchange raise ClientError {
-  config.options.validate().unwrap_or_error()
   let endpoint = ClientEndpoint::from_uri(request.uri).unwrap_or_error()
-  let redirects = RedirectTracker::new(request.uri, config.options.redirect)
+  let redirects = RedirectTracker::new(request.uri, client.options.redirect)
     .map_err(error => ClientRedirect(error))
     .unwrap_or_error()
   {
-    config,
-    now_seconds,
+    client,
+    now_seconds: (client.wall_clock_seconds)(),
     redirects,
     endpoint,
     request: { ..request, headers: request.headers.copy(), },
@@ -133,14 +127,14 @@ fn ClientExchange::prepare_headers(
 ) -> Unit raise ClientError {
   let headers = request.headers
   if self.endpoint.secure {
-    self.config.tls
+    self.client.tls
     .for_server_name(self.endpoint.transport.host())
     .validate_client()
     .map_err(_ => ClientInvalidOptions("invalid TLS options"))
     .unwrap_or_error()
   }
   let context = @cookie.CookieContext::http(request.http_method)
-  if self.config.cookie_jar.cookie_header(
+  if self.client.cookie_jar.cookie_header(
       request.uri,
       self.now_seconds,
       context~,
@@ -149,7 +143,7 @@ fn ClientExchange::prepare_headers(
     headers.get_string("cookie") is None {
     headers.set(@types.HeaderName::parse("cookie").unwrap(), cookie)
   }
-  if self.config.content_decoding &&
+  if self.client.content_decoding &&
     headers.get_string("accept-encoding") is None {
     headers
     .append_string("accept-encoding", "gzip, deflate, br")
@@ -166,7 +160,7 @@ fn ClientExchange::apply_auth(
 ) -> SignedAttempt? raise ClientError {
   let headers = request.headers
   let explicit = headers.get_string("authorization") is Some(_)
-  self.config.auth
+  self.client.auth
   .apply(
     self.endpoint,
     request.http_method,
@@ -187,7 +181,7 @@ fn ClientExchange::prepare_request(
   let request = { ..self.request, headers: self.request.headers.copy(), }
   self.prepare_headers(request)
   let deferred_auth = request.headers.get_string("authorization") is None &&
-    self.config.auth.wants_entity(self.endpoint) &&
+    self.client.auth.wants_entity(self.endpoint) &&
     !(request.body.source is Buffered(_))
   let digest = if deferred_auth {
     None
@@ -200,11 +194,11 @@ fn ClientExchange::prepare_request(
       },
     )
   }
-  if !self.config.cache_enabled || !(request.http_method is (Get | Head)) {
+  if !self.client.cache_enabled || !(request.http_method is (Get | Head)) {
     return SendRequest(request, digest, deferred_auth, None)
   }
   match
-    self.config.cache.lookup(
+    self.client.cache.lookup(
       request.map_body(_ => ()),
       self.now_seconds,
       unknown_authorization=deferred_auth,
@@ -241,7 +235,7 @@ fn ClientExchange::retry_decision(
   retry_after~ : String? = None,
 ) -> RetryDecision raise ClientError {
   decide_retry(
-    self.config.options.retry,
+    self.client.options.retry,
     attempt,
     self.request.http_method,
     self.request.body.replayability(),
@@ -260,22 +254,23 @@ fn ClientExchange::handle_failure(
   stale : @cache.CacheHit?,
   attempt : Int32,
 ) -> ExchangeAction raise {
-  if error
-    is (ClientError::ClientTransport(_) | ClientError::ClientTimeout(_, _, _)) &&
-    stale is Some(hit) &&
-    hit.allows_stale_if_error() {
-    return Complete(self.cached_response(hit))
-  }
   let cause = match error {
     ClientError::ClientHttp3(Goaway(_)) | ClientError::ClientH3Rejected(_) =>
       RetryGoawayUnprocessed
     ClientError::ClientHttp2(StreamError(_, RefusedStream, _)) =>
       RetryRefusedStream
+    ClientError::ClientTransport(Policy(_)) => RetryPolicyDenied
+    ClientError::ClientTransport(Cancelled) => RetryCancelled
     ClientError::ClientTransport(_) => RetryConnectFailure
     ClientError::ClientTimeout(_, _, _) => RetryTimeoutBeforeResponse
     ClientError::ClientTls(_) => RetryTlsVerificationFailed
     ClientError::ClientCancelled(_) => RetryCancelled
     _ => RetryOther
+  }
+  if cause is (RetryConnectFailure | RetryTimeoutBeforeResponse) &&
+    stale is Some(hit) &&
+    hit.allows_stale_if_error() {
+    return Complete(self.cached_response(hit))
   }
   match self.retry_decision(attempt, cause) {
     DoNotRetry => raise error
@@ -294,7 +289,7 @@ fn ClientExchange::handle_response(
   if response.status == 401 &&
     self.auth_attempts < 2 &&
     request.body.replayability() == ReplayableBody &&
-    self.config.auth
+    self.client.auth
     .handle_unauthorized(self.endpoint, response.headers)
     .unwrap_or_error() {
     self.auth_attempts += 1
@@ -318,7 +313,7 @@ fn ClientExchange::handle_response(
       return Some(Complete(self.cached_response(hit)))
     }
     if response.status == 304 &&
-      self.config.cache.revalidate(
+      self.client.cache.revalidate(
         request.map_body(_ => ()),
         response.map_body(_ => ()),
         self.now_seconds,
@@ -344,9 +339,9 @@ fn ClientExchange::update_cache_and_cookies(
   response : @types.Response[IncomingBody],
 ) -> Unit {
   let request = self.request
-  if self.config.cache_enabled && !(request.http_method is (Get | Head)) {
+  if self.client.cache_enabled && !(request.http_method is (Get | Head)) {
     ignore(
-      self.config.cache.invalidate_response(
+      self.client.cache.invalidate_response(
         request.map_body(_ => ()),
         response.map_body(_ => ()),
       ),
@@ -355,7 +350,7 @@ fn ClientExchange::update_cache_and_cookies(
   let context = @cookie.CookieContext::http(request.http_method)
   for cookie in response.headers.get_all_string("set-cookie") {
     ignore(
-      self.config.cookie_jar.store(
+      self.client.cookie_jar.store(
         cookie,
         request.uri,
         self.now_seconds,
@@ -384,7 +379,7 @@ fn ClientExchange::follow_redirect(
     .map_err(error => ClientRedirect(error))
     .unwrap_or_error()
   let endpoint = ClientEndpoint::from_uri(decision.uri).unwrap_or_error()
-  (self.config.authorize_redirect)(endpoint.transport, Redirect)
+  (self.client.authorize_redirect)(endpoint.transport, Redirect)
   .map_err(error => ClientPolicy(error))
   .unwrap_or_error()
   self.endpoint = endpoint
@@ -409,14 +404,7 @@ fn ClientExchange::cached_response(
 ) -> @types.Response[IncomingBody] raise ClientError {
   let request = self.request
   let response = response_from_cache(hit, request.http_method).map_body(data => {
-    saved_body(
-      data,
-      if request.http_method == Head {
-        None
-      } else {
-        hit.trailers
-      },
-    )
+    saved_body(data, hit.trailers)
   })
   if response.status == 200 &&
     @cache.evaluate_request_condition(
@@ -449,13 +437,13 @@ fn ClientExchange::decode_response(
   self : ClientExchange,
   response : @types.Response[IncomingBody],
 ) -> @types.Response[IncomingBody] raise ClientError {
-  if !self.config.content_decoding ||
+  if !self.client.content_decoding ||
     !@types.response_allows_body(self.request.http_method, response.status) {
     return response
   }
   @content_coding.decode_response(
     response,
-    limits=self.config.content_coding_limits,
+    limits=self.client.content_coding_limits,
   )
   .map_err(error => ClientContentCoding(error))
   .unwrap_or_error()
