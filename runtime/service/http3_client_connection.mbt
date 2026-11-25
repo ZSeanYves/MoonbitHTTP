@@ -11,8 +11,7 @@ pub(all) suberror Http3ClientError {
 ///|
 priv struct H3ClientRequest {
   incoming : H3IncomingBody
-  timeout : ((HttpClientPhase) -> (Int32, Error)?)?
-  head : @aqueue.Queue[@types.Response[@body.BodyStream]]
+  head : @aqueue.Queue[@types.Response[Unit]]
   mut upload : @async.Task[Unit]?
   mut upload_done : Bool
   mut consumed : Bool
@@ -201,7 +200,6 @@ pub async fn[B : @body.Body] Http3ClientConnection::send(
     let stream : H3ClientRequest = {
       incoming: H3IncomingBody::new(self.io, id),
       head: Queue(kind=Blocking(1)),
-      timeout,
       upload: None,
       upload_done: false,
       consumed: false,
@@ -248,16 +246,31 @@ pub async fn[B : @body.Body] Http3ClientConnection::send(
       }),
     )
   }
-  wait_client_phase(ResponseHeaders, timeout, () => stream.head.get())
+  let head = wait_client_phase(ResponseHeaders, timeout, () => stream.head.get())
+  // A buffered queue can retain its last value after get. Construct the body
+  // on the receiving side so the queue never owns a callback into this stream.
+  head.map_body(_ => {
+    @body.BodyStream::from_pull(
+      () => {
+        wait_client_phase(ResponseBody, timeout, () => stream.incoming.read())
+      },
+      on_terminate=fn(error) {
+        if error is None {
+          stream.consumed = true
+          self.release(stream)
+        }
+      },
+      on_cancel=fn(error) { self.fail_request(id, error, reset=true) },
+    )
+  })
 }
 
 ///|
-fn Http3ClientConnection::response_head(
-  self : Http3ClientConnection,
-  stream : H3ClientRequest,
+fn H3ClientRequest::receive_head(
+  self : H3ClientRequest,
   fields : Array[@http3.QpackField],
 ) -> Unit raise {
-  let id = stream.incoming.id
+  let id = self.incoming.id
   let mut status = 0
   let headers = @types.HeaderMap::new()
   for f in fields {
@@ -271,21 +284,7 @@ fn Http3ClientConnection::response_head(
       )
     }
   }
-  let body = @body.BodyStream::from_pull(
-    () => {
-      wait_client_phase(ResponseBody, stream.timeout, () => {
-        stream.incoming.read()
-      })
-    },
-    on_terminate=fn(error) {
-      if error is None {
-        stream.consumed = true
-        self.release(stream)
-      }
-    },
-    on_cancel=fn(error) { self.fail_request(id, error, reset=true) },
-  )
-  ignore(stream.head.try_put({ status, version: Http3, headers, body, }))
+  ignore(self.head.try_put({ status, version: Http3, headers, body: (), }))
 }
 
 ///|
@@ -298,7 +297,7 @@ async fn Http3ClientConnection::read(self : Http3ClientConnection) -> Unit {
             if trailers {
               stream.incoming.trailers = Some(h3_trailers(id, fields))
             } else {
-              self.response_head(stream, fields)
+              stream.receive_head(fields)
             }
           }
         Message(H3DataReceived(id, bytes)) =>
