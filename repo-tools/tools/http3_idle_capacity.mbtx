@@ -1,0 +1,91 @@
+----
+import {
+  "moonbitlang/async@0.22.10",
+  "moonbitlang/async@0.22.10/fs",
+  "moonbitlang/async@0.22.10/process",
+  "moonbitlang/async@0.22.10/socket",
+  "moonbitlang/core/env",
+  "moonbitlang/x@0.5.9/crypto",
+}
+----
+
+///|
+async fn checked(program : String, args : Array[String], cwd? : String = ".") -> Unit {
+  guard @process.run(program, args, cwd~) == 0 else { fail(program + " failed") }
+}
+
+///|
+/// Run at the repository root with a file-descriptor limit above 1,001.
+/// --baseline builds the audited SHA with the same fixture and poll counter.
+async fn main {
+  let tmp = @fs.tmpdir(prefix="h3-idle")
+  let directory = "_build/evidence/performance/h3-idle/" + tmp.split("/").to_array().last().unwrap().to_owned()
+  @fs.rmdir(tmp)
+  @fs.mkdir(directory, recursive=true)
+  println("HTTP/3 idle capacity evidence " + directory)
+  let (_, cwd, _) = @process.collect_output("pwd", [])
+  let root = cwd.text().trim().to_owned()
+  let base = "37655164e23695acf8e9706a8284cb95bf06fd62"
+  let server_package = "examples/cmd/h3_smoke_server"
+  let artifact = "_build/native/release/build/" + server_package + "/h3_smoke_server.exe"
+  let build = ["build", server_package, "--target", "native", "--release", "--deny-warn"]
+  let (reference, server) = match @env.args() {
+    [_] => {
+      checked("moon", build)
+      ("HEAD", "./" + artifact)
+    }
+    [_, "--baseline"] => {
+      let checkout = directory + "/baseline"
+      checked("git", ["clone", "--quiet", "--shared", "--no-checkout", ".", checkout])
+      checked("git", ["checkout", "--quiet", "--detach", base], cwd=checkout)
+      checked("git", ["apply", root + "/repo-tools/tools/quic_go_reset_reference/capacity/baseline.patch"], cwd=checkout)
+      for name in ["main.mbt", "moon.pkg"] {
+        let file = server_package + "/" + name
+        @fs.write_file(checkout + "/" + file, @fs.read_file(file).binary())
+      }
+      checked("moon", build, cwd=checkout)
+      (base, "./" + checkout + "/" + artifact)
+    }
+    [_, "--server", path, revision] => (revision, path)
+    _ => fail("usage: http3_idle_capacity.mbtx [--baseline | --server PATH REVISION]")
+  }
+  let binary = directory + "/capacity"
+  guard @process.run("go", ["-C", "repo-tools/tools/quic_go_reset_reference", "build", "-mod=readonly", "-o", root + "/" + binary, "./capacity"]) == 0 else { fail("Go capacity peer build failed") }
+  let (_, system, _) = @process.collect_output("uname", ["-a"])
+  let (status, revision, _) = @process.collect_output("git", ["rev-parse", "--verify", reference + "^{commit}"])
+  guard status == 0 else { fail("unknown measurement revision " + reference) }
+  let (_, go, _) = @process.collect_output("go", ["version"])
+  let (_, moon, _) = @process.collect_output("moon", ["version", "--all"])
+  let metadata : Json = {
+    "server_source_revision": revision.text().trim().to_owned(),
+    "server_sha256": @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file(server).binary())),
+    "probe_sha256": @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file(binary).binary())),
+    "uname": system.text(), "go": go.text(), "moon": moon.text(),
+    "audit_estimate_polls_per_second_for_1000_idle": 40000,
+  }
+  @fs.write_file(directory + "/run.json", metadata, create_mode=CreateNew)
+  for idle in [0, 100, 1000] {
+    let reservation = @socket.UdpServer(@socket.Addr::parse("127.0.0.1:0"))
+    let address = reservation.addr
+    reservation.close()
+    let stem = directory + "/" + idle.to_string()
+    @async.with_task_group(async fn(group) {
+      let child = @process.spawn(group, server, ["--capacity", address.port().to_string(), (idle + 1).to_string()],
+        stdout=@process.redirect_to_file(stem + ".server.stdout", create_mode=CreateNew),
+        stderr=@process.redirect_to_file(stem + ".server.stderr", create_mode=CreateNew),
+        cancel_handler=@process.graceful_cancel(timeout=1000), no_wait=true)
+      defer child.cancel()
+      @async.with_timeout(15000, async fn() {
+        while !@fs.read_file(stem + ".server.stdout").text().contains("HTTP/3 smoke listening") {
+          guard child.try_wait() is None else { fail("server exited before binding") }
+          @async.sleep(25)
+        }
+      })
+      let result = @process.run(binary, ["-address", address.to_string(), "-idle", idle.to_string(),
+        "-server-pid", child.pid.to_string(), "-duration", "5s"],
+        stdout=@process.redirect_to_file(stem + ".ndjson", create_mode=CreateNew),
+        stderr=@process.redirect_to_file(stem + ".peer.stderr", create_mode=CreateNew))
+      guard result == 0 else { fail("idle=\{idle} exited \{result}: \{@fs.read_file(stem + ".peer.stderr").text()}") }
+    })
+  }
+}

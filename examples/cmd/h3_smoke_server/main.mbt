@@ -25,12 +25,18 @@ fn echo(
 
 ///|
 async fn main {
-  let (once, observe) = match @env.args() {
-    [_] => (false, false)
-    [_, "--once"] => (true, false)
-    [_, "--observe"] => (false, true)
-    _ => fail("usage: h3_smoke_server [--once | --observe]")
+  let (once, port, limit, measure) = match @env.args() {
+    [_] => (false, 18443, 16, false)
+    [_, "--observe"] => (false, 18443, 16, false)
+    [_, "--once"] => (true, 18443, 16, false)
+    [_, "--capacity", port, limit] =>
+      (false, @string.parse_int(port), @string.parse_int(limit), true)
+    _ =>
+      fail(
+        "usage: h3_smoke_server [--once | --observe | --capacity PORT MAX_CONNECTIONS]",
+      )
   }
+  let observe = @env.args() is [_, "--observe"]
   let start = @bench.monotonic_clock_start()
   async fn mark(kind : String) -> Unit {
     if observe {
@@ -40,7 +46,9 @@ async fn main {
       )
     }
   }
-  let endpoint = @types.Endpoint::new("udp", "127.0.0.1", 18443).unwrap()
+  let active : Map[Int64, @service.Http3ConnectionIo] = Map([])
+  let mut next_id = 0L
+  let endpoint = @types.Endpoint::new("udp", "127.0.0.1", port).unwrap()
   let certificate = @fs.read_binary("tests/fixtures/tls/localhost.cert.pem")
   let private_key = @fs.read_binary("tests/fixtures/tls/localhost.key.pem")
   let options = {
@@ -53,7 +61,7 @@ async fn main {
   let config = @server_api.ServerConfig::defaults()
     .with_limits({
       ..@server_api.ServerLimits::defaults(),
-      max_connections: 16,
+      max_connections: limit,
     })
     .with_error_responder(error => println("HTTP/3 peer: \{error}"))
   let supervisor = @server_api.ServerSupervisor::new(config~).unwrap_or_error()
@@ -63,8 +71,35 @@ async fn main {
     options,
     (_, io) => {
       mark("handshake-ready")
+      let id = next_id
+      next_id += 1L
+      if measure {
+        active[id] = io
+      }
+      defer (if measure { active.remove(id) })
       @service.serve_http3_connection(io, async fn(request) {
         mark("handler-entered")
+        if measure && request.uri.path == "/capacity" {
+          let mut polls = 0L
+          let mut deadlines = 0L
+          for _, connection in active {
+            let (calls, alarms) = connection.poll_counts()
+            polls += calls
+            deadlines += alarms
+          }
+          let stats : Json = {
+            "connections": active.length(),
+            "polls": polls,
+            "alarms": deadlines,
+          }
+          let full = @body.FullBody::new(@utf8.encode(stats.stringify()))
+          return {
+            status: 200,
+            version: Http3,
+            headers: @types.HeaderMap::new(),
+            body: @body.BodyStream::from_pull(() => @body.Body::next_frame(full)),
+          }
+        }
         if request.http_method == Post {
           io.rotate_local_connection_id()
         }
@@ -86,6 +121,10 @@ async fn main {
     },
   ).unwrap_or_error()
   defer listener.close()
-  @stdio.stdout.write(b"HTTP/3 smoke listening on https://localhost:18443\n")
+  @stdio.stdout.write(
+    @utf8.encode(
+      "HTTP/3 smoke listening on https://localhost:" + port.to_string() + "\n",
+    ),
+  )
   listener.serve(supervisor).unwrap_or_error()
 }

@@ -1,0 +1,40 @@
+diff --git a/runtime/service/http3_connection.mbt b/runtime/service/http3_connection.mbt
+index 5f41b8b..8894f2c 100644
+--- a/runtime/service/http3_connection.mbt
++++ b/runtime/service/http3_connection.mbt
+@@ -4,6 +4,7 @@
+ /// running while application code handles a batch.
+ pub struct Http3ConnectionIo {
+   session : @http3.Http3Session
++  priv mut timer_polls : Int64
+   priv server_shutdown : ServerShutdown?
+   priv authenticated_origin : @types.Endpoint?
+   priv mut failure : Error?
+@@ -15,6 +16,11 @@ pub struct Http3ConnectionIo {
+   priv flush_writes : async () -> Unit
+ }
+ 
++///|
++pub fn Http3ConnectionIo::poll_counts(self : Http3ConnectionIo) -> (Int64, Int64) {
++  (self.timer_polls, self.timer_polls)
++}
++
+ ///|
+ /// Hand queued application writes to QUIC immediately. A blocked prefix
+ /// remains queued for the background reader and timer.
+@@ -175,6 +181,7 @@ pub async fn[
+   }
+   let io = {
+     authenticated_origin,
++    timer_polls: 0L,
+     failure: None,
+     server_shutdown,
+     cancel_request,
+@@ -231,6 +238,7 @@ pub async fn[
+         if peer_close is Some(_) || closing {
+           return
+         }
++        io.timer_polls += 1L
+         dispatch(tls.poll(clock.monotonic_millis()).unwrap_or_error())
+       }
+     })
