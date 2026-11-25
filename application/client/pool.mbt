@@ -192,47 +192,16 @@ fn ConnectionPool::tick(self : ConnectionPool) -> Int64 {
 
 ///|
 fn ConnectionPool::evict_idle(self : ConnectionPool) -> Unit {
-  while self.entries.length() > self.limits.max_total {
-    if self.eviction_queue_full() {
-      return
-    }
-    let mut selected = -1
-    for index, entry in self.entries {
-      if !entry.in_use &&
-        entry.reusable &&
-        (selected < 0 || entry.last_used < self.entries[selected].last_used) {
-        selected = index
-      }
-    }
-    if selected < 0 {
+  while self.entries.length() > self.limits.max_total ||
+        self.idle_len() > self.limits.max_idle {
+    if !self.evict_one_idle() {
       break
     }
-    let removed = self.entries.remove(selected)
-    self.evicted.push(removed.id)
-  }
-  while self.idle_len() > self.limits.max_idle {
-    if self.eviction_queue_full() {
-      return
-    }
-    let mut selected = -1
-    for index, entry in self.entries {
-      if !entry.in_use &&
-        entry.reusable &&
-        (selected < 0 || entry.last_used < self.entries[selected].last_used) {
-        selected = index
-      }
-    }
-    if selected < 0 {
-      break
-    }
-    let removed = self.entries.remove(selected)
-    self.evicted.push(removed.id)
   }
 }
 
 ///|
-/// Removes one least-recently-used idle connection to make room for a new
-/// key. Active leases are never selected.
+/// Remove the least-recently-used idle connection and queue its ID for the owner.
 fn ConnectionPool::evict_one_idle(self : ConnectionPool) -> Bool {
   if self.eviction_queue_full() {
     return false

@@ -103,40 +103,38 @@ test "client pool: active capacity is bounded while idle entries are evicted" {
   let one = pool.acquire_lease(first).unwrap()
   let two = pool.acquire_lease(second).unwrap()
   assert_true(pool.acquire(third) is Err(AtCapacity))
+  assert_eq(pool.take_evicted_ids(), [])
   pool.release_lease(one, true).unwrap()
   assert_eq(pool.idle_len(), 1)
+  assert_eq(pool.take_evicted_ids(), [])
   pool.release_lease(two, true).unwrap()
+  assert_eq(pool.take_evicted_ids(), [one.id()])
+  assert_eq(pool.take_evicted_ids(), [])
   assert_eq(pool.idle_len(), 1)
   assert_eq(pool.len(), 1)
 }
 
 ///|
 test "client pool: a new key evicts the LRU idle entry and reports its ID" {
-  let limits : @client.PoolLimits = { max_total: 1, max_idle: 1, }
+  let limits : @client.PoolLimits = { max_total: 2, max_idle: 2, }
   let pool = @client.ConnectionPool::new(limits~).unwrap()
   let endpoint = @types.Endpoint::new("http", "example.test", 80).unwrap()
-  let first = @client.ConnectionKey::new(
-    endpoint,
-    None,
-    None,
-    Http1,
-    Some("first"),
-  )
-  let second = @client.ConnectionKey::new(
-    endpoint,
-    None,
-    None,
-    Http1,
-    Some("second"),
-  )
-  let first_lease = pool.acquire_lease(first).unwrap()
-  let first_id = first_lease.id()
-  pool.release_lease(first_lease, true).unwrap()
-  let second_lease = pool.acquire_lease(second).unwrap()
-  assert_eq(pool.take_evicted_ids(), [first_id])
+  let key = tag => {
+    @client.ConnectionKey::new(endpoint, None, None, Http1, Some(tag))
+  }
+  let first = pool.acquire_lease(key("first")).unwrap()
+  pool.release_lease(first, true).unwrap()
+  let second = pool.acquire_lease(key("second")).unwrap()
+  pool.release_lease(second, true).unwrap()
+  let reused = pool.acquire_lease(key("first")).unwrap()
+  assert_eq(reused.id(), first.id())
+  pool.release_lease(reused, true).unwrap()
+  let third = pool.acquire_lease(key("third")).unwrap()
+  assert_eq(pool.take_evicted_ids(), [second.id()])
   assert_eq(pool.take_evicted_ids(), [])
-  pool.release_lease(second_lease, false).unwrap()
-  assert_eq(pool.take_evicted_ids(), [second_lease.id()])
+  assert_eq(pool.acquire_lease(key("first")).unwrap().id(), first.id())
+  pool.release_lease(third, false).unwrap()
+  assert_eq(pool.take_evicted_ids(), [third.id()])
 }
 
 ///|
