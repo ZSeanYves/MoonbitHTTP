@@ -316,3 +316,99 @@ async fn H2ServerStreams::receive_headers(
     request.body.finish()
   }
 }
+
+///|
+async fn H2ServerStreams::receive_data(
+  self : H2ServerStreams,
+  stream_id : Int32,
+  data : Array[Byte],
+  end_stream : Bool,
+  flow_size : Int32,
+  dispatch : (Int32) -> Unit,
+) -> Unit {
+  guard self.pending.get(stream_id) is Some(request) && !request.request_ended else {
+    // DATA after request END_STREAM (including after request
+    // trailers) must not be admitted to the body or its blocked
+    // queue.  Return the receive credit before resetting the
+    // stream so the connection cannot leak flow-control window.
+    self.release_discarded_data(flow_size)
+    self.reset_stream(stream_id, ProtocolError)
+    return
+  }
+  let exceeds_limit = request.body_bytes > self.config.limits.max_body_bytes ||
+    data.length() > self.config.limits.max_body_bytes - request.body_bytes
+  let exceeds_declared = match request.expected_body_bytes {
+    Some(expected) =>
+      request.body_bytes > expected ||
+      data.length() > expected - request.body_bytes
+    None => false
+  }
+  let next_body_bytes = if exceeds_limit {
+    request.body_bytes
+  } else {
+    request.body_bytes + data.length()
+  }
+  let ends_short = !exceeds_limit &&
+    end_stream &&
+    request.expected_body_bytes is Some(expected) &&
+    next_body_bytes != expected
+  if exceeds_limit || exceeds_declared || ends_short {
+    self.release_discarded_data(flow_size)
+    self.reset_stream(
+      stream_id,
+      if exceeds_limit {
+        EnhanceYourCalm
+      } else {
+        ProtocolError
+      },
+    )
+    return
+  }
+  request.body_bytes = next_body_bytes
+  request.request_ended = end_stream
+  if request.credit.retired {
+    let updates = if flow_size == 0 {
+      []
+    } else {
+      match self.connection.release_capacity(stream_id, flow_size) {
+        Ok(value) => value
+        Err(error) => raise error
+      }
+    }
+    for update in updates {
+      self.control.credit(update)
+    }
+    if end_stream && request.response_finished {
+      request.body.finish()
+      self.pending.remove(stream_id)
+      self.blocked.remove(stream_id)
+    }
+    return
+  }
+  request.credit.outstanding += data.length()
+  if flow_size > data.length() {
+    let updates = match
+      self.connection.release_capacity(stream_id, flow_size - data.length()) {
+      Ok(value) => value
+      Err(error) => raise error
+    }
+    for update in updates {
+      self.control.credit(update)
+    }
+  }
+  if data.is_empty() && !end_stream {
+    return
+  }
+  let data = Bytes::from_array(data)
+  if self.blocked.get(stream_id) is Some(queue) {
+    queue.push_back(BlockedData(data, end_stream))
+    return
+  }
+  let accepted = request.body.try_push(Data(data))
+  if !accepted {
+    self.blocked.set(stream_id, Deque([BlockedData(data, end_stream)]))
+  } else if end_stream {
+    request.body.finish()
+    dispatch(stream_id)
+  }
+}
