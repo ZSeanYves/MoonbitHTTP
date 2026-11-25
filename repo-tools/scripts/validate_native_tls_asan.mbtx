@@ -15,6 +15,13 @@ async fn checked(program : String, args : Array[String]) -> Unit {
 
 ///|
 async fn main {
+  let (uname_status, uname, uname_error) = @process.collect_output("uname", ["-s"])
+  guard uname_status == 0 else { fail(uname_error.text()) }
+  let linux = match uname.text().trim() {
+    "Linux" => true
+    "Darwin" => false
+    platform => fail("unsupported sanitizer host: \{platform}")
+  }
   let installed = @env.get_env_var("MOON_HOME").unwrap_or(
     @env.get_env_var("HOME").unwrap() + "/.moon",
   )
@@ -37,25 +44,35 @@ async fn main {
   let dummy = temporary + "/allocator.c"
   @fs.write_file(dummy, "/* ASan supplies the allocator in this SDK copy. */\n")
   checked("/usr/bin/clang", ["-c", dummy, "-o", sdk + "/lib/libmoonbitrun.o"])
-  let suites = ["adapter/native/tls", "tests/blackbox/native_tls_api", "tests/integration/native_tls"]
+  let suites = ["adapter/native/tls", "tests/blackbox/native_tls_api", "tests/integration/native_tls", "tests/integration/native_server"]
   for package_name in [..suites, "tests/support/native_tls_revocation"] {
     let path = source + "/" + package_name + "/moon.pkg"
     let original = @fs.read_file(path).text()
     let (prefix, suffix) = original.split_once("options(").unwrap()
-    let link = "link: { \"native\": { \"cc-flags\": \"-g -fsanitize=address -fno-omit-frame-pointer\", \"stub-cc-flags\": \"-g -fsanitize=address -fno-omit-frame-pointer\", \"cc-link-flags\": \"-fsanitize=address\" } },"
+    let link = "link: { \"native\": { \"cc-flags\": \"-g -fsanitize=address -fno-omit-frame-pointer\", \"stub-cc-flags\": \"-DMOON_HTTP_TLS_AUDIT_HANDLES -g -fsanitize=address -fno-omit-frame-pointer\", \"cc-link-flags\": \"-fsanitize=address\" } },"
     @fs.write_file(path, prefix.to_owned() + "options(\n  " + link + "\n" + suffix.to_owned())
   }
-  let output = @process.redirect_to_file(evidence + "/stdout.log", create_mode=CreateNew)
-  let errors = @process.redirect_to_file(evidence + "/stderr.log", create_mode=CreateNew)
-  let code = @process.run(sdk + "/bin/moon", [
-    "test", ..suites, "--frozen", "--target", "native", "--no-parallelize", "--deny-warn", "--warn-list", "+73", "-v",
-  ], cwd=source[:], stdout=output, stderr=errors, extra_env={
-    "MOON_HOME": sdk,
-    "PATH": sdk + "/bin:" + @env.get_env_var("PATH").unwrap_or(""),
-    "MOON_CC": "/usr/bin/clang",
-    "MOON_AR": "/usr/bin/ar",
-    "ASAN_OPTIONS": "detect_leaks=0:fast_unwind_on_malloc=0",
-  })
-  guard code == 0 else { fail("Native TLS ASan failed; logs: \{evidence}") }
-  println("Native TLS AddressSanitizer tests passed with macOS clang; logs: \{evidence}")
+  let options = if linux { "detect_leaks=1:fast_unwind_on_malloc=0" } else { "detect_leaks=0:fast_unwind_on_malloc=0" }
+  for repetition in 1..=3 {
+    let output = @process.redirect_to_file(evidence + "/stdout-\{repetition}.log", create_mode=CreateNew)
+    let errors = @process.redirect_to_file(evidence + "/stderr-\{repetition}.log", create_mode=CreateNew)
+    let code = @process.run(sdk + "/bin/moon", [
+      "test", ..suites, "--frozen", "--target", "native", "--no-parallelize", "--deny-warn", "--warn-list", "+73", "-v",
+    ], cwd=source[:], stdout=output, stderr=errors, extra_env={
+      "MOON_HOME": sdk,
+      "PATH": sdk + "/bin:" + @env.get_env_var("PATH").unwrap_or(""),
+      "MOON_CC": "/usr/bin/clang",
+      "MOON_AR": "/usr/bin/ar",
+      "ASAN_OPTIONS": options,
+      "LSAN_OPTIONS": "exitcode=23",
+    })
+    let diagnostic = @fs.read_file(evidence + "/stderr-\{repetition}.log").text()
+    if code != 0 { println(diagnostic); fail("Native TLS sanitizer failed on iteration \{repetition}: \{evidence}") }
+    let ownership = diagnostic.split("\n").filter(line => line.has_prefix("HTTP TLS live at exit:")).to_array()
+    guard !ownership.is_empty() && ownership.iter().all(line => line == "HTTP TLS live at exit: SSL_CTX=0 SSL=0 BIO=0 QUIC-owner=0") else {
+      fail("Missing or unbalanced native handle counts: \{evidence}")
+    }
+    println("Passed sanitizer iteration \{repetition}: \{ownership[0]}")
+  }
+  println("Native TLS sanitizer passed: \{uname.text().trim()}, \{options}; logs: \{evidence}")
 }

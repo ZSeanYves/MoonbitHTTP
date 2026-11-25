@@ -113,6 +113,10 @@ jobs:
         timeout-minutes: 10
         run: moon run tests/run.mbtx -- integration native
 
+      - name: Run Native TLS leak and handle lifecycle tests on Linux
+        if: runner.os == 'Linux'
+        run: moon run repo-tools/scripts/validate_native_tls_asan.mbtx
+
       - name: Run Native TLS tests with AddressSanitizer
         if: runner.os == 'macOS'
         run: moon run repo-tools/scripts/validate_native_tls_asan.mbtx

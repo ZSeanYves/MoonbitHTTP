@@ -183,10 +183,30 @@ static void capture_error(HttpTls *self, const char *fallback) {
   }
 }
 
+/* Sanitizer-only counters track the wrapper's explicit ownership. OpenSSL
+ * frees memory BIOs after SSL_set0_rbio / SSL_set0_wbio transfer ownership. */
+#ifdef MOON_HTTP_TLS_AUDIT_HANDLES
+#include <stdatomic.h>
+static _Atomic int context_count, session_count, bio_count, callback_owner_count;
+void moon_http_tls_callback_count(int delta) { callback_owner_count += delta; }
+#define COUNT_HANDLES(counter, delta) ((void)(counter += (delta)))
+__attribute__((destructor)) static void check_ownership(void) {
+  int contexts = context_count, sessions = session_count, bios = bio_count;
+  int callbacks = callback_owner_count;
+  fprintf(stderr, "HTTP TLS live at exit: SSL_CTX=%d SSL=%d BIO=%d QUIC-owner=%d\n",
+          contexts, sessions, bios, callbacks);
+  if (contexts || sessions || bios || callbacks) abort();
+}
+#else
+#define COUNT_HANDLES(counter, delta) ((void)0)
+#endif
+
 static void release_tls(void *object) {
   HttpTls *self = object;
-  if (self->ssl) p_SSL_free(self->ssl);
-  if (self->ctx) p_SSL_CTX_free(self->ctx);
+  if (self->input) COUNT_HANDLES(bio_count, -1);
+  if (self->output) COUNT_HANDLES(bio_count, -1);
+  if (self->ssl) { p_SSL_free(self->ssl); COUNT_HANDLES(session_count, -1); }
+  if (self->ctx) { p_SSL_CTX_free(self->ctx); COUNT_HANDLES(context_count, -1); }
   free(self->alpn);
   self->ssl = NULL; self->ctx = NULL;
   self->input = NULL; self->output = NULL; self->alpn = NULL;
@@ -406,6 +426,7 @@ MOONBIT_FFI_EXPORT HttpTls *moon_http_tls_new(const HttpOpenSslSymbols *symbols,
   p_ERR_clear_error();
   self->ctx = p_SSL_CTX_new(p_TLS_method());
   if (!self->ctx) goto failed;
+  COUNT_HANDLES(context_count, 1);
   if (p_SSL_CTX_ctrl(self->ctx, 123, min_version, NULL) != 1) goto failed;
   if (max_version && p_SSL_CTX_ctrl(self->ctx, 124, max_version, NULL) != 1) goto failed;
   p_SSL_CTX_set_options(self->ctx, ((uint64_t)1 << 30)); /* NO_RENEGOTIATION */
@@ -431,6 +452,7 @@ MOONBIT_FFI_EXPORT HttpTls *moon_http_tls_new(const HttpOpenSslSymbols *symbols,
   if (server) p_SSL_CTX_set_alpn_select_cb(self->ctx, select_alpn, self);
   self->ssl = p_SSL_new(self->ctx);
   if (!self->ssl) goto failed;
+  COUNT_HANDLES(session_count, 1);
   self->input = p_BIO_new(p_BIO_s_mem());
   self->output = p_BIO_new(p_BIO_s_mem());
   if (!self->input || !self->output) {
@@ -438,6 +460,7 @@ MOONBIT_FFI_EXPORT HttpTls *moon_http_tls_new(const HttpOpenSslSymbols *symbols,
     if (self->output) p_BIO_free(self->output);
     self->input = NULL; self->output = NULL; goto failed;
   }
+  COUNT_HANDLES(bio_count, 2);
   p_SSL_set0_rbio(self->ssl, self->input);
   p_SSL_set0_wbio(self->ssl, self->output);
   if (server) p_SSL_set_accept_state(self->ssl);

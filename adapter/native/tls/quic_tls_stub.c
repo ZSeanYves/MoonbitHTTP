@@ -10,6 +10,11 @@ typedef struct { int function_id; void (*function)(void); } QDispatch;
 extern void *moon_http_tls_ssl_handle(void *);
 #include "../../../internal/packet_crypto/openssl_symbols.h"
 extern void moon_http_tls_close(void *);
+#ifdef MOON_HTTP_TLS_AUDIT_HANDLES
+extern void moon_http_tls_callback_count(int delta);
+#else
+#define moon_http_tls_callback_count(delta) ((void)0)
+#endif
 typedef struct QNode { struct QNode *next; size_t length; int kind, level, direction; unsigned char data[]; } QNode;
 typedef struct {
   void *owner;
@@ -28,7 +33,7 @@ static void qfree_node(QNode *node) {
 static void qfree_queue(QNode *node) { while (node) { QNode *next=node->next; qfree_node(node); node=next; } }
 static void qclose(void *object) {
   HttpQuicTls *q=object;
-  if (q->owner) { moon_http_tls_close(q->owner); moonbit_decref(q->owner); q->owner=NULL; }
+  if (q->owner) { moon_http_tls_close(q->owner); moonbit_decref(q->owner); q->owner=NULL; moon_http_tls_callback_count(-1); }
   for (int i=0;i<4;i++) { qfree_queue(q->input[i]); q->input[i]=q->input_tail[i]=NULL; }
   qfree_queue(q->events); q->events=q->events_tail=NULL; q->active=NULL;
   free(q->local_params); free(q->peer_params); q->local_params=q->peer_params=NULL;
@@ -94,7 +99,7 @@ MOONBIT_FFI_EXPORT HttpQuicTls *moon_http_quic_tls_new(const HttpOpenSslSymbols 
   int (*set_ciphers)(SSL *,const char *)=(int(*)(SSL*,const char*))symbols->lookup("SSL_set_ciphersuites");
   if(!set_cbs||!set_params||!set_early||!set_ciphers)return q;
   q->available=1; q->ssl=moon_http_tls_ssl_handle(owner); if(!q->ssl)return q;
-  q->owner=owner;moonbit_incref(owner);
+  q->owner=owner;moonbit_incref(owner);moon_http_tls_callback_count(1);
   size_t n=Moonbit_array_length(params);q->local_params=malloc(n?n:1);if(!q->local_params)return q;
   if(n)memcpy(q->local_params,params,n);
   if(set_ciphers(q->ssl,"TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384")!=1 ||
