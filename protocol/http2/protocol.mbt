@@ -33,6 +33,7 @@ pub(all) enum H2Role {
 
 ///|
 pub(all) enum H2Action {
+  LocalHeaderTableSizeAcknowledged(Int32)
   PeerHeaderTableSize(Int32)
   SendSettingsAck
   SendPingAck(Array[Byte])

@@ -3,7 +3,7 @@ pub struct H2Connection {
   priv role : H2Role
   priv limits : @types.Limits
   priv local_settings : H2Settings
-  priv pending_local_initial_windows : Array[Int32]
+  priv pending_local_settings : Array[(Int32, Int32?)]
   priv peer_settings : H2Settings
   priv streams : Map[Int32, H2Stream]
   priv closed_streams : Array[Int32]
@@ -30,7 +30,7 @@ pub fn H2Connection::new(
     local_settings: H2Settings::new(
       limits.max_streams.min(limits.max_concurrent_requests),
     ),
-    pending_local_initial_windows: [],
+    pending_local_settings: [],
     // Before the peer advertises a limit, only our own stream budget applies.
     peer_settings: H2Settings::new(limits.max_streams),
     streams: Map([]),
@@ -101,8 +101,9 @@ fn H2Connection::receive_control_frame(
         }
         actions.push(SendSettingsAck)
       } else {
-        match self.acknowledge_local_initial_window() {
-          Ok(_) => ()
+        match self.acknowledge_local_settings() {
+          Ok(Some(size)) => actions.push(LocalHeaderTableSizeAcknowledged(size))
+          Ok(None) => ()
           Err(error) => return Err(error)
         }
       }

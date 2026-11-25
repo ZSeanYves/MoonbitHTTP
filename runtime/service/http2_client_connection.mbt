@@ -369,7 +369,6 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, X] with_http2_client_
         max_header_list_size=config.limits.max_header_bytes,
       ),
       decoder: @http2.HpackContext::new(
-        max_table_size=config.limits.max_dynamic_table_bytes,
         max_header_list_size=config.limits.max_header_bytes,
       ),
       frames: @http2.FrameDecoder::new(
@@ -411,7 +410,11 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, X] with_http2_client_
         ),
       ),
     )
-    match shared.runtime.set_local_initial_window(receive_window) {
+    match
+      shared.runtime.set_local_initial_window(
+        receive_window,
+        header_table_size=config.limits.max_dynamic_table_bytes,
+      ) {
       Ok(_) => ()
       Err(error) => raise error
     }

@@ -14,6 +14,7 @@ const H2_MIN_WINDOW : Int32 = -0x80000000
 pub fn H2Connection::set_local_initial_window(
   self : H2Connection,
   window : Int32,
+  header_table_size? : Int32,
 ) -> Result[Unit, H2ProtocolError] {
   if window < 0 || window > 0x7fffffff {
     return Err(
@@ -31,18 +32,23 @@ pub fn H2Connection::set_local_initial_window(
       ),
     )
   }
-  self.pending_local_initial_windows.push(window)
+  if header_table_size is Some(size) && size < 0 {
+    return Err(
+      ConnectionError(ProtocolError, "invalid local header table size"),
+    )
+  }
+  self.pending_local_settings.push((window, header_table_size))
   Ok(())
 }
 
 ///|
-fn H2Connection::acknowledge_local_initial_window(
+fn H2Connection::acknowledge_local_settings(
   self : H2Connection,
-) -> Result[Unit, H2ProtocolError] {
-  if self.pending_local_initial_windows.is_empty() {
-    return Ok(())
+) -> Result[Int32?, H2ProtocolError] {
+  if self.pending_local_settings.is_empty() {
+    return Ok(None)
   }
-  let window = self.pending_local_initial_windows[0]
+  let (window, header_table_size) = self.pending_local_settings[0]
   let delta = window - self.local_settings.initial_window_size
   for stream in self.streams.values() {
     if (delta > 0 && stream.recv_window > H2_MAX_WINDOW - delta) ||
@@ -61,8 +67,8 @@ fn H2Connection::acknowledge_local_initial_window(
     stream.recv_window += delta
   }
   self.local_settings.initial_window_size = window
-  ignore(self.pending_local_initial_windows.remove(0))
-  Ok(())
+  ignore(self.pending_local_settings.remove(0))
+  Ok(header_table_size)
 }
 
 ///|

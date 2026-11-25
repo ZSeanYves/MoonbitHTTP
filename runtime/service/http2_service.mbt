@@ -63,7 +63,11 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
     config.write_timeout_ms,
   )
   let connection = @http2.H2Connection::new(Server, limits=config.limits)
-  match connection.set_local_initial_window(receive_window) {
+  match
+    connection.set_local_initial_window(
+      receive_window,
+      header_table_size=config.limits.max_dynamic_table_bytes,
+    ) {
     Ok(_) => ()
     Err(error) => raise error
   }
@@ -83,7 +87,6 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
     max_buffer_size=config.limits.max_buffer_bytes,
   )
   let decoder = @http2.HpackContext::new(
-    max_table_size=config.limits.max_dynamic_table_bytes,
     max_header_list_size=config.limits.max_header_bytes,
   )
   let encoder = @http2.HpackContext::new(
@@ -313,6 +316,8 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
         }
         for action in actions {
           match action {
+            LocalHeaderTableSizeAcknowledged(size) =>
+              decoder.acknowledge_decoder_table_size(size)
             PeerHeaderTableSize(size) => {
               write_lock.acquire()
               encoder.set_encoder_table_size(size)

@@ -1,5 +1,5 @@
 ///|
-async test "service: HTTP/2 dispatches two streams on one connection" {
+async test "service: HTTP/2 dispatches in-flight indexed requests before a smaller advertised table is acknowledged" {
   let encoder = @http2.HpackContext::new()
   let headers = @types.HeaderMap::new()
   assert_eq(headers.append_string("host", "example.test"), Ok(()))
@@ -32,30 +32,37 @@ async test "service: HTTP/2 dispatches two streams on one connection" {
   for byte in @http2.encode_request_frames(encoder, 3, request_two).unwrap() {
     input.push(byte)
   }
+  input.append(@http2.encode_settings_frame([], true))
   let reader = @aio.MemoryReader(async fn(writer) {
     writer.write(Bytes::from_array(input))
   })
   let writer = CaptureWriter::{ bytes: [], }
   let mut calls = 0
-  @service.serve_http2_connection(reader, test_writer(writer), async fn(
-    request,
-  ) {
-    calls += 1
-    @async.pause()
-    let response_headers = @types.HeaderMap::new()
-    {
-      status: 200,
-      version: Http2,
-      headers: response_headers,
-      body: @body.FullBody::new(
-        if request.uri.value == "/one" {
-          b"one"
-        } else {
-          b"two"
-        },
-      ),
-    }
-  })
+  @service.serve_http2_connection(
+    reader,
+    test_writer(writer),
+    async fn(request) {
+      calls += 1
+      @async.pause()
+      let response_headers = @types.HeaderMap::new()
+      {
+        status: 200,
+        version: Http2,
+        headers: response_headers,
+        body: @body.FullBody::new(
+          if request.uri.value == "/one" {
+            b"one"
+          } else {
+            b"two"
+          },
+        ),
+      }
+    },
+    config={
+      ..@service.ServerConfig::defaults(),
+      limits: { ..@types.Limits::defaults(), max_dynamic_table_bytes: 0, },
+    },
+  )
   assert_eq(calls, 2)
   let decoder = @http2.FrameDecoder::new(max_buffer_size=256 * 1024)
   assert_eq(decoder.feed(Bytes::from_array(writer.bytes)), Ok(()))

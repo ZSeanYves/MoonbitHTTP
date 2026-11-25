@@ -77,3 +77,38 @@ test "http2 settings: frame and h2c field return the same ordered encoder action
     from_upgrade is [PeerHeaderTableSize(0), PeerHeaderTableSize(256)],
   )
 }
+
+///|
+test "decoder accepts in-flight indexed fields until the local SETTINGS is acknowledged" {
+  let connection = @http2.H2Connection::new(Server)
+  let decoder = @http2.HpackContext::new()
+  let encoder = @http2.HpackContext::new()
+  let field : @http2.HpackHeader = { name: "x-sample", value: b"one", }
+  connection.set_local_initial_window(65535, header_table_size=0).unwrap()
+  connection.set_local_initial_window(65535, header_table_size=4096).unwrap()
+  for _ in 0..<2 {
+    assert_eq(
+      decoder.decode(encoder.encode_incremental([field]).unwrap()),
+      Ok([field]),
+    )
+  }
+  for size in [0, 4096] {
+    let actions = connection
+      .receive(test_frame(@http2.H2_FRAME_SETTINGS, @http2.H2_FLAGS_ACK, 0, []))
+      .unwrap()
+    guard actions is [LocalHeaderTableSizeAcknowledged(limit)] else {
+      fail("missing ACK action")
+    }
+    assert_eq(limit, size)
+    decoder.acknowledge_decoder_table_size(limit)
+  }
+  assert_true(
+    decoder.decode(b"\xbe") is Err(ConnectionError(CompressionError, _)),
+  )
+  encoder.set_encoder_table_size(0)
+  encoder.set_encoder_table_size(4096)
+  assert_eq(
+    decoder.decode(encoder.encode_incremental([field]).unwrap()),
+    Ok([field]),
+  )
+}

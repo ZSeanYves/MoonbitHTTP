@@ -65,7 +65,8 @@ fn HpackTable::get_dynamic(self : HpackTable, index : Int32) -> HpackHeader? {
 ///|
 pub struct HpackContext {
   priv table : HpackTable
-  priv max_allowed_table_size : Int32
+  priv mut max_allowed_table_size : Int32
+  priv mut required_decoder_size : Int32?
   priv max_header_list_size : Int32
   priv mut pending_min_table_size : Int32?
   priv mut pending_final_table_size : Int32?
@@ -84,6 +85,7 @@ pub fn HpackContext::new(
   }
   {
     table: HpackTable::new(max_size=initial_size),
+    required_decoder_size: None,
     max_allowed_table_size: max_table_size.max(0),
     max_header_list_size: max_header_list_size.max(0),
     pending_min_table_size: initial_update,
@@ -111,6 +113,26 @@ pub fn HpackContext::set_encoder_table_size(
     },
   )
   self.pending_final_table_size = Some(size)
+}
+
+///|
+/// Apply an acknowledged local SETTINGS_HEADER_TABLE_SIZE to the decoder.
+/// The encoder signals eviction on the wire, before the next field. Retain
+/// the smallest intervening reduction when several ACKs precede that block.
+pub fn HpackContext::acknowledge_decoder_table_size(
+  self : HpackContext,
+  size : Int32,
+) -> Unit {
+  let limit = size.max(0)
+  self.max_allowed_table_size = limit
+  if limit < self.table.max_size {
+    self.required_decoder_size = Some(
+      match self.required_decoder_size {
+        Some(previous) => previous.min(limit)
+        None => limit
+      },
+    )
+  }
 }
 
 ///|
@@ -173,6 +195,15 @@ pub fn HpackContext::decode(
   let mut pos = 0
   let mut list_size = 0
   let mut saw_field = false
+  if self.required_decoder_size is Some(_) &&
+    (block.is_empty() || (block[0].to_int() & 0xe0) != 0x20) {
+    return Err(
+      ConnectionError(
+        CompressionError,
+        "missing acknowledged dynamic table reduction",
+      ),
+    )
+  }
   while pos < block.length() {
     let byte = block[pos].to_int() & 0xff
     let header = if (byte & 0x80) != 0 {
@@ -222,7 +253,8 @@ pub fn HpackContext::decode(
         Ok(value) => value
         Err(message) => return Err(ConnectionError(CompressionError, message))
       }
-      if size > self.max_allowed_table_size {
+      if size > self.max_allowed_table_size ||
+        (self.required_decoder_size is Some(minimum) && size > minimum) {
         return Err(
           ConnectionError(
             CompressionError,
@@ -230,6 +262,7 @@ pub fn HpackContext::decode(
           ),
         )
       }
+      self.required_decoder_size = None
       self.table.resize(size)
       pos += used
       continue

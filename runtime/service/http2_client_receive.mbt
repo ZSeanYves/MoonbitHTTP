@@ -368,6 +368,8 @@ async fn h2_client_reader_pump(shared : Http2ClientState) -> Unit {
       shared.runtime_lock.release()
       for action in actions {
         match action {
+          LocalHeaderTableSizeAcknowledged(size) =>
+            shared.decoder.acknowledge_decoder_table_size(size)
           PeerHeaderTableSize(size) => {
             shared.write_lock.acquire()
             shared.encoder.set_encoder_table_size(size)

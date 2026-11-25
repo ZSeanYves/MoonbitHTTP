@@ -90,6 +90,7 @@ pub fn FrameDecoder::new(max_frame_size? : Int32, max_buffer_size? : Int32) -> S
 pub fn FrameDecoder::next(Self) -> Result[H2Frame?, H2ProtocolError]
 
 pub(all) enum H2Action {
+  LocalHeaderTableSizeAcknowledged(Int32)
   PeerHeaderTableSize(Int32)
   SendSettingsAck
   SendPingAck(Array[Byte])
@@ -118,7 +119,7 @@ pub fn H2Connection::release_connection_capacity(Self, Int32) -> Result[H2Action
 pub fn H2Connection::release_discarded_capacity(Self) -> Result[Array[H2Action], H2ProtocolError]
 pub fn H2Connection::reserve_send_capacity(Self, Int32, Int32) -> Result[Int32, H2ProtocolError]
 pub fn H2Connection::reset_stream(Self, Int32) -> Result[Unit, H2ProtocolError]
-pub fn H2Connection::set_local_initial_window(Self, Int32) -> Result[Unit, H2ProtocolError]
+pub fn H2Connection::set_local_initial_window(Self, Int32, header_table_size? : Int32) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::stream_state(Self, Int32) -> H2StreamState?
 pub fn H2Connection::try_open_local_stream(Self, end_stream? : Bool) -> Result[Int32?, H2ProtocolError]
 
@@ -184,6 +185,7 @@ pub fn H2StreamState::to_repr(Self) -> @debug.Repr
 pub struct HpackContext {
   // private fields
 }
+pub fn HpackContext::acknowledge_decoder_table_size(Self, Int32) -> Unit
 pub fn HpackContext::decode(Self, BytesView) -> Result[Array[HpackHeader], H2ProtocolError]
 pub fn HpackContext::encode_incremental(Self, Array[HpackHeader]) -> Result[Bytes, H2ProtocolError]
 pub fn HpackContext::new(max_table_size? : Int32, max_header_list_size? : Int32) -> Self
