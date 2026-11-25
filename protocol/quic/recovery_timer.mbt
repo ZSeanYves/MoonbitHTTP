@@ -117,17 +117,10 @@ fn QuicRecovery::probe_deadline(
 }
 
 ///|
-/// A pending loss timer takes precedence over any PTO. Backoff is committed by
-/// the packet driver only after a probe has passed recovery and path admission.
-fn QuicRecovery::timer_events(
+fn QuicRecovery::idle_deadline(
   self : QuicRecovery,
-  now_ms : Int64,
   application_confirmed : Bool,
-  validation_space : PacketNumberSpace?,
-) -> Result[Array[QuicRecoveryEvent], QuicError] {
-  if now_ms < 0L {
-    return Err(InvalidPacket("recovery clock cannot be negative"))
-  }
+) -> Int64? {
   let idle_ms = match self.negotiated_idle_ms {
     None => self.config.idle_timeout_ms
     Some(0L) => 0L
@@ -142,21 +135,34 @@ fn QuicRecovery::timer_events(
       timeout.max(quic_deadline_ms(0L, base, periods=3L))
     }
   }
-  if idle_ms > 0L && now_ms - self.last_activity_ms >= idle_ms {
-    return Ok([IdleTimeout])
+  if idle_ms > 0L {
+    Some(quic_deadline_ms(self.last_activity_ms, idle_ms))
+  } else {
+    None
   }
-  let events : Array[QuicRecoveryEvent] = []
-  let mut waiting_for_loss = false
+}
+
+///|
+fn QuicRecovery::next_loss_deadline(self : QuicRecovery) -> Int64? {
+  let mut next = None
+  for space in quic_number_spaces {
+    if self.timer(space).loss_at_ms is Some(deadline) &&
+      !(next is Some(earlier) && earlier <= deadline) {
+      next = Some(deadline)
+    }
+  }
+  next
+}
+
+///|
+fn QuicRecovery::next_probe_deadline(
+  self : QuicRecovery,
+  application_confirmed : Bool,
+  validation_space : PacketNumberSpace?,
+) -> (PacketNumberSpace, Int64)? {
   let mut next_probe : (PacketNumberSpace, Int64)? = None
   for space in quic_number_spaces {
     let timer = self.timer(space)
-    if timer.loss_at_ms is Some(time) && now_ms >= time {
-      match self.detect_loss(space, now_ms) {
-        Ok(lost) => events.append(lost)
-        Err(error) => return Err(error)
-      }
-    }
-    waiting_for_loss = waiting_for_loss || timer.loss_at_ms is Some(_)
     if timer.outstanding_eliciting > 0 &&
       (space != Application || application_confirmed) {
       let deadline = self.probe_deadline(space, timer.last_eliciting_ms)
@@ -165,9 +171,6 @@ fn QuicRecovery::timer_events(
         next_probe = Some((space, deadline))
       }
     }
-  }
-  if !events.is_empty() || waiting_for_loss {
-    return Ok(events)
   }
   if next_probe is None && validation_space is Some(space) {
     next_probe = Some(
@@ -180,6 +183,43 @@ fn QuicRecovery::timer_events(
       ),
     )
   }
+  next_probe
+}
+
+///|
+/// A pending loss timer takes precedence over any PTO. Backoff is committed by
+/// the packet driver only after a probe has passed recovery and path admission.
+fn QuicRecovery::timer_events(
+  self : QuicRecovery,
+  now_ms : Int64,
+  application_confirmed : Bool,
+  validation_space : PacketNumberSpace?,
+) -> Result[Array[QuicRecoveryEvent], QuicError] {
+  if now_ms < 0L {
+    return Err(InvalidPacket("recovery clock cannot be negative"))
+  }
+  if self.idle_deadline(application_confirmed) is Some(idle) && now_ms >= idle {
+    return Ok([IdleTimeout])
+  }
+  let events : Array[QuicRecoveryEvent] = []
+  if self.next_loss_deadline() is Some(loss) {
+    if now_ms >= loss {
+      for space in quic_number_spaces {
+        if self.timer(space).loss_at_ms is Some(time) && now_ms >= time {
+          match self.detect_loss(space, now_ms) {
+            Ok(lost) => events.append(lost)
+            Err(error) => return Err(error)
+          }
+        }
+      }
+    }
+    if !events.is_empty() || self.next_loss_deadline() is Some(_) {
+      return Ok(events)
+    }
+  }
+  let next_probe = self.next_probe_deadline(
+    application_confirmed, validation_space,
+  )
   if next_probe is Some((space, deadline)) &&
     now_ms >= deadline &&
     self.last_probe_ms != Some(now_ms) {

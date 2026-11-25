@@ -110,6 +110,64 @@ fn QuicDatagramDriver::discard_path_challenges(
 }
 
 ///|
+fn QuicDatagramDriver::validation_space(
+  self : QuicDatagramDriver,
+) -> PacketNumberSpace? {
+  // A client whose address validation is still outstanding can need a probe
+  // even after the server has acknowledged its complete Initial flight.
+  if self.role == Client &&
+    !self.peer_address_validated &&
+    !self.key_update.confirmed &&
+    (
+      self.next_initial_packet > 0L ||
+      self.next_handshake_packet > 0L ||
+      self.state() == Established
+    ) {
+    if self.handshake_send_keys is Some(_) {
+      Some(Handshake)
+    } else if self.initial_send_keys is Some(_) {
+      Some(Initial)
+    } else {
+      None
+    }
+  } else {
+    None
+  }
+}
+
+///|
+/// Next absolute deadline on the driver's monotonic clock. After an attempted
+/// poll, omit an overdue recovery alarm until an input or write changes state.
+/// The connection idle and candidate expiration alarms still apply.
+pub fn QuicDatagramDriver::next_poll_deadline(
+  self : QuicDatagramDriver,
+  last_poll_ms? : Int64,
+) -> Int64? {
+  if self.state() == Closed || self.state() == Draining {
+    return None
+  }
+  let confirmed = self.key_update.confirmed
+  let mut next = self.recovery.idle_deadline(confirmed)
+  if self.rebinding_deadline_ms is Some(expiry) &&
+    !(next is Some(earlier) && earlier <= expiry) {
+    next = Some(expiry)
+  }
+  let recovery = match self.recovery.next_loss_deadline() {
+    Some(loss) => Some(loss)
+    None =>
+      self.recovery
+      .next_probe_deadline(confirmed, self.validation_space())
+      .map(entry => entry.1)
+  }
+  if recovery is Some(alarm) &&
+    !(last_poll_ms is Some(attempt) && alarm <= attempt) &&
+    !(next is Some(earlier) && earlier <= alarm) {
+    next = Some(alarm)
+  }
+  next
+}
+
+///|
 pub fn QuicDatagramDriver::poll(
   self : QuicDatagramDriver,
   now_ms : Int64,
@@ -128,26 +186,7 @@ pub fn QuicDatagramDriver::poll(
     self.rebinding_needs_mtu_probe = false
     self.discard_path_challenges()
   }
-  // A client whose address validation is still outstanding can need a probe
-  // even after the server has acknowledged its complete Initial flight.
-  let validation_space : PacketNumberSpace? = if self.role == Client &&
-    !self.peer_address_validated &&
-    !self.key_update.confirmed &&
-    (
-      self.next_initial_packet > 0L ||
-      self.next_handshake_packet > 0L ||
-      self.state() == Established
-    ) {
-    if self.handshake_send_keys is Some(_) {
-      Some(Handshake)
-    } else if self.initial_send_keys is Some(_) {
-      Some(Initial)
-    } else {
-      None
-    }
-  } else {
-    None
-  }
+  let validation_space = self.validation_space()
   let events = match
     self.recovery.timer_events(
       now_ms,

@@ -29,6 +29,7 @@ pub struct Http3Session {
   priv mut sent_goaway : Int64?
   priv mut withheld : Map[Int64, Int32]?
   priv mut initialized : Bool
+  priv on_pending : () -> Unit
   priv mut ended : Bool
 }
 
@@ -41,6 +42,7 @@ pub fn[P] Http3Session::new(
   limits~ : @types.Limits = @types.Limits::defaults(),
   qpack_limits~ : QpackLimits = QpackLimits::defaults(),
   max_pending_writes~ : Int32 = 1024,
+  on_pending~ : () -> Unit = () => (),
 ) -> Result[Http3Session, Http3Error] {
   if max_pending_writes <= 0 {
     return Err(
@@ -64,6 +66,7 @@ pub fn[P] Http3Session::new(
     sent_goaway: None,
     withheld: None,
     initialized: false,
+    on_pending,
     ended: false,
   })
 }
@@ -220,6 +223,7 @@ pub fn Http3Session::stop_reading(
   try {
     self.discard_input(id)
     self.stops[id] = H3NoError
+    (self.on_pending)()
     Ok(())
   } catch {
     error => Err(error)
@@ -260,6 +264,7 @@ pub fn Http3Session::cancel(
   }
   try {
     self.abort_stream(id, code)
+    (self.on_pending)()
     Ok(())
   } catch {
     error => Err(error)
@@ -580,6 +585,9 @@ pub fn Http3Session::consume_body(
   match self.quic.connection().consume_stream_data(id, consumed) {
     Err(error) => return Err(error)
     Ok(_) => ()
+  }
+  if consumed > 0 {
+    (self.on_pending)()
   }
   if held == consumed {
     credit.remove(id)

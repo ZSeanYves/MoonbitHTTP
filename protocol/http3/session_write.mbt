@@ -58,6 +58,7 @@ fn Http3Session::commit(
   fin : Bool,
 ) -> Unit {
   self.writes.push(next.id, bytes, fin)
+  (self.on_pending)()
   if fin {
     self.messages.remove(next.id)
   } else {
@@ -210,6 +211,7 @@ pub fn Http3Session::send_goaway(
     self.control.admit(frame.length())
     self.control.push(self.driver.local_control_stream, frame, false)
     self.sent_goaway = Some(first_rejected)
+    (self.on_pending)()
     Ok(())
   } catch {
     error => Err(error)

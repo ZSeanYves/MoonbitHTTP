@@ -129,6 +129,7 @@ pub struct Http3ConnectionIo {
 }
 pub async fn Http3ConnectionIo::flush(Self) -> Unit
 pub async fn Http3ConnectionIo::next_events(Self) -> Array[@http3.Http3SessionAction]
+pub fn Http3ConnectionIo::poll_counts(Self) -> (Int64, Int64)
 pub async fn Http3ConnectionIo::rotate_local_connection_id(Self) -> Unit
 
 #alias(Http1ClientPhase)

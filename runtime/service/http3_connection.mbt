@@ -4,6 +4,8 @@
 /// running while application code handles a batch.
 pub struct Http3ConnectionIo {
   session : @http3.Http3Session
+  priv mut timer_polls : Int64
+  priv mut deadline_wakeups : Int64
   priv server_shutdown : ServerShutdown?
   priv authenticated_origin : @types.Endpoint?
   priv mut failure : Error?
@@ -13,6 +15,15 @@ pub struct Http3ConnectionIo {
   priv cancel_request : (Int64, @http3.H3ErrorCode) -> Unit
   priv rotate_cid : async () -> Unit
   priv flush_writes : async () -> Unit
+}
+
+///|
+/// Cumulative transport polls and polls caused by an expired clock deadline.
+/// Input, application writes and returned flow-control credit can also cause polls.
+pub fn Http3ConnectionIo::poll_counts(
+  self : Http3ConnectionIo,
+) -> (Int64, Int64) {
+  (self.timer_polls, self.deadline_wakeups)
 }
 
 ///|
@@ -73,7 +84,20 @@ pub async fn[
       "HTTP/3 shutdown", shutdown_timeout_ms,
     )
   }
-  let session = @http3.Http3Session::new(tls, limits~, qpack_limits~).unwrap_or_error()
+  let timer_changed = @cond_var.Cond()
+  let mut needs_poll = false
+  fn wake_driver() {
+    if !needs_poll {
+      needs_poll = true
+      timer_changed.signal()
+    }
+  }
+  let session = @http3.Http3Session::new(
+    tls,
+    limits~,
+    qpack_limits~,
+    on_pending=wake_driver,
+  ).unwrap_or_error()
   let events : @aqueue.Queue[Array[@http3.Http3SessionAction]] = Queue(
     kind=Blocking(1),
   )
@@ -118,7 +142,10 @@ pub async fn[
       })
     }
   }
-  async fn dispatch(actions : Array[@quic.QuicDriverAction]) -> Unit {
+  async fn dispatch_events(
+    actions : Array[@quic.QuicDriverAction],
+    from_timer : Bool,
+  ) -> Unit {
     if closing || peer_close is Some(_) {
       return
     }
@@ -130,6 +157,9 @@ pub async fn[
       send_lock.acquire()
       defer send_lock.release()
       let advanced = session.advance(actions, clock.monotonic_millis())
+      if !from_timer {
+        wake_driver()
+      }
       // Sending a datagram yields. Only a batch that observed a terminal
       // session can report its end or close the application event queue.
       let terminal = session.ended()
@@ -179,6 +209,9 @@ pub async fn[
       events.close(error~)
     }
   }
+  async fn dispatch(actions : Array[@quic.QuicDriverAction]) -> Unit {
+    dispatch_events(actions, false)
+  }
   let authenticated_origin = if packets.role() == Client &&
     options.verify_peer &&
     options.server_name is Some(host) {
@@ -191,6 +224,8 @@ pub async fn[
   }
   let io = {
     authenticated_origin,
+    timer_polls: 0L,
+    deadline_wakeups: 0L,
     failure: None,
     server_shutdown,
     cancel_request,
@@ -268,12 +303,41 @@ pub async fn[
       }
     })
     spawn_driver(async fn() {
-      while true {
-        @async.sleep(25)
-        if peer_close is Some(_) || closing {
-          return
+      let mut last_poll_ms = None
+      while peer_close is None && !closing {
+        if !needs_poll {
+          match packets.next_poll_deadline(last_poll_ms?) {
+            Some(deadline) => {
+              let wait_ms = deadline - clock.monotonic_millis()
+              if wait_ms > 0L {
+                let delay = wait_ms.min(0x7fffffffL).to_int()
+                ignore(
+                  @async.with_timeout_opt(delay, async fn() {
+                    if !needs_poll {
+                      timer_changed.wait()
+                    }
+                  }),
+                )
+                // Int-sized timers can expire before a distant Int64 deadline.
+                if !needs_poll && clock.monotonic_millis() < deadline {
+                  continue
+                }
+              }
+            }
+            None => {
+              timer_changed.wait()
+              continue
+            }
+          }
         }
-        dispatch(tls.poll(clock.monotonic_millis()).unwrap_or_error())
+        if !needs_poll {
+          io.deadline_wakeups += 1L
+        }
+        io.timer_polls += 1L
+        needs_poll = false
+        let now = clock.monotonic_millis()
+        last_poll_ms = Some(now)
+        dispatch_events(tls.poll(now).unwrap_or_error(), true)
       }
     })
     match handshake_timeout_ms {

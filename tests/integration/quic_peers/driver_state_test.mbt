@@ -493,3 +493,16 @@ test "authenticated port probe keeps the old path usable and abandons an unanswe
   assert_eq(server.endpoint(), active)
   assert_eq(server.path_status(), PathActive)
 }
+
+///|
+test "QUIC deadline tracks idle and PTO without rearming a blocked probe immediately" {
+  let endpoint = @types.Endpoint::new("udp", "127.0.0.1", 9000).unwrap()
+  let (_, server) = established_driver_pair(endpoint, endpoint)
+  let idle = server.next_poll_deadline().unwrap()
+  ignore(server.send_frames(Application, [Ping], 1L).unwrap())
+  let pto = server.next_poll_deadline().unwrap()
+  assert_true(pto < idle && pto > 1L)
+  assert_true(server.next_poll_deadline(last_poll_ms=pto).unwrap() > pto)
+  ignore(server.poll(pto).unwrap())
+  assert_true(server.next_poll_deadline().unwrap() > pto)
+}

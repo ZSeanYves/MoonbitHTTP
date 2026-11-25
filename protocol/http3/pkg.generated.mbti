@@ -311,7 +311,7 @@ pub fn Http3Session::consume_body(Self, Int64, Int32) -> Result[Unit, @quic.Quic
 pub fn Http3Session::defer_body_credit(Self) -> Unit
 pub fn Http3Session::ended(Self) -> Bool
 pub fn Http3Session::finish(Self, Int64) -> Result[Unit, Http3Error]
-pub fn[P] Http3Session::new(@quic.QuicTlsDriver[P], limits? : @types.Limits, qpack_limits? : QpackLimits, max_pending_writes? : Int32) -> Result[Self, Http3Error]
+pub fn[P] Http3Session::new(@quic.QuicTlsDriver[P], limits? : @types.Limits, qpack_limits? : QpackLimits, max_pending_writes? : Int32, on_pending? : () -> Unit) -> Result[Self, Http3Error]
 pub fn Http3Session::peer_goaway(Self) -> Int64?
 pub fn Http3Session::send_data(Self, Int64, Bytes, fin? : Bool) -> Result[Unit, Http3Error]
 pub fn Http3Session::send_goaway(Self, Int64) -> Result[Unit, Http3Error]
