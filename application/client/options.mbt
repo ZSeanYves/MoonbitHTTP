@@ -235,9 +235,6 @@ pub(all) struct RequestOptions {
   timeouts : ClientTimeouts
   redirect : RedirectPolicy
   retry : RetryPolicy
-  body_replayability : BodyReplayability
-  explicitly_idempotent : Bool
-  allow_early_data : Bool
 }
 
 ///|
@@ -247,9 +244,6 @@ pub fn RequestOptions::defaults() -> RequestOptions {
     timeouts: ClientTimeouts::defaults(),
     redirect: RedirectPolicy::disabled(),
     retry: RetryPolicy::disabled(),
-    body_replayability: ReplayNotRequired,
-    explicitly_idempotent: false,
-    allow_early_data: false,
   }
 }
 
@@ -272,17 +266,6 @@ pub fn RequestOptions::validate(
   if self.redirect.enabled && self.redirect.max_redirects < 1 {
     return Err(
       ClientRedirect(RedirectLimitExceeded(self.redirect.max_redirects)),
-    )
-  }
-  if self.allow_early_data &&
-    (
-      self.body_replayability == NonReplayableBody ||
-      !self.explicitly_idempotent
-    ) {
-    return Err(
-      ClientInvalidOptions(
-        "early data requires replayable, explicitly idempotent requests",
-      ),
     )
   }
   Ok(())

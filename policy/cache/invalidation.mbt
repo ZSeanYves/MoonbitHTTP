@@ -16,6 +16,7 @@ pub fn HttpCache::invalidate(
     Ok(value) => value
     Err(error) => return Err(error)
   }
+  self.discard_pending(key)
   let mut index = self.entries.length() - 1
   while index >= 0 {
     if self.entries[index].key == key {
@@ -78,6 +79,11 @@ pub fn HttpCache::invalidate_response(
   request : @types.Request[Unit],
   response : @types.Response[Unit],
 ) -> Result[Unit, CacheError] {
+  if request.http_method is (Get | Head | Options | Trace) ||
+    response.status < 200 ||
+    response.status >= 400 {
+    return Ok(())
+  }
   match request.uri.validate() {
     Ok(_) => ()
     Err(_) => return Err(InvalidRequest)
@@ -114,6 +120,7 @@ pub fn HttpCache::invalidate_response(
     }
   }
   for key in keys {
+    self.discard_pending(key)
     let mut index = self.entries.length() - 1
     while index >= 0 {
       if self.entries[index].key == key {

@@ -3,10 +3,9 @@ import {
   "moonbitlang/core/async/socket",
   "moonbitlang/core/encoding/utf8",
   "ZSeanYves/http/adapter/native/client",
-  "ZSeanYves/http/adapter/native/tls" @tls_native,
-  "ZSeanYves/http/adapter/native/transport" @transport_native,
   "ZSeanYves/http/application/client" @client_api,
   "ZSeanYves/http/core/types",
+  "ZSeanYves/http/core/body",
   "ZSeanYves/http/runtime/transport",
 } for "test"
 

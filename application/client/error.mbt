@@ -52,5 +52,7 @@ pub(all) suberror ClientError {
   ClientConnection(@service.Http1ClientError)
   ClientHttp1(@http1.Http1Error)
   ClientHttp2(@http2.H2ProtocolError)
+  ClientHttp3(@service.Http3ClientError)
+  ClientH3Rejected(Int64)
   ClientProtocol(String)
 }

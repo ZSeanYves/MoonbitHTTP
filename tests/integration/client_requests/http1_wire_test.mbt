@@ -97,7 +97,7 @@ async test "HTTP/1 follows a POST with a GET at the normalized absolute Location
   let resolver = @transport.StaticResolver::new([
     ("origin.test", [@types.IpAddress::parse("192.0.2.10").unwrap()]),
   ])
-  let client = @client.Http1Client::from_capabilities(
+  let pool = @client.Http1PooledRoundTripper::from_capabilities(
     connector,
     resolver,
     @transport.UnsupportedProvider::new(),
@@ -108,23 +108,41 @@ async test "HTTP/1 follows a POST with a GET at the normalized absolute Location
       redirect: @client.RedirectPolicy::limited().unwrap(),
     },
   ).unwrap()
-  defer client.close()
-  let request = pooled_request(
-    "http://origin.test/form",
-    @types.HeaderMap::new(),
-  )
-  let response = client
-    .send({ ..request, http_method: Post, })
-    .unwrap_or_error()
-  assert_eq(response.status, 200)
-  assert_eq(response.body, b"ok")
-  assert_eq(connector.writes.length(), 2)
-  assert_true(
-    @utf8.decode_lossy(connector.writes[0]).has_prefix(
-      "POST /form HTTP/1.1\r\n",
-    ),
-  )
-  assert_true(
-    @utf8.decode_lossy(connector.writes[1]).has_prefix("GET /form HTTP/1.1\r\n"),
+  defer pool.close()
+  @client.with_client(
+    async fn(client) {
+      let request = pooled_request(
+        "http://origin.test/form",
+        @types.HeaderMap::new(),
+      )
+      let response = send_bytes(client, { ..request, http_method: Post, })
+      assert_eq(response.status, 200)
+      assert_eq(response.body, b"ok")
+      assert_eq(connector.writes.length(), 2)
+      assert_true(
+        @utf8.decode_lossy(connector.writes[0]).has_prefix(
+          "POST /form HTTP/1.1\r\n",
+        ),
+      )
+      assert_true(
+        @utf8.decode_lossy(connector.writes[1]).has_prefix(
+          "GET /form HTTP/1.1\r\n",
+        ),
+      )
+    },
+    version=Http11,
+    exchange=async fn(req) {
+      pool
+      .execute_body(req)
+      .unwrap_or_error()
+      .map_body(body => @client.IncomingBody::wrap(body))
+    },
+    now_millis=() => 0L,
+    wall_clock_seconds=() => 0L,
+    authorize_redirect=(_, _) => Ok(()),
+    options={
+      ..@client.RequestOptions::defaults(),
+      redirect: @client.RedirectPolicy::limited().unwrap(),
+    },
   )
 }

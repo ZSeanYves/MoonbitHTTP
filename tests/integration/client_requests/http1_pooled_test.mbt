@@ -32,6 +32,7 @@ fn pooled_client_error_message(error : @client.ClientError) -> String {
     ClientConnection(_) => "connection state"
     ClientHttp1(_) => "HTTP/1"
     ClientHttp2(_) => "HTTP/2"
+    ClientHttp3(_) | ClientH3Rejected(_) => "HTTP/3"
     ClientProtocol(message) => "protocol: " + message
   }
 }
@@ -668,24 +669,39 @@ async test "HTTP/1 client facade owns policy, DNS, pool, clock, and shutdown" {
   let resolver = @transport.StaticResolver::new([
     ("origin.test", [@types.IpAddress::parse("192.0.2.10").unwrap()]),
   ])
-  let client = @client.Http1Client::from_capabilities(
+  let pool = @client.Http1PooledRoundTripper::from_capabilities(
     connector,
     resolver,
     @transport.UnsupportedProvider::new(),
     @transport.AllowAllPolicy::new(),
     @test_support.FixedClock::new(100L, 1700000000L),
   ).unwrap()
-  let request = pooled_request(
-    "http://origin.test/resource",
-    @types.HeaderMap::new(),
+  defer pool.close()
+  @client.with_client(
+    async fn(client) {
+      let request = pooled_request(
+        "http://origin.test/resource",
+        @types.HeaderMap::new(),
+      )
+      assert_eq(send_bytes(client, request).body, b"one")
+      assert_eq(send_bytes(client, request).body, b"two")
+      assert_eq(connector.connect_hosts, ["192.0.2.10"])
+      assert_eq(pool.connection_count(), 1)
+      assert_eq(pool.idle_connection_count(), 1)
+      assert_eq(connector.writes.length(), 2)
+    },
+    version=Http11,
+    exchange=async fn(req) {
+      pool
+      .execute_body(req)
+      .unwrap_or_error()
+      .map_body(body => @client.IncomingBody::wrap(body))
+    },
+    now_millis=() => 0L,
+    wall_clock_seconds=() => 0L,
+    authorize_redirect=(_, _) => Ok(()),
   )
-  assert_eq(client.send(request).unwrap().body, b"one")
-  assert_eq(client.send(request).unwrap().body, b"two")
-  assert_eq(connector.connect_hosts, ["192.0.2.10"])
-  assert_eq(client.connection_count(), 1)
-  assert_eq(client.idle_connection_count(), 1)
-  assert_eq(connector.writes.length(), 2)
-  client.close()
+  pool.close()
   assert_eq(connector.closes, 1)
 }
 

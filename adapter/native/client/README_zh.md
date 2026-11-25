@@ -2,39 +2,21 @@
 
 [English](README.md) · [项目说明](../../../README_zh.md)
 
-仅支持 Native。`new_http1_client` 接收解析器、网络策略、时钟和 TLS 提供方，构造可复用的 HTTP/1.0 和 HTTP/1.1 客户端。可在多个请求之间共享，使用结束时调用 `close`。HTTP/2 和 HTTP/3 可分别用 `with_http2_pool` 和 `with_http3_pool` 在作用域内共享多路复用连接。
-
-在 `moon.pkg` 中导入
+在 `with_client` 中显式选择 HTTP 版本和网络策略。工厂提供 DNS、TCP 或 UDP、TLS 及本机时钟。回调中可重复或并发使用同一个客户端。
 
 ```moonbit
-import {
-  "ZSeanYves/http/adapter/native/client" @native_client,
-  "ZSeanYves/http/adapter/native/tls" @native_tls,
-  "ZSeanYves/http/adapter/native/transport" @native_transport,
-  "ZSeanYves/http/runtime/transport",
-  "ZSeanYves/http/application/client",
-}
-
-supported_targets = "+native"
-```
-
-将函数放入调用方包的 `.mbt` 文件中。
-
-```moonbit
-pub fn[P : @transport.NetworkPolicy] new_client(
-  policy : P,
-) -> Result[@client.Http1Client, @client.ClientError] {
-  @native_client.new_http1_client(
-    @native_transport.NativeResolver::new(),
-    policy,
-    @native_transport.NativeClock::new(),
-    @native_tls.NativeTlsProvider::new(),
+pub async fn get(uri : @types.Uri) -> Bytes {
+  @native_client.with_client(
+    async fn(client) {
+      let response = client.send(client.request(Get, uri, @client.Upload::bytes(b"")))
+      @body.collect(response.body, max_bytes=1024 * 1024).0
+    },
+    version=Http11,
+    policy=@transport.AllowAllPolicy::new(),
   )
 }
 ```
 
-## HTTP/3 连接
+示例使用 `adapter/native/client`（别名 `native_client`）、`application/client`、`core/types`、`core/body` 和 `runtime/transport`。示例策略允许所有网络访问，可传入应用自己的策略。H1 支持现有的代理模式。H2 的 HTTPS 连接需要协商 h2，明文使用先验知识。H3 使用已验证的 HTTPS 源站和 QUIC TLS。回调退出时释放未读响应和连接池。
 
-单个 HTTPS 源站使用 `with_http3_client_connection`，多个源站使用 `with_http3_pool`。上传完成前即可收到响应，应在作用域内读完或取消。UDP 对端使用域名时传入 `resolver=Some(resolver)`，并将 HTTPS 源站的主机名传给 `TlsOptions::for_quic`。逻辑端口与 UDP 端口不同时设置 `origin_port`。握手中和排空中的连接均计入池的 `max_connections`，收到 GOAWAY 后由应用决定是否重新发送请求。
-
-使用工厂返回的客户端发送请求，见 [HTTP/1.1 请求示例](../../../application/client/README_zh.md)。
+高级调用方仍可使用 `with_http2_pool`、`with_http3_pool` 和 `with_http3_client_connection` 选择专属参数或直接管理协议交换。

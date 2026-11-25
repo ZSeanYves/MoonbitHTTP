@@ -1,6 +1,8 @@
 ///|
 pub struct HttpCache {
   entries : Array[CacheEntry]
+  priv pending : Array[CacheFill]
+  priv mut pending_bytes : Int32
   config : CacheConfig
   mut total_bytes : Int32
   mut next_order : Int64
@@ -13,6 +15,7 @@ struct CacheEntry {
   vary_signature : String
   response : @types.Response[Unit]
   body : Bytes
+  trailers : @types.HeaderMap?
   date_seconds : Int64
   stored_at : Int64
   initial_age : Int64
@@ -33,7 +36,15 @@ pub fn HttpCache::new(
   config~ : CacheConfig = CacheConfig::defaults(),
 ) -> Result[HttpCache, CacheError] {
   match config.validate() {
-    Ok(_) => Ok({ entries: [], config, total_bytes: 0, next_order: 0L, })
+    Ok(_) =>
+      Ok({
+        entries: [],
+        pending: [],
+        pending_bytes: 0,
+        config,
+        total_bytes: 0,
+        next_order: 0L,
+      })
     Err(error) => Err(error)
   }
 }
@@ -50,6 +61,9 @@ pub fn HttpCache::total_bytes(self : HttpCache) -> Int32 {
 
 ///|
 pub fn HttpCache::clear(self : HttpCache) -> Unit {
+  for fill in self.pending.copy() {
+    fill.discard()
+  }
   self.entries.clear()
   self.total_bytes = 0
 }
@@ -234,9 +248,9 @@ fn cache_status_default_cacheable(status : Int32) -> Bool {
 }
 
 ///|
-fn cache_metadata_size(response : @types.Response[Unit]) -> Int32 {
+fn cache_metadata_size(headers : @types.HeaderMap) -> Int32 {
   let mut total = 0
-  for field in response.headers.fields() {
+  for field in headers.fields() {
     total += field.name.value.length() + field.value.bytes.length() + 4
   }
   total
@@ -311,6 +325,11 @@ fn cache_entry_hit(
       body: (),
     },
     body,
+    trailers: if request.http_method == Head {
+      None
+    } else {
+      entry.trailers.map(h => h.copy())
+    },
     age_seconds: age.max(0L),
     freshness_lifetime: entry.freshness_lifetime,
     stale_seconds: stale.max(0L),
@@ -417,6 +436,7 @@ pub fn HttpCache::store(
   response : @types.Response[Unit],
   body : Bytes,
   now_seconds : Int64,
+  trailers~ : @types.HeaderMap? = None,
 ) -> Result[CacheStoreOutcome, CacheError] {
   // This cache owns complete GET representations only. A partial/bodyless
   // response must not replace a full representation under the same URI key.
@@ -470,7 +490,10 @@ pub fn HttpCache::store(
     return Ok(CacheNotStored(NotCacheable("private response in shared cache")))
   }
   if !self.config.allow_set_cookie &&
-    response.headers.get_string("set-cookie") is Some(_) {
+    (
+      response.headers.get_string("set-cookie") is Some(_) ||
+      (trailers is Some(t) && t.get_string("set-cookie") is Some(_))
+    ) {
     return Ok(
       CacheNotStored(NotCacheable("set-cookie is not cacheable by policy")),
     )
@@ -528,7 +551,8 @@ pub fn HttpCache::store(
     )
   }
   let copied_response = cache_clone_response(response)
-  let metadata_size = cache_metadata_size(copied_response)
+  let metadata_size = cache_metadata_size(copied_response.headers) +
+    trailers.map(cache_metadata_size).unwrap_or(0)
   if metadata_size > self.config.limits.max_metadata_bytes {
     return Ok(CacheNotStored(EntryTooLarge(metadata_size)))
   }
@@ -542,6 +566,7 @@ pub fn HttpCache::store(
     vary,
     vary_signature,
     response: copied_response,
+    trailers: trailers.map(h => h.copy()),
     body,
     date_seconds,
     stored_at: now_seconds,
@@ -593,6 +618,7 @@ pub fn HttpCache::lookup(
   self : HttpCache,
   request : @types.Request[Unit],
   now_seconds : Int64,
+  unknown_authorization~ : Bool = false,
 ) -> Result[CacheLookup, CacheError] {
   let request_control = match
     cache_request_control(request, self.config.limits.max_directives) {
@@ -620,7 +646,8 @@ pub fn HttpCache::lookup(
       },
     )
   }
-  guard self.matching_entry(key, request.headers) is Some(entry) else {
+  guard self.matching_entry(key, request.headers) is Some(entry) &&
+    !(unknown_authorization && entry.vary.contains("authorization")) else {
     if request_control.only_if_cached {
       return Ok(OnlyIfCachedMiss)
     }

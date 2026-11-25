@@ -135,18 +135,3 @@ pub extend PoolLease with Eq::{equal, not_equal}
 
 ///|
 pub extend PoolLease with @debug.Debug::{to_repr}
-
-///|
-pub extend ClosureRoundTripper with ByteRoundTripper::{execute}
-
-///|
-pub extend Http1PooledRoundTripper with StreamingRoundTripper::{execute_stream}
-
-///|
-pub extend Http1PooledRoundTripper with ByteRoundTripper::{execute}
-
-///|
-pub extend Http2Client with StreamingRoundTripper::{execute_stream}
-
-///|
-pub extend Http2Client with ByteRoundTripper::{execute}

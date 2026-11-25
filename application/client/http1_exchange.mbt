@@ -51,10 +51,10 @@ async fn[T] Http1PooledRoundTripper::exchange_result(
 }
 
 ///|
-pub impl StreamingRoundTripper for Http1PooledRoundTripper with fn execute_stream(
-  self,
-  request,
-) {
+pub async fn Http1PooledRoundTripper::execute_stream(
+  self : Http1PooledRoundTripper,
+  request : @types.Request[Bytes],
+) -> Result[@types.Response[@body.BodyStream], ClientError] {
   self.execute_body(request.map_body(fn(bytes) { @body.FullBody::new(bytes) }))
 }
 
@@ -124,11 +124,11 @@ pub async fn[B : @body.Body] Http1PooledRoundTripper::execute_body(
 }
 
 ///|
-pub impl ByteRoundTripper for Http1PooledRoundTripper with fn execute(
-  self,
-  request,
-) {
-  let response = match StreamingRoundTripper::execute_stream(self, request) {
+pub async fn Http1PooledRoundTripper::execute(
+  self : Http1PooledRoundTripper,
+  request : @types.Request[Bytes],
+) -> Result[@types.Response[Bytes], ClientError] {
+  let response = match self.execute_stream(request) {
     Ok(value) => value
     Err(error) => return Err(error)
   }

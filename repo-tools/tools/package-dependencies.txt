@@ -173,6 +173,7 @@ adapter/native/tls main internal/packet_crypto
 application/client main internal/async_support
 examples/cmd/smoke_server main runtime/service
 tests/integration/http_service test core/types
+tests/integration/native_client test core/body
 tests/integration/native_server test core/body
 tests/integration/native_tls test protocol/tls
 adapter/native/transport main runtime/transport
@@ -233,7 +234,6 @@ tests/integration/client_requests test tests/support
 tests/integration/http_service test adapter/callback
 tests/integration/native_server test runtime/service
 tests/integration/native_tls test adapter/native/tls
-examples/cmd/streaming_client main adapter/native/tls
 examples/cmd/streaming_client main application/client
 tests/blackbox/native_tls_api test adapter/native/tls
 tests/integration/client_requests test protocol/http2
@@ -245,12 +245,12 @@ examples/cmd/h3_smoke_client main adapter/native/client
 examples/cmd/h3_smoke_server main adapter/native/server
 tests/blackbox/native_client_api test runtime/transport
 tests/blackbox/native_server_api test runtime/transport
-tests/integration/native_client test adapter/native/tls
 tests/integration/native_client test application/client
 tests/integration/native_server test adapter/native/tls
+tests/integration/native_server test application/client
 tests/integration/native_server test application/server
 examples/cmd/streaming_client main adapter/native/client
-tests/blackbox/native_client_api test adapter/native/tls
+tests/blackbox/native_client_api test application/client
 tests/integration/client_requests test runtime/transport
 tests/integration/native_tls test internal/async_support
 tests/integration/client_requests test application/client
@@ -260,16 +260,13 @@ tests/blackbox/native_transport_api test runtime/transport
 tests/integration/native_client test adapter/native/client
 tests/integration/native_server test adapter/native/client
 tests/integration/native_server test adapter/native/server
-examples/cmd/streaming_client main adapter/native/transport
 tests/blackbox/native_client_api test adapter/native/client
 tests/blackbox/native_client_api test policy/content_coding
 tests/blackbox/native_server_api test adapter/native/server
 tests/integration/server_supervisor test application/server
 tests/blackbox/content_coding_api test policy/content_coding
 tests/integration/client_requests test policy/content_coding
-tests/integration/native_client test adapter/native/transport
 tests/integration/native_server test adapter/native/transport
-tests/blackbox/native_client_api test adapter/native/transport
 tests/support/native_tls_revocation main internal/packet_crypto
 tests/integration/native_transport test adapter/native/transport
 tests/blackbox/native_transport_api test adapter/native/transport

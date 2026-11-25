@@ -172,3 +172,8 @@ pub fn[
     pool_limits~,
   )
 }
+
+///|
+fn http1_tls_defaults() -> @transport.TlsOptions {
+  { ..@transport.TlsOptions::defaults(), alpn: ["http/1.1"], }
+}

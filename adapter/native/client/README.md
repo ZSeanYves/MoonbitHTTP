@@ -2,39 +2,21 @@
 
 [中文](README_zh.md) · [Project README](../../../README.md)
 
-Native only. `new_http1_client` builds a reusable client for HTTP/1.0 and HTTP/1.1 from a resolver, network policy, clock and TLS provider. The application can share it across requests and should call `close` when finished. Use `with_http2_pool` or `with_http3_pool` to share multiplexed connections within a scope.
-
-In `moon.pkg`
+Select an HTTP version and network policy in `with_client`. The factory supplies DNS, TCP or UDP, TLS and the system clock. Reuse the client for multiple or concurrent requests within the callback.
 
 ```moonbit
-import {
-  "ZSeanYves/http/adapter/native/client" @native_client,
-  "ZSeanYves/http/adapter/native/tls" @native_tls,
-  "ZSeanYves/http/adapter/native/transport" @native_transport,
-  "ZSeanYves/http/runtime/transport",
-  "ZSeanYves/http/application/client",
-}
-
-supported_targets = "+native"
-```
-
-Add this function to a `.mbt` file in the importing package.
-
-```moonbit
-pub fn[P : @transport.NetworkPolicy] new_client(
-  policy : P,
-) -> Result[@client.Http1Client, @client.ClientError] {
-  @native_client.new_http1_client(
-    @native_transport.NativeResolver::new(),
-    policy,
-    @native_transport.NativeClock::new(),
-    @native_tls.NativeTlsProvider::new(),
+pub async fn get(uri : @types.Uri) -> Bytes {
+  @native_client.with_client(
+    async fn(client) {
+      let response = client.send(client.request(Get, uri, @client.Upload::bytes(b"")))
+      @body.collect(response.body, max_bytes=1024 * 1024).0
+    },
+    version=Http11,
+    policy=@transport.AllowAllPolicy::new(),
   )
 }
 ```
 
-## HTTP/3 connections
+The example imports `adapter/native/client` as `native_client`, `application/client`, `core/types`, `core/body` and `runtime/transport`. The example policy allows all network access. Supply your application's policy where appropriate. HTTP/1 supports forward and CONNECT proxies. HTTP/2 uses h2 ALPN over TLS or prior knowledge on cleartext connections. HTTP/3 requires an authenticated HTTPS origin. Exiting the callback releases unread responses and the pool.
 
-Use `with_http3_client_connection` for a single HTTPS origin or `with_http3_pool` for multiple origins. A response can arrive before the upload completes. Read or cancel it within the scope. Pass `resolver=Some(resolver)` for a named UDP peer and use the HTTPS hostname in `TlsOptions::for_quic`. Use `origin_port` when the logical port differs from the UDP port. The pool counts handshakes and draining connections toward `max_connections` and leaves replay decisions after GOAWAY to the application.
-
-For an example using the returned client, see [sending an HTTP/1.1 request](../../../application/client/README.md).
+Use `with_http2_pool`, `with_http3_pool` or `with_http3_client_connection` for protocol-specific tuning and direct exchanges.

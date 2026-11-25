@@ -87,9 +87,17 @@ pub fn CacheControl::to_repr(Self) -> @debug.Repr
 
 type CacheEntry
 
+pub struct CacheFill {
+  // private fields
+}
+pub fn CacheFill::append(Self, Bytes) -> Unit
+pub fn CacheFill::commit(Self, @types.Response[Unit], @types.HeaderMap?, Int64) -> Unit
+pub fn CacheFill::discard(Self) -> Unit
+
 pub(all) struct CacheHit {
   response : @types.Response[Unit]
   body : Bytes
+  trailers : @types.HeaderMap?
   age_seconds : Int64
   freshness_lifetime : Int64
   stale_seconds : Int64
@@ -147,15 +155,17 @@ pub struct HttpCache {
   config : CacheConfig
   mut total_bytes : Int32
   mut next_order : Int64
+  // private fields
 }
+pub fn HttpCache::begin_fill(Self, @types.Request[Unit]) -> CacheFill?
 pub fn HttpCache::clear(Self) -> Unit
 pub fn HttpCache::invalidate(Self, @types.Request[Unit]) -> Result[Unit, CacheError]
 pub fn HttpCache::invalidate_response(Self, @types.Request[Unit], @types.Response[Unit]) -> Result[Unit, CacheError]
 pub fn HttpCache::len(Self) -> Int32
-pub fn HttpCache::lookup(Self, @types.Request[Unit], Int64) -> Result[CacheLookup, CacheError]
+pub fn HttpCache::lookup(Self, @types.Request[Unit], Int64, unknown_authorization? : Bool) -> Result[CacheLookup, CacheError]
 pub fn HttpCache::new(config? : CacheConfig) -> Result[Self, CacheError]
 pub fn HttpCache::revalidate(Self, @types.Request[Unit], @types.Response[Unit], Int64) -> Result[CacheHit, CacheError]
-pub fn HttpCache::store(Self, @types.Request[Unit], @types.Response[Unit], Bytes, Int64) -> Result[CacheStoreOutcome, CacheError]
+pub fn HttpCache::store(Self, @types.Request[Unit], @types.Response[Unit], Bytes, Int64, trailers? : @types.HeaderMap?) -> Result[CacheStoreOutcome, CacheError]
 pub fn HttpCache::total_bytes(Self) -> Int32
 
 // Type aliases

@@ -1,6 +1,11 @@
 import {
+  "moonbitlang/core/async",
   "ZSeanYves/http/application/client",
   "ZSeanYves/http/core/types",
 } for "test"
 
 supported_targets = "js+native+wasm+wasm-gc"
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/async" ],
+)

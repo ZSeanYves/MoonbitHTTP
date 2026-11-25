@@ -1,0 +1,144 @@
+///|
+/// Use one reusable policy client for the selected protocol within the callback.
+pub async fn[P : @transport.NetworkPolicy, X] with_client(
+  run : async (@client_api.Client) -> X,
+  version~ : @types.Version,
+  policy~ : P,
+  options~ : @client_api.RequestOptions = @client_api.RequestOptions::defaults(),
+  tls? : @transport.TlsOptions,
+  proxy~ : @client_api.ProxyConfig = @client_api.ProxyConfig::direct(),
+  proxy_tls~ : @transport.TlsOptions = {
+    ..@transport.TlsOptions::defaults(),
+    alpn: ["http/1.1"],
+  },
+  max_connections~ : Int32 = 32,
+  cache_enabled~ : Bool = false,
+  content_decoding~ : Bool = false,
+  content_coding_limits~ : @content_coding.ContentCodingLimits = @content_coding.ContentCodingLimits::defaults(),
+) -> X {
+  if max_connections < 1 {
+    raise @client_api.ClientError::ClientInvalidOptions("invalid pool size")
+  }
+  if version is (Http2 | Http3) && proxy.mode != Direct {
+    raise @client_api.ClientError::ClientInvalidOptions("proxy requires HTTP/1")
+  }
+  let resolver = @transport_native.NativeResolver::new()
+  let clock = @transport_native.NativeClock::new()
+  let tls_provider = @tls_native.NativeTlsProvider::new()
+  let tls = tls.unwrap_or(
+    match version {
+      Http3 => @transport.TlsOptions::quic_defaults()
+      Http2 => { ..@transport.TlsOptions::defaults(), alpn: ["h2"], }
+      _ => { ..@transport.TlsOptions::defaults(), alpn: ["http/1.1"], }
+    },
+  )
+  let serve = async fn(exchange) {
+    @client_api.with_client(
+      run,
+      version~,
+      exchange~,
+      options~,
+      proxy~,
+      tls~,
+      cache_enabled~,
+      content_decoding~,
+      content_coding_limits~,
+      now_millis=() => clock.monotonic_millis(),
+      wall_clock_seconds=() => clock.wall_clock_seconds(),
+      authorize_redirect=(endpoint, op) => policy.authorize(endpoint, op),
+    )
+  }
+  match version {
+    Http10 | Http11 => {
+      let limits = @client_api.PoolLimits::defaults()
+      let pool = @client_api.Http1PooledRoundTripper::from_capabilities(
+        @transport_native.TcpConnector::new(),
+        resolver,
+        tls_provider,
+        policy,
+        clock,
+        options~,
+        proxy~,
+        origin_tls=tls,
+        proxy_tls~,
+        pool_limits={
+          max_total: max_connections,
+          max_idle: limits.max_idle.min(max_connections),
+        },
+      ).unwrap_or_error()
+      defer pool.close()
+      serve(async fn(request) {
+        pool
+        .execute_body(request)
+        .unwrap_or_error()
+        .map_body(body => @client_api.IncomingBody::wrap(body))
+      })
+    }
+    Http2 => {
+      let defaults = @client_api.Http2PoolOptions::defaults()
+      with_http2_pool(
+        resolver,
+        policy,
+        clock,
+        tls_provider,
+        pool => {
+          serve(async fn(request) {
+            pool
+            .execute_body(request)
+            .unwrap_or_error()
+            .map_body(body => @client_api.IncomingBody::wrap(body))
+          })
+        },
+        options={
+          max_connections,
+          tls,
+          session: {
+            ..defaults.session,
+            limits: options.limits,
+            read_timeout_ms: options.timeouts.response_body_ms,
+            write_timeout_ms: options.timeouts.request_body_ms,
+          },
+          connect_options: {
+            ..defaults.connect_options,
+            timeout_ms: options.timeouts.connect_ms,
+          },
+          resolve_options: {
+            ..defaults.resolve_options,
+            timeout_ms: options.timeouts.resolve_ms,
+          },
+          tls_timeout_ms: options.timeouts.tls_ms,
+        },
+      )
+    }
+    Http3 =>
+      with_http3_pool(
+        resolver,
+        policy,
+        pool => {
+          serve(async fn(request) {
+            let response = pool.send(request) catch {
+              @service.Http3ClientError::Goaway(id) =>
+                raise @client_api.ClientError::ClientHttp3(Goaway(id))
+              @service.Http3ClientError::PeerReset(id, code) if code ==
+                @http3.H3ErrorCode::H3RequestRejected.wire_value() =>
+                raise @client_api.ClientError::ClientH3Rejected(id)
+              @service.Http3ClientError::PeerReset(id, code) =>
+                raise @client_api.ClientError::ClientHttp3(PeerReset(id, code))
+              @http3.Http3Error::Http3StreamError(id, H3RequestRejected, _) =>
+                raise @client_api.ClientError::ClientH3Rejected(id)
+              error => raise error
+            }
+            response.map_body(body => @client_api.IncomingBody::wrap(body))
+          })
+        },
+        tls~,
+        max_connections~,
+        limits=options.limits,
+        resolve_options={
+          ..@transport.ResolveOptions::defaults(),
+          timeout_ms: options.timeouts.resolve_ms,
+        },
+        handshake_timeout_ms=options.timeouts.tls_ms.unwrap_or(10000),
+      )
+  }
+}

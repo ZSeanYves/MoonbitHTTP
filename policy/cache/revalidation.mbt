@@ -118,7 +118,14 @@ pub fn HttpCache::revalidate(
   // A conditional HEAD can refresh an existing GET body, but must not create
   // a bodyless GET entry through the ordinary store API.
   let storage_request = { ..request, http_method: Get, }
-  match self.store(storage_request, merged, old.body, now_seconds) {
+  match
+    self.store(
+      storage_request,
+      merged,
+      old.body,
+      now_seconds,
+      trailers=old.trailers,
+    ) {
     Ok(CacheStored | CacheReplaced) => ()
     Ok(CacheNotStored(reason)) => return Err(reason)
     Err(error) => return Err(error)

@@ -29,16 +29,19 @@ pub async fn[B : @body.Body] Http2Client::execute_body(
 }
 
 ///|
-pub impl StreamingRoundTripper for Http2Client with fn execute_stream(
-  self,
-  request,
-) {
+pub async fn Http2Client::execute_stream(
+  self : Http2Client,
+  request : @types.Request[Bytes],
+) -> Result[@types.Response[@body.BodyStream], ClientError] {
   self.execute_body(request.map_body(fn(bytes) { @body.FullBody::new(bytes) }))
 }
 
 ///|
-pub impl ByteRoundTripper for Http2Client with fn execute(self, request) {
-  let response = match StreamingRoundTripper::execute_stream(self, request) {
+pub async fn Http2Client::execute(
+  self : Http2Client,
+  request : @types.Request[Bytes],
+) -> Result[@types.Response[Bytes], ClientError] {
+  let response = match self.execute_stream(request) {
     Ok(value) => value
     Err(error) => return Err(error)
   }

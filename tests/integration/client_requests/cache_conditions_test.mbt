@@ -19,54 +19,63 @@ async test "fresh conditional GET and HEAD reuse the cached validator locally" {
     )
     .unwrap(),
   )
-  let client = @client.Client::new(
+  let now = Ref(1L)
+  let exchange = byte_peer(_ => fail("unexpected upstream request"))
+  @client.with_client(
+    async fn(client) {
+      for http_method in [@types.Get, Head] {
+        let fields = @types.HeaderMap::new()
+        fields.append_string("if-none-match", "\"other\"").unwrap()
+        fields.append_string("if-none-match", "W/\"v1,fr\"").unwrap()
+        let response = send_bytes(client, {
+          ..request,
+          http_method,
+          headers: fields,
+        })
+        assert_eq(response.status, 304)
+        assert_eq(response.body, b"")
+        assert_eq(
+          response.headers.get_string("etag").unwrap().to_string_lossy(),
+          "\"v1,fr\"",
+        )
+        assert_eq(
+          response.headers.get_string("age").unwrap().to_string_lossy(),
+          "1",
+        )
+        assert_true(response.headers.get_string("content-type") is None)
+      }
+      request.headers.append_string("if-none-match", "\"v2\"").unwrap()
+      let response = send_bytes(client, request)
+      assert_eq(response.status, 200)
+      assert_eq(response.body, b"hello")
+      headers.remove(@types.HeaderName::parse("etag").unwrap())
+      ignore(
+        cache
+        .store(
+          request.map_body(_ => ()),
+          { status: 200, version: Http11, headers, body: (), },
+          b"updated",
+          2L,
+        )
+        .unwrap(),
+      )
+      let wildcard = @types.HeaderMap::new()
+      wildcard.append_string("if-none-match", "*").unwrap()
+      assert_eq(
+        ({
+          now.val = 3L
+          send_bytes(client, { ..request, headers: wildcard, })
+        }).status,
+        304,
+      )
+    },
+    exchange~,
+    version=Http11,
+    wall_clock_seconds=() => now.val,
     cache~,
     cache_enabled=true,
     authorize_redirect=(_, _) => Ok(()),
     now_millis=() => 0L,
-  ).unwrap()
-  let executor = @client.ClosureRoundTripper::new(_ => {
-    fail("unexpected upstream request")
-  })
-  for http_method in [@types.Get, Head] {
-    let fields = @types.HeaderMap::new()
-    fields.append_string("if-none-match", "\"other\"").unwrap()
-    fields.append_string("if-none-match", "W/\"v1,fr\"").unwrap()
-    let response = client
-      .send(executor, { ..request, http_method, headers: fields, }, 1L)
-      .unwrap()
-    assert_eq(response.status, 304)
-    assert_eq(response.body, b"")
-    assert_eq(
-      response.headers.get_string("etag").unwrap().to_string_lossy(),
-      "\"v1,fr\"",
-    )
-    assert_eq(
-      response.headers.get_string("age").unwrap().to_string_lossy(),
-      "1",
-    )
-    assert_true(response.headers.get_string("content-type") is None)
-  }
-  request.headers.append_string("if-none-match", "\"v2\"").unwrap()
-  let response = client.send(executor, request, 1L).unwrap()
-  assert_eq(response.status, 200)
-  assert_eq(response.body, b"hello")
-  headers.remove(@types.HeaderName::parse("etag").unwrap())
-  ignore(
-    cache
-    .store(
-      request.map_body(_ => ()),
-      { status: 200, version: Http11, headers, body: (), },
-      b"updated",
-      2L,
-    )
-    .unwrap(),
-  )
-  let wildcard = @types.HeaderMap::new()
-  wildcard.append_string("if-none-match", "*").unwrap()
-  assert_eq(
-    client.send(executor, { ..request, headers: wildcard, }, 3L).unwrap().status,
-    304,
   )
 }
 
@@ -94,18 +103,9 @@ async test "redirects revalidate each resource with its own cache validator" {
         .unwrap(),
       )
     }
-    let client = @client.Client::new(
-      cache~,
-      cache_enabled=true,
-      options={
-        ..@client.RequestOptions::defaults(),
-        redirect: @client.RedirectPolicy::limited().unwrap(),
-      },
-      authorize_redirect=(_, _) => Ok(()),
-      now_millis=() => 0L,
-    ).unwrap()
+
     let seen : Array[String?] = []
-    let executor = @client.ClosureRoundTripper::new(request => {
+    let exchange = byte_peer(request => {
       seen.push(
         request.headers
         .get_string("if-none-match")
@@ -124,23 +124,38 @@ async test "redirects revalidate each resource with its own cache validator" {
         }
       }
     })
-    let response = client.send(executor, from, 1L).unwrap()
-    assert_eq(seen, [
-      Some("\"old\""),
-      if cached_destination {
-        Some("\"new\"")
-      } else {
-        None
+    @client.with_client(
+      async fn(client) {
+        let response = send_bytes(client, from)
+        assert_eq(seen, [
+          Some("\"old\""),
+          if cached_destination {
+            Some("\"new\"")
+          } else {
+            None
+          },
+        ])
+        assert_eq(response.status, 200)
+        assert_eq(
+          response.body,
+          if cached_destination {
+            b"cached"
+          } else {
+            b"new"
+          },
+        )
       },
-    ])
-    assert_eq(response.status, 200)
-    assert_eq(
-      response.body,
-      if cached_destination {
-        b"cached"
-      } else {
-        b"new"
+      exchange~,
+      version=Http11,
+      wall_clock_seconds=() => 1L,
+      cache~,
+      cache_enabled=true,
+      options={
+        ..@client.RequestOptions::defaults(),
+        redirect: @client.RedirectPolicy::limited().unwrap(),
       },
+      authorize_redirect=(_, _) => Ok(()),
+      now_millis=() => 0L,
     )
   }
 }

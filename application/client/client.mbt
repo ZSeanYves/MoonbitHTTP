@@ -20,6 +20,15 @@ priv struct ClientConfig {
 ///|
 pub struct Client {
   priv config : ClientConfig
+  priv version : @types.Version
+  priv exchange : async (@types.Request[IncomingBody]) -> @types.Response[
+    IncomingBody,
+  ]
+  priv group : @async.TaskGroup
+  priv wall_clock_seconds : () -> Int64
+  priv bodies : Map[Int64, IncomingBody]
+  priv mut next_id : Int64
+  priv mut closed : Bool
 }
 
 ///|
@@ -31,7 +40,13 @@ async fn client_default_wait(delay_ms : Int64) -> Unit {
 }
 
 ///|
-pub fn Client::new(
+pub async fn[X] with_client(
+  run : async (Client) -> X,
+  version~ : @types.Version,
+  exchange~ : async (@types.Request[IncomingBody]) -> @types.Response[
+    IncomingBody,
+  ],
+  wall_clock_seconds~ : () -> Int64,
   options~ : RequestOptions = RequestOptions::defaults(),
   proxy~ : ProxyConfig = ProxyConfig::direct(),
   tls~ : @transport.TlsOptions = @transport.TlsOptions::defaults(),
@@ -46,41 +61,55 @@ pub fn Client::new(
   now_millis~ : () -> Int64,
   content_decoding~ : Bool = false,
   content_coding_limits~ : @content_coding.ContentCodingLimits = @content_coding.ContentCodingLimits::defaults(),
-) -> Result[Client, ClientError] {
-  match options.validate() {
-    Ok(_) => ()
-    Err(error) => return Err(error)
-  }
-  match proxy.validate() {
-    Ok(_) => ()
-    Err(error) => return Err(error)
+) -> X {
+  options.validate().unwrap_or_error()
+  proxy.validate().unwrap_or_error()
+  if version is (Http2 | Http3) && proxy.mode != Direct {
+    raise ClientInvalidOptions("proxy requires HTTP/1")
   }
   // The endpoint supplies SNI/hostname identity when the caller leaves
   // `server_name` unset.  Validate syntax and certificate pairing here, then
   // perform the endpoint-specific hostname check in `send`.
   match tls.validate_common() {
     Ok(_) => ()
-    Err(_) => return Err(ClientInvalidOptions("invalid TLS options"))
+    Err(_) => raise ClientInvalidOptions("invalid TLS options")
   }
   match content_coding_limits.validate() {
     Ok(_) => ()
-    Err(_) => return Err(ClientInvalidOptions("invalid content coding limits"))
+    Err(_) => raise ClientInvalidOptions("invalid content coding limits")
   }
-  Ok({
-    config: {
-      options,
-      proxy,
-      tls,
-      cookie_jar,
-      cache,
-      cache_enabled,
-      wait,
-      authorize_redirect,
-      now_millis,
-      auth: ClientAuthStore::new(),
-      content_decoding,
-      content_coding_limits,
-    },
+  let config : ClientConfig = {
+    options,
+    proxy,
+    tls,
+    cookie_jar,
+    cache,
+    cache_enabled,
+    wait,
+    authorize_redirect,
+    now_millis,
+    auth: ClientAuthStore::new(),
+    content_decoding,
+    content_coding_limits,
+  }
+  @async_support.with_group_result(async fn(group) {
+    let client : Client = {
+      config,
+      version,
+      exchange,
+      group,
+      wall_clock_seconds,
+      bodies: Map([]),
+      next_id: 0L,
+      closed: false,
+    }
+    defer {
+      client.closed = true
+      for body in client.bodies.values().to_array() {
+        body.cancel(ClientCancelled("client scope ended"))
+      }
+    }
+    run(client)
   })
 }
 
@@ -135,34 +164,129 @@ pub fn Client::cache(self : Client) -> @cache.HttpCache {
 }
 
 ///|
-pub async fn[B : ByteRoundTripper] Client::send(
+pub fn Client::request(
   self : Client,
-  executor : B,
-  request : @types.Request[Bytes],
-  now_seconds : Int64,
-) -> Result[@types.Response[Bytes], ClientError] {
-  match self.config.options.timeouts.total_ms {
-    None => self.send_inner(executor, request, now_seconds)
-    Some(timeout) => {
-      let started = (self.config.now_millis)().max(0L)
-      match
-        @async.with_timeout_opt(timeout, async fn() {
-          self.send_inner(executor, request, now_seconds)
-        }) {
-        Some(result) => result
-        None => {
-          let elapsed = ((self.config.now_millis)().max(started) - started).max(
-            timeout.to_int64(),
-          )
-          Err(
-            ClientTimeout(
-              ClientTotal,
-              elapsed,
-              client_deadline(started, timeout),
-            ),
-          )
-        }
+  http_method : @types.Method,
+  uri : @types.Uri,
+  body : Upload,
+  headers~ : @types.HeaderMap = @types.HeaderMap::new(),
+) -> @types.Request[Upload] {
+  { http_method, uri, version: self.version, headers, body, }
+}
+
+///|
+/// Send one logical request. Read or cancel the response within the client scope.
+pub async fn Client::send(
+  self : Client,
+  request : @types.Request[Upload],
+) -> @types.Response[IncomingBody] {
+  defer request.body.discard_unopened()
+  if self.closed {
+    raise ClientCancelled("client scope ended")
+  }
+  if request.version != self.version {
+    raise ClientInvalidOptions("request version differs from client version")
+  }
+  let start = (self.config.now_millis)().max(0L)
+  let timeout = self.config.options.timeouts.total_ms
+  let timeout_error = fn(ms : Int32) {
+    ClientError::ClientTimeout(
+      ClientTotal,
+      ((self.config.now_millis)() - start).max(ms.to_int64()),
+      client_deadline(start, ms),
+    )
+  }
+  let mut waiting = true
+  let mut pending : IncomingBody? = None
+  let work = self.group.spawn(
+    async fn() {
+      let response = match timeout {
+        None => self.send_inner(request)
+        Some(ms) =>
+          match
+            @async.with_timeout_opt(ms, async fn() { self.send_inner(request) }) {
+            Some(response) => response
+            None => raise timeout_error(ms)
+          }
       }
+      if !waiting || self.closed {
+        response.body.cancel(ClientCancelled("send cancelled"))
+        raise ClientCancelled("send cancelled")
+      }
+      pending = Some(response.body)
+      response
+    },
+    allow_failure=true,
+    no_wait=true,
+  )
+  errdefer {
+    waiting = false
+    work.cancel()
+    if pending is Some(body) {
+      body.cancel(@body.BodyError::Cancelled)
     }
   }
+  let response = work.wait()
+  pending = None
+  let source = response.body
+  errdefer source.cancel(@body.BodyError::Cancelled)
+  if self.closed {
+    raise ClientCancelled("client scope ended")
+  }
+  let id = self.next_id
+  self.next_id += 1L
+  let mut timer : @async.Task[Unit]? = None
+  let mut reader : @async.Task[@body.Frame?]? = None
+  let result = IncomingBody::new(
+    async fn() {
+      guard reader is None else {
+        raise ClientProtocol("concurrent reads of one response body")
+      }
+      let task = self.group.spawn(
+        async fn() { source.next_frame() },
+        no_wait=true,
+        allow_failure=true,
+      )
+      reader = Some(task)
+      defer {
+        reader = None
+      }
+      errdefer task.cancel()
+      task.wait()
+    },
+    source.size_hint(),
+    error => {
+      if reader is Some(task) {
+        task.cancel()
+      }
+      source.cancel(error)
+    },
+    done=fn() {
+      self.bodies.remove(id)
+      if timer is Some(task) {
+        task.cancel()
+      }
+    },
+  )
+  self.bodies.set(id, result)
+  if timeout is Some(ms) {
+    let remaining = (client_deadline(start, ms) -
+    (self.config.now_millis)().max(start)).min(ms.to_int64())
+    if remaining <= 0L {
+      let error = timeout_error(ms)
+      result.cancel(error)
+      raise error
+    }
+    timer = Some(
+      self.group.spawn(
+        async fn() {
+          @async.sleep(remaining.to_int())
+          timer = None
+          result.cancel(timeout_error(ms))
+        },
+        no_wait=true,
+      ),
+    )
+  }
+  response.map_body(_ => result)
 }

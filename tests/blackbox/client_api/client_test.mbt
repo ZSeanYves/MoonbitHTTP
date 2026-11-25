@@ -72,23 +72,21 @@ test "client options: defaults are finite and unsafe opt-ins are rejected" {
     timeouts: { ..options.timeouts, connect_ms: Some(0), },
   }
   assert_true(invalid_timeout.validate() is Err(ClientInvalidOptions(_)))
-  let unsafe_early_data = { ..options, allow_early_data: true, }
-  assert_true(unsafe_early_data.validate() is Err(ClientInvalidOptions(_)))
-  let safe_early_data = {
-    ..unsafe_early_data,
-    explicitly_idempotent: true,
-    body_replayability: ReplayableBody,
-  }
-  assert_eq(safe_early_data.validate(), Ok(()))
 }
 
 ///|
-test "client: default TLS options are constructible before an endpoint is known" {
-  let client = @client.Client::new(authorize_redirect=fn(_, _) { Ok(()) }, now_millis=fn() {
-    0L
-  }).unwrap()
-  assert_eq(client.tls().verify_peer, true)
-  assert_true(client.tls().server_name is None)
+async test "client: default TLS options are constructible before an endpoint is known" {
+  @client.with_client(
+    client => {
+      assert_true(client.tls().verify_peer)
+      assert_true(client.tls().server_name is None)
+    },
+    version=Http11,
+    exchange=_ => fail("unexpected request"),
+    now_millis=() => 0L,
+    wall_clock_seconds=() => 0L,
+    authorize_redirect=(_, _) => Ok(()),
+  )
 }
 
 ///|

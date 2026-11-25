@@ -7,6 +7,7 @@ import {
   "ZSeanYves/http/adapter/native/server",
   "ZSeanYves/http/adapter/native/tls" @tls_native,
   "ZSeanYves/http/adapter/native/transport" @transport_native,
+  "ZSeanYves/http/application/client" @client_api,
   "ZSeanYves/http/application/server" @server_api,
   "ZSeanYves/http/core/body",
   "ZSeanYves/http/core/types",

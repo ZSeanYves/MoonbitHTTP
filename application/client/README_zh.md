@@ -2,36 +2,19 @@
 
 [English](README.md) · [项目说明](../../README_zh.md)
 
-使用应用提供的传输能力发送请求。字节正文用 `Http1Client::send`，可配置重定向、重试和缓存。单次流式交换用 `Http1PooledRoundTripper::execute_body`，支持分块上传和尾部字段。读完或取消响应正文以释放连接池租约。
-
-在 `moon.pkg` 中导入
+用 `Client::send` 发送逻辑请求。客户端在作用域内复用认证状态、Cookie 和缓存。三个协议可以使用相同的应用代码。可移植宿主使用 `with_client` 注入单次交换函数、墙钟、单调时钟和重定向授权。Native 用户可使用[原生工厂](../../adapter/native/client/README_zh.md)。
 
 ```moonbit
-import {
-  "ZSeanYves/http/application/client",
-  "ZSeanYves/http/core/types",
-}
-
-supported_targets = "js+native+wasm+wasm-gc"
-```
-
-将函数放入调用方包的 `.mbt` 文件中。
-
-```moonbit
-pub async fn get(client : @client.Http1Client, uri : @types.Uri) -> Bytes {
-  let response = client
-    .send({
-      http_method: Get,
-      uri,
-      version: Http11,
-      headers: @types.HeaderMap::new(),
-      body: b"",
-    })
-    .unwrap_or_error()
-  response.body
+pub async fn get(client : @client.Client, uri : @types.Uri) -> Bytes {
+  let request = client.request(Get, uri, @client.Upload::bytes(b""))
+  let response = client.send(request)
+  let (data, _) = @body.collect(response.body, max_bytes=1024 * 1024)
+  data
 }
 ```
 
-## 多路复用客户端
+示例使用 `application/client`、`core/types` 和 `core/body`。用 `Upload::once(body)` 发送一次性流，用 `Upload::reopen(factory)` 提供可重新读取的同一实体。工厂仅在实际发送时调用。逐帧读取响应可保留背压和 trailers，提前退出时调用 `response.body.cancel(reason)`。
 
-HTTP/2 使用 `with_http2_pool`。HTTPS 需要协商出 `h2`，明文连接使用先验知识模式。流式交换调用 `execute_body`，有大小上限的字节响应调用 `execute`。HTTP/3 通过 `with_http3_pool` 接入已认证的连接创建函数，再用 `Http3Client::send` 发送绝对 HTTPS URI 请求。连接按源站共享，流式响应应在池的作用域内读完或取消。
+重定向、重试、认证和缓存由同一个客户端处理。缓存只提交完整表示；内容解码与 Digest 验证出错会终止读取。Digest `auth-int` 响应受正文上限约束，验证后才交付。总时限覆盖读取响应的整个生命周期。
+
+直接驱动连接时，H1、H2 使用各自池的 `execute_body`，H3 使用 `Http3Client::send`。这些入口各执行一次协议交换。

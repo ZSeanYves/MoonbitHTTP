@@ -8,7 +8,6 @@ priv struct ClientDigestAuth {
   limits : @auth.AuthLimits
   cnonce : () -> Result[String, @auth.AuthError]
   mut session : @auth.DigestSession?
-  mut algorithm : @auth.DigestAlgorithm?
 }
 
 ///|
@@ -63,25 +62,35 @@ fn client_auth_request_target(uri : @types.Uri) -> Result[String, ClientError] {
 }
 
 ///|
-fn client_auth_digest_hash(
-  algorithm : @auth.DigestAlgorithm,
-  body : Bytes,
-) -> @auth.DigestEntityHash {
-  @auth.DigestEntityHash::compute(algorithm, body)
+/// Captures the session that signed this attempt, even if credentials change during the response.
+priv struct SignedAttempt {
+  session : @auth.DigestSession
+  authorization : @auth.DigestAuthorization
 }
 
 ///|
-/// Add the configured preemptive header, returning the Digest authorization
-/// context when the request must later validate Authentication-Info.
+fn ClientAuthStore::wants_entity(
+  self : ClientAuthStore,
+  endpoint : ClientEndpoint,
+) -> Bool {
+  guard self.entries.get(endpoint.origin) is Some(Digest(auth)) &&
+    auth.session is Some(session) else {
+    return false
+  }
+  session.challenge.supports_qop(DigestAuthInt) &&
+  (auth.policy.prefer_auth_int || !session.challenge.supports_qop(DigestAuth))
+}
+
+///|
 fn ClientAuthStore::apply(
   self : ClientAuthStore,
   endpoint : ClientEndpoint,
   request_method : @types.Method,
   uri : @types.Uri,
-  body : Bytes,
+  body : Bytes?,
   headers : @types.HeaderMap,
   explicit_authorization : Bool,
-) -> Result[@auth.DigestAuthorization?, ClientError] {
+) -> Result[SignedAttempt?, ClientError] {
   let entry = match self.entries.get(endpoint.origin) {
     Some(value) => value
     None => return Ok(None)
@@ -122,10 +131,6 @@ fn ClientAuthStore::apply(
         Some(value) => value
         None => return Ok(None)
       }
-      let algorithm = match digest.algorithm {
-        Some(value) => value
-        None => return Ok(None)
-      }
       let target = match client_auth_request_target(uri) {
         Ok(value) => value
         Err(error) => return Err(error)
@@ -134,27 +139,27 @@ fn ClientAuthStore::apply(
         Ok(value) => value
         Err(error) => return Err(client_auth_error(error))
       }
-      let entity_hash = client_auth_digest_hash(algorithm, body)
+      let entity_hash = if self.wants_entity(endpoint) {
+        body.map(data => {
+          @auth.DigestEntityHash::compute(session.challenge.algorithm(), data)
+        })
+      } else {
+        None
+      }
       let authorization = match
         session.authorize(
           endpoint.origin,
           request_method,
           target,
           cnonce,
-          entity_hash=Some(entity_hash),
+          entity_hash~,
         ) {
         Ok(value) => value
         Err(error) => return Err(client_auth_error(error))
       }
       let header = authorization.header()
       match client_auth_set_header(headers, header) {
-        Ok(_) => {
-          // DigestSession mutates its nonce counter; write the value back to
-          // make the state update explicit even if Map values are copied.
-          digest.session = Some(session)
-          self.entries.set(endpoint.origin, Digest(digest))
-          Ok(Some(authorization))
-        }
+        Ok(_) => Ok(Some({ session, authorization, }))
         Err(error) => Err(error)
       }
     }
@@ -205,7 +210,6 @@ fn ClientAuthStore::handle_unauthorized(
         Ok(value) => value
         Err(error) => return Err(client_auth_error(error))
       }
-      let algorithm = challenge.algorithm()
       match digest.session {
         Some(session) => {
           if !challenge.stale() {
@@ -216,7 +220,6 @@ fn ClientAuthStore::handle_unauthorized(
             Err(error) => return Err(client_auth_error(error))
           }
           digest.session = Some(session)
-          digest.algorithm = Some(algorithm)
         }
         None => {
           let session = match
@@ -231,7 +234,6 @@ fn ClientAuthStore::handle_unauthorized(
             Err(error) => return Err(client_auth_error(error))
           }
           digest.session = Some(session)
-          digest.algorithm = Some(algorithm)
         }
       }
       self.entries.set(endpoint.origin, Digest(digest))
@@ -245,57 +247,30 @@ fn ClientAuthStore::handle_unauthorized(
 /// Validate a Digest Authentication-Info field against the exact raw response
 /// body. The body is hashed before content decoding, matching the wire entity
 /// used by the Digest exchange.
-fn ClientAuthStore::verify_response(
-  self : ClientAuthStore,
-  endpoint : ClientEndpoint,
-  authorization : @auth.DigestAuthorization?,
-  response : @types.Response[Bytes],
-) -> Result[Unit, ClientError] {
-  let authorization = match authorization {
-    Some(value) => value
-    None => return Ok(())
+fn SignedAttempt::verify(
+  self : SignedAttempt,
+  fields : Array[@types.HeaderValue],
+  raw : Bytes,
+) -> Unit raise ClientError {
+  guard !fields.is_empty() else { return }
+  guard fields.length() == 1 else {
+    raise ClientAuth(InvalidDigestAuthenticationInfo)
   }
-  let entry = match self.entries.get(endpoint.origin) {
-    Some(value) => value
-    None => return Ok(())
+  let hash = if self.authorization.qop == Some(DigestAuthInt) {
+    Some(@auth.DigestEntityHash::compute(self.authorization.algorithm, raw))
+  } else {
+    None
   }
-  let info_headers = response.headers.get_all_string("authentication-info")
-  if info_headers.is_empty() {
-    return Ok(())
-  }
-  if info_headers.length() != 1 {
-    return Err(client_auth_error(InvalidDigestAuthenticationInfo))
-  }
-  match entry {
-    Digest(digest_value) => {
-      let digest = digest_value
-      let session = match digest.session {
-        Some(value) => value
-        None =>
-          return Err(client_auth_error(DigestAuthenticationContextMismatch))
-      }
-      let algorithm = match digest.algorithm {
-        Some(value) => value
-        None =>
-          return Err(client_auth_error(DigestAuthenticationContextMismatch))
-      }
-      let entity_hash = client_auth_digest_hash(algorithm, response.body)
-      match
-        session.verify_authentication_info(
-          authorization,
-          info_headers[0],
-          response_entity_hash=Some(entity_hash),
-        ) {
-        Ok(_) => {
-          digest.session = Some(session)
-          self.entries.set(endpoint.origin, Digest(digest))
-          Ok(())
-        }
-        Err(error) => Err(client_auth_error(error))
-      }
-    }
-    _ => Ok(())
-  }
+  ignore(
+    self.session
+    .verify_authentication_info(
+      self.authorization,
+      fields[0],
+      response_entity_hash=hash,
+    )
+    .map_err(client_auth_error)
+    .unwrap_or_error(),
+  )
 }
 
 ///|
@@ -351,14 +326,7 @@ pub fn Client::set_digest_auth(
   }
   self.config.auth.entries.set(
     key,
-    Digest({
-      credentials,
-      policy,
-      limits,
-      cnonce,
-      session: None,
-      algorithm: None,
-    }),
+    Digest({ credentials, policy, limits, cnonce, session: None, }),
   )
   Ok(())
 }

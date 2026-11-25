@@ -134,6 +134,7 @@ pub(all) enum CacheLookup {
 pub(all) struct CacheHit {
   response : @types.Response[Unit]
   body : Bytes
+  trailers : @types.HeaderMap?
   age_seconds : Int64
   freshness_lifetime : Int64
   stale_seconds : Int64

@@ -2,36 +2,19 @@
 
 [中文](README_zh.md) · [Project README](../../README.md)
 
-Execute requests over transport capabilities supplied by your application. Use `Http1Client::send` for byte bodies with redirect, retry and cache policies. `Http1PooledRoundTripper::execute_body` streams a single exchange, including chunked uploads and trailers. Consume or cancel each response body to release the connection.
-
-In `moon.pkg`
+Send logical requests with `Client::send`. A scoped client shares authentication, cookies and cache across requests. Portable hosts supply a single-exchange function, wall and monotonic clocks and redirect authorization to `with_client`. Native applications can use the [native factory](../../adapter/native/client/README.md).
 
 ```moonbit
-import {
-  "ZSeanYves/http/application/client",
-  "ZSeanYves/http/core/types",
-}
-
-supported_targets = "js+native+wasm+wasm-gc"
-```
-
-Add this function to a `.mbt` file in the importing package.
-
-```moonbit
-pub async fn get(client : @client.Http1Client, uri : @types.Uri) -> Bytes {
-  let response = client
-    .send({
-      http_method: Get,
-      uri,
-      version: Http11,
-      headers: @types.HeaderMap::new(),
-      body: b"",
-    })
-    .unwrap_or_error()
-  response.body
+pub async fn get(client : @client.Client, uri : @types.Uri) -> Bytes {
+  let request = client.request(Get, uri, @client.Upload::bytes(b""))
+  let response = client.send(request)
+  let (data, _) = @body.collect(response.body, max_bytes=1024 * 1024)
+  data
 }
 ```
 
-## Multiplexed clients
+The example imports `application/client`, `core/types` and `core/body`. Use `Upload::once(body)` for a single-use stream or `Upload::reopen(factory)` to produce the same entity on each actual send. Reading frames preserves backpressure and trailers. Cancel the response body when stopping early.
 
-Use `with_http2_pool` for HTTP/2. HTTPS requires negotiated `h2`, and cleartext uses prior knowledge. Use `execute_body` for streaming or `execute` for a bounded byte response. For HTTP/3, pass an authenticated connection opener to `with_http3_pool` and send absolute HTTPS requests through `Http3Client::send`. The pool shares connections by origin. Finish reading or cancel streamed responses inside the pool scope.
+Redirects, retries, authentication and caching share one client. Cache entries commit after complete consumption. Decoding and integrity failures terminate the body. Digest `auth-int` responses are buffered up to the configured body limit and verified before delivery. The total deadline extends through response consumption.
+
+For direct protocol control, the H1 and H2 pool methods `execute_body` and the H3 pool method `Http3Client::send` execute a single exchange.

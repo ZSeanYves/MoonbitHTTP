@@ -4,6 +4,8 @@
 
 ### Breaking changes
 
+- Use `adapter/native/client.with_client` or inject a streaming exchange into `application/client.with_client`. Replace `client.send(executor, request, now)` and the HTTP/1 policy facade with `client.send(client.request(method, uri, Upload::bytes(data)))`. Use `body.collect(response.body, max_bytes=...)` for a bounded byte result. Trailers are returned separately. `Upload::once` and `Upload::reopen` carry request replayability. The unused early-data request flags were removed.
+
 - Import `adapter/callback` for callback-based transports. The `adapter/uv` package has been removed. Use the transport’s read, write and close methods to invoke the host callbacks.
 - Service clients are `Http1ClientConnection`, `Http2ClientConnection` and `Http3ClientConnection`. Use `with_http2_client_connection` or `with_http3_client_connection` for one connection and `with_http2_pool` or `with_http3_pool` for a pool. The old names were removed.
 - Use `ServerShutdown::has_started` to query shutdown, `is_h2c_upgrade` for upgrade detection and `Http1ClientTimeout(phase)` to match an HTTP/1 timeout.
