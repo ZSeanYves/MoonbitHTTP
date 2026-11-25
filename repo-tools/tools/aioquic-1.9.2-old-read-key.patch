@@ -1,0 +1,29 @@
+--- a/aioquic/quic/crypto.py
++++ b/aioquic/quic/crypto.py
+@@ -1,0 +2 @@
++from copy import copy
+@@ -181,0 +183 @@
++        self._old_recv: CryptoContext | None = None
+@@ -190,3 +192,14 @@
+-        plain_header, payload, packet_number, update_key = self.recv.decrypt_packet(
+-            packet, encrypted_offset, expected_packet_number
+-        )
++        try:
++            plain_header, payload, packet_number, update_key = self.recv.decrypt_packet(
++                packet, encrypted_offset, expected_packet_number
++            )
++        except CryptoError:
++            if self._old_recv is None:
++                raise
++            header, payload, pn, switched = self._old_recv.decrypt_packet(
++                packet, encrypted_offset, expected_packet_number
++            )
++            if switched:
++                raise
++            return header, payload, pn
++        self._old_recv = None
+@@ -232,0 +246 @@
++        self._old_recv = None
+@@ -246,0 +261,2 @@
++        if trigger == "local_update":
++            self._old_recv = copy(self.recv)

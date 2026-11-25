@@ -3,6 +3,8 @@ import {
   "moonbitlang/async@0.22.10",
   "moonbitlang/async@0.22.10/fs",
   "moonbitlang/async@0.22.10/process",
+  "moonbitlang/core/env",
+  "moonbitlang/x@0.5.9/crypto",
 }
 ----
 
@@ -15,6 +17,11 @@ async fn run(program : String, arguments : Array[String]) -> Unit {
 ///|
 async fn main {
   let directory = "_build/interop-aioquic"
+  let control = match @env.args() {
+    [_] => false
+    [_, "--old-read-key-control"] => true
+    _ => fail("usage: prepare_http3_interop.mbtx [--old-read-key-control]")
+  }
   if !@fs.exists(directory) {
     @fs.mkdir(directory, recursive=true)
   }
@@ -35,6 +42,30 @@ async fn main {
       run("git", ["-C", upstream, "fetch", "--depth", "1", "origin", "refs/tags/" + tag])
       run("git", ["-C", upstream, "switch", "--detach", "FETCH_HEAD"])
     }
+  }
+  if control {
+    let overlay = directory + "/old-read-key-control"
+    let crypto_path = overlay + "/aioquic/quic/crypto.py"
+    let (code, out, _) = @process.collect_output(python, ["-I", "-c",
+      "import aioquic, pathlib; print(pathlib.Path(aioquic.__file__).parent)"])
+    guard code == 0 else { fail("could not locate the pinned aioquic distribution") }
+    let source = out.text().trim().to_owned()
+    fn digest(bytes : Bytes) -> String { @crypto.bytes_to_hex_string(@crypto.sha256(bytes)) }
+    guard digest(@fs.read_file(source + "/quic/crypto.py").binary()) ==
+      "290ac62690970b6849970d1e1cc6384595e50d13c4d78c9a8a2d856684cf3a62" else {
+      fail("unexpected aioquic 1.9.2 crypto module")
+    }
+    if !@fs.exists(overlay) {
+      @fs.mkdir(overlay)
+      run("cp", ["-R", source, overlay + "/aioquic"])
+      run("patch", ["-s", "-p1", "-d", overlay, "-i",
+        @fs.realpath("repo-tools/tools/aioquic-1.9.2-old-read-key.patch")])
+    }
+    guard digest(@fs.read_file(crypto_path).binary()) ==
+      "95f858ffdc7ae5cc94ef0d0b8d36e2843e1badcd222be170b3a06e5dc88bbab5" else {
+      fail("unexpected old-read-key control module")
+    }
+    println("Old-read-key control: " + overlay)
   }
   println("Independent aioquic client and server examples ready")
 }

@@ -688,7 +688,18 @@ async fn key_update_evidence(directory : String, name : String, started : @bench
       let trace = @json.parse(@fs.read_file(prefix + "/" + filename).text()) catch { _ => Json::null() }
       if trace is { "traces": [{ "events": Array(rows), .. }], .. } {
         for row in rows {
-          if row is { "name": String(kind), "time": Number(time, ..), .. } &&
+          if row is { "name": String(kind), "time": Number(time, ..),
+            "data": { "header": { "packet_number": Number(number, ..), .. }, "frames": Array(frames), .. }, .. } &&
+            (kind == "quic:packet_sent" || kind == "quic:packet_received") {
+            let types : Array[String] = []
+            for frame in frames {
+              if frame is { "frame_type": String(typ), .. } &&
+                ["ack", "stream", "ping", "crypto", "handshake_done", "connection_close"].contains(typ) {
+                types.push(typ)
+              }
+            }
+            events.push({ "kind": kind, "qlog_time": time, "packet_number": number, "frame_types": types })
+          } else if row is { "name": String(kind), "time": Number(time, ..), .. } &&
             ["quic:key_updated", "quic:key_discarded", "quic:packet_lost", "quic:packet_dropped",
              "http3:frame_created", "http3:frame_parsed", "quic:alpn_information"].contains(kind) {
             events.push({ "kind": kind, "qlog_time": time })
@@ -1074,8 +1085,11 @@ async fn main {
   ignore(record(directory, "moon-version", "moon", ["version", "--all"]))
   let server_hash = file_hash(server_path)
   let source_hash = file_hash(client)
+  let crypto_module = record(directory, "peer-crypto-module", python, ["-c", "from aioquic.quic import crypto;print(crypto.__file__)"])
+  let crypto_hash = file_hash(crypto_module.trim().to_owned())
   let versions : Json = { "revision": revision.trim().to_owned(), "aioquic_revision": upstream.trim().to_owned(),
-    "openssl": openssl.trim().to_owned(), "server_sha256": server_hash, "client_source_sha256": source_hash }
+    "openssl": openssl.trim().to_owned(), "server_sha256": server_hash, "client_source_sha256": source_hash,
+    "aioquic_crypto_sha256": crypto_hash }
   @fs.write_file(directory + "/versions.public.json", versions, create_mode=CreateNew)
   ignore(record(directory, "aioquic-example-integrity", "git", [
     "-C", source, "diff", "--exit-code", "HEAD", "--", "examples",

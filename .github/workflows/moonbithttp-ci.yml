@@ -240,6 +240,12 @@ jobs:
         if: matrix.run == 1
         run: moon run repo-tools/tools/http3_interoperability.mbtx -- --key-update-runs 20 --impairment combined
 
+      - name: Compare aioquic with the previous read key retained
+        if: always() && matrix.run == 1
+        run: |
+          moon run repo-tools/tools/prepare_http3_interop.mbtx -- --old-read-key-control
+          PYTHONPATH="$PWD/_build/interop-aioquic/old-read-key-control" moon run repo-tools/tools/http3_interoperability.mbtx -- --key-update-runs 20 --impairment combined
+
       - name: Isolate the direct, loss and reorder profiles
         if: matrix.run == 2
         run: |
