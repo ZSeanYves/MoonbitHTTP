@@ -238,42 +238,49 @@ pub fn validate_http3_field_section(
           Http3StreamError(stream_id, H3MessageError, "invalid :method"),
         )
     }
-    let parsed_authority = match authority {
-      Some(value) =>
-        match @types.Authority::parse_endpoint(value) {
-          Ok(parsed) => parsed
-          Err(_) =>
-            return Err(
-              Http3StreamError(stream_id, H3MessageError, "invalid :authority"),
-            )
-        }
-      None =>
+    // Pseudo-fields precede all regular fields. For HTTP(S), Host may
+    // supply the authority itself; CONNECT still requires the pseudo-field.
+    let target = match (authority, host) {
+      (Some(value), _) | (None, Some(value)) => value
+      (None, None) =>
         return Err(
-          Http3StreamError(stream_id, H3MessageError, "missing :authority"),
+          Http3StreamError(
+            stream_id,
+            H3MessageError,
+            "missing request authority",
+          ),
         )
     }
-    match host {
-      Some(value) => {
-        let parsed_host = match @types.Authority::parse_endpoint(value) {
-          Ok(parsed) => parsed
-          Err(_) =>
-            return Err(
-              Http3StreamError(stream_id, H3MessageError, "invalid Host"),
-            )
-        }
-        if parsed_host.host != parsed_authority.host ||
-          parsed_host.port != parsed_authority.port ||
-          parsed_host.ip_literal != parsed_authority.ip_literal {
+    let parsed_authority = match @types.Authority::parse_endpoint(target) {
+      Ok(value) => value
+      Err(_) =>
+        return Err(
+          Http3StreamError(
+            stream_id,
+            H3MessageError,
+            "invalid request authority",
+          ),
+        )
+    }
+    if authority is Some(_) && host is Some(value) {
+      let parsed_host = match @types.Authority::parse_endpoint(value) {
+        Ok(parsed) => parsed
+        Err(_) =>
           return Err(
-            Http3StreamError(
-              stream_id,
-              H3MessageError,
-              "Host/:authority mismatch",
-            ),
+            Http3StreamError(stream_id, H3MessageError, "invalid Host"),
           )
-        }
       }
-      None => ()
+      if parsed_host.host != parsed_authority.host ||
+        parsed_host.port != parsed_authority.port ||
+        parsed_host.ip_literal != parsed_authority.ip_literal {
+        return Err(
+          Http3StreamError(
+            stream_id,
+            H3MessageError,
+            "Host/:authority mismatch",
+          ),
+        )
+      }
     }
     if method_value == "CONNECT" && protocol is None {
       if authority is None || scheme is Some(_) || path is Some(_) {
@@ -295,7 +302,10 @@ pub fn validate_http3_field_section(
         )
       }
     } else {
-      if scheme is None || path is None || path == Some("") || authority is None {
+      if scheme is None ||
+        path is None ||
+        path == Some("") ||
+        (http_method == Connect && authority is None) {
         return Err(
           Http3StreamError(
             stream_id,

@@ -23,6 +23,7 @@ fn h3_request(
         meth = @types.Method::parse_bytes(field.value).unwrap_or_error()
       ":authority" => authority = @utf8.decode(field.value)
       ":path" => path = @utf8.decode(field.value)
+      "host" if authority.is_empty() => authority = @utf8.decode(field.value)
       ":scheme" | "host" => ()
       ":protocol" =>
         raise @http3.Http3Error::Http3StreamError(

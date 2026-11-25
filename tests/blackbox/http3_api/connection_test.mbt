@@ -130,6 +130,23 @@ test "http3 runtime: request authority, scheme, method, path, and Host are stric
     @http3.validate_http3_field_section(0L, missing_authority, H3RequestFields)
     is Err(Http3StreamError(_, H3MessageError, _)),
   )
+  missing_authority.push(qpack_test_field("host", "example.com"))
+  assert_true(
+    @http3.validate_http3_field_section(0L, missing_authority, H3RequestFields)
+    is Ok(_),
+  )
+  valid.push(qpack_test_field("host", "example.com"))
+  assert_true(
+    @http3.validate_http3_field_section(0L, valid, H3RequestFields) is Ok(_),
+  )
+  let connect_host = [
+    qpack_test_field(":method", "CONNECT"),
+    qpack_test_field("host", "example.com:443"),
+  ]
+  assert_true(
+    @http3.validate_http3_field_section(0L, connect_host, H3RequestFields)
+    is Err(Http3StreamError(_, H3MessageError, _)),
+  )
   let invalid_authority = valid.copy()
   invalid_authority[2] = qpack_test_field(":authority", "[not-an-ip]")
   assert_true(

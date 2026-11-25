@@ -159,3 +159,38 @@ test "split Cookie reaches H2 and H3 applications as a single value" {
   ]).unwrap()
   assert_eq(response.1.get_all_string("set-cookie").length(), 2)
 }
+
+///|
+test "H3 request handler receives the validated authority from Host or pseudo-field" {
+  for pair in [(true, false), (false, true), (true, true)] {
+    let fields = [
+      @http3.QpackField::from_strings(":method", "GET").unwrap(),
+      @http3.QpackField::from_strings(":scheme", "https").unwrap(),
+      @http3.QpackField::from_strings(":path", "/item").unwrap(),
+    ]
+    if pair.0 {
+      fields.push(
+        @http3.QpackField::from_strings(":authority", "example.test").unwrap(),
+      )
+    }
+    if pair.1 {
+      fields.push(
+        @http3.QpackField::from_strings("host", "example.test").unwrap(),
+      )
+    }
+    let wire = @http3.qpack_encode_static(fields).unwrap()
+    let server = @http3.Http3Connection::new(H3Server).unwrap()
+    server.accept_request_stream(0L).unwrap()
+    guard server.receive_request_frame(0L, H3Headers(wire)).unwrap()
+      is [H3HeadersReceived(id, validated, false, false)] else {
+      fail("missing request")
+    }
+    let request = h3_request(id, validated, @body.BodyStream::new().unwrap())
+    assert_eq(request.uri.value, "/item")
+    assert_eq(request.headers.get_all_string("host").length(), 1)
+    assert_eq(
+      request.headers.get_string("host").unwrap().bytes,
+      b"example.test",
+    )
+  }
+}
