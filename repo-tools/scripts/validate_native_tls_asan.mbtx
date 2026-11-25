@@ -67,7 +67,16 @@ async fn main {
       "LSAN_OPTIONS": "exitcode=23",
     })
     let diagnostic = @fs.read_file(evidence + "/stderr-\{repetition}.log").text()
-    if code != 0 { println(diagnostic); fail("Native TLS sanitizer failed on iteration \{repetition}: \{evidence}") }
+    if code != 0 {
+      let output = @fs.read_file(evidence + "/stdout-\{repetition}.log").text()
+      for line in output.split("\n") {
+        if line.contains(" failed:") || line.has_prefix("Total tests:") {
+          println(line)
+        }
+      }
+      println(diagnostic)
+      fail("Native TLS sanitizer failed on iteration \{repetition}: \{evidence}")
+    }
     let ownership = diagnostic.split("\n").filter(line => line.has_prefix("HTTP TLS live at exit:")).to_array()
     guard !ownership.is_empty() && ownership.iter().all(line => line == "HTTP TLS live at exit: SSL_CTX=0 SSL=0 BIO=0 QUIC-owner=0") else {
       fail("Missing or unbalanced native handle counts: \{evidence}")
