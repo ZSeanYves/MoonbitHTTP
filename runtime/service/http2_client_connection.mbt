@@ -207,7 +207,76 @@ async fn Http2ClientState::admit_stream(
 }
 
 ///|
-#warnings("-unnecessary_annotation")
+async fn[B] Http2ClientState::send_request_headers(
+  self : Http2ClientState,
+  request : @types.Request[B],
+  hint : Int32?,
+) -> (H2ClientStream, Int32?) {
+  let exact_zero = hint == Some(0)
+  let stream_id = self.admit_stream(exact_zero)
+  let credit = H2ReceiveCredit::new()
+  let body = match
+    @body.BodyStream::new(
+      capacity=self.config.body_queue_capacity,
+      on_data_consumed=async fn(amount) {
+        errdefer self.cancel_stream(
+          stream_id,
+          @http2.H2ProtocolError::StreamError(
+            stream_id,
+            Cancel,
+            "response body consumption callback failed",
+          ),
+        )
+        self.release_consumed_capacity(stream_id, credit, amount)
+      },
+      on_cancel=fn(error) {
+        if credit.retired {
+          return
+        }
+        self.discard_capacity(credit.retire())
+        self.cancel_stream(stream_id, error)
+      },
+    ) {
+    Ok(value) => value
+    Err(error) => {
+      ignore(self.runtime.reset_stream(stream_id))
+      self.admission.signal()
+      raise error
+    }
+  }
+  let stream : H2ClientStream = {
+    id: stream_id,
+    head: Queue(kind=Blocking(1)),
+    body,
+    credit,
+    window_signal: Cond(),
+    request_method: request.http_method,
+    response_body_bytes: 0,
+    expected_response_bytes: None,
+    response_body_allowed: true,
+    response_started: false,
+    request_finished: exact_zero,
+    response_ended: false,
+    response_finished: false,
+    released: false,
+    upload: None,
+  }
+  self.streams.set(stream_id, stream)
+  // Before HEADERS is handed to the writer there is no peer stream to reset.
+  // A partial wire write already closes the connection in write_locked.
+  errdefer (if !stream.released {
+    ignore(self.runtime.reset_stream(stream_id))
+    self.fail_stream(stream, @body.BodyError::Cancelled)
+  })
+  let expected = h2_outgoing_length(stream_id, request.headers, hint)
+  self.write_headers(() => {
+    @http2.encode_request_headers(self.encoder, stream_id, request, exact_zero)
+  })
+  (stream, expected)
+}
+
+///|
+/// The RequestHeaders phase covers stream admission through the HEADERS write.
 pub async fn[B : @body.Body] Http2ClientConnection::send(
   self : Http2ClientConnection,
   request : @types.Request[B],
@@ -220,80 +289,14 @@ pub async fn[B : @body.Body] Http2ClientConnection::send(
     request.body.cancel(@body.BodyError::Cancelled)
   })
   let hint = request.body.size_hint().exact_size()
-  let exact_zero = hint == Some(0)
-  let stream_id = self.shared.admit_stream(exact_zero)
-  let credit = H2ReceiveCredit::new()
-  let body = match
-    @body.BodyStream::new(
-      capacity=self.shared.config.body_queue_capacity,
-      on_data_consumed=async fn(amount) {
-        errdefer self.shared.cancel_stream(
-          stream_id,
-          @http2.H2ProtocolError::StreamError(
-            stream_id,
-            Cancel,
-            "response body consumption callback failed",
-          ),
-        )
-        self.shared.release_consumed_capacity(stream_id, credit, amount)
-      },
-      on_cancel=fn(error) {
-        if credit.retired {
-          return
-        }
-        self.shared.discard_capacity(credit.retire())
-        self.shared.cancel_stream(stream_id, error)
-      },
-    ) {
-    Ok(value) => value
-    Err(error) => {
-      ignore(self.shared.runtime.reset_stream(stream_id))
-      self.shared.admission.signal()
-      raise error
-    }
-  }
-  let stream : H2ClientStream = {
-    id: stream_id,
-    head: Queue(kind=Blocking(1)),
-    body,
-    credit,
-    window_signal: @cond_var.Cond(),
-    request_method: request.http_method,
-    response_body_bytes: 0,
-    expected_response_bytes: None,
-    response_body_allowed: true,
-    response_started: false,
-    request_finished: exact_zero,
-    response_ended: false,
-    response_finished: false,
-    released: false,
-    upload: None,
-  }
-  self.shared.streams.set(stream_id, stream)
-  // Before HEADERS is handed to the writer there is no peer stream to reset.
-  // A partial wire write already closes the connection in write_locked.
-  let expected = {
-    errdefer (if !stream.released {
-      ignore(self.shared.runtime.reset_stream(stream_id))
-      self.shared.fail_stream(stream, @body.BodyError::Cancelled)
-    })
-    let expected = h2_outgoing_length(stream_id, request.headers, hint)
-    h2_wait(RequestHeaders, timeout, async fn() {
-      self.shared.write_headers(fn() {
-        @http2.encode_request_headers(
-          self.shared.encoder,
-          stream_id,
-          request,
-          exact_zero,
-        )
-      })
-    })
-    expected
-  }
+  let (stream, expected) = h2_wait(RequestHeaders, timeout, () => {
+    self.shared.send_request_headers(request, hint)
+  })
+  let body = stream.body
   // If the caller leaves while waiting for headers, use the same cancellation
   // path as an abandoned response body, including its asynchronous wire reset.
   errdefer body.cancel(@body.BodyError::Cancelled)
-  if !exact_zero {
+  if hint != Some(0) {
     let producer = async fn() {
       send_h2_request_body(self.shared, stream, request.body, expected, timeout)
     }

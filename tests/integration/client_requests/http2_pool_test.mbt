@@ -3,6 +3,7 @@ struct H2PoolPeer {
   replies : @aqueue.Queue[Bytes]
   ack : @aqueue.Queue[Unit]
   mut closed : Bool
+  stream_ids : Array[Int32]
   authorities : Array[Bytes]
 }
 
@@ -38,6 +39,7 @@ impl @transport.StreamConnector for H2PoolConnector with fn connect(
     replies: Queue(kind=Unbounded),
     ack: Queue(kind=Unbounded),
     closed: false,
+    stream_ids: [],
     authorities: [],
   }
   self.peers.push(peer)
@@ -74,6 +76,7 @@ impl @transport.StreamConnector for H2PoolConnector with fn connect(
           if frame.header.typ != @http2.H2_FRAME_HEADERS {
             continue
           }
+          peer.stream_ids.push(frame.header.stream_id)
           let fields = headers
             .decode(@http2.header_fragment(frame).unwrap())
             .unwrap()
@@ -352,43 +355,189 @@ async test "one burst to a new origin evicts only one idle connection from a ful
 }
 
 ///|
-async test "H2 request header timeout while queued for the writer preserves the connection" {
+struct AdmissionUpload {
+  inspected : @aqueue.Queue[Unit]
+  mut cancellations : Int32
+}
+
+///|
+impl @body.Body for AdmissionUpload with fn size_hint(self) {
+  ignore(self.inspected.try_put(()) catch { _ => false })
+  @body.SizeHint::unknown()
+}
+
+///|
+impl @body.Body for AdmissionUpload with fn next_frame(_) {
+  None
+}
+
+///|
+impl @body.Body for AdmissionUpload with fn cancel(self, _) {
+  self.cancellations += 1
+}
+
+///|
+async test "H2 request header timeout includes admission and releases only the waiting upload" {
   let connector = H2PoolConnector::new()
-  connector.hold_settings = true
-  with_pool_peer(
-    connector,
-    async fn(client) {
-      @async.with_task_group(async fn(group) {
+  @async.with_timeout(3000, async fn() {
+    with_pool_peer(
+      connector,
+      async fn(client) {
         let request = pooled_request(
           "http://first.test/",
           @types.HeaderMap::new(),
         )
+        let first = client
+          .execute_stream({
+            ..request,
+            uri: request.uri.resolve_reference("/hold").unwrap(),
+          })
+          .unwrap()
+        let peer = connector.peers[0]
+        let upload : AdmissionUpload = {
+          inspected: Queue(kind=Unbounded),
+          cancellations: 0,
+        }
+        let result = client.execute_body(request.map_body(_ => upload), timeouts={
+          ..@client.ClientTimeouts::defaults(),
+          request_headers_ms: Some(50),
+        })
+        assert_true(
+          result is Err(ClientTimeout(ClientRequestHeaders, 50L, 50L)),
+        )
+        assert_eq(upload.cancellations, 1)
+        assert_eq(peer.stream_ids, [1])
+        @async.with_task_group(async fn(group) {
+          let next : AdmissionUpload = {
+            inspected: Queue(kind=Unbounded),
+            cancellations: 0,
+          }
+          let waiting = group.spawn(() => {
+            client.execute_body(request.map_body(_ => next), timeouts={
+              ..@client.ClientTimeouts::defaults(),
+              request_headers_ms: None,
+            })
+          })
+          next.inspected.get()
+          assert_eq(peer.stream_ids, [1])
+          peer.replies.put(@http2.encode_data_frames(1, b"end", true).unwrap())
+          assert_eq(@body.collect(first.body).0, b"end")
+          let response = waiting.wait().unwrap()
+          assert_eq(response.status, 200)
+          ignore(@body.collect(response.body))
+        })
+        assert_eq(peer.stream_ids, [1, 3])
+        assert_eq(connector.peers.length(), 1)
+      },
+      max_connections=1,
+    )
+  })
+}
+
+///|
+async test "H2 admission and the queued header write consume a single header budget" {
+  let connector = H2PoolConnector::new()
+  connector.hold_settings = true
+  let endpoint = @types.Endpoint::new("http", "first.test", 80).unwrap()
+  let socket = @transport.StreamConnector::connect(
+    connector,
+    endpoint,
+    @transport.ConnectOptions::defaults(),
+  ).unwrap()
+  let io = @service.StreamIo::new(socket)
+  let peer = connector.peers[0]
+  peer.replies.put(
+    Bytes::from_array(
+      @http2.encode_settings_frame([{ id: 3, value: 2, }], false),
+    ),
+  )
+  @async.with_timeout(3000, async fn() {
+    @service.with_http2_client_connection(io, io, async fn(client) {
+      client.wait_for_settings()
+      let base = pooled_request("http://first.test/", @types.HeaderMap::new())
+      let request = {
+        ..base.map_body(_ => @body.EmptyBody::new()),
+        version: Http2,
+      }
+      let held = client.send({
+        ..request,
+        uri: request.uri.resolve_reference("/hold").unwrap(),
+      })
+      @async.with_task_group(async fn(group) {
         let writing = group.spawn(() => {
-          client.execute({
+          client.send({
             ..request,
             uri: request.uri.resolve_reference("/hold-write").unwrap(),
           })
         })
-        let peer = connector.opened.get()
-        peer.replies.put(
-          Bytes::from_array(
-            @http2.encode_settings_frame([{ id: 3, value: 8, }], false),
-          ),
-        )
         connector.writing.get()
-        let result = client.execute_body(
-          request.map_body(_ => @body.EmptyBody::new()),
-          timeouts={
-            ..@client.ClientTimeouts::defaults(),
-            request_headers_ms: Some(50),
-          },
-        )
-        assert_true(result is Err(ClientTimeout(ClientRequestHeaders, _, _)))
+        let armed : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+        let mut budgets = 0
+        let waiting = group.spawn(async fn() {
+          try
+            client.send(request, timeout=fn(phase) {
+              if phase is RequestHeaders {
+                budgets += 1
+                ignore(armed.try_put(()) catch { _ => false })
+                Some((500, @body.BodyError::Cancelled))
+              } else {
+                None
+              }
+            })
+          catch {
+            @body.BodyError::Cancelled => true
+            error => raise error
+          } noraise {
+            _ => false
+          }
+        })
+        armed.get()
+        // Retire stream 1 while stream 3 is still inside its HEADERS write.
+        held.body.cancel(@body.BodyError::Cancelled)
+        assert_true(waiting.wait())
+        assert_eq(budgets, 1)
+        assert_eq(peer.stream_ids, [1, 3])
         connector.release_write.put(())
-        assert_eq(writing.wait().unwrap().status, 200)
-        assert_eq(client.execute(request).unwrap().status, 200)
-        assert_eq(connector.peers.length(), 1)
+        assert_eq(writing.wait().status, 200)
+        assert_eq(client.send(request).status, 200)
+        // Stream 5 acquired a slot and timed out before writing its headers.
+        assert_eq(peer.stream_ids, [1, 3, 7])
       })
+    })
+  })
+}
+
+///|
+async test "H2 timeout inside a HEADERS write retires the connection" {
+  let connector = H2PoolConnector::new()
+  with_pool_peer(
+    connector,
+    async fn(client) {
+      let request = pooled_request(
+        "http://first.test/hold-write",
+        @types.HeaderMap::new(),
+      )
+      let result = client.execute_body(
+        request.map_body(_ => @body.EmptyBody::new()),
+        timeouts={
+          ..@client.ClientTimeouts::defaults(),
+          request_headers_ms: Some(250),
+        },
+      )
+      assert_true(result is Err(ClientTimeout(ClientRequestHeaders, _, _)))
+      let old = connector.peers[0]
+      assert_eq(old.stream_ids, [1])
+      assert_true(old.closed)
+      assert_eq(
+        client
+        .execute({
+          ..request,
+          uri: request.uri.resolve_reference("/").unwrap(),
+        })
+        .unwrap().status,
+        200,
+      )
+      assert_eq(connector.peers.length(), 2)
     },
     max_connections=1,
   )
