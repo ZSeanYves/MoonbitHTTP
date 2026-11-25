@@ -36,6 +36,7 @@ type summary struct {
 	Throughput   float64 `json:"throughput_per_second"`
 	P50Ms        float64 `json:"p50_ms"`
 	P95Ms        float64 `json:"p95_ms"`
+	P99Ms        float64 `json:"p99_ms"`
 	Oracle       string  `json:"behavior_oracle"`
 }
 
@@ -71,7 +72,6 @@ func percentile(values []float64, p float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
-	sort.Float64s(values)
 	index := int(float64(len(values)-1) * p)
 	return values[index]
 }
@@ -91,7 +91,7 @@ func probe(protocol, target string, payloadBytes, concurrency, durationSec int, 
 	payload := bytes.Repeat([]byte{'x'}, payloadBytes)
 	windowStart := time.Now()
 	deadline := windowStart.Add(time.Duration(durationSec) * time.Second)
-	latencies := make([]float64, 0, 100000)
+	var latencies []float64
 	var mu sync.Mutex
 	var requests, errors int64
 	var firstFailure sync.Once
@@ -100,6 +100,12 @@ func probe(protocol, target string, payloadBytes, concurrency, durationSec int, 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			var samples []float64
+			defer func() {
+				mu.Lock()
+				latencies = append(latencies, samples...)
+				mu.Unlock()
+			}()
 			for time.Now().Before(deadline) {
 				started := time.Now()
 				req, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(payload))
@@ -122,16 +128,13 @@ func probe(protocol, target string, payloadBytes, concurrency, durationSec int, 
 					continue
 				}
 				atomic.AddInt64(&requests, 1)
-				mu.Lock()
-				if len(latencies) < cap(latencies) {
-					latencies = append(latencies, float64(time.Since(started).Microseconds())/1000)
-				}
-				mu.Unlock()
+				samples = append(samples, float64(time.Since(started))/float64(time.Millisecond))
 			}
 		}()
 	}
 	wg.Wait()
 	elapsed := time.Since(windowStart).Seconds()
+	sort.Float64s(latencies)
 	status := "measured"
 	if errors != 0 || requests == 0 {
 		status = "failed"
@@ -140,7 +143,7 @@ func probe(protocol, target string, payloadBytes, concurrency, durationSec int, 
 		Status: status, ElapsedSec: elapsed, Samples: len(latencies), Protocol: protocol, Target: target,
 		PayloadBytes: payloadBytes, Concurrency: concurrency, DurationSec: durationSec,
 		Requests: requests, Errors: errors, Throughput: float64(requests) / elapsed,
-		P50Ms: percentile(latencies, .50), P95Ms: percentile(latencies, .95),
+		P50Ms: percentile(latencies, .50), P95Ms: percentile(latencies, .95), P99Ms: percentile(latencies, .99),
 		Oracle: "HTTP version, HTTP 200 and exact POST echo verified for every successful request",
 	}
 }

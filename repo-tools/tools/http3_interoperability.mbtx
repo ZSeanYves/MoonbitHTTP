@@ -5,6 +5,7 @@ import {
   "moonbitlang/async@0.22.10/process",
   "moonbitlang/async@0.22.10/socket",
   "moonbitlang/core/env",
+  "moonbitlang/core/bench",
   "moonbitlang/core/int",
   "moonbitlang/core/json",
   "moonbitlang/x@0.5.9/crypto",
@@ -52,7 +53,7 @@ async fn record(
       args,
       stdout~,
       stderr~,
-      cancel_handler=@process.graceful_cancel(timeout=1000),
+      cancel_handler=@process.graceful_cancel(timeout=1000, signal=if args.contains("--quic-log") { SIGINT } else { SIGTERM }),
     )
   })
   status = exit.unwrap_or(-1)
@@ -147,6 +148,9 @@ fn ProxyDirection::summary(self : ProxyDirection) -> Json {
 
 ///|
 struct ProxyState {
+  started : @bench.Timestamp
+  drop : Bool
+  reorder : Bool
   client : ProxyDirection
   server : ProxyDirection
   events : Array[Json]
@@ -280,15 +284,15 @@ fn ProxyState::enqueue(
   let sequence = direction.received
   let kind = datagram_kind(bytes)
   let has_handshake = contains_packet_type(bytes, 2)
-  let action = if kind == "initial" && direction.dropped_initial == 0 {
+  let action = if self.drop && kind == "initial" && direction.dropped_initial == 0 {
     direction.dropped_initial += 1
     "drop-first-initial"
-  } else if direction.label == "server-to-client" &&
+  } else if self.drop && direction.label == "server-to-client" &&
     has_handshake &&
     direction.dropped_handshake == 0 {
     direction.dropped_handshake += 1
     "drop-first-server-handshake"
-  } else if kind == "application" && sequence % 11 == 0 {
+  } else if self.drop && kind == "application" && sequence % 11 == 0 {
     direction.dropped_periodic += 1
     "drop-periodic-application"
   } else {
@@ -298,7 +302,7 @@ fn ProxyState::enqueue(
     // Hold every second datagram for four 5 ms ticks. The following odd
     // sequence can overtake it, giving deterministic reorder evidence while
     // leaving a bounded 20 ms delay budget.
-    let delay_ticks = if sequence % 2 == 0 { 4 } else { 0 }
+    let delay_ticks = if self.reorder && sequence % 2 == 0 { 4 } else { 0 }
     if delay_ticks > 0 {
       direction.delayed += 1
     }
@@ -322,6 +326,7 @@ fn ProxyState::enqueue(
       "direction": direction.label,
       "sequence": sequence,
       "action": action,
+      "elapsed_us": @bench.monotonic_clock_end(self.started),
       "first_packet_kind": kind,
       "contains_handshake_header": has_handshake,
       "bytes": bytes.length(),
@@ -359,6 +364,7 @@ async fn ProxyState::flush(
         "direction": direction.label,
         "sequence": packet.sequence,
         "action": "forward",
+        "elapsed_us": @bench.monotonic_clock_end(self.started),
         "tick": self.tick,
         "overtaken_by_later_datagram": reordered,
       })
@@ -375,12 +381,17 @@ async fn with_impairment(
   target : @socket.Addr,
   run : async (@socket.Addr) -> String,
   event_limit? : Int = @int.MAX_VALUE,
+  drop? : Bool = true,
+  reorder? : Bool = true,
 ) -> String {
   let front = @socket.UdpServer(@socket.Addr::parse("127.0.0.1:0"))
   defer front.close()
   let upstream = @socket.UdpClient(target)
   defer upstream.close()
   let state : ProxyState = {
+    started: @bench.monotonic_clock_start(),
+    drop,
+    reorder,
     client: ProxyDirection::new("client-to-server"),
     server: ProxyDirection::new("server-to-client"),
     events: [],
@@ -466,7 +477,7 @@ async fn with_impairment(
   let proxy_evidence : Json = {
     "summary": summary,
     "events": Json::array(state.events),
-    "profile": "first Initial loss each direction; first server Handshake loss; every 11th Application datagram lost; every 2nd remaining datagram delayed 20ms with a 5ms flush tick",
+    "drop": drop, "reorder": reorder,
     "classification": "first QUIC packet type and parsed public long-header lengths across coalesced packets; encrypted payload bytes are skipped",
   }
   @fs.write_file(
@@ -476,16 +487,16 @@ async fn with_impairment(
   )
   match result {
     Ok(output) => {
-      guard state.client.dropped_initial > 0 else {
+      guard !drop || state.client.dropped_initial > 0 else {
         fail("\{name}: impairment proxy did not observe a client Initial to drop")
       }
-      guard state.server.dropped_initial > 0 && state.server.dropped_handshake > 0 else {
+      guard !drop || (state.server.dropped_initial > 0 && state.server.dropped_handshake > 0) else {
         fail("\{name}: impairment proxy did not observe both server Initial and Handshake loss")
       }
-      guard state.client.delayed > 0 && state.server.delayed > 0 else {
+      guard !reorder || (state.client.delayed > 0 && state.server.delayed > 0) else {
         fail("\{name}: impairment proxy did not exercise bounded delay in both directions")
       }
-      guard state.client.reordered > 0 && state.server.reordered > 0 else {
+      guard !reorder || (state.client.reordered > 0 && state.server.reordered > 0) else {
         fail("\{name}: impairment proxy did not observe reordering in both directions")
       }
       guard state.client.pending.is_empty() && state.server.pending.is_empty() else {
@@ -554,9 +565,23 @@ async fn request_case(
   summaries : Array[Json],
   include_headers? : Bool = false,
   check_rotating_post? : Bool = false,
+  drop? : Bool = true,
+  reorder? : Bool = true,
 ) -> Unit {
   let case_dir = directory + "/" + name
   @fs.mkdir(case_dir)
+  let started = @bench.monotonic_clock_start()
+  let mut verified = false
+  if extras.contains("--key-update") {
+    println("Running " + name)
+  }
+  defer {
+    if extras.contains("--key-update") {
+      @async.protect_from_cancel(async fn() {
+        key_update_evidence(directory, name, started, verified)
+      })
+    }
+  }
   let invoke = async fn(origin) {
     record(
       directory,
@@ -584,7 +609,7 @@ async fn request_case(
   }
   let logs = if impair {
     with_impairment(directory, name, summaries, @socket.Addr::parse("127.0.0.1:18443"),
-      addr => invoke("https://" + addr.to_string()))
+      addr => invoke("https://" + addr.to_string()), drop~, reorder~)
   } else {
     invoke("https://127.0.0.1:18443")
   }
@@ -632,6 +657,50 @@ async fn request_case(
         fail("wrong-CA case did not fail at certificate verification")
       }
   }
+  verified = true
+}
+
+///|
+async fn key_update_evidence(directory : String, name : String, started : @bench.Timestamp, verified : Bool) -> Unit {
+  let prefix = directory + "/" + name
+  let logs = if @fs.exists(prefix + ".stderr") { @fs.read_file(prefix + ".stderr").text() } else { "" }
+  let events : Array[Json] = []
+  for filename in @fs.readdir(prefix) {
+    if filename.has_suffix(".qlog") {
+      let trace = @json.parse(@fs.read_file(prefix + "/" + filename).text()) catch { _ => Json::null() }
+      if trace is { "traces": [{ "events": Array(rows), .. }], .. } {
+        for row in rows {
+          if row is { "name": String(kind), "time": Number(time, ..), .. } &&
+            ["quic:key_updated", "quic:key_discarded", "quic:packet_lost", "quic:packet_dropped",
+             "http3:frame_created", "http3:frame_parsed", "quic:alpn_information"].contains(kind) {
+            events.push({ "kind": kind, "qlog_time": time })
+          }
+        }
+      }
+    }
+  }
+  let command = if @fs.exists(prefix + ".command.json") {
+    @json.parse(@fs.read_file(prefix + ".command.json").text())
+  } else { Json::null() }
+  let process : Json = match command {
+    { "exit": Number(code, ..), "timed_out": True, .. } => { "exit": code, "timed_out": true }
+    { "exit": Number(code, ..), .. } => { "exit": code, "timed_out": false }
+    _ => Json::null()
+  }
+  let proxy = if @fs.exists(prefix + ".proxy.json") {
+    match @json.parse(@fs.read_file(prefix + ".proxy.json").text()) {
+      { "events": Array(rows), .. } => rows
+      _ => []
+    }
+  } else { [] }
+  let report : Json = {
+    "case": name, "elapsed_us": @bench.monotonic_clock_end(started), "verified": verified,
+    "alpn_negotiated": logs.contains("ALPN negotiated protocol h3"),
+    "key_update_requested": logs.contains("Requesting key update"),
+    "response_received": logs.contains("Response received"), "client": process,
+    "qlog_events": events, "loopback_proxy_events": proxy,
+  }
+  @fs.write_file(prefix + ".public.json", report, create_mode=CreateNew)
 }
 
 ///|
@@ -898,6 +967,8 @@ async fn main {
   let mut duration_seconds = 0
   let mut impair = false
   let mut reverse = false
+  let mut key_update_runs = 0
+  let mut impairment = "combined"
   let mut index = 1
   while index < args.length() {
     match args[index] {
@@ -922,12 +993,18 @@ async fn main {
       "--long-requests" => long_requests = decimal(args[index + 1])
       "--concurrent-requests" => concurrent_requests = decimal(args[index + 1])
       "--duration-seconds" => duration_seconds = decimal(args[index + 1])
+      "--key-update-runs" => key_update_runs = decimal(args[index + 1])
+      "--impairment" => impairment = args[index + 1]
       _ =>
         fail(
           "usage: http3_interoperability.mbtx [--python PATH] [--client PATH] [--server PATH] [--long-requests N] [--duration-seconds N] [--concurrent-requests N] [--impair] [--reverse]",
         )
     }
     index += 2
+  }
+  guard key_update_runs >= 0 && key_update_runs <= 100 &&
+    ["direct", "drop", "reorder", "combined"].contains(impairment) else {
+    fail("invalid key-update repetitions or impairment mode")
   }
   if build_server {
     let status = @process.run("moon", [
@@ -972,10 +1049,13 @@ async fn main {
     fail("installed aioquic differs from http3-requirements.txt")
   }
   ignore(record(directory, "python-version", python, ["--version"]))
-  ignore(record(directory, "openssl-version", "openssl", ["version", "-a"]))
+  let openssl = record(directory, "openssl-version", "openssl", ["version"])
   ignore(record(directory, "moon-version", "moon", ["version", "--all"]))
   let server_hash = file_hash(server_path)
   let source_hash = file_hash(client)
+  let versions : Json = { "revision": revision.trim().to_owned(), "aioquic_revision": upstream.trim().to_owned(),
+    "openssl": openssl.trim().to_owned(), "server_sha256": server_hash, "client_source_sha256": source_hash }
+  @fs.write_file(directory + "/versions.public.json", versions, create_mode=CreateNew)
   ignore(record(directory, "aioquic-example-integrity", "git", [
     "-C", source, "diff", "--exit-code", "HEAD", "--", "examples",
   ]))
@@ -1020,6 +1100,14 @@ async fn main {
       if server.try_wait() is Some(_) { fail("HTTP/3 smoke server exited before testing") }
     }
     let proxy_summaries : Array[Json] = []
+    if key_update_runs > 0 {
+      for attempt in 0..<key_update_runs {
+        request_case(directory, "key-update-" + attempt.to_string(), python, client, ["/"],
+          ["--key-update"], Some("MoonbitHTTP HTTP/3 smoke\n"), impairment != "direct",
+          proxy_summaries, include_headers=true, drop=impairment != "reorder", reorder=impairment != "drop")
+      }
+      return
+    }
     request_case(
       directory,
       "get",

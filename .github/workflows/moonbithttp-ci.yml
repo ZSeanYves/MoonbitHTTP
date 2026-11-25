@@ -122,30 +122,36 @@ jobs:
     timeout-minutes: 240
 
     steps:
-      - name: Checkout repository
+      - &checkout-history
+        name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Setup MoonBit
+      - &setup-moon
+        name: Setup MoonBit
         uses: hustcer/setup-moonbit@618b32d610fecdbe9069cefcc01b7bcdb03ede29 # v1.26
         with:
           version: 0.10.22+124d61d05
 
-      - name: Update package registry
+      - &registry-update
+        name: Update package registry
         run: moon update
 
-      - name: Install native TLS and interoperability runtimes
+      - &linux-packages
+        name: Install native TLS and interoperability runtimes
         run: sudo apt-get update && sudo apt-get install -y build-essential perl curl wget nghttp2-client unzip ca-certificates python3-venv golang-go
 
-      - name: Cache pinned OpenSSL 3.5 LTS runtime
+      - &openssl-cache
+        name: Cache pinned OpenSSL 3.5 LTS runtime
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: _build/ci-openssl/3.5.*/install
           key: openssl-3.5-lts-linux-${{ runner.arch }}-shared-${{ hashFiles('repo-tools/scripts/install_ci_openssl.mbtx') }}
 
-      - name: Build and select OpenSSL with QUIC TLS callbacks
+      - &openssl-build
+        name: Build and select OpenSSL with QUIC TLS callbacks
         run: moon run repo-tools/scripts/install_ci_openssl.mbtx
 
       - name: Check formatting
@@ -193,6 +199,28 @@ jobs:
       - name: Run socket interoperability checks
         run: moon run repo-tools/tools/interoperability.mbtx
 
+      - name: Generate fresh instrumented coverage report
+        run: |
+          moon coverage clean
+          moon coverage analyze -- -f cobertura -o coverage.xml
+
+      - name: Check final worktree hygiene
+        run: git diff --check
+
+  interoperability:
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - *checkout-history
+      - *setup-moon
+      - *registry-update
+      - *linux-packages
+      - *openssl-cache
+      - *openssl-build
       - name: Prepare independent HTTP/3 peers
         run: moon run repo-tools/tools/prepare_http3_interop.mbtx
 
@@ -204,6 +232,41 @@ jobs:
           go -C repo-tools/tools/quic_go_reset_reference build -mod=readonly -o "$PWD/_build/quic-go-reset-reference" .
           moon run repo-tools/tools/http3_interoperability.mbtx --peer-restart "$PWD/_build/quic-go-reset-reference"
 
+      - name: Exercise the original key-update deadline twenty times
+        if: matrix.run == 1
+        run: moon run repo-tools/tools/http3_interoperability.mbtx -- --key-update-runs 20 --impairment combined
+
+      - name: Isolate the direct, loss and reorder profiles
+        if: matrix.run == 2
+        run: |
+          for profile in direct drop reorder; do
+            moon run repo-tools/tools/http3_interoperability.mbtx -- --key-update-runs 2 --impairment "$profile"
+          done
+
+      - name: Summarize local peer observations
+        if: always()
+        run: |
+          find _build/evidence/http3-interoperability -name '*.public.json' -exec jq -c '{case,verified,client,elapsed_us,alpn_negotiated,key_update_requested,response_received}' {} \; >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain loopback events
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: loopback-events-${{ matrix.run }}-${{ github.run_attempt }}
+          path: _build/evidence/http3-interoperability/**/*.public.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - *checkout-history
+      - *setup-moon
+      - *registry-update
+      - *linux-packages
+      - *openssl-cache
+      - *openssl-build
       - name: Execute native release benchmarks
         run: moon run repo-tools/tools/benchmarks.mbtx
 
@@ -215,16 +278,39 @@ jobs:
       - name: Compare Go and MoonBit H1/H2 with the same probe
         run: moon run repo-tools/tools/go_net_http_reference.mbtx -- --compare
 
+      - name: Export window measurements
+        run: |
+          mkdir -p _build/public-evidence
+          jq '{revision,go_version,moon_server_sha256,go_binary_sha256,payload_bytes,concurrency,windows:[.windows[] | {server,window,protocol,result:(.result | {elapsed_seconds,requests,latency_samples,errors,throughput_per_second,p50_ms,p95_ms,p99_ms})}]}' _build/evidence/performance/go-net-http-reference/*/result.json > _build/public-evidence/windows.json
+          jq -c '.windows[]' _build/public-evidence/windows.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain performance windows
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: performance-windows-${{ github.run_attempt }}
+          path: _build/public-evidence/windows.json
+          retention-days: 14
+
+  frozen-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - *checkout-history
+      - *setup-moon
+      - *registry-update
+      - *linux-packages
+      - *openssl-cache
+      - *openssl-build
       - name: Verify frozen package and release evidence
         run: moon run repo-tools/tools/release_evidence.mbtx
 
-      - name: Generate fresh instrumented coverage report
-        run: |
-          moon coverage clean
-          moon coverage analyze -- -f cobertura -o coverage.xml
 
-      - name: Check final worktree hygiene
-        run: git diff --check
-
-      # Validation reports and coverage remain in the ephemeral CI workspace.
-      # They are deliberately not uploaded as artifacts or sent to Codecov.
+  acceptance:
+    if: always()
+    needs: [build-and-test, native-tls-platform, interoperability, performance, frozen-package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all verification jobs to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'all(.[]; .result == "success")' <<< "$RESULTS"
