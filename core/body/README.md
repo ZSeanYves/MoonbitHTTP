@@ -9,7 +9,7 @@ In `moon.pkg`
 ```moonbit
 import {
   "moonbitlang/core/async",
-  "ZSeanYves/MoonbitHTTP/core/body",
+  "ZSeanYves/http/core/body",
 } for "test"
 
 options(

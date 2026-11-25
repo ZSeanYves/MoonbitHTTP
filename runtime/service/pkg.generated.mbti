@@ -1,13 +1,13 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/runtime/service"
+package "ZSeanYves/http/runtime/service"
 
 import {
-  "ZSeanYves/MoonbitHTTP/core/body",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/protocol/http1",
-  "ZSeanYves/MoonbitHTTP/protocol/http3",
-  "ZSeanYves/MoonbitHTTP/protocol/quic",
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/http/core/body",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/protocol/http1",
+  "ZSeanYves/http/protocol/http3",
+  "ZSeanYves/http/protocol/quic",
+  "ZSeanYves/http/runtime/transport",
   "moonbitlang/core/async/io",
   "moonbitlang/core/debug",
 }

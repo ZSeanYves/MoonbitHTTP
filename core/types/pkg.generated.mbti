@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/core/types"
+package "ZSeanYves/http/core/types"
 
 import {
   "moonbitlang/core/debug",

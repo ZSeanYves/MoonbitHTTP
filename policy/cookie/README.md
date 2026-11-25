@@ -8,8 +8,8 @@ In `moon.pkg`
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/policy/cookie",
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/policy/cookie",
+  "ZSeanYves/http/core/types",
 } for "test"
 
 supported_targets = "js+native+wasm+wasm-gc"

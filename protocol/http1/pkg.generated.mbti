@@ -1,8 +1,8 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/protocol/http1"
+package "ZSeanYves/http/protocol/http1"
 
 import {
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/types",
   "moonbitlang/core/debug",
 }
 

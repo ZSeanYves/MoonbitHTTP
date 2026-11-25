@@ -1,5 +1,5 @@
 import {
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/types",
   "moonbitlang/core/encoding/utf8",
 }
 

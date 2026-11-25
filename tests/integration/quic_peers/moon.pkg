@@ -1,6 +1,6 @@
 import {
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/protocol/quic",
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
-  "ZSeanYves/MoonbitHTTP/tests/support" @test_support,
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/protocol/quic",
+  "ZSeanYves/http/runtime/transport",
+  "ZSeanYves/http/tests/support" @test_support,
 } for "test"

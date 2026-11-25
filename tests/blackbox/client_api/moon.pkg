@@ -1,6 +1,6 @@
 import {
-  "ZSeanYves/MoonbitHTTP/application/client",
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/application/client",
+  "ZSeanYves/http/core/types",
 } for "test"
 
 supported_targets = "js+native+wasm+wasm-gc"

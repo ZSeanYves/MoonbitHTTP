@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/core/codec"
+package "ZSeanYves/http/core/codec"
 
 import {
   "moonbitlang/core/debug",

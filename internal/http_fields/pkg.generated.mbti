@@ -1,8 +1,8 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/internal/http_fields"
+package "ZSeanYves/http/internal/http_fields"
 
 import {
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/types",
 }
 
 // Values

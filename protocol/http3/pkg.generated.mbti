@@ -1,9 +1,9 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/protocol/http3"
+package "ZSeanYves/http/protocol/http3"
 
 import {
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/protocol/quic",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/protocol/quic",
   "moonbitlang/core/debug",
   "moonbitlang/core/set",
 }

@@ -8,8 +8,8 @@
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @native_tls,
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/http/adapter/native/tls" @native_tls,
+  "ZSeanYves/http/runtime/transport",
 }
 
 supported_targets = "+native"

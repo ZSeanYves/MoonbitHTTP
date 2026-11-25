@@ -1,12 +1,12 @@
 import {
-  "ZSeanYves/MoonbitHTTP/internal/http_fields",
+  "ZSeanYves/http/internal/http_fields",
   "moonbitlang/core/debug",
   "moonbitlang/core/deque",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/int",
-  "ZSeanYves/MoonbitHTTP/core/codec",
-  "ZSeanYves/MoonbitHTTP/protocol/quic",
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/codec",
+  "ZSeanYves/http/protocol/quic",
+  "ZSeanYves/http/core/types",
 }
 
 options(

@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/adapter/callback"
+package "ZSeanYves/http/adapter/callback"
 
 import {
   "moonbitlang/core/async/io",

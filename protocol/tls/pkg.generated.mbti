@@ -1,8 +1,8 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/protocol/tls"
+package "ZSeanYves/http/protocol/tls"
 
 import {
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/http/runtime/transport",
 }
 
 // Values

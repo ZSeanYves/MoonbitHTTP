@@ -2,16 +2,16 @@
 
 [English](README.md) · [项目说明](../../README_zh.md)
 
-在传入的连接 I/O 上运行 HTTP/1.1、HTTP/2 和 HTTP/3。驱动处理分帧、正文背压和取消。`serve_http1_connection` 接收读取端、写入端及应用的请求处理函数。HTTP/3 需要 QUIC 会话和数据报事件源。应用负责监听端及连接排空时机。
+在传入的连接 I/O 上运行 HTTP/1.0、HTTP/1.1、HTTP/2 和 HTTP/3。驱动处理分帧、正文背压和取消。`serve_http1_connection` 接收读取端、写入端及应用的请求处理函数。HTTP/3 需要 QUIC 会话和数据报事件源。应用负责监听端及连接排空时机。
 
 在 `moon.pkg` 中导入
 
 ```moonbit
 import {
   "moonbitlang/core/async/io" @aio,
-  "ZSeanYves/MoonbitHTTP/runtime/service",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/core/body",
+  "ZSeanYves/http/runtime/service",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/core/body",
 }
 
 options(

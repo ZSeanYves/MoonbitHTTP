@@ -1,9 +1,9 @@
 import {
-  "ZSeanYves/MoonbitHTTP/internal/packet_crypto",
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/internal/packet_crypto",
+  "ZSeanYves/http/core/types",
   "moonbitlang/core/async",
   "moonbitlang/core/encoding/utf8",
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/http/runtime/transport",
 }
 
 supported_targets = "+native"

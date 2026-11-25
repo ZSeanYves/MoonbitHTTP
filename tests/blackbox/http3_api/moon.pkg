@@ -1,7 +1,7 @@
 import {
   "moonbitlang/core/debug",
   "moonbitlang/core/encoding/utf8",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/protocol/http3",
-  "ZSeanYves/MoonbitHTTP/protocol/quic",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/protocol/http3",
+  "ZSeanYves/http/protocol/quic",
 } for "test"

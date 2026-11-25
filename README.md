@@ -1,12 +1,12 @@
-# MoonbitHTTP
+# ZSeanYves/http
 
 [中文](README_zh.md)
 
-MoonbitHTTP is a streaming HTTP library for MoonBit. It supports HTTP/1.1, HTTP/2, HTTP/3 and QUIC v1. Use the protocol codecs on their own, or integrate a client, connection pool or server listener into your application.
+A streaming HTTP library for MoonBit with support for HTTP/1.0, HTTP/1.1, HTTP/2, HTTP/3 and QUIC v1. Use the protocol codecs on their own, or integrate a client, connection pool or server listener into your application.
 
 ## Features
 
-- **HTTP/1.1** — Incremental request and response parsing and encoding, chunked transfer, trailers and connection reuse.
+- **HTTP/1.0 and HTTP/1.1** — Incremental request and response parsing and encoding. HTTP/1.0 closes connections by default and supports explicit keep-alive. HTTP/1.1 adds chunked transfer and trailers.
 - **HTTP/2** — Frame encoding and decoding, HPACK, multiplexing, flow control, GOAWAY and h2c.
 - **HTTP/3 and QUIC v1** — QPACK, request streams, packet protection, loss recovery and connection ID rotation. QUIC packet protection on Wasm, Wasm-GC and JavaScript uses an experimental cryptography implementation.
 - **Streaming requests and responses** — Read and write bodies incrementally with backpressure, cancellation and trailers. Async service tests run on Native, Wasm and JavaScript. Wasm-GC runs synchronous protocol tests and has compile-only coverage for async services.
@@ -17,17 +17,17 @@ MoonbitHTTP is a streaming HTTP library for MoonBit. It supports HTTP/1.1, HTTP/
 
 ## Installation and usage
 
-Install the published `0.7.0` release in your MoonBit project.
+To install version `0.8.0` in your MoonBit project, run
 
 ```sh
-moon add ZSeanYves/MoonbitHTTP@0.7.0
+moon add ZSeanYves/http@0.8.0
 ```
 
-The following example runs on all four backends. Import the HTTP/1.1 package for tests in `moon.pkg`.
+The following example runs on all four backends. Import the `protocol/http1` package for tests in `moon.pkg`.
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/protocol/http1",
+  "ZSeanYves/http/protocol/http1",
 } for "test"
 ```
 
@@ -45,4 +45,4 @@ test "decode a request" {
 }
 ```
 
-The Native client and server entry points have changed since `0.7.0`. For the current source API, see how to send requests, configure pools and bind listeners in the package guides. [Native client](adapter/native/client/README.md) · [Native server](adapter/native/server/README.md) · [Changelog](CHANGELOG.md)
+For Native clients, connection pools and server listeners, see the package guides. [Native client](adapter/native/client/README.md) · [Native server](adapter/native/server/README.md) · [Changelog](CHANGELOG.md)

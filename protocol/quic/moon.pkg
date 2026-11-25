@@ -1,14 +1,14 @@
 import {
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/types",
   "moonbitlang/core/buffer",
   "moonbitlang/core/debug",
   "moonbitlang/core/deque",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/int",
   "moonbitlang/core/int64",
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
-  "ZSeanYves/MoonbitHTTP/protocol/tls",
-  "ZSeanYves/MoonbitHTTP/internal/packet_crypto",
+  "ZSeanYves/http/runtime/transport",
+  "ZSeanYves/http/protocol/tls",
+  "ZSeanYves/http/internal/packet_crypto",
 }
 
 options(

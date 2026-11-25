@@ -8,7 +8,7 @@ In `moon.pkg`
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/protocol/tls",
+  "ZSeanYves/http/protocol/tls",
 } for "test"
 ```
 

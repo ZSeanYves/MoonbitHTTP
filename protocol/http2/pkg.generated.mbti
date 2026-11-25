@@ -1,9 +1,9 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/protocol/http2"
+package "ZSeanYves/http/protocol/http2"
 
 import {
-  "ZSeanYves/MoonbitHTTP/core/codec",
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/codec",
+  "ZSeanYves/http/core/types",
   "moonbitlang/core/debug",
 }
 

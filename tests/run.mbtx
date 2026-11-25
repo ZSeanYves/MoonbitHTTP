@@ -26,7 +26,7 @@ async fn inventory(paths : Array[String], target : String) -> Array[String] {
 ///|
 fn classify(row : String) -> (String, String) raise {
   guard row.split_once(" ") is Some((pkg, rest)) &&
-    pkg.strip_prefix("ZSeanYves/MoonbitHTTP/") is Some(owner) &&
+    pkg.strip_prefix("ZSeanYves/http/") is Some(owner) &&
     rest.split_once(":") is Some((file, _)) else {
     fail("unrecognized package or filename in test outline: " + row)
   }

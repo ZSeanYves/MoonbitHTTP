@@ -8,7 +8,7 @@ In `moon.pkg`
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/policy/auth",
+  "ZSeanYves/http/policy/auth",
 } for "test"
 
 supported_targets = "js+native+wasm+wasm-gc"

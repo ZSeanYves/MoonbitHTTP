@@ -1,7 +1,7 @@
 import {
   "moonbitlang/core/debug",
   "moonbitlang/core/encoding/utf8",
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/types",
 }
 
 options(

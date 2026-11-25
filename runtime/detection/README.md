@@ -8,7 +8,7 @@ In `moon.pkg`
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/runtime/detection",
+  "ZSeanYves/http/runtime/detection",
 } for "test"
 ```
 

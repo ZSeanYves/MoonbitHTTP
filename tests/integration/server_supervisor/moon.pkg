@@ -1,6 +1,6 @@
 import {
   "moonbitlang/core/async",
-  "ZSeanYves/MoonbitHTTP/application/server",
+  "ZSeanYves/http/application/server",
 } for "test"
 
 options(

@@ -15,7 +15,7 @@ struct Dependency {
 
 ///|
 fn manifest_imports(source : String, package_name : String) -> Array[Dependency] raise {
-  let prefix = "ZSeanYves/MoonbitHTTP/"
+  let prefix = "ZSeanYves/http/"
   let dependencies : Array[Dependency] = []
   let block : Array[String] = []
   let mut importing = false

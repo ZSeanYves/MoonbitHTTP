@@ -3,9 +3,9 @@ import {
   "moonbit-community/flate/gzip",
   "moonbit-community/flate/zlib",
   "moonbitlang/core/async",
-  "ZSeanYves/MoonbitHTTP/core/body",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/policy/content_coding",
+  "ZSeanYves/http/core/body",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/policy/content_coding",
 } for "test"
 
 options(

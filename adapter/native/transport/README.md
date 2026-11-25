@@ -9,8 +9,8 @@ In `moon.pkg`
 ```moonbit
 import {
   "moonbitlang/core/async",
-  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @native_transport,
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/http/adapter/native/transport" @native_transport,
+  "ZSeanYves/http/runtime/transport",
 } for "test"
 
 supported_targets = "+native"

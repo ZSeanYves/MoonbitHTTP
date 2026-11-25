@@ -1,8 +1,8 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/runtime/detection"
+package "ZSeanYves/http/runtime/detection"
 
 import {
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/types",
   "moonbitlang/core/debug",
 }
 

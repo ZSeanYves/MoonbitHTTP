@@ -1,9 +1,9 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/policy/content_coding"
+package "ZSeanYves/http/policy/content_coding"
 
 import {
-  "ZSeanYves/MoonbitHTTP/core/body",
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/body",
+  "ZSeanYves/http/core/types",
   "hustcer/fbr/decode",
   "moonbit-community/flate/gzip",
   "moonbit-community/flate/zlib",

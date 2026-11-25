@@ -1,7 +1,7 @@
 import {
-  "ZSeanYves/MoonbitHTTP/internal/http_fields",
+  "ZSeanYves/http/internal/http_fields",
   "moonbitlang/core/debug",
   "moonbitlang/core/encoding/utf8",
-  "ZSeanYves/MoonbitHTTP/core/codec",
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/codec",
+  "ZSeanYves/http/core/types",
 }

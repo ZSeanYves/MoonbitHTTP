@@ -1,5 +1,5 @@
 import {
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/http/runtime/transport",
   "moonbitlang/core/async/aqueue",
   "moonbitlang/core/async/io" @aio,
   "moonbitlang/core/debug",

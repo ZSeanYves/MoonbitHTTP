@@ -1,17 +1,17 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/application/client"
+package "ZSeanYves/http/application/client"
 
 import {
-  "ZSeanYves/MoonbitHTTP/core/body",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/policy/auth",
-  "ZSeanYves/MoonbitHTTP/policy/cache",
-  "ZSeanYves/MoonbitHTTP/policy/content_coding",
-  "ZSeanYves/MoonbitHTTP/policy/cookie",
-  "ZSeanYves/MoonbitHTTP/protocol/http1",
-  "ZSeanYves/MoonbitHTTP/protocol/http2",
-  "ZSeanYves/MoonbitHTTP/runtime/service",
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/http/core/body",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/policy/auth",
+  "ZSeanYves/http/policy/cache",
+  "ZSeanYves/http/policy/content_coding",
+  "ZSeanYves/http/policy/cookie",
+  "ZSeanYves/http/protocol/http1",
+  "ZSeanYves/http/protocol/http2",
+  "ZSeanYves/http/runtime/service",
+  "ZSeanYves/http/runtime/transport",
   "moonbitlang/core/debug",
 }
 

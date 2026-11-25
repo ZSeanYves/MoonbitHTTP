@@ -8,8 +8,8 @@
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/application/client",
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/application/client",
+  "ZSeanYves/http/core/types",
 }
 
 supported_targets = "js+native+wasm+wasm-gc"

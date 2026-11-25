@@ -8,11 +8,11 @@
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/adapter/native/server" @native_server,
-  "ZSeanYves/MoonbitHTTP/application/server",
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/core/body",
+  "ZSeanYves/http/adapter/native/server" @native_server,
+  "ZSeanYves/http/application/server",
+  "ZSeanYves/http/runtime/transport",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/core/body",
 }
 
 supported_targets = "+native"

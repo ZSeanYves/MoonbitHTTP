@@ -1,6 +1,6 @@
 import {
   "moonbitlang/core/encoding/utf8",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/tests/support" @test_support,
-  "ZSeanYves/MoonbitHTTP/protocol/quic",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/tests/support" @test_support,
+  "ZSeanYves/http/protocol/quic",
 } for "test"

@@ -1,3 +1,3 @@
 import {
-  "ZSeanYves/MoonbitHTTP/application/server",
+  "ZSeanYves/http/application/server",
 } for "test"

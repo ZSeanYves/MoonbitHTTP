@@ -2,13 +2,13 @@
 
 [中文](README_zh.md) · [Project README](../../README.md)
 
-Incrementally decode and encode HTTP/1.1 messages on a byte stream. Feed received bytes to a request or response decoder, then call `next()` until it returns `Ok(None)`. Handle headers, body data, trailers and message end separately. Call `finish_input()` at transport EOF so truncated messages are reported.
+Incrementally decode and encode HTTP/1.0 and HTTP/1.1 messages on a byte stream. Chunked transfer and trailers require HTTP/1.1. Feed received bytes to a request or response decoder, then call `next()` until it returns `Ok(None)`. Handle headers, body data, trailers and message end separately. Call `finish_input()` at transport EOF so truncated messages are reported.
 
 In `moon.pkg`
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/protocol/http1",
+  "ZSeanYves/http/protocol/http1",
 } for "test"
 ```
 

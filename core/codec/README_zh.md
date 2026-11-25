@@ -8,7 +8,7 @@
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/core/codec",
+  "ZSeanYves/http/core/codec",
 } for "test"
 ```
 

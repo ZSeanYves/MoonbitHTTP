@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/internal/async_support"
+package "ZSeanYves/http/internal/async_support"
 
 import {
   "moonbitlang/core/async",

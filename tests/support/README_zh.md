@@ -8,7 +8,7 @@
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/tests/support",
+  "ZSeanYves/http/tests/support",
 } for "test"
 ```
 

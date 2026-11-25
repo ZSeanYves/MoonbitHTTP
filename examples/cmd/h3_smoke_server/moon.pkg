@@ -2,13 +2,13 @@ import {
   "moonbitlang/core/env",
   "moonbitlang/core/async/fs",
   "moonbitlang/core/async/stdio",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
-  "ZSeanYves/MoonbitHTTP/runtime/service",
-  "ZSeanYves/MoonbitHTTP/adapter/native/server" @server_native,
-  "ZSeanYves/MoonbitHTTP/application/server" @server_api,
-  "ZSeanYves/MoonbitHTTP/core/body",
-  "ZSeanYves/MoonbitHTTP/protocol/quic",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/runtime/transport",
+  "ZSeanYves/http/runtime/service",
+  "ZSeanYves/http/adapter/native/server" @server_native,
+  "ZSeanYves/http/application/server" @server_api,
+  "ZSeanYves/http/core/body",
+  "ZSeanYves/http/protocol/quic",
 }
 
 supported_targets = "+native"

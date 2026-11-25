@@ -2,17 +2,17 @@
 
 [English](README.md) · [项目说明](../../../README_zh.md)
 
-仅支持 Native。`new_http1_client` 接收解析器、网络策略、时钟和 TLS 提供方，构造可复用的 HTTP/1.1 客户端。可在多个请求之间共享，使用结束时调用 `close`。HTTP/2 和 HTTP/3 可分别用 `with_http2_pool` 和 `with_http3_pool` 在作用域内共享多路复用连接。
+仅支持 Native。`new_http1_client` 接收解析器、网络策略、时钟和 TLS 提供方，构造可复用的 HTTP/1.0 和 HTTP/1.1 客户端。可在多个请求之间共享，使用结束时调用 `close`。HTTP/2 和 HTTP/3 可分别用 `with_http2_pool` 和 `with_http3_pool` 在作用域内共享多路复用连接。
 
 在 `moon.pkg` 中导入
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/adapter/native/client" @native_client,
-  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @native_tls,
-  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @native_transport,
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
-  "ZSeanYves/MoonbitHTTP/application/client",
+  "ZSeanYves/http/adapter/native/client" @native_client,
+  "ZSeanYves/http/adapter/native/tls" @native_tls,
+  "ZSeanYves/http/adapter/native/transport" @native_transport,
+  "ZSeanYves/http/runtime/transport",
+  "ZSeanYves/http/application/client",
 }
 
 supported_targets = "+native"

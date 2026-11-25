@@ -1,7 +1,7 @@
 import {
   "moonbitlang/core/async",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/runtime/transport",
 } for "test"
 
 options(

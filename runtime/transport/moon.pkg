@@ -1,6 +1,6 @@
 import {
   "moonbitlang/core/async",
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/types",
   "moonbitlang/core/debug",
   "moonbitlang/core/encoding/utf8",
 }

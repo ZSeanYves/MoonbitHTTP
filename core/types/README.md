@@ -2,13 +2,13 @@
 
 [中文](README_zh.md) · [Project README](../../README.md)
 
-Construct requests and responses shared by all three HTTP versions. `Request[B]` and `Response[B]` carry the body type you choose. `Uri` parses request targets, and `HeaderMap` preserves repeated fields and matches names case-insensitively. Header values are bytes. Use `to_string_lossy()` for display.
+Construct requests and responses shared by HTTP/1.0, HTTP/1.1, HTTP/2 and HTTP/3. `Request[B]` and `Response[B]` carry the body type you choose. `Uri` parses request targets, and `HeaderMap` preserves repeated fields and matches names case-insensitively. Header values are bytes. Use `to_string_lossy()` for display.
 
 In `moon.pkg`
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/types",
 } for "test"
 ```
 

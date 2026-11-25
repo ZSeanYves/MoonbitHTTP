@@ -1,4 +1,4 @@
 import {
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/runtime/detection",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/runtime/detection",
 } for "test"

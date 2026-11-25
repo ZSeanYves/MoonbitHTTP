@@ -8,8 +8,8 @@ In `moon.pkg`
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/policy/cache",
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/policy/cache",
+  "ZSeanYves/http/core/types",
 } for "test"
 ```
 

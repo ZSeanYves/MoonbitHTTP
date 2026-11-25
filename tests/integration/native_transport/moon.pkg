@@ -2,9 +2,9 @@ import {
   "moonbitlang/core/async",
   "moonbitlang/core/async/os_error",
   "moonbitlang/core/async/socket",
-  "ZSeanYves/MoonbitHTTP/adapter/native/transport",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/runtime/transport" @transport_api,
+  "ZSeanYves/http/adapter/native/transport",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/runtime/transport" @transport_api,
 } for "test"
 
 supported_targets = "+native"

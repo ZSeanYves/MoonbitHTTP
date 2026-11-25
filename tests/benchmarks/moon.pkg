@@ -1,6 +1,6 @@
 import {
   "moonbitlang/core/bench",
   "moonbitlang/core/encoding/utf8",
-  "ZSeanYves/MoonbitHTTP/core/codec",
-  "ZSeanYves/MoonbitHTTP/protocol/http1",
+  "ZSeanYves/http/core/codec",
+  "ZSeanYves/http/protocol/http1",
 }

@@ -2,16 +2,16 @@
 
 [中文](README_zh.md) · [Project README](../../README.md)
 
-Run HTTP/1.1, HTTP/2 and HTTP/3 on supplied connection I/O. Stream drivers handle framing, body backpressure and cancellation. `serve_http1_connection` accepts a reader, a writer and your request handler. For HTTP/3, supply a QUIC session and its datagram event source. The application owns the listener and chooses when to drain connections.
+Run HTTP/1.0, HTTP/1.1, HTTP/2 and HTTP/3 on supplied connection I/O. Stream drivers handle framing, body backpressure and cancellation. `serve_http1_connection` accepts a reader, a writer and your request handler. For HTTP/3, supply a QUIC session and its datagram event source. The application owns the listener and chooses when to drain connections.
 
 In `moon.pkg`
 
 ```moonbit
 import {
   "moonbitlang/core/async/io" @aio,
-  "ZSeanYves/MoonbitHTTP/runtime/service",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/core/body",
+  "ZSeanYves/http/runtime/service",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/core/body",
 }
 
 options(

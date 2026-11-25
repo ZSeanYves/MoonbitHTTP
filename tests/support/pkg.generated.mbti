@@ -1,9 +1,9 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/tests/support"
+package "ZSeanYves/http/tests/support"
 
 import {
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/runtime/transport",
   "moonbitlang/core/async/aqueue",
   "moonbitlang/core/async/io",
   "moonbitlang/core/debug",

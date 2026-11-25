@@ -8,7 +8,7 @@
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/application/server",
+  "ZSeanYves/http/application/server",
 }
 ```
 

@@ -1,6 +1,6 @@
-name = "ZSeanYves/MoonbitHTTP"
+name = "ZSeanYves/http"
 
-version = "0.7.0"
+version = "0.8.0"
 
 // Protocol parsers, state machines and transport capabilities return failures
 // as values so callers can inspect them before choosing a recovery action.
@@ -26,4 +26,4 @@ license = "Apache-2.0"
 
 keywords = [ "http", "http1", "http2", "http3", "quic", "tls", "networking" ]
 
-description = "Streaming HTTP protocol suite for MoonBit with HTTP/1.1, HTTP/2, HTTP/3, QUIC, TLS integration, and policy-driven transports."
+description = "Streaming HTTP protocol suite for MoonBit with HTTP/1.0, HTTP/1.1, HTTP/2, HTTP/3, QUIC, TLS integration, and policy-driven transports."

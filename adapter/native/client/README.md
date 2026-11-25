@@ -2,17 +2,17 @@
 
 [中文](README_zh.md) · [Project README](../../../README.md)
 
-Native only. `new_http1_client` builds a reusable HTTP/1.1 client from a resolver, network policy, clock and TLS provider. The application can share it across requests and should call `close` when finished. Use `with_http2_pool` or `with_http3_pool` to share multiplexed connections within a scope.
+Native only. `new_http1_client` builds a reusable client for HTTP/1.0 and HTTP/1.1 from a resolver, network policy, clock and TLS provider. The application can share it across requests and should call `close` when finished. Use `with_http2_pool` or `with_http3_pool` to share multiplexed connections within a scope.
 
 In `moon.pkg`
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/adapter/native/client" @native_client,
-  "ZSeanYves/MoonbitHTTP/adapter/native/tls" @native_tls,
-  "ZSeanYves/MoonbitHTTP/adapter/native/transport" @native_transport,
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
-  "ZSeanYves/MoonbitHTTP/application/client",
+  "ZSeanYves/http/adapter/native/client" @native_client,
+  "ZSeanYves/http/adapter/native/tls" @native_tls,
+  "ZSeanYves/http/adapter/native/transport" @native_transport,
+  "ZSeanYves/http/runtime/transport",
+  "ZSeanYves/http/application/client",
 }
 
 supported_targets = "+native"

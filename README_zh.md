@@ -1,12 +1,12 @@
-# MoonbitHTTP
+# ZSeanYves/http
 
 [English](README.md)
 
-MoonbitHTTP 是 MoonBit 的流式 HTTP 协议库，支持 HTTP/1.1、HTTP/2、HTTP/3 和 QUIC v1。你可以单独使用协议编解码器，也可以将客户端、连接池或服务端监听器接入自己的应用。
+这是 MoonBit 的流式 HTTP 协议库，支持 HTTP/1.0、HTTP/1.1、HTTP/2、HTTP/3 和 QUIC v1。你可以单独使用协议编解码器，也可以将客户端、连接池或服务端监听器接入自己的应用。
 
 ## 功能
 
-- **HTTP/1.1** — 增量解析和编码请求、响应，支持分块传输、尾部字段和连接复用。
+- **HTTP/1.0 和 HTTP/1.1** — 增量解析和编码请求、响应。HTTP/1.0 默认关闭连接，可显式启用 keep-alive。HTTP/1.1 还支持分块传输和尾部字段。
 - **HTTP/2** — 支持帧编解码、HPACK、多路复用、流量控制、GOAWAY 和 h2c。
 - **HTTP/3 与 QUIC v1** — 支持 QPACK、请求流、包保护、丢包恢复和连接 ID 轮换。Wasm、Wasm-GC 和 JavaScript 的 QUIC 包保护使用实验性密码实现。
 - **流式请求与响应** — 支持分段读写正文、背压、取消和尾部字段。Native、Wasm 和 JavaScript 已运行异步服务测试；Wasm-GC 已运行同步协议测试，异步服务仅验证编译。
@@ -17,17 +17,17 @@ MoonbitHTTP 是 MoonBit 的流式 HTTP 协议库，支持 HTTP/1.1、HTTP/2、HT
 
 ## 安装与使用
 
-在 MoonBit 项目中安装已发布的 `0.7.0`：
+在 MoonBit 项目中安装 `0.8.0` 版本：
 
 ```sh
-moon add ZSeanYves/MoonbitHTTP@0.7.0
+moon add ZSeanYves/http@0.8.0
 ```
 
-下面的例子在四个后端都可以运行。先在 `moon.pkg` 中为测试导入 HTTP/1.1 包：
+下面的例子在四个后端都可以运行。先在 `moon.pkg` 中为测试导入 `protocol/http1` 包：
 
 ```moonbit
 import {
-  "ZSeanYves/MoonbitHTTP/protocol/http1",
+  "ZSeanYves/http/protocol/http1",
 } for "test"
 ```
 
@@ -45,4 +45,4 @@ test "decode a request" {
 }
 ```
 
-当前源码的 Native 客户端和服务端入口已有调整。发送请求、配置连接池或绑定监听地址，可参阅对应的包文档。[客户端用法](adapter/native/client/README_zh.md) · [服务端用法](adapter/native/server/README_zh.md) · [更新日志](CHANGELOG.md)
+在 Native 上发送请求、配置连接池或绑定监听地址，可参阅对应的包文档。[客户端用法](adapter/native/client/README_zh.md) · [服务端用法](adapter/native/server/README_zh.md) · [更新日志](CHANGELOG.md)

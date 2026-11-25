@@ -3,12 +3,12 @@ import {
   "moonbitlang/core/async/aqueue",
   "moonbitlang/core/async/io" @aio,
   "moonbitlang/core/encoding/utf8",
-  "ZSeanYves/MoonbitHTTP/adapter/callback",
-  "ZSeanYves/MoonbitHTTP/core/body",
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/protocol/http1",
-  "ZSeanYves/MoonbitHTTP/protocol/http2",
-  "ZSeanYves/MoonbitHTTP/runtime/service",
+  "ZSeanYves/http/adapter/callback",
+  "ZSeanYves/http/core/body",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/protocol/http1",
+  "ZSeanYves/http/protocol/http2",
+  "ZSeanYves/http/runtime/service",
 } for "test"
 
 options(

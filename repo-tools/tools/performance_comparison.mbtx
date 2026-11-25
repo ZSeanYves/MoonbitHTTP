@@ -231,15 +231,31 @@ fn workload_source() -> String {
 }
 
 ///|
-fn workload_package() -> String {
+async fn workload_package(snapshot : String) -> String {
+  let manifest = @fs.read_file(snapshot + "/moon.mod").text()
+  let module_name = for line in manifest.split("\n") {
+    if line.split_once("=") is Some((key, value)) && key.trim() == "name" {
+      guard @json.parse(value.trim().to_owned()) is String(name) else {
+        fail("invalid module name in " + snapshot + "/moon.mod")
+      }
+      break name
+    }
+  } nobreak {
+    fail("missing module name in " + snapshot + "/moon.mod")
+  }
+  let http1 = if @fs.exists(snapshot + "/protocol/http1/moon.pkg") {
+    "protocol/http1"
+  } else {
+    "http1"
+  }
   (
-    #|import {
-    #|  "ZSeanYves/MoonbitHTTP/protocol/http1",
-    #|  "moonbitlang/core/bench",
-    #|  "moonbitlang/core/env",
-    #|  "moonbitlang/core/string",
-    #|}
-    #|pkgtype(kind: "executable")
+    $|import {
+    $|  "\{module_name}/\{http1}",
+    $|  "moonbitlang/core/bench",
+    $|  "moonbitlang/core/env",
+    $|  "moonbitlang/core/string",
+    $|}
+    $|pkgtype(kind: "executable")
   )
 }
 
@@ -365,11 +381,8 @@ async fn compare(directory : String, root : String, verify_only : Bool, baseline
     create_mode=CreateNew,
   )
   let source = workload_source()
-  let current_pkg_source = workload_package()
-  let baseline_pkg_source = if @fs.exists(baseline_source + "/protocol/http1/moon.pkg") { current_pkg_source } else { current_pkg_source.replace(
-    old="ZSeanYves/MoonbitHTTP/protocol/http1",
-    new="ZSeanYves/MoonbitHTTP/http1",
-  ) }
+  let current_pkg_source = workload_package(current_source)
+  let baseline_pkg_source = workload_package(baseline_source)
   @fs.write_file(
     directory + "/benchmark-workload.mbt",
     source,

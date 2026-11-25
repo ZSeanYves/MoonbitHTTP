@@ -1,10 +1,10 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "ZSeanYves/MoonbitHTTP/protocol/quic"
+package "ZSeanYves/http/protocol/quic"
 
 import {
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/protocol/tls",
-  "ZSeanYves/MoonbitHTTP/runtime/transport",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/protocol/tls",
+  "ZSeanYves/http/runtime/transport",
   "moonbitlang/core/debug",
 }
 

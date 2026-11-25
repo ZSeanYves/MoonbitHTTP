@@ -1,8 +1,8 @@
 import {
   "moonbitlang/core/async",
   "moonbitlang/core/async/aqueue",
-  "ZSeanYves/MoonbitHTTP/core/body",
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/body",
+  "ZSeanYves/http/core/types",
 } for "test"
 
 options(

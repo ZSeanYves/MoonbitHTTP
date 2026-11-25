@@ -4,7 +4,7 @@ import {
   "moonbitlang/core/encoding/utf8",
   "moonbit-community/normalization",
   "cc06b/mooncry/lib" @mooncry,
-  "ZSeanYves/MoonbitHTTP/core/types",
+  "ZSeanYves/http/core/types",
 }
 
 supported_targets = "js+native+wasm+wasm-gc"

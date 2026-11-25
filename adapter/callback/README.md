@@ -9,7 +9,7 @@ In `moon.pkg`
 ```moonbit
 import {
   "moonbitlang/core/async",
-  "ZSeanYves/MoonbitHTTP/adapter/callback",
+  "ZSeanYves/http/adapter/callback",
 } for "test"
 
 options(

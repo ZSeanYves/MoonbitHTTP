@@ -1,4 +1,4 @@
 import {
-  "ZSeanYves/MoonbitHTTP/core/types",
-  "ZSeanYves/MoonbitHTTP/policy/cache",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/policy/cache",
 } for "test"
