@@ -173,32 +173,49 @@ fn build_headers_frames(
 ///|
 fn build_data_frames(
   stream_id : Int32,
-  payload : Array[Byte],
+  payload : BytesView,
   end_stream : Bool,
-  max_frame_size~ : Int32 = H2_DEFAULT_MAX_FRAME_SIZE,
-) -> Array[Byte] {
-  let out : Array[Byte] = []
+  max_frame_size~ : Int32,
+  prefix~ : BytesView = b"",
+) -> Result[Bytes, H2ProtocolError] {
+  let frames = if payload.is_empty() {
+    1
+  } else {
+    1 + (payload.length() - 1) / max_frame_size
+  }
+  let room = 0x7fffffff - prefix.length() - payload.length()
+  if frames > room / 9 || room < 0 {
+    return Err(
+      ConnectionError(FrameSizeError, "encoded DATA exceeds buffer size"),
+    )
+  }
+  let out = FixedArray::make(
+    prefix.length() + payload.length() + 9 * frames,
+    b'\x00',
+  )
+  out.blit_from_bytesview(0, prefix)
+  let mut pos = prefix.length()
   let mut offset = 0
-  let mut first = true
-  while first || offset < payload.length() {
-    let remaining = payload.length() - offset
-    let take = remaining.min(max_frame_size)
-    let last = offset + take == payload.length()
-    append_frame(
-      out,
-      H2_FRAME_DATA,
-      if last && end_stream {
+  for _ in 0..<frames {
+    let take = (payload.length() - offset).min(max_frame_size)
+    let header = encode_frame_header({
+      length: take,
+      typ: H2_FRAME_DATA,
+      flags: if offset + take == payload.length() && end_stream {
         H2_FLAGS_END_STREAM
       } else {
         0
       },
       stream_id,
-      payload[offset:offset + take],
-    )
+    })
+    for i, byte in header {
+      out[pos + i] = byte
+    }
+    out.blit_from_bytesview(pos + 9, payload[offset:offset + take])
     offset += take
-    first = false
+    pos += 9 + take
   }
-  out
+  Ok(out.unsafe_reinterpret_as_bytes())
 }
 
 ///|

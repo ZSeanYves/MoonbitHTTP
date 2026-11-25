@@ -107,11 +107,7 @@ async fn write_h2_data_chunk(
       let capacity = reserve(chunk.length())
       if capacity > 0 {
         write(
-          @http2.encode_data_frames(
-            stream_id,
-            chunk[:capacity].to_owned(),
-            false,
-          ).unwrap_or_error(),
+          @http2.encode_data_frames(stream_id, chunk[:capacity], false).unwrap_or_error(),
         )
       }
       capacity

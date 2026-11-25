@@ -42,7 +42,7 @@ pub const H2_FRAME_SETTINGS : Int32 = 0x4
 
 pub const H2_FRAME_WINDOW_UPDATE : Int32 = 0x8
 
-pub fn encode_data_frames(Int32, Bytes, Bool, max_frame_size? : Int32) -> Result[Bytes, H2ProtocolError]
+pub fn encode_data_frames(Int32, BytesView, Bool, max_frame_size? : Int32) -> Result[Bytes, H2ProtocolError]
 
 pub fn encode_goaway(Int32, H2ErrorCode) -> Result[Bytes, H2ProtocolError]
 

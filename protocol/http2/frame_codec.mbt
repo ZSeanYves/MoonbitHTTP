@@ -243,7 +243,7 @@ pub fn encode_response_frames(
     Ok(bytes) => bytes
     Err(error) => return Err(error)
   }
-  Ok(append_buffered_body(headers, stream_id, response.body, max_frame_size))
+  append_buffered_body(headers, stream_id, response.body, max_frame_size)
 }
 
 ///|
@@ -344,7 +344,7 @@ pub fn encode_trailers(
 ///|
 pub fn encode_data_frames(
   stream_id : Int32,
-  body : Bytes,
+  body : BytesView,
   end_stream : Bool,
   max_frame_size~ : Int32 = H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Result[Bytes, H2ProtocolError] {
@@ -356,11 +356,7 @@ pub fn encode_data_frames(
       ConnectionError(FrameSizeError, "max frame size must be positive"),
     )
   }
-  Ok(
-    Bytes::from_array(
-      build_data_frames(stream_id, body.to_array(), end_stream, max_frame_size~),
-    ),
-  )
+  build_data_frames(stream_id, body, end_stream, max_frame_size~)
 }
 
 ///|
@@ -384,7 +380,7 @@ pub fn encode_request_frames(
     Ok(bytes) => bytes
     Err(error) => return Err(error)
   }
-  Ok(append_buffered_body(headers, stream_id, request.body, max_frame_size))
+  append_buffered_body(headers, stream_id, request.body, max_frame_size)
 }
 
 ///|
@@ -394,14 +390,11 @@ fn append_buffered_body(
   stream_id : Int32,
   body : Bytes,
   max_frame_size : Int32,
-) -> Bytes {
+) -> Result[Bytes, H2ProtocolError] {
   if body.is_empty() {
-    return headers
+    return Ok(headers)
   }
-  headers +
-  Bytes::from_array(
-    build_data_frames(stream_id, body.to_array(), true, max_frame_size~),
-  )
+  build_data_frames(stream_id, body, true, max_frame_size~, prefix=headers)
 }
 
 ///|

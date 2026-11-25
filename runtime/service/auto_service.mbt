@@ -7,53 +7,41 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_aut
   shutdown~ : ServerShutdown? = None,
 ) -> Unit {
   let detector = @detection.Detector::new()
-  let prefix : Array[Byte] = []
-  let mut detection = @detection.Detection::Undetermined
-  while detection == Undetermined && prefix.length() < 24 {
-    match
-      read_before_shutdown(shutdown, () => {
-        read_some_with_timeout(
-          reader,
-          24 - prefix.length(),
-          config.read_timeout_ms,
-        )
-      }) {
-      None => break
-      Some(bytes) => {
-        for byte in bytes {
-          prefix.push(byte)
+  let mut checked = 0
+  let detection = for ;; {
+    let prefix = read_before_shutdown(shutdown, async fn() {
+      io_with_timeout(config.read_timeout_ms, async fn() {
+        Some(reader.peek_at_least(checked + 1)) catch {
+          UnexpectedEof => None
+          error => raise error
         }
-        detection = detector.feed(bytes)
+      })
+    })
+    guard prefix is Some(prefix) else {
+      if shutdown is Some(signal) && signal.has_started() {
+        return
       }
+      break @detection.Detected(Http1)
     }
+    let end = prefix.length().min(24)
+    let decision = detector.feed(prefix[checked:end])
+    if decision != Undetermined {
+      break decision
+    }
+    checked = end
   }
-  if detection == Undetermined {
-    detection = Detected(Http1)
-  }
-  let replay = @aio.MemoryReader(async fn(replay_writer) {
-    replay_writer.write(Bytes::from_array(prefix))
-    replay_writer.write_reader(reader)
-  })
   match detection {
     Detected(Http2PriorKnowledge) =>
       serve_http2_connection(
-        replay,
+        reader,
         writer,
         service,
         config=config.without_close_callback(),
         shutdown~,
       )
-    Detected(Http1) =>
+    Detected(Http1 | Http2Upgrade) =>
       serve_http1_or_h2c_connection(
-        replay,
-        writer,
-        service,
-        config=config.without_close_callback(),
-        shutdown~,
-      )
-    Detected(Http2Upgrade) =>
-      serve_http1_or_h2c_connection(
-        replay,
+        reader,
         writer,
         service,
         config=config.without_close_callback(),
