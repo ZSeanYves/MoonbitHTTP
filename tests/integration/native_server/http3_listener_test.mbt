@@ -413,6 +413,8 @@ async test "HTTP/3 typed client: a complete response survives peer close during 
           "route.test",
           [
             @types.IpAddress::parse("127.0.0.2").unwrap(),
+            // The IPv4-only listener leaves this legal DNS candidate unreachable.
+            @types.IpAddress::parse("::1").unwrap(),
             @types.IpAddress::parse("127.0.0.1").unwrap(),
             @types.IpAddress::parse("224.0.0.2").unwrap(),
           ],

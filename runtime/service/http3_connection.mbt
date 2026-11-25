@@ -265,13 +265,16 @@ pub async fn[
       group.spawn_bg(
         async fn() {
           task() catch {
-            error if io.failure is None && !@async.is_being_cancelled() => {
+            // During group teardown, another driver can already observe the
+            // closed QUIC state. A second raised error would replace the
+            // original socket, TLS, or application error in the task group.
+            _ if io.failure is Some(_) || @async.is_being_cancelled() => ()
+            error => {
               io.failure = Some(error)
               write_failure = Some(error)
               write_changed.broadcast()
               raise error
             }
-            error => raise error
           }
         },
         no_wait=true,
