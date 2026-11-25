@@ -143,3 +143,67 @@ async test "retry refreshes jar cookies and respects a caller Cookie" {
     )
   }
 }
+
+///|
+async test "Digest retry carries cookies from the challenge" {
+  let origin = test_uri("http://example.test/")
+  let credentials = @auth.DigestCredentials::new("user", "password").unwrap()
+
+  let mut calls = 0
+  let seen : Array[String?] = []
+  let exchange = byte_peer(request => {
+    calls += 1
+    seen.push(
+      match request.headers.get_string("authorization") {
+        Some(value) => Some(value.to_string_lossy())
+        None => None
+      },
+    )
+    if calls == 1 {
+      let headers = @types.HeaderMap::new()
+      headers.append_string("set-cookie", "round=one; Path=/").unwrap()
+      headers
+      .append_string(
+        "www-authenticate", "Digest realm=\"test\", nonce=\"nonce\", algorithm=SHA-256, qop=\"auth\"",
+      )
+      .unwrap()
+      Ok({ status: 401, version: Http11, headers, body: b"", })
+    } else {
+      assert_eq(
+        request.headers.get_string("cookie").unwrap().to_string_lossy(),
+        "round=one",
+      )
+      Ok({
+        status: 200,
+        version: Http11,
+        headers: @types.HeaderMap::new(),
+        body: b"ok",
+      })
+    }
+  })
+  @client.with_client(
+    async fn(client) {
+      client.cookie_jar().set_enabled(true)
+      client
+      .set_digest_auth(origin, credentials, fn() { Ok("cnonce") })
+      .unwrap()
+
+      let response = send_bytes(client, {
+        http_method: Get,
+        uri: origin,
+        version: Http11,
+        headers: @types.HeaderMap::new(),
+        body: b"",
+      })
+      assert_eq(response.body, b"ok")
+      assert_eq(calls, 2)
+      assert_eq(seen[0], None)
+      assert_true(seen[1] is Some(value) && value.has_prefix("Digest "))
+    },
+    exchange~,
+    version=Http11,
+    wall_clock_seconds=() => 0L,
+    authorize_redirect=fn(_, _) { Ok(()) },
+    now_millis=fn() { 0L },
+  )
+}

@@ -461,3 +461,65 @@ async test "oversized cache fills pass through and decoding failures discard the
     },
   )
 }
+
+///|
+async test "an unread no-store response releases the only pending cache slot" {
+  let config = @cache.CacheConfig::defaults()
+  let cache = @cache.HttpCache::new(config={
+    ..config,
+    limits: { ..config.limits, max_entries: 1, },
+  }).unwrap()
+  let mut sent = 0
+  @client.with_client(
+    async fn(client) {
+      let first = client.send(
+        client.request(
+          Get,
+          test_uri("http://example.test/transient"),
+          @client.Upload::bytes(b""),
+        ),
+      )
+      let second = client.send(
+        client.request(
+          Get,
+          test_uri("http://example.test/cacheable"),
+          @client.Upload::bytes(b""),
+        ),
+      )
+      assert_eq(@body.collect(second.body).0, b"body")
+      assert_eq(@body.collect(first.body).0, b"body")
+      assert_eq(cache.len(), 1)
+      let third = client.send(
+        client.request(
+          Get,
+          test_uri("http://example.test/cacheable"),
+          @client.Upload::bytes(b""),
+        ),
+      )
+      ignore(@body.collect(third.body))
+      assert_eq(sent, 2)
+      assert_eq(cache.len(), 1)
+    },
+    version=Http11,
+    cache~,
+    cache_enabled=true,
+    now_millis=() => 1L,
+    wall_clock_seconds=() => 1L,
+    authorize_redirect=(_, _) => Ok(()),
+    exchange=req => {
+      sent += 1
+      let h = @types.HeaderMap::new()
+      h
+      .append_string(
+        "cache-control",
+        if req.uri.path == "/transient" {
+          "no-store"
+        } else {
+          "max-age=60"
+        },
+      )
+      .unwrap()
+      { status: 200, version: Http11, headers: h, body: incoming(b"body"), }
+    },
+  )
+}

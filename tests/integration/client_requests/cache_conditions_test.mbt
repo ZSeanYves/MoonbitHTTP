@@ -159,3 +159,66 @@ async test "redirects revalidate each resource with its own cache validator" {
     )
   }
 }
+
+///|
+async test "an invalidated revalidation retries with the caller's original headers" {
+  let uri = test_uri("http://example.test/item")
+  let cache = @cache.HttpCache::new().unwrap()
+  let request : @types.Request[Unit] = {
+    http_method: Get,
+    uri,
+    version: Http11,
+    headers: @types.HeaderMap::new(),
+    body: (),
+  }
+  let headers = @types.HeaderMap::new()
+  headers.append_string("cache-control", "max-age=0").unwrap()
+  headers.append_string("etag", "\"one\"").unwrap()
+  ignore(
+    cache
+    .store(
+      request,
+      { status: 200, version: Http11, headers, body: (), },
+      b"old",
+      0L,
+    )
+    .unwrap(),
+  )
+  let mut calls = 0
+  @client.with_client(
+    async fn(client) {
+      let response = client.send(
+        client.request(Get, uri, @client.Upload::bytes(b"")),
+      )
+      assert_eq(response.status, 200)
+      assert_eq(@body.collect(response.body).0, b"fresh")
+      assert_eq(calls, 2)
+    },
+    version=Http11,
+    cache~,
+    cache_enabled=true,
+    now_millis=() => 1L,
+    wall_clock_seconds=() => 1L,
+    authorize_redirect=(_, _) => Ok(()),
+    exchange=req => {
+      calls += 1
+      if calls == 2 {
+        assert_true(req.headers.get_string("if-none-match") is None)
+        return {
+          status: 200,
+          version: Http11,
+          headers: @types.HeaderMap::new(),
+          body: incoming(b"fresh"),
+        }
+      }
+      assert_true(req.headers.get_string("if-none-match") is Some(_))
+      cache.clear()
+      {
+        status: 304,
+        version: Http11,
+        headers: @types.HeaderMap::new(),
+        body: incoming(b""),
+      }
+    },
+  )
+}

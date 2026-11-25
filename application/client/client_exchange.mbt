@@ -6,6 +6,7 @@ priv struct ClientExchange {
   redirects : RedirectTracker
   mut request : @types.Request[Upload]
   mut endpoint : ClientEndpoint
+  mut bypass_revalidation : Bool
   mut auth_attempts : Int32
 }
 
@@ -117,6 +118,7 @@ fn ClientExchange::new(
     endpoint,
     request: { ..request, headers: request.headers.copy(), },
     auth_attempts: 0,
+    bypass_revalidation: false,
   }
 }
 
@@ -194,7 +196,9 @@ fn ClientExchange::prepare_request(
       },
     )
   }
-  if !self.client.cache_enabled || !(request.http_method is (Get | Head)) {
+  if self.bypass_revalidation ||
+    !self.client.cache_enabled ||
+    !(request.http_method is (Get | Head)) {
     return SendRequest(request, digest, deferred_auth, None)
   }
   match
@@ -286,6 +290,7 @@ fn ClientExchange::handle_response(
   stale : @cache.CacheHit?,
   attempt : Int32,
 ) -> ExchangeAction? raise ClientError {
+  self.store_cookies(response.headers)
   if response.status == 401 &&
     self.auth_attempts < 2 &&
     request.body.replayability() == ReplayableBody &&
@@ -296,7 +301,14 @@ fn ClientExchange::handle_response(
     return Some(SendAgain)
   }
 
-  self.update_cache_and_cookies(response)
+  if self.client.cache_enabled && !(request.http_method is (Get | Head)) {
+    ignore(
+      self.client.cache.invalidate_response(
+        request.map_body(_ => ()),
+        response.map_body(_ => ()),
+      ),
+    )
+  }
   // On a retryable status, exhaust retries before serving a stale response.
   let cause = RetryStatus(response.status)
   if retry_cause_allowed(cause) {
@@ -322,6 +334,23 @@ fn ClientExchange::handle_response(
       return Some(Complete(self.cached_response(refreshed)))
     }
   }
+  if response.status == 304 {
+    // Only a validator actually sent by the caller can justify forwarding a 304.
+    let caller = self.request.headers
+    let supplied = caller.get_string("if-none-match") is Some(_) ||
+      (
+        caller.get_string("if-modified-since") is Some(_) &&
+        request.headers.get_string("if-none-match") is None
+      )
+    if !supplied && (stale is Some(_) || self.bypass_revalidation) {
+      if self.bypass_revalidation ||
+        request.body.replayability() == NonReplayableBody {
+        raise ClientProtocol("304 has no usable cached representation")
+      }
+      self.bypass_revalidation = true
+      return Some(SendAgain)
+    }
+  }
   if response.status is (301 | 302 | 303 | 307 | 308) {
     guard response.headers.get_string("location") is Some(location) else {
       return None
@@ -334,21 +363,13 @@ fn ClientExchange::handle_response(
 }
 
 ///|
-fn ClientExchange::update_cache_and_cookies(
+fn ClientExchange::store_cookies(
   self : ClientExchange,
-  response : @types.Response[IncomingBody],
+  headers : @types.HeaderMap,
 ) -> Unit {
   let request = self.request
-  if self.client.cache_enabled && !(request.http_method is (Get | Head)) {
-    ignore(
-      self.client.cache.invalidate_response(
-        request.map_body(_ => ()),
-        response.map_body(_ => ()),
-      ),
-    )
-  }
   let context = @cookie.CookieContext::http(request.http_method)
-  for cookie in response.headers.get_all_string("set-cookie") {
+  for cookie in headers.get_all_string("set-cookie") {
     ignore(
       self.client.cookie_jar.store(
         cookie,
@@ -394,6 +415,7 @@ fn ClientExchange::follow_redirect(
       request.body
     },
   }
+  self.bypass_revalidation = false
   self.auth_attempts = 0
 }
 

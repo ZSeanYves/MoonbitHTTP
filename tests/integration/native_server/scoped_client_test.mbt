@@ -71,6 +71,14 @@ async fn check_scoped_client(
       }
     },
     version~,
+    options={
+      ..@client_api.RequestOptions::defaults(),
+      limits: if version == Http2 {
+        @types.Limits::new(max_concurrent_requests=1, max_buffer_bytes=8192).unwrap()
+      } else {
+        @types.Limits::defaults()
+      },
+    },
     policy=@transport.AllowAllPolicy::new(),
     tls={ ..tls, server_name: None, },
   )

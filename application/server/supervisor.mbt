@@ -111,7 +111,7 @@ pub fn ServerSupervisor::record_accept_error(
   self.metrics.accept_errors += 1L
   (self.config.observer)(AcceptError(self.accept_errors))
   if self.accept_errors >= self.config.limits.max_accept_errors {
-    self.state = Draining
+    self.begin_shutdown() |> ignore
     return Err(AcceptErrorLimitExceeded)
   }
   Ok(())
@@ -150,6 +150,9 @@ pub fn ServerSupervisor::begin_shutdown(
 pub fn ServerSupervisor::finish_shutdown(
   self : ServerSupervisor,
 ) -> Result[Unit, ServerError] {
+  if self.state == Stopped {
+    return Ok(())
+  }
   if self.active != 0 {
     return Err(ShutdownTimeout)
   }

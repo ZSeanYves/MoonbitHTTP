@@ -14,10 +14,10 @@ pub fn HttpCache::begin_fill(
   request : @types.Request[Unit],
 ) -> CacheFill? {
   guard request.http_method == Get &&
-    self.pending.length() < self.config.limits.max_entries &&
-    cache_base_key(request) is Ok(key) else {
+    self.pending.length() < self.config.limits.max_entries else {
     return None
   }
+  let key = self.storage_key(request) catch { _ => return None }
   let fill : CacheFill = {
     cache: self,
     key,
@@ -72,13 +72,35 @@ pub fn CacheFill::commit(
   trailers : @types.HeaderMap?,
   now : Int64,
 ) -> Unit {
-  guard self.chunks is Some(chunks) else { return }
-  defer self.discard()
-  let data = @buffer.Buffer(capacity=self.size)
-  for chunk in chunks {
-    data.write_bytes(chunk)
+  if self.prepare(response, now) is Some(finish) {
+    finish(trailers)
   }
-  ignore(
-    self.cache.store(self.request, response, data.to_bytes(), now, trailers~),
-  )
+}
+
+///|
+/// Checks the response head before buffering its body. Invalidation can still
+/// discard this fill before the returned completion callback runs.
+pub fn CacheFill::prepare(
+  self : CacheFill,
+  response : @types.Response[Unit],
+  now : Int64,
+) -> ((@types.HeaderMap?) -> Unit)? {
+  guard self.chunks is Some(_) else { return None }
+  let head = self.cache.prepare_entry(self.key, self.request, response, now) catch {
+    _ => {
+      self.discard()
+      return None
+    }
+  }
+  Some(trailers => {
+    guard self.chunks is Some(chunks) else { return }
+    defer self.discard()
+    let data = @buffer.Buffer(capacity=self.size)
+    for chunk in chunks {
+      data.write_bytes(chunk)
+    }
+    ignore(
+      self.cache.store_entry(self.request, head, data.to_bytes(), trailers),
+    )
+  })
 }

@@ -93,6 +93,7 @@ pub struct CacheFill {
 pub fn CacheFill::append(Self, Bytes) -> Unit
 pub fn CacheFill::commit(Self, @types.Response[Unit], @types.HeaderMap?, Int64) -> Unit
 pub fn CacheFill::discard(Self) -> Unit
+pub fn CacheFill::prepare(Self, @types.Response[Unit], Int64) -> ((@types.HeaderMap?) -> Unit)?
 
 pub(all) struct CacheHit {
   response : @types.Response[Unit]

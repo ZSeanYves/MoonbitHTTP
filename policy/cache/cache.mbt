@@ -438,95 +438,100 @@ pub fn HttpCache::store(
   now_seconds : Int64,
   trailers~ : @types.HeaderMap? = None,
 ) -> Result[CacheStoreOutcome, CacheError] {
-  // This cache owns complete GET representations only. A partial/bodyless
-  // response must not replace a full representation under the same URI key.
+  let entry = try {
+    let key = self.storage_key(request)
+    self.prepare_entry(key, request, response, now_seconds)
+  } catch {
+    reason if reason is (InvalidRequest | NotCacheable(_) | EntryTooLarge(_)) =>
+      return Ok(CacheNotStored(reason))
+    error => return Err(error)
+  }
+  self.store_entry(request, entry, body, trailers)
+}
+
+///|
+fn HttpCache::storage_key(
+  self : HttpCache,
+  request : @types.Request[Unit],
+) -> String raise CacheError {
   if request.http_method == Head ||
     request.headers.get_string("range") is Some(_) ||
-    request.headers.get_string("if-range") is Some(_) ||
-    response.status == 206 ||
-    response.status == 304 ||
+    request.headers.get_string("if-range") is Some(_) {
+    raise NotCacheable("incomplete representation")
+  }
+  let key = cache_base_key(request).unwrap_or_error()
+  let control = cache_request_control(
+    request,
+    self.config.limits.max_directives,
+  ).unwrap_or_error()
+  if control.no_store {
+    raise NotCacheable("request has no-store")
+  }
+  key
+}
+
+///|
+fn HttpCache::prepare_entry(
+  self : HttpCache,
+  key : String,
+  request : @types.Request[Unit],
+  response : @types.Response[Unit],
+  now_seconds : Int64,
+) -> CacheEntry raise CacheError {
+  if response.status is (206 | 304) ||
     response.headers.get_string("content-range") is Some(_) {
-    return Ok(CacheNotStored(NotCacheable("incomplete representation")))
-  }
-  let key = match cache_base_key(request) {
-    Ok(value) => value
-    Err(error) => return Ok(CacheNotStored(error))
-  }
-  let request_control = match
-    cache_request_control(request, self.config.limits.max_directives) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  if request_control.no_store {
-    return Ok(CacheNotStored(NotCacheable("request has no-store")))
+    raise NotCacheable("incomplete representation")
   }
   if response.status < 100 || response.status > 999 {
-    return Err(InvalidResponse)
+    raise InvalidResponse
   }
-  if body.length() > self.config.limits.max_entry_bytes {
-    return Ok(CacheNotStored(EntryTooLarge(body.length())))
-  }
-  if !@types.response_allows_body(request.http_method, response.status) &&
-    !body.is_empty() {
-    return Err(InvalidResponse)
-  }
-  match response.headers.content_length() {
-    Ok(Some(value)) if value != body.length() => return Err(InvalidResponse)
-    Err(_) => return Err(InvalidResponse)
-    _ => ()
-  }
+  let declared = response.headers
+    .content_length()
+    .map_err(_ => InvalidResponse)
+    .unwrap_or_error()
   let control = match
     parse_cache_control(
       response.headers,
       max_directives=self.config.limits.max_directives,
     ) {
     Ok(value) => value
-    Err(error) => return Err(error)
+    Err(error) => raise error
   }
   if control.no_store {
-    return Ok(CacheNotStored(NotCacheable("response has no-store")))
+    raise NotCacheable("response has no-store")
   }
   if self.config.shared && control.private {
-    return Ok(CacheNotStored(NotCacheable("private response in shared cache")))
+    raise NotCacheable("private response in shared cache")
   }
   if !self.config.allow_set_cookie &&
-    (
-      response.headers.get_string("set-cookie") is Some(_) ||
-      (trailers is Some(t) && t.get_string("set-cookie") is Some(_))
-    ) {
-    return Ok(
-      CacheNotStored(NotCacheable("set-cookie is not cacheable by policy")),
-    )
+    response.headers.get_string("set-cookie") is Some(_) {
+    raise NotCacheable("set-cookie is not cacheable by policy")
   }
   if request.headers.get_string("authorization") is Some(_) &&
     self.config.shared &&
     !control.public &&
     control.s_maxage is None {
-    return Ok(
-      CacheNotStored(
-        NotCacheable("authorized response lacks shared-cache permission"),
-      ),
-    )
+    raise NotCacheable("authorized response lacks shared-cache permission")
   }
   let vary = match
     parse_vary(response.headers, max_fields=self.config.limits.max_vary_fields) {
-    Ok((true, _)) => return Ok(CacheNotStored(NotCacheable("vary wildcard")))
+    Ok((true, _)) => raise NotCacheable("vary wildcard")
     Ok((false, value)) => value
-    Err(error) => return Err(error)
+    Err(error) => raise error
   }
   let vary_signature = match cache_vary_signature(request.headers, vary) {
     Ok(value) => value
-    Err(error) => return Err(error)
+    Err(error) => raise error
   }
   let date_seconds = match
     cache_parse_date(response.headers, "date", now_seconds) {
     Ok(Some(value)) => value
     Ok(None) => now_seconds
-    Err(error) => return Err(error)
+    Err(error) => raise error
   }
   let age_header = match parse_age(response.headers) {
     Ok(value) => value
-    Err(error) => return Err(error)
+    Err(error) => raise error
   }
   let initial_age = age_header.max((now_seconds - date_seconds).max(0L))
   let lifetime = match
@@ -540,34 +545,30 @@ pub fn HttpCache::store(
       self.config.limits.heuristic_max_age_seconds,
     ) {
     Ok(value) => value
-    Err(error) => return Err(error)
+    Err(error) => raise error
   }
   if !cache_status_default_cacheable(response.status) &&
     control.max_age is None &&
     control.s_maxage is None &&
     response.headers.get_string("expires") is None {
-    return Ok(
-      CacheNotStored(NotCacheable("status is not cacheable by default")),
-    )
+    raise NotCacheable("status is not cacheable by default")
   }
-  let copied_response = cache_clone_response(response)
-  let metadata_size = cache_metadata_size(copied_response.headers) +
-    trailers.map(cache_metadata_size).unwrap_or(0)
-  if metadata_size > self.config.limits.max_metadata_bytes {
-    return Ok(CacheNotStored(EntryTooLarge(metadata_size)))
+  let metadata_size = cache_metadata_size(response.headers)
+  if metadata_size > self.config.limits.max_metadata_bytes ||
+    metadata_size > self.config.limits.max_entry_bytes {
+    raise EntryTooLarge(metadata_size)
   }
-  let size = body.length() + metadata_size
-  if size > self.config.limits.max_entry_bytes {
-    return Ok(CacheNotStored(EntryTooLarge(size)))
+  if declared is Some(length) &&
+    length > self.config.limits.max_entry_bytes - metadata_size {
+    raise EntryTooLarge(length)
   }
-  let order = self.cache_tick()
-  let entry = CacheEntry::{
+  CacheEntry::{
     key,
     vary,
     vary_signature,
-    response: copied_response,
-    trailers: trailers.map(h => h.copy()),
-    body,
+    response: cache_clone_response(response),
+    trailers: None,
+    body: b"",
     date_seconds,
     stored_at: now_seconds,
     initial_age,
@@ -578,12 +579,55 @@ pub fn HttpCache::store(
     must_revalidate: control.must_revalidate || control.proxy_revalidate,
     etag: match cache_validator(response.headers, "etag") {
       Ok(value) => value
-      Err(error) => return Err(error)
+      Err(error) => raise error
     },
     last_modified: cache_header_text(response.headers, "last-modified"),
-    size,
-    last_used: order,
+    size: metadata_size,
+    last_used: 0L,
+    order: 0L,
+  }
+}
+
+///|
+fn HttpCache::store_entry(
+  self : HttpCache,
+  request : @types.Request[Unit],
+  head : CacheEntry,
+  body : Bytes,
+  trailers : @types.HeaderMap?,
+) -> Result[CacheStoreOutcome, CacheError] {
+  if !self.config.allow_set_cookie &&
+    trailers is Some(t) &&
+    t.get_string("set-cookie") is Some(_) {
+    return Ok(
+      CacheNotStored(NotCacheable("set-cookie is not cacheable by policy")),
+    )
+  }
+  if (
+      !@types.response_allows_body(request.http_method, head.response.status) &&
+      !body.is_empty()
+    ) ||
+    (
+      head.response.headers.content_length() is Ok(Some(n)) &&
+      n != body.length()
+    ) {
+    return Err(InvalidResponse)
+  }
+  let metadata_size = head.size + trailers.map(cache_metadata_size).unwrap_or(0)
+  if metadata_size > self.config.limits.max_metadata_bytes {
+    return Ok(CacheNotStored(EntryTooLarge(metadata_size)))
+  }
+  if body.length() > self.config.limits.max_entry_bytes - metadata_size {
+    return Ok(CacheNotStored(EntryTooLarge(body.length())))
+  }
+  let order = self.cache_tick()
+  let entry = {
+    ..head,
+    body,
+    trailers: trailers.map(h => h.copy()),
+    size: metadata_size + body.length(),
     order,
+    last_used: order,
   }
   let mut replaced = false
   let mut index = 0

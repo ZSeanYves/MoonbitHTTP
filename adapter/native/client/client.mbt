@@ -95,6 +95,15 @@ pub async fn[P : @transport.NetworkPolicy, X] with_client(
           session: {
             ..defaults.session,
             limits: options.limits,
+            max_concurrent_streams: defaults.session.max_concurrent_streams
+            .min(options.limits.max_concurrent_requests)
+            .min(options.limits.max_streams),
+            read_size: defaults.session.read_size.min(
+              options.limits.max_buffer_bytes,
+            ),
+            h2_receive_window_bytes: defaults.session.h2_receive_window_bytes.min(
+              options.limits.max_buffer_bytes,
+            ),
             read_timeout_ms: options.timeouts.response_body_ms,
             write_timeout_ms: options.timeouts.request_body_ms,
           },

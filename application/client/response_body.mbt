@@ -48,17 +48,11 @@ fn ClientExchange::deliver(
 ) -> @types.Response[IncomingBody] raise ClientError {
   let mut trailers = None
   let raw = response.body
-  let commit = fill.map(pending => {
-    let original = {
-      ..response.map_body(_ => ()),
-      headers: response.headers.copy(),
-    }
-    let received_at = self.now_seconds
-    () => pending.commit(original, trailers, received_at)
+  let commit = fill.bind(pending => {
+    pending.prepare(response.map_body(_ => ()), self.now_seconds)
   })
-  let tapped = match fill {
-    None => raw
-    Some(pending) =>
+  let tapped = match (fill, commit) {
+    (Some(pending), Some(_)) =>
       IncomingBody::new(
         async fn() {
           let frame = raw.next_frame()
@@ -72,6 +66,7 @@ fn ClientExchange::deliver(
         raw.size_hint(),
         reason => raw.cancel(reason),
       )
+    _ => raw
   }
   let decoded = self.decode_response(response.map_body(_ => tapped))
   let body = decoded.body
@@ -79,7 +74,7 @@ fn ClientExchange::deliver(
     async fn() {
       let frame = body.next_frame()
       if frame is (None | Some(Trailers(_))) && commit is Some(finish) {
-        finish()
+        finish(trailers)
       }
       frame
     },

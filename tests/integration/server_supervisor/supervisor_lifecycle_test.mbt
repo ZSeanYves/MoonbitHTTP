@@ -363,3 +363,26 @@ async test "server supervisor: cancellation during accept handoff closes the unr
     assert_eq(supervisor.state(), Stopped)
   })
 }
+
+///|
+async test "exhausted accept budget emits the full shutdown sequence once" {
+  let events : Array[@server.ServerEvent] = []
+  let limits = { ..@server.ServerLimits::defaults(), max_accept_errors: 1, }
+  let supervisor = @server.ServerSupervisor::new(
+    config=@server.ServerConfig::defaults()
+      .with_limits(limits)
+      .with_observer(e => events.push(e)),
+  ).unwrap()
+  let listener = LifecycleListener::new([], fail_accept=true)
+  assert_eq(supervisor.serve(listener), Err(AcceptErrorLimitExceeded))
+  supervisor.begin_shutdown().unwrap()
+  supervisor.finish_shutdown().unwrap()
+  assert_eq(events, [
+    StateChanged(Running),
+    AcceptError(1),
+    ShutdownStarted,
+    StateChanged(Draining),
+    ShutdownFinished,
+    StateChanged(Stopped),
+  ])
+}
