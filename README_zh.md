@@ -81,13 +81,13 @@ pub async fn get(uri : @types.Uri, trust_anchors? : Bytes) -> Bytes {
 
 本次候选通过提交 SHA 与冻结包摘要标识。独立消费作业在 `_build/evidence/release/<提交 SHA>/evidence.json` 记录两者。请从相同 Git 修订打开以下相对链接。[Native 客户端](adapter/native/client/README_zh.md) · [Native 服务端](adapter/native/server/README_zh.md) · [更新日志](CHANGELOG.md)
 
-| 能力 | Native | Wasm 与 JS | Wasm-GC |
-| --- | --- | --- | --- |
-| 协议专家入口 `core`、`protocol` | 运行 | 运行 | 运行。含同步 QUIC 向量 |
-| 应用入口 `application`、`runtime/service` | 原生 TCP/UDP、DNS、TLS；四个 HTTP 版本回环实测 | 异步服务和宿主字节流回调运行 | 异步服务只编译 |
-| HTTP/3 部署 | OpenSSL 3.5+ 的 3.x 版本提供 QUIC TLS | 接入需要宿主数据报和 QUIC TLS；便携包保护使用实验性密码实现 | 同样依赖宿主；异步服务只编译 |
+应用开发入口为 `adapter/native/client`、`adapter/native/server`、`application/{client,server}`、`core/{body,types}` 和 `policy/{auth,cache,content_coding,cookie}`。自建传输或实现协议时使用 `runtime/{transport,service,detection}`、`adapter/callback`、`adapter/native/{tls,transport}`、`core/codec` 和 `protocol/{http1,http2,http3,quic,tls}`。Native 以外的 QUIC 包保护使用实验性便携密码实现。
 
-[Native 回环](https://github.com/ZSeanYves/http/blob/main/tests/integration/native_server/scoped_client_test.mbt) · [宿主回调测试](https://github.com/ZSeanYves/http/blob/main/tests/blackbox/callback_api/transport_test.mbt) · [协议与便携目标的执行门禁](https://github.com/ZSeanYves/http/blob/main/repo-tools/tools/check_runtime_tests.mbtx)
+| 能力 | Native | Wasm 与 JS | Wasm-GC |
+|---|---|---|---|
+| 协议编解码与 QUIC 包保护 | [已运行](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) | [已运行](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) | [已运行同步协议向量](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) |
+| 应用与流式服务 | [原生 TCP/UDP、DNS、TLS，四个 HTTP 版本通过回环测试](https://github.com/ZSeanYves/http/blob/e91603e/tests/integration/native_server/scoped_client_test.mbt) | [已运行异步服务](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx)及[宿主字节流回调](https://github.com/ZSeanYves/http/blob/e91603e/tests/blackbox/callback_api/transport_test.mbt) | 异步服务仅编译 |
+| 部署 HTTP/3 | [经身份验证的 QUIC，使用 3.5 起的 OpenSSL 3.x](https://github.com/ZSeanYves/http/blob/e91603e/tests/integration/native_server/scoped_client_test.mbt) | 需提供宿主数据报与 QUIC TLS。[便携包保护向量](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) | 同样需要宿主支持，[同步 QUIC 向量已运行](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx)。异步服务仅编译 |
 
 ## 本分支的接口迁移
 

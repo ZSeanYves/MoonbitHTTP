@@ -81,13 +81,13 @@ pub async fn get(uri : @types.Uri, trust_anchors? : Bytes) -> Bytes {
 
 Identify the candidate by its Git SHA and frozen package digest. The distribution gate records both in `_build/evidence/release/<Git SHA>/evidence.json`. Open the relative guides at that same revision. [Native client](adapter/native/client/README.md) · [Native server](adapter/native/server/README.md) · [Changelog](CHANGELOG.md)
 
-| Capability | Native | Wasm and JS | Wasm-GC |
-| --- | --- | --- | --- |
-| Protocol expert APIs in `core` and `protocol` | Executed | Executed | Executed, including synchronous QUIC vectors |
-| Application APIs in `application` and `runtime/service` | Native TCP/UDP, DNS and TLS, four HTTP versions exercised over loopback | Async services and host byte-stream callbacks executed | Async services compile only |
-| HTTP/3 deployment | QUIC TLS from OpenSSL 3.x starting with 3.5 | Requires host datagrams and QUIC TLS. Portable packet protection uses experimental cryptography | Same host requirements. Async services compile only |
+Application entry points are `adapter/native/client`, `adapter/native/server`, `application/{client,server}`, `core/{body,types}` and `policy/{auth,cache,content_coding,cookie}`. For a custom transport or protocol implementation, use `runtime/{transport,service,detection}`, `adapter/callback`, `adapter/native/{tls,transport}`, `core/codec` and `protocol/{http1,http2,http3,quic,tls}`. Portable QUIC packet protection outside Native uses experimental cryptography.
 
-[Native loopback tests](https://github.com/ZSeanYves/http/blob/main/tests/integration/native_server/scoped_client_test.mbt) · [Host callback tests](https://github.com/ZSeanYves/http/blob/main/tests/blackbox/callback_api/transport_test.mbt) · [Protocol and portable execution checks](https://github.com/ZSeanYves/http/blob/main/repo-tools/tools/check_runtime_tests.mbtx)
+| Capability | Native | Wasm and JS | Wasm-GC |
+|---|---|---|---|
+| Protocol codecs and QUIC packet protection | [Executed](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) | [Executed](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) | [Synchronous vectors executed](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) |
+| Application and stream services | [TCP/UDP, DNS and TLS with four HTTP versions on loopback](https://github.com/ZSeanYves/http/blob/e91603e/tests/integration/native_server/scoped_client_test.mbt) | [Async service execution](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) and [host byte-stream callback execution](https://github.com/ZSeanYves/http/blob/e91603e/tests/blackbox/callback_api/transport_test.mbt) | Async service compilation only |
+| HTTP/3 deployment | [Authenticated QUIC with OpenSSL 3.5 or later within 3.x](https://github.com/ZSeanYves/http/blob/e91603e/tests/integration/native_server/scoped_client_test.mbt) | Supply host datagrams and QUIC TLS. [Portable packet protection vectors](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) | Same host requirements and [synchronous QUIC vectors](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx). Async service compilation only |
 
 ## Migrating to this branch
 
