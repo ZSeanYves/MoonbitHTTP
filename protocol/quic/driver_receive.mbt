@@ -57,7 +57,20 @@ fn QuicDatagramDriver::receive_datagram(
   }
   self.count_received_datagram(source, packet)
   let candidate_path = source != self.path.active()
-  if candidate_path && self.path.candidate() != Some(source) {
+  let port_rebinding = candidate_path &&
+    self.rebinding_entropy is Some(_) &&
+    self.role == Server &&
+    self.state() == Established &&
+    source.host() == self.path.active().host() &&
+    source.scheme() == self.path.active().scheme()
+  if port_rebinding &&
+    (
+      (packet[0].to_int() & 0xc0) != 0x40 ||
+      (self.path.candidate() is Some(candidate) && source != candidate)
+    ) {
+    return Ok([PacketIgnored])
+  }
+  if candidate_path && !port_rebinding && self.path.candidate() != Some(source) {
     return Err(InvalidPacket("packet arrived on an unvalidated path"))
   }
   let output : Array[QuicDriverAction] = []
@@ -99,6 +112,8 @@ fn QuicDatagramDriver::receive_datagram(
     let bytes = if length == size { packet } else { rest[:length].to_owned() }
     let incoming = match self.on_packet(source, bytes, header, size, now_ms) {
       Ok(value) => value
+      Err(InvalidPacket(_) | NeedMoreInput | Tls(PacketAuthenticationFailed)) if port_rebinding =>
+        return Ok([PacketIgnored])
       Err(InvalidPacket(_) | NeedMoreInput | Tls(PacketAuthenticationFailed)) if cursor >
         0 => break
       Err(error) => return Err(error)
@@ -400,6 +415,50 @@ fn QuicDatagramDriver::on_packet(
     Ok(_) => ()
     Err(error) => return Err(error)
   }
+  if candidate_path && self.path.candidate() != Some(source) {
+    // Ignore reordered packets on an old port and probing-only packets.
+    if opened.packet_number() <= received.largest() ||
+      !frames.any(f => {
+        !(f
+        is (Padding
+        | PathChallenge(_)
+        | PathResponse(_)
+        | NewConnectionId(_, _, _, _)))
+      }) {
+      return Ok([PacketIgnored])
+    }
+    if self.candidate_budget is None ||
+      self.candidate_budget.unwrap().endpoint != source {
+      self.candidate_budget = Some(QuicPathBudget::new(source, false))
+      self.count_received_datagram(source, packet)
+    }
+    return self.probe_rebound_port(source, now_ms)
+  }
+  if candidate_path && self.rebinding_deadline_ms is Some(_) {
+    if !frames.any(f => {
+        f is PathResponse(value) && self.path.matches_response(value)
+      }) {
+      return Ok([PacketIgnored])
+    }
+  } else if candidate_path {
+    // A candidate path cannot affect connection, recovery, or stream state
+    // before it proves receipt of the challenge. Validate the entire packet
+    // before processing any ACK or other side effects.
+    let mut has_response = false
+    for frame in frames {
+      match frame {
+        Padding | Ack(_) => ()
+        PathResponse(data) if self.path.matches_response(data) =>
+          has_response = true
+        _ => return Err(InvalidPacket("candidate path has not been validated"))
+      }
+    }
+    if !has_response {
+      return Err(
+        InvalidPacket("candidate path requires a matching PATH_RESPONSE"),
+      )
+    }
+  }
   // Validate retirements before any frame in this packet can mutate CID state.
   for frame in frames {
     if frame is RetireConnectionId(sequence) {
@@ -423,24 +482,16 @@ fn QuicDatagramDriver::on_packet(
       }
     }
   }
-  if candidate_path {
-    // A candidate path cannot affect connection, recovery, or stream state
-    // before it proves receipt of the challenge. Validate the entire packet
-    // before processing any ACK or other side effects.
-    let mut has_response = false
-    for frame in frames {
-      match frame {
-        Padding | Ack(_) => ()
-        PathResponse(data) if self.path.matches_response(data) =>
-          has_response = true
-        _ => return Err(InvalidPacket("candidate path has not been validated"))
-      }
-    }
-    if !has_response {
-      return Err(
-        InvalidPacket("candidate path requires a matching PATH_RESPONSE"),
-      )
-    }
+  // RFC 9000 section 8.2.1 requires a full-size follow-up when the first
+  // challenge was shortened by the anti-amplification limit.
+  if self.rebinding_needs_mtu_probe &&
+    self.candidate_budget is Some(budget) &&
+    frames.any(f => {
+      f is PathResponse(value) && self.path.matches_response(value)
+    }) {
+    budget.validated = true
+    self.discard_path_challenges()
+    return self.probe_rebound_port(budget.endpoint, now_ms)
   }
   let has_path_challenge = frames.any(fn(frame) { frame is PathChallenge(_) })
   if has_path_challenge {
@@ -539,6 +590,8 @@ fn QuicDatagramDriver::on_packet(
               self.candidate_budget = None
             }
             self.discard_path_challenges()
+            self.rebinding_deadline_ms = None
+            self.rebinding_needs_mtu_probe = false
             actions.push(PathValidated(self.path.active()))
           }
           Err(error) => return Err(error)

@@ -13,6 +13,16 @@ pub fn QuicDatagramDriver::begin_path_validation(
     params.limits.disable_active_migration {
     return Err(InvalidTransportParameter("peer disabled active migration"))
   }
+  self.start_path_challenge(endpoint, challenge, now_ms)
+}
+
+///|
+fn QuicDatagramDriver::start_path_challenge(
+  self : QuicDatagramDriver,
+  endpoint : @types.Endpoint,
+  challenge : Bytes,
+  now_ms : Int64,
+) -> Result[QuicDriverAction, QuicError] {
   match (self.authorize_endpoint)(endpoint, QuicEndpoint) {
     Ok(_) => ()
     Err(error) => return Err(Policy(error))
@@ -49,6 +59,44 @@ pub fn QuicDatagramDriver::begin_path_validation(
 }
 
 ///|
+/// Only an authenticated 1-RTT packet with a new packet number can initiate
+/// port rebinding. Address validation has its own credit and recovery deadline.
+fn QuicDatagramDriver::probe_rebound_port(
+  self : QuicDatagramDriver,
+  source : @types.Endpoint,
+  now_ms : Int64,
+) -> Result[Array[QuicDriverAction], QuicError] {
+  guard self.rebinding_entropy is Some(entropy) else {
+    return Ok([PacketIgnored])
+  }
+  let challenge = FixedArray::make(8, b'\x00')
+  if entropy.fill(challenge) is Err(error) {
+    return Err(Entropy(error))
+  }
+  match
+    self.start_path_challenge(
+      source,
+      challenge.unsafe_reinterpret_as_bytes(),
+      now_ms,
+    ) {
+    Ok(action) => {
+      self.rebinding_needs_mtu_probe = action is SendDatagram(_, bytes) &&
+        bytes.length() < 1200
+      let base = self.recovery
+        .recovery_pto(Application)
+        .max(self.recovery.config.initial_rtt_ms)
+      self.rebinding_deadline_ms = Some(
+        quic_deadline_ms(now_ms, base, periods=3L),
+      )
+      Ok([action])
+    }
+    Err(Policy(_)) => Ok([PacketIgnored])
+    Err(error) if error.send_blocked() => Ok([PacketIgnored])
+    Err(error) => Err(error)
+  }
+}
+
+///|
 fn QuicDatagramDriver::discard_path_challenges(
   self : QuicDatagramDriver,
 ) -> Unit {
@@ -72,6 +120,13 @@ pub fn QuicDatagramDriver::poll(
     } else {
       Ok([])
     }
+  }
+  if self.rebinding_deadline_ms is Some(deadline) && now_ms >= deadline {
+    self.path.abandon()
+    self.candidate_budget = None
+    self.rebinding_deadline_ms = None
+    self.rebinding_needs_mtu_probe = false
+    self.discard_path_challenges()
   }
   // A client whose address validation is still outstanding can need a probe
   // even after the server has acknowledged its complete Initial flight.

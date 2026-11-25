@@ -3,6 +3,7 @@ fn established_driver_pair(
   client_endpoint : @types.Endpoint,
   server_endpoint : @types.Endpoint,
   established~ : Bool = true,
+  rebinding_entropy~ : &@transport.Entropy? = None,
   server_reset_token~ : Bytes? = None,
   recovery_config~ : @quic.QuicRecoveryConfig = @quic.QuicRecoveryConfig::defaults(),
 ) -> (@quic.QuicDatagramDriver, @quic.QuicDatagramDriver) {
@@ -22,6 +23,7 @@ fn established_driver_pair(
     server_id,
     server_id,
     client_id,
+    rebinding_entropy~,
   ).unwrap()
   // Deterministic fixture keys exercise the driver without claiming to run
   // a TLS handshake. Real traffic secrets are a separate production gate.
@@ -455,4 +457,39 @@ test "quic driver retransmits stream data when the loss timer expires in silence
   let received = server.on_datagram(endpoint, retry, 91L).unwrap()
   assert_true(received.contains(StreamData(id, b"ordered", true)))
   assert_eq(client.poll(91L).unwrap(), [])
+}
+
+///|
+test "authenticated port probe keeps the old path usable and abandons an unanswered candidate" {
+  let active = @types.Endpoint::new("udp", "127.0.0.1", 9000).unwrap()
+  let candidate = @types.Endpoint::new("udp", "127.0.0.1", 9001).unwrap()
+  let (client, server) = established_driver_pair(
+    active,
+    active,
+    rebinding_entropy=Some(CidEntropy::{ fills: 0, }),
+  )
+  guard client.send_frames(Application, [Ping], 1L).unwrap()
+    is SendDatagram(_, incoming) else {
+    fail("no probe stimulus")
+  }
+  guard server.on_datagram(candidate, incoming, 2L).unwrap()
+    is [SendDatagram(destination, _)] else {
+    fail("no validation challenge")
+  }
+  assert_eq(destination, candidate)
+  assert_eq(server.endpoint(), active)
+  assert_eq(server.path_status(), PathChallenging)
+  guard client.send_frames(Application, [Ping], 4L).unwrap()
+    is SendDatagram(_, original) else {
+    fail("no active path ping")
+  }
+  assert_true(
+    server
+    .on_datagram(active, original, 4L)
+    .unwrap()
+    .any(a => a is SendDatagram(dst, _) && dst == active),
+  )
+  ignore(server.poll(8000L).unwrap())
+  assert_eq(server.endpoint(), active)
+  assert_eq(server.path_status(), PathActive)
 }

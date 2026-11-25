@@ -49,6 +49,9 @@ pub struct QuicDatagramDriver {
   priv mut application_receive_keys : @tls.QuicPacketKeys?
   priv key_update : QuicKeyUpdateState
   priv mut recovery : QuicRecovery
+  priv rebinding_entropy : &@transport.Entropy?
+  priv mut rebinding_deadline_ms : Int64?
+  priv mut rebinding_needs_mtu_probe : Bool
   priv path : QuicPathManager
   priv mut active_budget : QuicPathBudget
   priv mut candidate_budget : QuicPathBudget?
@@ -247,6 +250,7 @@ pub fn QuicDatagramDriver::new(
   initial_destination : ConnectionId,
   local_connection_id : ConnectionId,
   peer_connection_id : ConnectionId,
+  rebinding_entropy~ : &@transport.Entropy? = None,
   retry_context~ : QuicRetryContext? = None,
   limits~ : QuicLimits = QuicLimits::defaults(),
   transport_params~ : QuicTransportParams = QuicTransportParams::defaults(),
@@ -356,6 +360,9 @@ pub fn QuicDatagramDriver::new(
     key_update: QuicKeyUpdateState::new(),
     recovery,
     path,
+    rebinding_entropy,
+    rebinding_deadline_ms: None,
+    rebinding_needs_mtu_probe: false,
     active_budget: QuicPathBudget::new(
       endpoint,
       role == Client || retry_context is Some(_),

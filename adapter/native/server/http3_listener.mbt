@@ -5,6 +5,8 @@ priv struct H3PeerSocket {
   routes : Map[Bytes, H3PeerSocket]
   owned : Set[Bytes]
   initials : Map[@types.Endpoint, Map[Bytes, H3PeerSocket]]
+  rebound_routes : Map[@types.Endpoint, Array[H3PeerSocket]]
+  recent_ports : Array[@types.Endpoint]
   initial_key : (@types.Endpoint, Bytes)
   mut packets : @quic.QuicDatagramDriver?
   mut closed : Bool
@@ -50,7 +52,19 @@ impl @transport.DatagramSocket for H3PeerSocket with fn send(
   if self.closed {
     return Err(Closed)
   }
-  self.socket.send(endpoint, bytes)
+  let sent = self.socket.send(endpoint, bytes)
+  if sent is Ok(_) && endpoint != self.initial_key.0 {
+    if self.recent_ports.search(endpoint) is Some(index) {
+      ignore(self.recent_ports.remove(index))
+    } else {
+      if self.recent_ports.length() == 8 {
+        self.forget_port(self.recent_ports.remove(0))
+      }
+      self.rebound_routes.get_or_init(endpoint, () => []).push(self)
+    }
+    self.recent_ports.push(endpoint)
+  }
+  sent
 }
 
 ///|
@@ -85,6 +99,24 @@ fn H3PeerSocket::receive_reset(
 }
 
 ///|
+fn H3PeerSocket::forget_port(
+  self : H3PeerSocket,
+  endpoint : @types.Endpoint,
+) -> Unit {
+  if self.rebound_routes.get(endpoint) is Some(peers) {
+    for i, peer in peers {
+      if physical_equal(self, peer) {
+        ignore(peers.remove(i))
+        break
+      }
+    }
+    if peers.is_empty() {
+      self.rebound_routes.remove(endpoint)
+    }
+  }
+}
+
+///|
 fn H3PeerSocket::finish(self : H3PeerSocket, error? : Error) -> Unit {
   if !self.closed {
     self.closed = true
@@ -92,6 +124,10 @@ fn H3PeerSocket::finish(self : H3PeerSocket, error? : Error) -> Unit {
       self.routes.remove(id)
     }
     self.owned.clear()
+    for endpoint in self.recent_ports {
+      self.forget_port(endpoint)
+    }
+    self.recent_ports.clear()
     if self.initials.get(self.initial_key.0) is Some(peers) {
       peers.remove(self.initial_key.1)
       if peers.is_empty() {
@@ -138,6 +174,7 @@ pub struct NativeHttp3Listener {
   priv socket : @transport_native.UdpServerSocket
   priv admissions : H3Admissions
   priv routes : Map[Bytes, H3PeerSocket]
+  priv rebound_routes : Map[@types.Endpoint, Array[H3PeerSocket]]
   priv initials : Map[@types.Endpoint, Map[Bytes, H3PeerSocket]]
   priv run_peer : async (
     H3PeerSocket,
@@ -237,6 +274,7 @@ async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind_connection(
       local_id,
       remote_id,
       now_ms=clock.monotonic_millis(),
+      rebinding_entropy=Some(@tls_native.NativeEntropy::new()),
       limits={
         ..@quic.QuicLimits::defaults(),
         max_datagram_size: limits.max_datagram_bytes,
@@ -291,6 +329,7 @@ async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind_connection(
     socket,
     admissions: { pending: Queue(kind=Blocking(1)), shutdown, },
     routes: Map([]),
+    rebound_routes: Map([]),
     initials: Map([]),
     run_peer,
     inbox_capacity: pending_datagrams_per_peer,
@@ -345,9 +384,23 @@ fn NativeHttp3Listener::route(
       }
     }
   }
+  if self.rebound_routes.get(source) is Some(rebound) {
+    for peer in rebound {
+      if !(direct is Some(known) && physical_equal(peer, known)) &&
+        peer.receive_reset(packet) {
+        return
+      }
+    }
+  }
   if direct is Some(peer) {
-    // This listener admits a fixed remote endpoint per peer.
-    if peer.initial_key.0 != source {
+    // Long-header routing stays bound to the handshake path. A protected
+    // short-header packet on the same IP may initiate path validation.
+    if peer.initial_key.0 != source &&
+      (
+        (bytes[0].to_int() & 0xc0) != 0x40 ||
+        peer.initial_key.0.host() != source.host() ||
+        !(peer.packets is Some(driver) && driver.state() == Established)
+      ) {
       return
     }
     // A saturated inbox can drop ordinary data. Deliver a recognized reset
@@ -370,6 +423,8 @@ fn NativeHttp3Listener::route(
     owned: Set([]),
     initials: self.initials,
     initial_key: (source, id),
+    rebound_routes: self.rebound_routes,
+    recent_ports: [],
     packets: None,
   }
   let accepted = @server_api.AcceptedConnection::new(

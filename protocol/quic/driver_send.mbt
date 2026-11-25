@@ -220,7 +220,14 @@ fn QuicDatagramDriver::send_frames_internal_to(
     Initial if self.role == Client || ack_eliciting => 1200
     Application if frames.any(fn(frame) {
         frame is (PathChallenge(_) | PathResponse(_))
-      }) => 1200
+      }) =>
+      if self.rebinding_entropy is Some(_) &&
+        destination != self.path.active() &&
+        self.check_amplification(destination, 1200) is Err(AmplificationBlocked) {
+        0
+      } else {
+        1200
+      }
     _ => 0
   }
   let mut layout = match self.packet_layout(space, payload, minimum) {

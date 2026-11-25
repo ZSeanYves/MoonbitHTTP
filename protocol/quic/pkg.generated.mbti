@@ -269,7 +269,7 @@ pub fn QuicDatagramDriver::install_application_keys(Self, @tls.QuicPacketKeys, @
 pub fn QuicDatagramDriver::install_handshake_keys(Self, @tls.QuicPacketKeys, @tls.QuicPacketKeys) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::install_traffic_secret(Self, @transport.QuicEncryptionLevel, @transport.QuicSecretDirection, Bytes, suite? : @transport.QuicTlsCipherSuite) -> Result[Unit, QuicError]
 pub fn QuicDatagramDriver::local_connection_id(Self) -> ConnectionId
-pub fn QuicDatagramDriver::new(QuicRole, @types.Endpoint, ConnectionId, ConnectionId, ConnectionId, retry_context? : QuicRetryContext?, limits? : QuicLimits, transport_params? : QuicTransportParams, recovery_config? : QuicRecoveryConfig, now_ms? : Int64, retry_tokens? : QuicRetryTokenManager?, authorize? : (@types.Endpoint, @transport.PolicyOperation) -> Result[Unit, @transport.PolicyError]) -> Result[Self, QuicError]
+pub fn QuicDatagramDriver::new(QuicRole, @types.Endpoint, ConnectionId, ConnectionId, ConnectionId, rebinding_entropy? : &@transport.Entropy?, retry_context? : QuicRetryContext?, limits? : QuicLimits, transport_params? : QuicTransportParams, recovery_config? : QuicRecoveryConfig, now_ms? : Int64, retry_tokens? : QuicRetryTokenManager?, authorize? : (@types.Endpoint, @transport.PolicyOperation) -> Result[Unit, @transport.PolicyError]) -> Result[Self, QuicError]
 pub fn QuicDatagramDriver::on_datagram(Self, @types.Endpoint, Bytes, Int64) -> Result[Array[QuicDriverAction], QuicError]
 pub fn QuicDatagramDriver::open_unidirectional_stream(Self) -> Result[Int64, QuicError]
 pub fn QuicDatagramDriver::path_status(Self) -> QuicPathStatus

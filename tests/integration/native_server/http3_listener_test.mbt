@@ -476,3 +476,112 @@ async test "HTTP/3 typed client: a complete response survives peer close during 
     })
   })
 }
+
+///|
+async test "HTTP/3 continues one upload across a loopback UDP port rebind" {
+  @async.with_timeout(12000, async fn() {
+    let (client_tls, server_tls) = listener_tls_options()
+    let policy = @transport.AllowAllPolicy::new()
+    let received_prefix : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
+    let mut handled = 0
+    let (endpoint, listener) = bind_test_listener(endpoint => {
+      @server.NativeHttp3Listener::bind_http(
+        endpoint,
+        policy,
+        { ..server_tls, alpn: ["h3"], },
+        async fn(request) {
+          handled += 1
+          guard request.body.next_frame() is Some(Data(prefix)) else {
+            fail("missing prefix")
+          }
+          assert_eq(prefix, b"prefix")
+          received_prefix.put(())
+          let suffix = @body.collect(request.body).0
+          {
+            status: 200,
+            version: Http3,
+            headers: @types.HeaderMap::new(),
+            body: @body.FullBody::new(prefix + suffix),
+          }
+        },
+      )
+    })
+    defer listener.close()
+    let loopback = @socket.Addr::parse("127.0.0.1:0")
+    let front = @socket.UdpServer(loopback)
+    defer front.close()
+    let first = @socket.UdpServer(loopback)
+    defer first.close()
+    let second = @socket.UdpServer(loopback)
+    defer second.close()
+    assert_true(first.addr != second.addr)
+    let target = @socket.Addr::parse(endpoint.authority())
+    let uri = @types.Uri::parse("https://" + front.addr.to_string() + "/").unwrap()
+    let supervisor = @server_api.ServerSupervisor::new().unwrap()
+    let mut peer = None
+    let mut rebound = false
+    let mut on_second = 0
+    @async.with_task_group(async fn(group) {
+      group.spawn_bg(
+        async fn() {
+          while true {
+            let (bytes, client) = front.recv()
+            peer = Some(client)
+            if rebound {
+              second.send(bytes, target)
+            } else {
+              first.send(bytes, target)
+            }
+          }
+        },
+        no_wait=true,
+      )
+      for (port, replacement) in [(first, false), (second, true)] {
+        group.spawn_bg(
+          async fn() {
+            while true {
+              let (bytes, _) = port.recv()
+              if rebound == replacement && peer is Some(client) {
+                if replacement {
+                  on_second += 1
+                }
+                front.send(bytes, client)
+              }
+            }
+          },
+          no_wait=true,
+        )
+      }
+      let serving = group.spawn(async fn() { listener.serve(supervisor) })
+      @client_native.with_client(
+        async fn(client) {
+          let mut index = 0
+          let upload = @body.BodyStream::from_pull(async fn() {
+            index += 1
+            match index {
+              1 => Some(Data(b"prefix"))
+              2 => {
+                received_prefix.get()
+                rebound = true
+                Some(Data(b"suffix"))
+              }
+              _ => None
+            }
+          })
+          let response = client.send(
+            client.request(Post, uri, @client_api.Upload::once(upload)),
+          )
+          assert_eq(@body.collect(response.body).0, b"prefixsuffix")
+        },
+        version=Http3,
+        policy~,
+        tls={ ..client_tls, server_name: None, alpn: ["h3"], },
+      )
+      supervisor.begin_shutdown().unwrap()
+      serving.wait().unwrap_or_error()
+      assert_eq(supervisor.metrics().accepted(), 1L)
+      assert_eq(handled, 1)
+      assert_true(on_second > 0)
+    })
+  })
+}
