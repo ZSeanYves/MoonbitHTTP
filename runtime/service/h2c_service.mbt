@@ -32,7 +32,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
 ) -> Unit {
   config.validate().unwrap_or_error()
   let input = Http1RequestInput::new(reader, config)
-  let head = match input.next() {
+  let head = match read_before_shutdown(shutdown, () => input.next()) {
     Some(RequestHead(head)) => head
     None => return
     _ =>
@@ -47,6 +47,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
       service,
       config,
       first_head=Some(head),
+      shutdown~,
     )
     return
   }
@@ -54,6 +55,9 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
   let settings = decode_h2c_settings(head.headers)
   guard accept_http1_expectation(head, writer, config.write_timeout_ms) else {
     return ()
+  }
+  if shutdown is Some(signal) && signal.has_started() {
+    return
   }
   strip_h2c_connection_headers(head.headers)
   let body = match @body.BodyStream::new(capacity=config.body_queue_capacity) {

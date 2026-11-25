@@ -11,11 +11,13 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_aut
   let mut detection = @detection.Detection::Undetermined
   while detection == Undetermined && prefix.length() < 24 {
     match
-      read_some_with_timeout(
-        reader,
-        24 - prefix.length(),
-        config.read_timeout_ms,
-      ) {
+      read_before_shutdown(shutdown, () => {
+        read_some_with_timeout(
+          reader,
+          24 - prefix.length(),
+          config.read_timeout_ms,
+        )
+      }) {
       None => break
       Some(bytes) => {
         for byte in bytes {

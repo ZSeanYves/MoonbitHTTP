@@ -47,7 +47,13 @@ pub async fn[
             },
           )
         Some("http/1.1") | None if allow_http1 =>
-          @service.serve_http1_connection(io, io, handler, config~)
+          @service.serve_http1_connection(
+            io,
+            io,
+            handler,
+            config~,
+            shutdown=Some(shutdown),
+          )
         _ =>
           return Err(
             @transport.TlsError::HandshakeFailed(

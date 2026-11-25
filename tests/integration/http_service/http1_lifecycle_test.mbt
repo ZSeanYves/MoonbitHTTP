@@ -467,3 +467,81 @@ async test "HTTP/1 final response interrupts a pending upload" {
   }
   assert_eq(response.status, 413)
 }
+
+///|
+async test "HTTP/1 shutdown drains the accepted response and skips buffered requests" {
+  for auto in [false, true] {
+    let shutdown = @service.ServerShutdown::new()
+    let reader = @aio.MemoryReader(w => {
+      w.write(
+        b"GET /one HTTP/1.1\r\nHost: example.test\r\n\r\nGET /two HTTP/1.1\r\nHost: example.test\r\n\r\n",
+      )
+    })
+    let writer : CaptureWriter = { bytes: [], }
+    let mut calls = 0
+    let handler = async fn(
+      req : @types.Request[@body.BodyStream],
+    ) -> @types.Response[@body.FullBody] {
+      calls += 1
+      shutdown.begin()
+      @async.pause()
+      {
+        status: 200,
+        version: req.version,
+        headers: @types.HeaderMap::new(),
+        body: @body.FullBody::new(b"done"),
+      }
+    }
+    if auto {
+      @service.serve_auto_connection(
+        reader,
+        test_writer(writer),
+        handler,
+        shutdown=Some(shutdown),
+      )
+    } else {
+      @service.serve_http1_connection(
+        reader,
+        test_writer(writer),
+        handler,
+        shutdown=Some(shutdown),
+      )
+    }
+    assert_eq(calls, 1)
+    assert_true(
+      @utf8.decode_lossy(Bytes::from_array(writer.bytes)).has_suffix("done"),
+    )
+  }
+}
+
+///|
+async test "shutdown wakes an idle HTTP/1 socket before a first request" {
+  let signal = @service.ServerShutdown::new()
+  let ready : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+  let blocked : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+  let reader = @aio.MemoryReader(async fn(_) {
+    ready.put(())
+    blocked.get()
+  })
+  defer reader.close()
+  let output : CaptureWriter = { bytes: [], }
+  @async.with_timeout(1500, async fn() {
+    @async.with_task_group(async fn(group) {
+      let connection = group.spawn(async fn() {
+        @service.serve_http1_or_h2c_connection(
+          reader,
+          test_writer(output),
+          _ => {
+            (
+              fail("an idle socket has no request") :
+              @types.Response[@body.EmptyBody])
+          },
+          shutdown=Some(signal),
+        )
+      })
+      ready.get()
+      signal.begin()
+      connection.wait()
+    })
+  })
+}

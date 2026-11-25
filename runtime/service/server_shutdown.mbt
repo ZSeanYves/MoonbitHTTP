@@ -29,3 +29,20 @@ pub async fn ServerShutdown::wait(self : ServerShutdown) -> Unit noraise {
     self.changed.wait()
   }
 }
+
+///|
+/// Wait for initial protocol bytes or the first head while the socket is idle.
+async fn[X] read_before_shutdown(
+  shutdown : ServerShutdown?,
+  read : async () -> X?,
+) -> X? {
+  guard shutdown is Some(signal) else { return read() }
+  guard !signal.has_started() else { return None }
+  @async.any([
+    read,
+    async fn() {
+      signal.wait()
+      None
+    },
+  ])
+}

@@ -203,6 +203,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   config : ServerConfig,
   first_head~ : @types.Request[Unit]? = None,
+  shutdown~ : ServerShutdown? = None,
 ) -> Unit {
   let mut active : @async.Task[Unit]? = None
   let mut active_stream : @body.BodyStream? = None
@@ -216,6 +217,17 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
         )
       }
     })
+    if shutdown is Some(signal) {
+      group.spawn_bg(
+        async fn() {
+          signal.wait()
+          if active is None {
+            group.return_immediately()
+          }
+        },
+        no_wait=true,
+      )
+    }
     let drive_result : Result[Unit, Error] = try {
       let mut pending = match first_head {
         Some(head) => Some(@http1.RequestHead(head))
@@ -230,6 +242,9 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
               config.write_timeout_ms,
             ) else {
               return ()
+            }
+            if shutdown is Some(signal) && signal.has_started() {
+              return
             }
             handler_done = false
             let stream = match
@@ -269,10 +284,8 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
                         }
                     }
                   }
-                  let close = !http1_allows_persistence(
-                      version,
-                      request.headers,
-                    ) ||
+                  let close = (shutdown is Some(signal) && signal.has_started()) ||
+                    !http1_allows_persistence(version, request.headers) ||
                     framing == CloseDelimited ||
                     response.headers.contains_list_token("connection", "close")
                   finish_after_response = close ||
@@ -352,7 +365,8 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
             task.wait()
             active = None
             active_stream = None
-            if finish_after_response {
+            if finish_after_response ||
+              (shutdown is Some(signal) && signal.has_started()) {
               return ()
             }
           }
@@ -381,6 +395,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve
   writer : W,
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   config~ : ServerConfig = ServerConfig::defaults(),
+  shutdown~ : ServerShutdown? = None,
 ) -> Unit {
   run_connection_scope(
     () => {
@@ -390,6 +405,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve
         writer,
         service,
         config,
+        shutdown~,
       )
     },
     config.close_callback,
@@ -403,6 +419,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve
   service : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
   error_responder : (Error) -> @types.Response[B],
   config~ : ServerConfig = ServerConfig::defaults(),
+  shutdown~ : ServerShutdown? = None,
 ) -> Unit {
   let mut terminal : Error? = None
   let close_callback = match config.close_callback {
@@ -424,6 +441,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve
         writer,
         service,
         config=config.without_close_callback(),
+        shutdown~,
       ) catch {
         error => {
           terminal = Some(error)

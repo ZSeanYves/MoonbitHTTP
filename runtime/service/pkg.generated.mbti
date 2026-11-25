@@ -17,11 +17,11 @@ pub async fn[R : @io.BinaryReader] drive_http1_events(R, async (@http1.RequestEv
 
 pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, B : @body.Body] serve_auto_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig, shutdown? : ServerShutdown?) -> Unit
 
-pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, B : @body.Body] serve_http1_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig) -> Unit
+pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, B : @body.Body] serve_http1_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig, shutdown? : ServerShutdown?) -> Unit
 
 pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, B : @body.Body] serve_http1_or_h2c_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig, shutdown? : ServerShutdown?) -> Unit
 
-pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, B : @body.Body] serve_http1_with_error_responder(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], (Error) -> @types.Response[B], config? : ServerConfig) -> Unit
+pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, B : @body.Body] serve_http1_with_error_responder(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], (Error) -> @types.Response[B], config? : ServerConfig, shutdown? : ServerShutdown?) -> Unit
 
 pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, B : @body.Body] serve_http2_connection(R, W, async (@types.Request[@body.BodyStream]) -> @types.Response[B], config? : ServerConfig, upgraded_request? : @types.Request[@body.BodyStream]?, upgrade_settings? : Bytes?, shutdown? : ServerShutdown?, finish_transport? : async () -> Unit) -> Unit
 
