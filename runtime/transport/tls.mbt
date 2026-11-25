@@ -214,12 +214,31 @@ pub(all) suberror TlsError {
 }
 
 ///|
+#derive(Eq, Debug)
+pub(all) enum CertificateName {
+  DnsName(String)
+  UriName(String)
+  EmailName(String)
+  /// Four or sixteen network-order octets from an IP subjectAltName.
+  IpAddressBytes(Bytes)
+}
+
+///|
+/// Leaf certificate information supplied by a verified server-side handshake.
+#derive(Eq, Debug)
+pub(all) struct VerifiedClientCertificate {
+  sha256 : Bytes
+  subject_alt_names : ReadOnlyArray[CertificateName]
+}
+
+///|
 pub(all) struct SecureConnection {
   transport : StreamConnection
   version : TlsVersion
   cipher_suite : String
   alpn : String?
   peer_identity : String?
+  verified_client_certificate : VerifiedClientCertificate?
   authenticated : Bool
 }
 
@@ -231,8 +250,17 @@ pub fn SecureConnection::new(
   alpn : String?,
   peer_identity : String?,
   authenticated : Bool,
+  verified_client_certificate? : VerifiedClientCertificate,
 ) -> SecureConnection {
-  { transport, version, cipher_suite, alpn, peer_identity, authenticated, }
+  {
+    transport,
+    version,
+    cipher_suite,
+    alpn,
+    peer_identity,
+    authenticated,
+    verified_client_certificate,
+  }
 }
 
 ///|

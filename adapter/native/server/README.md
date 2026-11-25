@@ -48,3 +48,5 @@ pub async fn[P : @transport.NetworkPolicy] serve_h3(
 ## Shutdown
 
 Pass a TCP listener to `ServerSupervisor::serve`. For HTTP/3, call `listener.serve(supervisor)` as above. Calling `supervisor.begin_shutdown()` stops admission and sends GOAWAY to typed HTTP/3 peers. Accepted streams can finish until the grace deadline. Use the lower-level `NativeHttp3Listener::bind` when you need to own the connection event loop.
+
+Use `NativeTcpListener::bind_http_tls_with_context` or `NativeHttp3Listener::bind_http_with_context` to receive a `RequestContext` alongside the request. With required client authentication the verified leaf carries a 32-byte SHA-256 fingerprint and its DNS, URI, email and IP subject alternative names. The IP value contains four or sixteen octets in network order. The certificate is absent on one-way TLS. Applications own authorization policy; HTTP header values cannot supply the connection identity.

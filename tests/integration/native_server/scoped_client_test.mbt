@@ -244,3 +244,123 @@ async test "a stalled H2 stream times out independently of its peer" {
     server.wait().unwrap()
   })
 }
+
+///|
+async test "Native H1 H2 H3 handlers distinguish two client certificates from one CA" {
+  @async.with_timeout(15000, async fn() {
+    let (client_tls, server_tls) = listener_tls_options()
+    let roots = @fs.read_binary("tests/fixtures/tls/chain_root.cert.pem")
+    let policy = @transport.AllowAllPolicy::new()
+    for version in [@types.Version::Http11, Http2, Http3] {
+      let alpn = match version {
+        Http3 => ["h3"]
+        Http2 => ["h2"]
+        _ => ["http/1.1"]
+      }
+      let server_options = {
+        ..server_tls,
+        verify_peer: true,
+        trust_anchors: Some(roots),
+        alpn,
+      }
+      let observed : Array[@transport.VerifiedClientCertificate] = []
+      async fn handler(
+        context : @server.RequestContext,
+        request : @types.Request[@body.BodyStream],
+      ) -> @types.Response[@body.FullBody] {
+        observed.push(context.verified_client_certificate.unwrap())
+        @body.collect(request.body) |> ignore
+        {
+          status: 200,
+          version: request.version,
+          headers: @types.HeaderMap::new(),
+          body: @body.FullBody::new(b"ok"),
+        }
+      }
+      async fn exercise(endpoint : @types.Endpoint) -> Unit {
+        let uri = @types.Uri::parse(
+          "https://127.0.0.1:" + endpoint.port().to_string() + "/",
+        ).unwrap()
+        for
+          (name, key) in [
+            ("workload-a", "client_only"),
+            ("workload-b", "other"),
+          ] {
+          let options = {
+            ..client_tls,
+            server_name: None,
+            alpn,
+            client_certificate: Some(
+              @fs.read_binary("tests/fixtures/tls/" + name + ".cert.pem"),
+            ),
+            client_private_key: Some(
+              @fs.read_binary("tests/fixtures/tls/" + key + ".key.pem"),
+            ),
+          }
+          @client_native.with_client(
+            async fn(client) {
+              let request = client.request(
+                Get,
+                uri,
+                @client_api.Upload::bytes(b""),
+              )
+              request.headers
+              .append_string("x-client-certificate", "untrusted-input")
+              .unwrap()
+              let response = client.send(request)
+              assert_eq(@body.collect(response.body).0, b"ok")
+            },
+            version~,
+            policy~,
+            tls=options,
+          )
+        }
+        assert_eq(observed.length(), 2)
+        assert_true(observed[0].sha256 != observed[1].sha256)
+        for index, leaf in observed {
+          assert_eq(leaf.sha256.length(), 32)
+          assert_eq(leaf.subject_alt_names.length(), 1)
+          assert_eq(
+            leaf.subject_alt_names[0],
+            UriName(
+              if index == 0 {
+                "spiffe://test/workload-a"
+              } else {
+                "spiffe://test/workload-b"
+              },
+            ),
+          )
+        }
+      }
+      let supervisor = @server_api.ServerSupervisor::new().unwrap()
+      @async.with_task_group(async fn(group) {
+        if version == Http3 {
+          let (endpoint, listener) = bind_test_listener(endpoint => {
+            @server.NativeHttp3Listener::bind_http_with_context(
+              endpoint, policy, server_options, handler,
+            )
+          })
+          defer listener.close()
+          let serving = group.spawn(async fn() { listener.serve(supervisor) })
+          exercise(endpoint)
+          supervisor.begin_shutdown().unwrap()
+          assert_eq(serving.wait(), Ok(()))
+        } else {
+          let endpoint = unused_tcp_endpoint()
+          let listener = @server.NativeTcpListener::bind_http_tls_with_context(
+            endpoint,
+            policy,
+            @tls_native.NativeTlsProvider::new(),
+            server_options,
+            handler,
+          ).unwrap()
+          defer listener.close()
+          let serving = group.spawn(async fn() { supervisor.serve(listener) })
+          exercise(endpoint)
+          supervisor.begin_shutdown().unwrap()
+          assert_eq(serving.wait(), Ok(()))
+        }
+      })
+    }
+  })
+}

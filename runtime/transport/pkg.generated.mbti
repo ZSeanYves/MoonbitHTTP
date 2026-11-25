@@ -104,6 +104,14 @@ pub fn AllowAllPolicy::new() -> Self
 pub impl NetworkPolicy for AllowAllPolicy
 
 #derive(Eq, @debug.Debug)
+pub(all) enum CertificateName {
+  DnsName(String)
+  UriName(String)
+  EmailName(String)
+  IpAddressBytes(Bytes)
+}
+
+#derive(Eq, @debug.Debug)
 pub(all) struct ConnectOptions {
   timeout_ms : Int32?
   idle_timeout_ms : Int32?
@@ -208,6 +216,7 @@ pub(all) struct SecureConnection {
   cipher_suite : String
   alpn : String?
   peer_identity : String?
+  verified_client_certificate : VerifiedClientCertificate?
   authenticated : Bool
 }
 pub fn SecureConnection::alpn(Self) -> String?
@@ -216,7 +225,7 @@ pub fn SecureConnection::close(Self) -> Unit
 pub async fn SecureConnection::finish(Self) -> Result[Unit, TransportError]
 pub fn SecureConnection::is_authenticated(Self) -> Bool
 pub fn SecureConnection::is_closed(Self) -> Bool
-pub fn SecureConnection::new(StreamConnection, TlsVersion, String, String?, String?, Bool) -> Self
+pub fn SecureConnection::new(StreamConnection, TlsVersion, String, String?, String?, Bool, verified_client_certificate? : VerifiedClientCertificate) -> Self
 pub fn SecureConnection::peer_identity(Self) -> String?
 pub async fn SecureConnection::read(Self, Int32) -> Result[Bytes?, TransportError]
 pub fn SecureConnection::version(Self) -> TlsVersion
@@ -308,6 +317,12 @@ pub async fn UnsupportedProvider::client_handshake(Self, StreamConnection, TlsOp
 pub fn UnsupportedProvider::new() -> Self
 pub async fn UnsupportedProvider::server_handshake(Self, StreamConnection, TlsOptions) -> Result[SecureConnection, TlsError]
 pub impl TlsProvider for UnsupportedProvider
+
+#derive(Eq, @debug.Debug)
+pub(all) struct VerifiedClientCertificate {
+  sha256 : Bytes
+  subject_alt_names : ReadOnlyArray[CertificateName]
+}
 
 // Type aliases
 

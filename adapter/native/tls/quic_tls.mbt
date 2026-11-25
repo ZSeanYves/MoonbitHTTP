@@ -57,6 +57,7 @@ pub struct NativeQuicTlsProvider {
   priv mut ssl : OpenSsl?
   priv mut quic : OpenSslQuic?
   priv mut options : @transport.TlsOptions?
+  priv mut client_certificate : @transport.VerifiedClientCertificate?
   priv mut complete : Bool
   priv mut failure : @transport.TlsError?
 }
@@ -75,8 +76,16 @@ pub fn NativeQuicTlsProvider::new(
     quic: None,
     options: None,
     complete: false,
+    client_certificate: None,
     failure: None,
   }
+}
+
+///|
+pub fn NativeQuicTlsProvider::verified_client_certificate(
+  self : NativeQuicTlsProvider,
+) -> @transport.VerifiedClientCertificate? {
+  self.client_certificate
 }
 
 ///|
@@ -91,6 +100,7 @@ pub fn NativeQuicTlsProvider::close(self : NativeQuicTlsProvider) -> Unit {
   }
   self.quic = None
   self.ssl = None
+  self.client_certificate = None
   self.failure = Some(Closed)
 }
 
@@ -195,6 +205,12 @@ fn NativeQuicTlsProvider::advance(
     }
     if !self.server && !ssl.check_ocsp(options.require_ocsp) {
       return Err(self.failed(ssl.failure(Handshake)))
+    }
+    if self.server && options.verify_peer {
+      match ssl.verified_certificate() {
+        Ok(certificate) => self.client_certificate = Some(certificate)
+        Err(error) => return Err(self.failed(error))
+      }
     }
     self.complete = true
     output.push(HandshakeComplete("h3", quic.peer_params()))

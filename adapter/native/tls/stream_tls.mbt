@@ -373,6 +373,14 @@ async fn NativeTlsProvider::handshake(
   if options.verify_peer && !authenticated {
     return Err(VerificationFailed("TLS peer certificate was not authenticated"))
   }
+  let verified_client_certificate = if server && authenticated {
+    match ssl.verified_certificate() {
+      Ok(certificate) => Some(certificate)
+      Err(error) => return Err(error)
+    }
+  } else {
+    None
+  }
   let transport = @transport.StreamConnection::new(
     connection.endpoint(),
     async fn(max_bytes) { session.read(max_bytes) },
@@ -397,6 +405,7 @@ async fn NativeTlsProvider::handshake(
         Some(host)
       },
       authenticated,
+      verified_client_certificate?,
     ),
   )
 }

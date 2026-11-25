@@ -116,6 +116,13 @@ typedef struct {
   F(void, X509_free, (X509 *)) \
   F(void, X509_CRL_free, (X509_CRL *)) \
   F(void, EVP_PKEY_free, (EVP_PKEY *)) \
+  F(const EVP_MD *, EVP_sha256, (void)) \
+  F(int, X509_digest, (const X509 *, const EVP_MD *, unsigned char *, unsigned int *)) \
+  F(void *, X509_get_ext_d2i, (const X509 *, int, int *, int *)) \
+  F(void, GENERAL_NAMES_free, (void *)) \
+  F(void *, GENERAL_NAME_get0_value, (const void *, int *)) \
+  F(int, ASN1_STRING_length, (const void *)) \
+  F(const unsigned char *, ASN1_STRING_get0_data, (const void *)) \
   F(const EVP_MD *, EVP_sha1, (void)) \
   F(OCSP_RESPONSE *, d2i_OCSP_RESPONSE, (OCSP_RESPONSE **, const unsigned char **, long)) \
   F(void, OCSP_RESPONSE_free, (OCSP_RESPONSE *)) \
@@ -613,4 +620,47 @@ MOONBIT_FFI_EXPORT int moon_http_tls_peer_authenticated(HttpTls *self) {
   X509 *peer = p_SSL_get1_peer_certificate(self->ssl);
   if (!peer) return 0;
   p_X509_free(peer); return 1;
+}
+
+/* Returned references are owned by the MoonBit array. Only primitive SAN forms
+ * are exported. Unknown GeneralName forms have no string representation here. */
+MOONBIT_FFI_EXPORT void **moon_http_tls_peer_certificate(HttpTls *self) {
+  X509 *leaf = NULL;
+  void *names = NULL;
+  void **result = moonbit_empty_ref_array;
+  unsigned char hash[32];
+  unsigned int hash_len = 0;
+  int critical = -1;
+  if (self->initialized != 1 || p_SSL_get_verify_result(self->ssl) != 0) return result;
+  leaf = p_SSL_get1_peer_certificate(self->ssl);
+  if (!leaf || !p_X509_digest(leaf, p_EVP_sha256(), hash, &hash_len) || hash_len != sizeof(hash)) goto done;
+  names = p_X509_get_ext_d2i(leaf, 85 /* NID_subject_alt_name */, &critical, NULL);
+  if (!names && critical != -1) goto done;
+  int count = names ? p_OPENSSL_sk_num(names) : 0;
+  if (count < 0 || count == INT32_MAX) goto done;
+  result = moonbit_make_ref_array_raw(count + 1);
+  moonbit_bytes_t digest = moonbit_make_bytes_raw(32);
+  memcpy(digest, hash, 32);
+  result[0] = digest;
+  for (int i = 0; i < count; i++) {
+    int tag = -1;
+    void *name = p_OPENSSL_sk_value(names, i);
+    const void *str = p_GENERAL_NAME_get0_value(name, &tag);
+    /* GEN_EMAIL, GEN_DNS, GEN_URI and GEN_IPADD are ASN1_STRING values. */
+    if (!str || !(tag == 1 || tag == 2 || tag == 6 || tag == 7)) {
+      result[i + 1] = moonbit_make_bytes(0, 0);
+      continue;
+    }
+    int size = p_ASN1_STRING_length(str);
+    const unsigned char *value = p_ASN1_STRING_get0_data(str);
+    if (size <= 0 || size == INT32_MAX || !value) size = 0;
+    moonbit_bytes_t part = moonbit_make_bytes_raw(1 + size);
+    part[0] = (unsigned char)tag;
+    if (size) memcpy(part + 1, value, size);
+    result[i + 1] = part;
+  }
+done:
+  if (names) p_GENERAL_NAMES_free(names);
+  if (leaf) p_X509_free(leaf);
+  return result;
 }

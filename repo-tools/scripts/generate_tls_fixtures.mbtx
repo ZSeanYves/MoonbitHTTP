@@ -182,6 +182,15 @@ async fn main {
     "-subj", "/CN=Moonbit Test Root", "-addext", "basicConstraints=critical,CA:TRUE,pathlen:1",
     "-addext", "keyUsage=critical,keyCertSign,cRLSign", "-addext", "subjectKeyIdentifier=hash",
   ])
+  for (name, key, serial) in [("workload-a", "client_only", "4311"), ("workload-b", "other", "4312")] {
+    let csr = generated + "/" + name + ".csr"
+    run_checked("openssl", ["req", "-new", "-key", directory + "/" + key + ".key.pem",
+      "-subj", "/CN=" + name, "-addext", "extendedKeyUsage=clientAuth",
+      "-addext", "subjectAltName=URI:spiffe://test/" + name, "-out", csr])
+    run_checked("openssl", ["x509", "-req", "-in", csr, "-CA", root_cert, "-CAkey", root_key,
+      "-set_serial", serial, "-not_before", "20260101000000Z", "-not_after", "20990101000000Z",
+      "-copy_extensions", "copy", "-out", directory + "/" + name + ".cert.pem"])
+  }
   let intermediate_key = generated + "/chain_intermediate.key.pem"
   let intermediate_csr = generated + "/chain_intermediate.csr.pem"
   let intermediate_cert = generated + "/chain_intermediate.cert.pem"

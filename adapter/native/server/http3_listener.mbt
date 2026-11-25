@@ -164,6 +164,33 @@ pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
   handshake_timeout_ms~ : Int32 = 10000,
   shutdown_timeout_ms~ : Int32 = 5000,
 ) -> Result[NativeHttp3Listener, @server_api.ServerError] {
+  NativeHttp3Listener::bind_connection(
+    endpoint,
+    policy,
+    options,
+    (context, io) => handler(context.endpoint, io),
+    limits~,
+    qpack_limits~,
+    transport_params~,
+    pending_datagrams_per_peer~,
+    handshake_timeout_ms~,
+    shutdown_timeout_ms~,
+  )
+}
+
+///|
+async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind_connection(
+  endpoint : @types.Endpoint,
+  policy : P,
+  options : @transport.TlsOptions,
+  handler : async (RequestContext, @service.Http3ConnectionIo) -> Unit,
+  limits~ : @types.Limits = @types.Limits::defaults(),
+  qpack_limits~ : @http3.QpackLimits = @http3.QpackLimits::defaults(),
+  transport_params~ : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
+  pending_datagrams_per_peer~ : Int32 = 16,
+  handshake_timeout_ms~ : Int32 = 10000,
+  shutdown_timeout_ms~ : Int32 = 5000,
+) -> Result[NativeHttp3Listener, @server_api.ServerError] {
   if pending_datagrams_per_peer <= 0 ||
     handshake_timeout_ms <= 0 ||
     shutdown_timeout_ms <= 0 {
@@ -241,7 +268,13 @@ pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
       options,
       async fn(io) {
         authenticated = true
-        handler(source, io)
+        handler(
+          {
+            endpoint: source,
+            verified_client_certificate: provider.verified_client_certificate(),
+          },
+          io,
+        )
       },
       server_shutdown=Some(shutdown),
       limits~,
@@ -430,12 +463,50 @@ pub async fn[P : @transport.NetworkPolicy, B : @body.Body] NativeHttp3Listener::
   handshake_timeout_ms~ : Int32 = 10000,
   shutdown_timeout_ms~ : Int32 = 5000,
 ) -> Result[NativeHttp3Listener, @server_api.ServerError] {
-  let budget = limits.max_buffer_bytes.to_int64()
-  NativeHttp3Listener::bind(
+  NativeHttp3Listener::bind_http_with_context(
     endpoint,
     policy,
     options,
-    (_, io) => @service.serve_http3_connection(io, handler, on_request_error~),
+    (_, request) => handler(request),
+    on_request_error~,
+    limits~,
+    qpack_limits~,
+    transport_params~,
+    pending_datagrams_per_peer~,
+    handshake_timeout_ms~,
+    shutdown_timeout_ms~,
+  )
+}
+
+///|
+/// Pass the QUIC TLS handshake's verified client identity to this handler.
+pub async fn[P : @transport.NetworkPolicy, B : @body.Body] NativeHttp3Listener::bind_http_with_context(
+  endpoint : @types.Endpoint,
+  policy : P,
+  options : @transport.TlsOptions,
+  handler : async (RequestContext, @types.Request[@body.BodyStream]) -> @types.Response[
+    B,
+  ],
+  on_request_error~ : (Int64, Error) -> Unit = (_, _) => (),
+  limits~ : @types.Limits = @types.Limits::defaults(),
+  qpack_limits~ : @http3.QpackLimits = @http3.QpackLimits::defaults(),
+  transport_params~ : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
+  pending_datagrams_per_peer~ : Int32 = 16,
+  handshake_timeout_ms~ : Int32 = 10000,
+  shutdown_timeout_ms~ : Int32 = 5000,
+) -> Result[NativeHttp3Listener, @server_api.ServerError] {
+  let budget = limits.max_buffer_bytes.to_int64()
+  NativeHttp3Listener::bind_connection(
+    endpoint,
+    policy,
+    options,
+    (context, io) => {
+      @service.serve_http3_connection(
+        io,
+        request => handler(context, request),
+        on_request_error~,
+      )
+    },
     limits~,
     qpack_limits~,
     transport_params={

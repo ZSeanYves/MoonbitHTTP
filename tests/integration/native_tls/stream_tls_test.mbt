@@ -129,6 +129,8 @@ async test "native TLS: memory PEM credentials negotiate TLS13 ALPN and exchange
     client.close()
     server.close()
   }
+  assert_eq(server.verified_client_certificate, None)
+  assert_eq(client.verified_client_certificate, None)
   assert_eq(client.version(), Tls13)
   assert_eq(client.alpn(), Some("h2"))
   assert_eq(server.alpn(), Some("h2"))

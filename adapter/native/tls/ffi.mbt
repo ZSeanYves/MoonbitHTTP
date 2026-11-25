@@ -100,3 +100,46 @@ extern "C" fn OpenSsl::alpn(self : OpenSsl) -> Bytes = "moon_http_tls_alpn"
 ///|
 #borrow(self)
 extern "C" fn OpenSsl::peer_authenticated(self : OpenSsl) -> Bool = "moon_http_tls_peer_authenticated"
+
+///|
+#borrow(self)
+extern "C" fn OpenSsl::peer_certificate_parts(
+  self : OpenSsl,
+) -> FixedArray[Bytes] = "moon_http_tls_peer_certificate"
+
+///|
+fn OpenSsl::verified_certificate(
+  self : OpenSsl,
+) -> Result[@transport.VerifiedClientCertificate, @transport.TlsError] {
+  let parts = self.peer_certificate_parts()
+  guard parts.length() > 0 && parts[0].length() == 32 else {
+    return Err(VerificationFailed("unable to read verified client certificate"))
+  }
+  let names : Array[@transport.CertificateName] = []
+  for index in 1..<parts.length() {
+    let part = parts[index]
+    if part.is_empty() {
+      continue
+    }
+    let value = part[1:]
+    if part[0] == b'\x07' {
+      guard value.length() == 4 || value.length() == 16 else {
+        return Err(VerificationFailed("invalid certificate IP subjectAltName"))
+      }
+      names.push(IpAddressBytes(value.to_owned()))
+    } else {
+      guard value.length() > 0 &&
+        !value.iter().any(byte => byte <= b'\x1f' || byte >= b'\x7f') else {
+        return Err(VerificationFailed("invalid certificate IA5 subjectAltName"))
+      }
+      let text = @utf8.decode_lossy(value)
+      match part[0] {
+        b'\x01' => names.push(EmailName(text))
+        b'\x02' => names.push(DnsName(text))
+        b'\x06' => names.push(UriName(text))
+        _ => ()
+      }
+    }
+  }
+  Ok({ sha256: parts[0], subject_alt_names: ReadOnlyArray::from_array(names), })
+}

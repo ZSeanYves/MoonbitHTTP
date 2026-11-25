@@ -13,6 +13,10 @@ stapling path.
 The chain root and intermediate private keys are test-only CA material used to
 construct signed CRL responses in the Native TLS integration tests.
 
+The workload-a and workload-b client certificates are signed by chain_root and
+use the existing client_only and other fixture keys respectively. Their URI SANs
+and SHA-256 fingerprints distinguish them under one trust root.
+
 Regenerate from the module root with
 `moon run repo-tools/scripts/generate_tls_fixtures.mbtx`. The generator requires OpenSSL
 3.6 or newer for explicit certificate validity options; normal tests need only

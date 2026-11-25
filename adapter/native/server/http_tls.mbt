@@ -17,6 +17,47 @@ pub async fn[
   dual_stack~ : Bool = true,
   reuse_addr~ : Bool = true,
 ) -> Result[NativeTcpListener, @server_api.ServerError] {
+  NativeTcpListener::bind_http_tls_with_context(
+    endpoint,
+    policy,
+    provider,
+    tls,
+    (_, request) => handler(request),
+    config~,
+    handshake_timeout_ms~,
+    shutdown_timeout_ms~,
+    dual_stack~,
+    reuse_addr~,
+  )
+}
+
+///|
+/// Typed request context created by the listener after TLS negotiation.
+pub struct RequestContext {
+  endpoint : @types.Endpoint
+  verified_client_certificate : @transport.VerifiedClientCertificate?
+}
+
+///|
+/// Pass the verified client identity to every handler on this TLS connection.
+pub async fn[
+  P : @transport.NetworkPolicy,
+  T : @transport.TlsProvider,
+  B : @body.Body,
+] NativeTcpListener::bind_http_tls_with_context(
+  endpoint : @types.Endpoint,
+  policy : P,
+  provider : T,
+  tls : @transport.TlsOptions,
+  handle_request : async (RequestContext, @types.Request[@body.BodyStream]) -> @types.Response[
+    B,
+  ],
+  config~ : @service.ServerConfig = @service.ServerConfig::defaults(),
+  handshake_timeout_ms~ : Int32 = 10000,
+  shutdown_timeout_ms~ : Int32 = 1000,
+  dual_stack~ : Bool = true,
+  reuse_addr~ : Bool = true,
+) -> Result[NativeTcpListener, @server_api.ServerError] {
   if config.validate() is Err(_) {
     return Err(InvalidConfig("invalid HTTP service configuration"))
   }
@@ -33,6 +74,11 @@ pub async fn[
     provider,
     { ..tls, alpn, },
     async fn(connection) {
+      let context : RequestContext = {
+        endpoint: connection.transport.endpoint(),
+        verified_client_certificate: connection.verified_client_certificate,
+      }
+      let handler = async fn(request) { handle_request(context, request) }
       let io = @service.StreamIo::new(connection.transport)
       match connection.alpn() {
         Some("h2") if allow_h2 =>
