@@ -246,7 +246,7 @@ pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
       server_shutdown=Some(shutdown),
       limits~,
       qpack_limits~,
-      handshake_timeout_ms~,
+      handshake_timeout_ms=Some(handshake_timeout_ms),
       shutdown_timeout_ms~,
     ) catch {
       @quic.QuicError::ConnectionClosed(_, _) if authenticated &&

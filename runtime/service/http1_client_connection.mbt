@@ -42,12 +42,15 @@ fn[R, W] Http1ClientConnection::finish_response(
 
 ///|
 #derive(Eq, Debug)
-pub(all) enum Http1ClientPhase {
+pub(all) enum HttpClientPhase {
   RequestHeaders
   RequestBody
   ResponseHeaders
   ResponseBody
 }
+
+///|
+pub type Http1ClientPhase = HttpClientPhase
 
 ///|
 #derive(Eq, Debug)

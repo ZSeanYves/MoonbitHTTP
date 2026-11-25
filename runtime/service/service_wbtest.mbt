@@ -36,10 +36,11 @@ async test "HTTP/2 writers enforce the declared length before DATA, trailers and
       ([Data(b"a"), Trailers(trailers)], 1),
     ] {
     let mut writes = 0
+    let body = @body.QueueBody::new(frames)
     try
       write_h2_body(
         1,
-        @body.QueueBody::new(frames),
+        () => body.next_frame(),
         expected,
         false,
         amount => amount,

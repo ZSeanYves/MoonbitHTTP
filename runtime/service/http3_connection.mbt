@@ -61,14 +61,12 @@ pub async fn[
   server_shutdown~ : ServerShutdown? = None,
   limits~ : @types.Limits = @types.Limits::defaults(),
   qpack_limits~ : @http3.QpackLimits = @http3.QpackLimits::defaults(),
-  handshake_timeout_ms~ : Int32 = 10000,
+  handshake_timeout_ms~ : Int32? = Some(10000),
   shutdown_timeout_ms~ : Int32 = 5000,
 ) -> X {
   defer socket.close()
-  if handshake_timeout_ms <= 0 {
-    raise ServiceConfigError::InvalidTimeout(
-      "HTTP/3 handshake", handshake_timeout_ms,
-    )
+  if handshake_timeout_ms is Some(ms) && ms <= 0 {
+    raise ServiceConfigError::InvalidTimeout("HTTP/3 handshake", ms)
   }
   if shutdown_timeout_ms <= 0 {
     raise ServiceConfigError::InvalidTimeout(
@@ -236,7 +234,10 @@ pub async fn[
         dispatch(tls.poll(clock.monotonic_millis()).unwrap_or_error())
       }
     })
-    @async.with_timeout(handshake_timeout_ms, async fn() { ready.get() })
+    match handshake_timeout_ms {
+      Some(ms) => @async.with_timeout(ms, () => ready.get())
+      None => ready.get()
+    }
     let result = run(io)
     draining = true
     events.close(clear=true)

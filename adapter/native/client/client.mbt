@@ -84,7 +84,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_client(
         pool => {
           serve(async fn(request) {
             pool
-            .execute_body(request)
+            .execute_body(request, timeouts=options.timeouts)
             .unwrap_or_error()
             .map_body(body => @client_api.IncomingBody::wrap(body))
           })
@@ -104,8 +104,8 @@ pub async fn[P : @transport.NetworkPolicy, X] with_client(
             h2_receive_window_bytes: defaults.session.h2_receive_window_bytes.min(
               options.limits.max_buffer_bytes,
             ),
-            read_timeout_ms: options.timeouts.response_body_ms,
-            write_timeout_ms: options.timeouts.request_body_ms,
+            read_timeout_ms: None,
+            write_timeout_ms: None,
           },
           connect_options: {
             ..defaults.connect_options,
@@ -138,7 +138,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_client(
           ..@transport.ResolveOptions::defaults(),
           timeout_ms: options.timeouts.resolve_ms,
         },
-        handshake_timeout_ms=options.timeouts.tls_ms.unwrap_or(10000),
+        handshake_timeout_ms=options.timeouts.tls_ms,
       )
   }
 }

@@ -10,7 +10,7 @@ async fn check_peer_restart(
       @transport.AllowAllPolicy::new(),
       tls=options,
       max_connections=1,
-      handshake_timeout_ms=2500,
+      handshake_timeout_ms=Some(2500),
       async fn(client) {
         async fn ready() -> Unit {
           let response = client.send(request(origin + "/ready", Get, b""))

@@ -14,7 +14,7 @@ async test "native HTTP/3 scope: handshake timeout releases the pending UDP rece
       @transport.AllowAllPolicy::new(),
       @transport.TlsOptions::for_quic("localhost"),
       _ => called = true,
-      handshake_timeout_ms=40,
+      handshake_timeout_ms=Some(40),
     )
     false
   } catch {
@@ -50,7 +50,7 @@ async test "HTTP/3 tries the next UDP address after a silent handshake" {
       @transport.TlsOptions::for_quic("localhost"),
       _ => (fail("no authenticated peer") : Unit),
       resolver=Some(resolver),
-      handshake_timeout_ms=1000,
+      handshake_timeout_ms=Some(1000),
     )
   catch {
     @transport.TransportError::Failed(
@@ -122,5 +122,33 @@ async test "a partial HTTP/1 response survives the continue timeout on a pooled 
     version=Http11,
     policy=@transport.AllowAllPolicy::new(),
     options~,
+  )
+}
+
+///|
+async test "disabling the H3 handshake timeout leaves the total deadline in control" {
+  let silent = @socket.UdpServer(Addr(@socket.IpAddr::v4(0x7f000001U), 0))
+  defer silent.close()
+  let uri = @types.Uri::parse("https://" + silent.addr.to_string() + "/").unwrap()
+  let options = @client_api.RequestOptions::defaults()
+  @client.with_client(
+    async fn(client) {
+      try
+        ignore(
+          client.send(client.request(Get, uri, @client_api.Upload::bytes(b""))),
+        )
+      catch {
+        @client_api.ClientError::ClientTimeout(ClientTotal, _, _) => ()
+        err => raise err
+      } noraise {
+        _ => fail("unexpected response from silent peer")
+      }
+    },
+    version=Http3,
+    policy=@transport.AllowAllPolicy::new(),
+    options={
+      ..options,
+      timeouts: { ..options.timeouts, tls_ms: None, total_ms: Some(10750), },
+    },
   )
 }

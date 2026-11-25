@@ -238,7 +238,7 @@ pub struct Http2Client {
 pub fn Http2Client::close(Self) -> Unit
 pub fn Http2Client::connection_count(Self) -> Int32
 pub async fn Http2Client::execute(Self, @types.Request[Bytes]) -> Result[@types.Response[Bytes], ClientError]
-pub async fn[B : @body.Body] Http2Client::execute_body(Self, @types.Request[B]) -> Result[@types.Response[@body.BodyStream], ClientError]
+pub async fn[B : @body.Body] Http2Client::execute_body(Self, @types.Request[B], timeouts? : ClientTimeouts) -> Result[@types.Response[@body.BodyStream], ClientError]
 pub async fn Http2Client::execute_stream(Self, @types.Request[Bytes]) -> Result[@types.Response[@body.BodyStream], ClientError]
 
 pub(all) struct Http2PoolOptions {

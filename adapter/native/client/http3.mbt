@@ -10,7 +10,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_connection(
   limits~ : @types.Limits = @types.Limits::defaults(),
   qpack_limits~ : @http3.QpackLimits = @http3.QpackLimits::defaults(),
   transport_params~ : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
-  handshake_timeout_ms~ : Int32 = 10000,
+  handshake_timeout_ms~ : Int32? = Some(10000),
   shutdown_timeout_ms~ : Int32 = 5000,
 ) -> X {
   let entropy = @tls_native.NativeEntropy::new()
@@ -69,7 +69,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_client_connection(
   limits~ : @types.Limits = @types.Limits::defaults(),
   qpack_limits~ : @http3.QpackLimits = @http3.QpackLimits::defaults(),
   transport_params~ : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
-  handshake_timeout_ms~ : Int32 = 10000,
+  handshake_timeout_ms~ : Int32? = Some(10000),
   shutdown_timeout_ms~ : Int32 = 5000,
 ) -> X {
   if !options.verify_peer {
@@ -93,15 +93,16 @@ pub async fn[P : @transport.NetworkPolicy, X] with_http3_client_connection(
   let started = clock.monotonic_millis()
   for index = 0; ; index = index + 1 {
     let remaining = candidates.length() - index
-    let timeout = if candidates.length() == 1 || handshake_timeout_ms <= 0 {
-      handshake_timeout_ms
-    } else {
-      let budget = handshake_timeout_ms.to_int64() -
-        (clock.monotonic_millis() - started)
+    let timeout = if candidates.length() > 1 &&
+      handshake_timeout_ms is Some(ms) &&
+      ms > 0 {
+      let budget = ms.to_int64() - (clock.monotonic_millis() - started)
       if budget <= 0L {
         raise @transport.TransportError::Timeout(Connect)
       }
-      (budget / remaining.to_int64()).max(1L).to_int()
+      Some((budget / remaining.to_int64()).max(1L).to_int())
+    } else {
+      handshake_timeout_ms
     }
     let mut authenticated = false
     try {
@@ -168,7 +169,7 @@ pub async fn[R : @transport.NameResolver, P : @transport.NetworkPolicy, X] with_
   limits~ : @types.Limits = @types.Limits::defaults(),
   qpack_limits~ : @http3.QpackLimits = @http3.QpackLimits::defaults(),
   transport_params~ : @quic.QuicTransportParams = @quic.QuicTransportParams::defaults(),
-  handshake_timeout_ms~ : Int32 = 10000,
+  handshake_timeout_ms~ : Int32? = Some(10000),
   shutdown_timeout_ms~ : Int32 = 5000,
 ) -> X {
   if !tls.verify_peer {

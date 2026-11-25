@@ -31,7 +31,7 @@ pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, X] with_http2_client_co
 
 pub async fn[X] with_http3_client_connection(Http3ConnectionIo, async (Http3ClientConnection) -> X, origin_port? : Int32?, on_state_change? : () -> Unit) -> X
 
-pub async fn[P : @transport.QuicTlsProvider, S : @transport.DatagramSocket, K : @transport.Clock, X] with_http3_connection(@quic.QuicTlsDriver[P], S, K, @transport.TlsOptions, async (Http3ConnectionIo) -> X, server_shutdown? : ServerShutdown?, limits? : @types.Limits, qpack_limits? : @http3.QpackLimits, handshake_timeout_ms? : Int32, shutdown_timeout_ms? : Int32) -> X
+pub async fn[P : @transport.QuicTlsProvider, S : @transport.DatagramSocket, K : @transport.Clock, X] with_http3_connection(@quic.QuicTlsDriver[P], S, K, @transport.TlsOptions, async (Http3ConnectionIo) -> X, server_shutdown? : ServerShutdown?, limits? : @types.Limits, qpack_limits? : @http3.QpackLimits, handshake_timeout_ms? : Int32?, shutdown_timeout_ms? : Int32) -> X
 
 // Errors
 #derive(Eq, @debug.Debug)
@@ -45,7 +45,7 @@ pub fn Http1ClientError::to_repr(Self) -> @debug.Repr
 
 #derive(Eq, @debug.Debug)
 pub(all) suberror Http1ClientTimeout {
-  Http1ClientTimeout(Http1ClientPhase)
+  Http1ClientTimeout(HttpClientPhase)
 }
 pub fn Http1ClientTimeout::equal(Self, Self) -> Bool
 pub fn Http1ClientTimeout::not_equal(Self, Self) -> Bool
@@ -92,17 +92,6 @@ pub fn[R, W] Http1ClientConnection::is_reusable(Self[R, W]) -> Bool
 pub fn[R, W] Http1ClientConnection::new(R, W, limits? : @types.Limits, read_size? : Int32, request_headers_timeout_ms? : Int32?, request_body_timeout_ms? : Int32?, response_headers_timeout_ms? : Int32?, on_incomplete_upload? : () -> Unit, response_body_timeout_ms? : Int32?) -> Result[Self[R, W], ServiceConfigError]
 pub async fn[R : @io.BinaryReader, W : @io.BinaryWriter, B : @body.Body] Http1ClientConnection::send(Self[R, W], @types.Request[B]) -> @types.Response[@body.BodyStream]
 
-#derive(Eq, @debug.Debug)
-pub(all) enum Http1ClientPhase {
-  RequestHeaders
-  RequestBody
-  ResponseHeaders
-  ResponseBody
-}
-pub fn Http1ClientPhase::equal(Self, Self) -> Bool
-pub fn Http1ClientPhase::not_equal(Self, Self) -> Bool
-pub fn Http1ClientPhase::to_repr(Self) -> @debug.Repr
-
 pub(all) struct Http2ClientConfig {
   limits : @types.Limits
   max_concurrent_streams : Int32
@@ -122,7 +111,7 @@ pub struct Http2ClientConnection {
 pub fn Http2ClientConnection::accepts_requests(Self) -> Bool
 pub fn Http2ClientConnection::close(Self) -> Unit
 pub fn Http2ClientConnection::is_idle(Self) -> Bool
-pub async fn[B : @body.Body] Http2ClientConnection::send(Self, @types.Request[B]) -> @types.Response[@body.BodyStream]
+pub async fn[B : @body.Body] Http2ClientConnection::send(Self, @types.Request[B], timeout? : (HttpClientPhase) -> (Int32, Error)?) -> @types.Response[@body.BodyStream]
 pub async fn Http2ClientConnection::wait_for_settings(Self) -> Unit
 
 pub struct Http3ClientConnection {
@@ -139,6 +128,18 @@ pub struct Http3ConnectionIo {
 pub async fn Http3ConnectionIo::flush(Self) -> Unit
 pub async fn Http3ConnectionIo::next_events(Self) -> Array[@http3.Http3SessionAction]
 pub async fn Http3ConnectionIo::rotate_local_connection_id(Self) -> Unit
+
+#alias(Http1ClientPhase)
+#derive(Eq, @debug.Debug)
+pub(all) enum HttpClientPhase {
+  RequestHeaders
+  RequestBody
+  ResponseHeaders
+  ResponseBody
+}
+pub fn HttpClientPhase::equal(Self, Self) -> Bool
+pub fn HttpClientPhase::not_equal(Self, Self) -> Bool
+pub fn HttpClientPhase::to_repr(Self) -> @debug.Repr
 
 pub(all) struct ServerConfig {
   limits : @types.Limits

@@ -49,7 +49,7 @@ async fn[W : @aio.BinaryWriter, B : @body.Body] H2ServerStreams::send_response(
   }
   write_h2_body(
     stream_id,
-    response.body,
+    () => response.body.next_frame(),
     expected,
     end_on_headers,
     async fn(requested) {

@@ -129,3 +129,118 @@ async test "scoped client sends GET and incremental POST over all four wire vers
     }
   })
 }
+
+///|
+async test "a stalled H2 stream times out independently of its peer" {
+  let (client_tls, server_tls) = listener_tls_options()
+  let endpoint = unused_tcp_endpoint()
+  let policy = @transport.AllowAllPolicy::new()
+  let supervisor = @server_api.ServerSupervisor::new().unwrap()
+  let listener = @server.NativeTcpListener::bind_http_tls(
+    endpoint,
+    policy,
+    @tls_native.NativeTlsProvider::new(),
+    { ..server_tls, alpn: ["h2"], },
+    async fn(req) {
+      if req.uri.path == "/head" {
+        @async.sleep(600)
+      }
+      if req.uri.path == "/upload" {
+        ignore(@body.collect(req.body))
+      }
+      let slow = req.uri.path == "/body"
+      let mut sent = false
+      {
+        status: 200,
+        version: Http2,
+        headers: @types.HeaderMap::new(),
+        body: @body.BodyStream::from_pull(async fn() {
+          if sent {
+            return None
+          }
+          sent = true
+          if slow {
+            @async.sleep(600)
+          }
+          Some(Data(b"ok"))
+        }),
+      }
+    },
+  ).unwrap()
+  defer listener.close()
+  let origin = @types.Uri::parse(
+    "https://127.0.0.1:" + endpoint.port().to_string() + "/",
+  ).unwrap()
+  @async.with_task_group(async fn(group) {
+    let server = group.spawn(() => supervisor.serve(listener))
+    let options = @client_api.RequestOptions::defaults()
+    @client_native.with_client(
+      async fn(client) {
+        for
+          (path, expected) in [
+            ("/head", @client_api.ClientResponseHeaders),
+            ("/body", ClientResponseBody),
+            ("/upload", ClientRequestBody),
+          ] {
+          let blocked = group.spawn(async fn() {
+            let upload = if path == "/upload" {
+              @client_api.Upload::once(
+                @body.BodyStream::from_pull(async fn() {
+                  @async.sleep(2000)
+                  None
+                }),
+              )
+            } else {
+              @client_api.Upload::bytes(b"")
+            }
+            let result = try {
+              let res = client.send(
+                client.request(
+                  if path == "/upload" {
+                    Post
+                  } else {
+                    Get
+                  },
+                  origin.resolve_reference(path).unwrap(),
+                  upload,
+                ),
+              )
+              ignore(@body.collect(res.body))
+              None
+            } catch {
+              @client_api.ClientError::ClientTimeout(phase, _, _) => Some(phase)
+              e => raise e
+            }
+            assert_eq(result, Some(expected))
+          })
+          let ok = client.send(
+            client.request(Get, origin, @client_api.Upload::bytes(b"")),
+          )
+          assert_eq(@body.collect(ok.body).0, b"ok")
+          blocked.wait()
+        }
+        let ok = client.send(
+          client.request(Get, origin, @client_api.Upload::bytes(b"")),
+        )
+        assert_eq(@body.collect(ok.body).0, b"ok")
+        assert_eq(supervisor.metrics().accepted(), 1L)
+      },
+      version=Http2,
+      policy~,
+      max_connections=1,
+      tls={ ..client_tls, alpn: ["h2"], server_name: None, },
+      options={
+        ..options,
+        timeouts: {
+          ..options.timeouts,
+          request_body_ms: Some(100),
+          response_headers_ms: Some(350),
+          response_body_ms: Some(150),
+          total_ms: Some(4000),
+        },
+      },
+    )
+    supervisor.begin_shutdown().unwrap()
+    server.wait().unwrap()
+  })
+}

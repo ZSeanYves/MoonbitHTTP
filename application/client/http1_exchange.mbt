@@ -1,5 +1,5 @@
 ///|
-fn http1_pool_phase(phase : @service.Http1ClientPhase) -> ClientPhase {
+fn http_pool_phase(phase : @service.HttpClientPhase) -> ClientPhase {
   match phase {
     RequestHeaders => ClientRequestHeaders
     RequestBody => ClientRequestBody
@@ -11,7 +11,7 @@ fn http1_pool_phase(phase : @service.Http1ClientPhase) -> ClientPhase {
 ///|
 fn Http1PooledRoundTripper::phase_timeout(
   self : Http1PooledRoundTripper,
-  phase : @service.Http1ClientPhase,
+  phase : @service.HttpClientPhase,
 ) -> ClientError {
   let timeout = (match phase {
     RequestHeaders => self.options.timeouts.request_headers_ms
@@ -19,7 +19,7 @@ fn Http1PooledRoundTripper::phase_timeout(
     ResponseHeaders => self.options.timeouts.response_headers_ms
     ResponseBody => self.options.timeouts.response_body_ms
   }).unwrap_or(0)
-  self.dialer.timeout_error(http1_pool_phase(phase), timeout)
+  self.dialer.timeout_error(http_pool_phase(phase), timeout)
 }
 
 ///|

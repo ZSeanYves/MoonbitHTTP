@@ -82,48 +82,75 @@ pub struct Http2ClientConnection {
 }
 
 ///|
+async fn[T] h2_wait(
+  phase : HttpClientPhase,
+  timeout : ((HttpClientPhase) -> (Int32, Error)?)?,
+  work : async () -> T,
+) -> T {
+  if timeout is Some(get) && get(phase) is Some((ms, reason)) {
+    @async.with_timeout(ms, work, error=reason)
+  } else {
+    work()
+  }
+}
+
+///|
 async fn[B : @body.Body] send_h2_request_body(
   shared : Http2ClientState,
   stream : H2ClientStream,
   body : B,
   expected : Int32?,
+  timeout : ((HttpClientPhase) -> (Int32, Error)?)?,
 ) -> Unit {
   errdefer body.cancel(@body.BodyError::Cancelled)
-  errdefer shared.cancel_stream(
+  let mut failure : Error = @http2.H2ProtocolError::StreamError(
     stream.id,
-    @http2.H2ProtocolError::StreamError(
+    Cancel,
+    "request body producer failed",
+  )
+  errdefer shared.cancel_stream(stream.id, failure)
+  let result : Result[Unit, Error] = Ok(
+    write_h2_body(
       stream.id,
-      Cancel,
-      "request body producer failed",
+      () => h2_wait(RequestBody, timeout, () => body.next_frame()),
+      expected,
+      false,
+      requested => {
+        h2_wait(RequestBody, timeout, async fn() {
+          for ;; {
+            if stream.request_finished || shared.failure is Some(_) {
+              raise shared.closed_error()
+            }
+            shared.runtime_lock.acquire()
+            let result = shared.runtime.reserve_send_capacity(
+              stream.id,
+              requested,
+            )
+            shared.runtime_lock.release()
+            let capacity = result.unwrap_or_error()
+            if capacity > 0 {
+              return capacity
+            }
+            stream.window_signal.wait()
+          }
+        })
+      },
+      bytes => h2_wait(RequestBody, timeout, () => shared.write_bytes(bytes)),
+      trailers => {
+        h2_wait(RequestBody, timeout, async fn() {
+          shared.write_headers(() => {
+            @http2.encode_trailers(shared.encoder, stream.id, trailers)
+          })
+        })
+      },
     ),
-  )
-  write_h2_body(
-    stream.id,
-    body,
-    expected,
-    false,
-    async fn(requested) {
-      for ;; {
-        if stream.request_finished || shared.failure is Some(_) {
-          raise shared.closed_error()
-        }
-        shared.runtime_lock.acquire()
-        let result = shared.runtime.reserve_send_capacity(stream.id, requested)
-        shared.runtime_lock.release()
-        let capacity = result.unwrap_or_error()
-        if capacity > 0 {
-          return capacity
-        }
-        stream.window_signal.wait()
-      }
-    },
-    bytes => shared.write_bytes(bytes),
-    trailers => {
-      shared.write_headers(() => {
-        @http2.encode_trailers(shared.encoder, stream.id, trailers)
-      })
-    },
-  )
+  ) catch {
+    error => Err(error)
+  }
+  if result is Err(error) {
+    failure = error
+    raise error
+  }
   shared.runtime_lock.acquire()
   let result = shared.runtime.finish_local_stream(stream.id)
   shared.runtime_lock.release()
@@ -181,6 +208,7 @@ async fn Http2ClientState::admit_stream(
 pub async fn[B : @body.Body] Http2ClientConnection::send(
   self : Http2ClientConnection,
   request : @types.Request[B],
+  timeout? : (HttpClientPhase) -> (Int32, Error)?,
 ) -> @types.Response[@body.BodyStream] {
   let mut upload_owned = false
   // Admission, encoding, and the first header write can all fail before an
@@ -247,13 +275,15 @@ pub async fn[B : @body.Body] Http2ClientConnection::send(
       self.shared.fail_stream(stream, @body.BodyError::Cancelled)
     })
     let expected = h2_outgoing_length(stream_id, request.headers, hint)
-    self.shared.write_headers(fn() {
-      @http2.encode_request_headers(
-        self.shared.encoder,
-        stream_id,
-        request,
-        exact_zero,
-      )
+    h2_wait(RequestHeaders, timeout, async fn() {
+      self.shared.write_headers(fn() {
+        @http2.encode_request_headers(
+          self.shared.encoder,
+          stream_id,
+          request,
+          exact_zero,
+        )
+      })
     })
     expected
   }
@@ -262,13 +292,22 @@ pub async fn[B : @body.Body] Http2ClientConnection::send(
   errdefer body.cancel(@body.BodyError::Cancelled)
   if !exact_zero {
     let producer = async fn() {
-      send_h2_request_body(self.shared, stream, request.body, expected)
+      send_h2_request_body(self.shared, stream, request.body, expected, timeout)
     }
     upload_owned = true
     stream.upload = Some((self.shared.spawn)(producer))
   }
-  let response = stream.head.get()
-  response.map_body(fn(_) { body })
+  let response = h2_wait(ResponseHeaders, timeout, () => stream.head.get())
+  guard timeout is Some(_) else { return response.map_body(_ => body) }
+  response.map_body(_ => {
+    @body.BodyStream::from_pull(
+      () => h2_wait(ResponseBody, timeout, () => body.next_frame()),
+      size_hint=body.size_hint(),
+      on_terminate=reason => {
+        body.cancel(reason.unwrap_or(@body.BodyError::Cancelled))
+      },
+    )
+  })
 }
 
 ///|

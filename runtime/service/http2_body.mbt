@@ -26,9 +26,9 @@ fn h2_outgoing_length(
 ///|
 /// Both roles apply the same length and trailer rules. Each connection owns
 /// its flow-control waiter, header compression context and serialized writer.
-async fn[B : @body.Body] write_h2_body(
+async fn write_h2_body(
   stream_id : Int32,
-  body : B,
+  read : async () -> @body.Frame?,
   expected : Int32?,
   end_on_headers : Bool,
   reserve : async (Int32) -> Int32,
@@ -37,7 +37,7 @@ async fn[B : @body.Body] write_h2_body(
 ) -> Unit {
   let mut remaining = expected
   let mut ended = end_on_headers
-  while body.next_frame() is Some(frame) {
+  while read() is Some(frame) {
     match frame {
       _ if ended =>
         raise @http2.H2ProtocolError::StreamError(
