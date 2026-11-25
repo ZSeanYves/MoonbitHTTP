@@ -319,6 +319,7 @@ pub fn Http3Session::send_headers(Self, Int64, Array[QpackField], fin? : Bool) -
 pub fn Http3Session::start_request(Self, Array[QpackField], fin? : Bool) -> Result[Int64, Http3SessionError]
 pub fn Http3Session::stop_reading(Self, Int64) -> Result[Unit, Http3Error]
 pub fn Http3Session::stream_write_pending(Self, Int64) -> Bool
+pub fn Http3Session::write_stats(Self) -> Http3WriteStats
 pub fn Http3Session::writes_pending(Self) -> Bool
 
 #derive(Eq, @debug.Debug)
@@ -331,6 +332,13 @@ pub(all) enum Http3SessionAction {
 pub fn Http3SessionAction::equal(Self, Self) -> Bool
 pub fn Http3SessionAction::not_equal(Self, Self) -> Bool
 pub fn Http3SessionAction::to_repr(Self) -> @debug.Repr
+
+pub struct Http3WriteStats {
+  peak_bytes : Int32
+  peak_writes : Int32
+  credit_waits : Int64
+  completed_credit_wait_ms : Int64
+}
 
 #derive(Eq, @debug.Debug)
 pub(all) enum QpackDecodeResult {

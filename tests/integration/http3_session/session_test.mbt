@@ -199,11 +199,15 @@ test "http3 session: body consumption returns only the requested amount of recei
   }
   let first = delivered()
   assert_true(first > 0 && first <= 128)
+  let blocked = client.session.write_stats()
+  assert_true(blocked.peak_bytes >= 512 && blocked.peak_writes >= 1)
+  assert_true(blocked.credit_waits > 0L)
   server.session.consume_body(id, 17).unwrap()
   for tick in 10..<16 {
     pump_sessions(client, server, tick.to_int64() * 30L)
   }
   assert_eq(delivered(), first + 17)
+  assert_true(client.session.write_stats().completed_credit_wait_ms > 0L)
   let mut consumed = 17
   for tick in 16..<35 {
     let received = delivered()

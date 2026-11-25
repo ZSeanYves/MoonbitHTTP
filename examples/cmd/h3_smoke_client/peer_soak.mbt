@@ -36,7 +36,12 @@ async fn run_peer_soak(
       let mut large_pairs = 0L
       defer {
         let elapsed = @transport.Clock::monotonic_millis(clock) - start
+        let writes = client.write_stats()
         let snapshot : Json = {
+          "queue_peak_bytes": writes.peak_bytes,
+          "queue_peak_writes": writes.peak_writes,
+          "flow_credit_waits": writes.credit_waits.to_double(),
+          "completed_flow_credit_wait_ms": writes.completed_credit_wait_ms.to_double(),
           "workers": workers,
           "elapsed_ms": elapsed.to_int(),
           "completed_pairs": pairs.to_double(),

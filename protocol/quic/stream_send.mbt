@@ -64,12 +64,7 @@ fn[T] QuicConnection::write_stream(
           data.length().min(available)
         }
       }
-      let stream_credit = (stream.send_max - stream.send_offset).min(
-        self.limits.max_stream_data - stream.outstanding.bytes,
-      )
-      let connection_credit = (self.peer_max_data - self.connection_send_offset).min(
-        self.limits.max_connection_data - self.retained_send_bytes,
-      )
+      let (stream_credit, connection_credit) = self.send_windows(stream)
       let required = (if packet_budget is Some(_) {
         offered.min(1)
       } else {
@@ -145,6 +140,35 @@ pub fn QuicConnection::reset_stream(
   code : Int64,
 ) -> Result[QuicFrame, QuicError] {
   self.write_stream(stream_id, Reset(code), fn(frame, _) { Ok(frame) })
+}
+
+///|
+fn QuicConnection::send_windows(
+  self : QuicConnection,
+  stream : QuicStreamState,
+) -> (Int64, Int64) {
+  (
+    (stream.send_max - stream.send_offset).min(
+      self.limits.max_stream_data - stream.outstanding.bytes,
+    ),
+    (self.peer_max_data - self.connection_send_offset).min(
+      self.limits.max_connection_data - self.retained_send_bytes,
+    ),
+  )
+}
+
+///|
+/// Data bytes permitted by both stream and connection flow control, before congestion control.
+pub fn QuicConnection::stream_send_credit(
+  self : QuicConnection,
+  id : Int64,
+) -> Int64? {
+  self.streams
+  .get(id)
+  .map(stream => {
+    let (a, b) = self.send_windows(stream)
+    a.min(b).max(0L)
+  })
 }
 
 ///|

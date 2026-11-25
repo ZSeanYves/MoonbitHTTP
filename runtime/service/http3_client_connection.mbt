@@ -46,6 +46,13 @@ pub fn Http3ClientConnection::is_idle(self : Http3ClientConnection) -> Bool {
 }
 
 ///|
+pub fn Http3ClientConnection::write_stats(
+  self : Http3ClientConnection,
+) -> @http3.Http3WriteStats {
+  self.io.session.write_stats()
+}
+
+///|
 fn Http3ClientConnection::notify_state_change(
   self : Http3ClientConnection,
 ) -> Unit {

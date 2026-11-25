@@ -3,6 +3,7 @@ priv struct H3PendingWrite {
   bytes : Bytes
   fin : Bool
   mut offset : Int32
+  mut credit_wait_since_ms : Int64?
 }
 
 ///|
@@ -13,11 +14,26 @@ priv struct H3WriteQueue {
   max_writes : Int32
   mut bytes : Int32
   mut count : Int32
+  mut peak_bytes : Int32
+  mut peak_writes : Int32
+  mut credit_waits : Int64
+  mut completed_credit_wait_ms : Int64
 }
 
 ///|
 fn H3WriteQueue::new(max_bytes : Int32, max_writes : Int32) -> H3WriteQueue {
-  { streams: Map([]), order: [], max_bytes, max_writes, bytes: 0, count: 0, }
+  {
+    streams: Map([]),
+    order: [],
+    max_bytes,
+    max_writes,
+    bytes: 0,
+    count: 0,
+    peak_bytes: 0,
+    peak_writes: 0,
+    credit_waits: 0L,
+    completed_credit_wait_ms: 0L,
+  }
 }
 
 ///|
@@ -47,9 +63,11 @@ fn H3WriteQueue::push(
     self.order.push(id)
     @deque.from_array([])
   })
-  q.push_back({ bytes, offset: 0, fin, })
+  q.push_back({ bytes, offset: 0, fin, credit_wait_since_ms: None, })
   self.bytes += bytes.length()
   self.count += 1
+  self.peak_bytes = self.peak_bytes.max(self.bytes)
+  self.peak_writes = self.peak_writes.max(self.count)
 }
 
 ///|
@@ -78,8 +96,20 @@ fn H3WriteQueue::flush(
     }
     match
       quic.send_stream_prefix(id, write.bytes[write.offset:], write.fin, now_ms) {
-      Ok(None) => waiting.push(id)
+      Ok(None) => {
+        if write.offset < write.bytes.length() &&
+          write.credit_wait_since_ms is None &&
+          quic.connection().stream_send_credit(id) == Some(0L) {
+          self.credit_waits += 1L
+          write.credit_wait_since_ms = Some(now_ms)
+        }
+        waiting.push(id)
+      }
       Ok(Some((count, packet))) => {
+        if write.credit_wait_since_ms is Some(start) {
+          self.completed_credit_wait_ms += (now_ms - start).max(0L)
+          write.credit_wait_since_ms = None
+        }
         output.push(Transport(packet))
         write.offset += count
         if write.offset == write.bytes.length() {

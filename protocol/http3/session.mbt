@@ -74,6 +74,26 @@ pub fn Http3Session::ended(self : Http3Session) -> Bool {
 }
 
 ///|
+/// Application-stream queue peaks and completed waits from zero flow credit to send progress.
+/// Concurrent stream waits are counted separately.
+pub struct Http3WriteStats {
+  peak_bytes : Int32
+  peak_writes : Int32
+  credit_waits : Int64
+  completed_credit_wait_ms : Int64
+}
+
+///|
+pub fn Http3Session::write_stats(self : Http3Session) -> Http3WriteStats {
+  {
+    peak_bytes: self.writes.peak_bytes,
+    peak_writes: self.writes.peak_writes,
+    credit_waits: self.writes.credit_waits,
+    completed_credit_wait_ms: self.writes.completed_credit_wait_ms,
+  }
+}
+
+///|
 /// Latest boundary received on the peer's control stream.
 pub fn Http3Session::peer_goaway(self : Http3Session) -> Int64? {
   self.driver.connection.goaway_id

@@ -203,6 +203,7 @@ pub fn QuicConnection::send_stream(Self, Int64, Bytes, Bool) -> Result[QuicFrame
 pub fn QuicConnection::set_peer_transport_params(Self, QuicTransportParams) -> Result[Unit, QuicError]
 pub fn QuicConnection::state(Self) -> QuicConnectionState
 pub fn QuicConnection::stop_sending(Self, Int64, Int64) -> Result[QuicFrame?, QuicError]
+pub fn QuicConnection::stream_send_credit(Self, Int64) -> Int64?
 pub fn QuicConnection::stream_writable(Self, Int64) -> Bool
 pub fn QuicConnection::stream_writes_pending(Self) -> Bool
 pub fn QuicConnection::take_credit_updates(Self) -> Array[QuicFrame]
