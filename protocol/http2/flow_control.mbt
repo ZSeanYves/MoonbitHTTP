@@ -230,6 +230,21 @@ pub fn H2Connection::reserve_send_capacity(
   stream_id : Int32,
   requested : Int32,
 ) -> Result[Int32, H2ProtocolError] {
+  self.reserve_send_batch(
+    stream_id,
+    requested.min(self.peer_settings.max_frame_size),
+  )
+}
+
+///|
+/// Reserve aggregate credit for a bounded write containing multiple DATA frames.
+/// The caller still splits the write on the wire at the peer's frame-size limit.
+#internal(http2_write)
+pub fn H2Connection::reserve_send_batch(
+  self : H2Connection,
+  stream_id : Int32,
+  requested : Int32,
+) -> Result[Int32, H2ProtocolError] {
   if requested < 0 {
     return Err(
       StreamError(stream_id, FlowControlError, "negative send capacity request"),
@@ -248,7 +263,6 @@ pub fn H2Connection::reserve_send_capacity(
   let amount = requested
     .min(self.connection_send_window)
     .min(stream.send_window)
-    .min(self.peer_settings.max_frame_size)
   if amount <= 0 {
     return Ok(0)
   }

@@ -70,7 +70,7 @@ async fn[W : @aio.BinaryWriter, B : @body.Body] H2ServerStreams::send_response(
         self.write_lock,
         requested => {
           self.connection
-          .reserve_send_capacity(stream_id, requested)
+          .reserve_send_batch(stream_id, requested)
           .unwrap_or_error()
         },
         async fn() {
@@ -94,6 +94,7 @@ async fn[W : @aio.BinaryWriter, B : @body.Body] H2ServerStreams::send_response(
         write_timeout_ms,
       )
     },
+    max_batch=4 * @http2.H2_DEFAULT_MAX_FRAME_SIZE,
   )
   self.finish_response(stream_id)
 }

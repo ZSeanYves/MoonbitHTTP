@@ -34,6 +34,7 @@ async fn write_h2_body(
   write_chunk : async (BytesView) -> Int32,
   write_end : async (Bytes) -> Unit,
   write_trailers : async (@types.HeaderMap) -> Unit,
+  max_batch~ : Int32 = @http2.H2_DEFAULT_MAX_FRAME_SIZE,
 ) -> Unit {
   let mut remaining = expected
   let mut ended = end_on_headers
@@ -58,9 +59,7 @@ async fn write_h2_body(
         }
         let mut offset = 0
         while offset < data.length() {
-          let length = (data.length() - offset).min(
-            @http2.H2_DEFAULT_MAX_FRAME_SIZE,
-          )
+          let length = (data.length() - offset).min(max_batch)
           offset += write_chunk(data[offset:offset + length])
         }
       }

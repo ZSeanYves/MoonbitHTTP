@@ -118,6 +118,7 @@ pub fn H2Connection::receive(Self, H2Frame) -> Result[Array[H2Action], H2Protoco
 pub fn H2Connection::release_capacity(Self, Int32, Int32) -> Result[Array[H2Action], H2ProtocolError]
 pub fn H2Connection::release_connection_capacity(Self, Int32) -> Result[H2Action, H2ProtocolError]
 pub fn H2Connection::release_discarded_capacity(Self) -> Result[Array[H2Action], H2ProtocolError]
+pub fn H2Connection::reserve_send_batch(Self, Int32, Int32) -> Result[Int32, H2ProtocolError]
 pub fn H2Connection::reserve_send_capacity(Self, Int32, Int32) -> Result[Int32, H2ProtocolError]
 pub fn H2Connection::reset_stream(Self, Int32) -> Result[Unit, H2ProtocolError]
 pub fn H2Connection::set_local_initial_window(Self, Int32, header_table_size? : Int32) -> Result[Unit, H2ProtocolError]
