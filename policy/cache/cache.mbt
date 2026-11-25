@@ -61,9 +61,11 @@ pub fn HttpCache::total_bytes(self : HttpCache) -> Int32 {
 
 ///|
 pub fn HttpCache::clear(self : HttpCache) -> Unit {
-  for fill in self.pending.copy() {
-    fill.discard()
+  for fill in self.pending {
+    fill.chunks = None
   }
+  self.pending.clear()
+  self.pending_bytes = 0
   self.entries.clear()
   self.total_bytes = 0
 }
@@ -437,7 +439,7 @@ pub fn HttpCache::store(
       return Ok(CacheNotStored(reason))
     error => return Err(error)
   }
-  self.store_entry(request, entry, body, trailers)
+  self.store_entry(request, entry, body.length(), () => body, trailers)
 }
 
 ///|
@@ -584,7 +586,8 @@ fn HttpCache::store_entry(
   self : HttpCache,
   request : @types.Request[Unit],
   head : CacheEntry,
-  body : Bytes,
+  body_size : Int32,
+  make_body : () -> Bytes,
   trailers : @types.HeaderMap?,
 ) -> Result[CacheStoreOutcome, CacheError] {
   if !self.config.allow_set_cookie &&
@@ -596,27 +599,24 @@ fn HttpCache::store_entry(
   }
   if (
       !@types.response_allows_body(request.http_method, head.response.status) &&
-      !body.is_empty()
+      body_size != 0
     ) ||
-    (
-      head.response.headers.content_length() is Ok(Some(n)) &&
-      n != body.length()
-    ) {
+    (head.response.headers.content_length() is Ok(Some(n)) && n != body_size) {
     return Err(InvalidResponse)
   }
   let metadata_size = head.size + trailers.map(cache_metadata_size).unwrap_or(0)
   if metadata_size > self.config.limits.max_metadata_bytes {
     return Ok(CacheNotStored(EntryTooLarge(metadata_size)))
   }
-  if body.length() > self.config.limits.max_entry_bytes - metadata_size {
-    return Ok(CacheNotStored(EntryTooLarge(body.length())))
+  if body_size > self.config.limits.max_entry_bytes - metadata_size {
+    return Ok(CacheNotStored(EntryTooLarge(body_size)))
   }
   let order = self.cache_tick()
   let entry = {
     ..head,
-    body,
+    body: make_body(),
     trailers: trailers.map(h => h.copy()),
-    size: metadata_size + body.length(),
+    size: metadata_size + body_size,
     order,
     last_used: order,
   }

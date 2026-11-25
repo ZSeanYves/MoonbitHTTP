@@ -95,12 +95,20 @@ pub fn CacheFill::prepare(
   Some(trailers => {
     guard self.chunks is Some(chunks) else { return }
     defer self.discard()
-    let data = @buffer.Buffer(capacity=self.size)
-    for chunk in chunks {
-      data.write_bytes(chunk)
-    }
     ignore(
-      self.cache.store_entry(self.request, head, data.to_bytes(), trailers),
+      self.cache.store_entry(
+        self.request,
+        head,
+        self.size,
+        () => {
+          let data = @buffer.Buffer(capacity=self.size)
+          for chunk in chunks {
+            data.write_bytes(chunk)
+          }
+          data.to_bytes()
+        },
+        trailers,
+      ),
     )
   })
 }
