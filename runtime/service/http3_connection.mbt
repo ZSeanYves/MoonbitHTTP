@@ -143,19 +143,22 @@ pub async fn[
     }
   }
   async fn dispatch_events(
-    actions : Array[@quic.QuicDriverAction],
+    prepare : () -> Array[@quic.QuicDriverAction] raise,
     from_timer : Bool,
   ) -> Unit {
-    if closing || peer_close is Some(_) {
-      return
-    }
-    if reset_error is Some(error) {
-      raise error
-    }
     let batch = []
     let terminal = {
       send_lock.acquire()
       defer send_lock.release()
+      if closing || peer_close is Some(_) {
+        return
+      }
+      if reset_error is Some(error) {
+        raise error
+      }
+      // QUIC changes its state when producing actions. Advance the HTTP/3
+      // session with those actions before another task can observe that state.
+      let actions = prepare()
       let advanced = session.advance(actions, clock.monotonic_millis())
       if !from_timer {
         wake_driver()
@@ -209,8 +212,10 @@ pub async fn[
       events.close(error~)
     }
   }
-  async fn dispatch(actions : Array[@quic.QuicDriverAction]) -> Unit {
-    dispatch_events(actions, false)
+  async fn dispatch(
+    prepare : () -> Array[@quic.QuicDriverAction] raise,
+  ) -> Unit {
+    dispatch_events(prepare, false)
   }
   let authenticated_origin = if packets.role() == Client &&
     options.verify_peer &&
@@ -234,11 +239,11 @@ pub async fn[
     write_changed,
     events,
     rotate_cid: async fn() {
-      dispatch(
+      dispatch(() => {
         packets
         .rotate_local_connection_id(clock.monotonic_millis())
-        .unwrap_or_error(),
-      )
+        .unwrap_or_error()
+      })
     },
     flush_writes: async fn() {
       let ticket = request_flush()
@@ -280,26 +285,28 @@ pub async fn[
           flush_needed.wait()
         }
         let ticket = requested
-        dispatch([])
+        dispatch(() => [])
         completed = ticket
         write_changed.broadcast()
       }
     })
     spawn_driver(async fn() {
-      dispatch(tls.start(options, clock.monotonic_millis()).unwrap_or_error())
+      dispatch(() => {
+        tls.start(options, clock.monotonic_millis()).unwrap_or_error()
+      })
       while peer_close is None {
         let packet = socket.receive(limits.max_datagram_bytes).unwrap_or_error()
         // MAX_STREAMS can admit a writer without producing an application event.
-        write_changed.broadcast()
-        dispatch(
+        dispatch(() => {
+          write_changed.broadcast()
           tls
           .on_datagram(
             packet.endpoint(),
             packet.payload(),
             clock.monotonic_millis(),
           )
-          .unwrap_or_error(),
-        )
+          .unwrap_or_error()
+        })
       }
     })
     spawn_driver(async fn() {
@@ -333,11 +340,16 @@ pub async fn[
         if !needs_poll {
           io.deadline_wakeups += 1L
         }
-        io.timer_polls += 1L
         needs_poll = false
-        let now = clock.monotonic_millis()
-        last_poll_ms = Some(now)
-        dispatch_events(tls.poll(now).unwrap_or_error(), true)
+        dispatch_events(
+          () => {
+            let now = clock.monotonic_millis()
+            io.timer_polls += 1L
+            last_poll_ms = Some(now)
+            tls.poll(now).unwrap_or_error()
+          },
+          true,
+        )
       }
     })
     match handshake_timeout_ms {
@@ -348,7 +360,7 @@ pub async fn[
     draining = true
     events.close(clear=true)
     @async.with_timeout(shutdown_timeout_ms, async fn() {
-      dispatch([])
+      dispatch(() => [])
       if session.writes_pending() && peer_close is None {
         drained.get()
       }
@@ -356,6 +368,8 @@ pub async fn[
         raise error
       }
       closing = true
+      send_lock.acquire()
+      defer send_lock.release()
       if session.close(clock.monotonic_millis()).unwrap_or_error()
         is Some(packet) {
         packets.send_action(socket, packet).unwrap_or_error()

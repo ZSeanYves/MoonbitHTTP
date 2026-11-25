@@ -135,9 +135,13 @@ async fn check_stalled_stream(version : @types.Version) -> Unit {
   let (client_tls, server_tls) = listener_tls_options()
   let policy = @transport.AllowAllPolicy::new()
   let supervisor = @server_api.ServerSupervisor::new().unwrap()
+  let entered : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
   let handler = async fn(
     req : @types.Request[@body.BodyStream],
   ) -> @types.Response[@body.BodyStream] {
+    if req.uri.path != "/" {
+      entered.put(())
+    }
     if req.uri.path == "/head" {
       @async.sleep(200)
     }
@@ -187,7 +191,7 @@ async fn check_stalled_stream(version : @types.Version) -> Unit {
     (
       endpoint,
       () => listener.close(),
-      async fn() { listener.serve(supervisor).unwrap() },
+      async fn() { listener.serve(supervisor).unwrap_or_error() },
     )
   }
   defer close()
@@ -197,14 +201,15 @@ async fn check_stalled_stream(version : @types.Version) -> Unit {
   @async.with_task_group(async fn(group) {
     let server = group.spawn(serve)
     let options = @client_api.RequestOptions::defaults()
-    @client_native.with_client(
-      async fn(client) {
-        for
-          (path, expected) in [
-            ("/head", @client_api.ClientResponseHeaders),
-            ("/body", ClientResponseBody),
-            ("/upload", ClientRequestBody),
-          ] {
+    for
+      (path, expected) in [
+        ("/head", @client_api.ClientResponseHeaders),
+        ("/body", ClientResponseBody),
+        ("/upload", ClientRequestBody),
+      ] {
+      let accepted = supervisor.metrics().accepted()
+      @client_native.with_client(
+        async fn(client) {
           let mut cancelled = 0
           let blocked = group.spawn(async fn() {
             let upload = if path == "/upload" {
@@ -240,6 +245,7 @@ async fn check_stalled_stream(version : @types.Version) -> Unit {
             }
             assert_eq(result, Some(expected))
           })
+          entered.get()
           let ok = client.send(
             client.request(Get, origin, @client_api.Upload::bytes(b"")),
           )
@@ -248,28 +254,40 @@ async fn check_stalled_stream(version : @types.Version) -> Unit {
           if path == "/upload" {
             assert_eq(cancelled, 1)
           }
-        }
-        let ok = client.send(
-          client.request(Get, origin, @client_api.Upload::bytes(b"")),
-        )
-        assert_eq(@body.collect(ok.body).0, b"ok")
-        assert_eq(supervisor.metrics().accepted(), 1L)
-      },
-      version~,
-      policy~,
-      max_connections=1,
-      tls={ ..client_tls, alpn: tls.alpn, server_name: None, },
-      options={
-        ..options,
-        timeouts: {
-          ..options.timeouts,
-          request_body_ms: Some(20),
-          response_headers_ms: Some(40),
-          response_body_ms: Some(40),
-          total_ms: Some(4000),
+          let ok = client.send(
+            client.request(Get, origin, @client_api.Upload::bytes(b"")),
+          )
+          assert_eq(@body.collect(ok.body).0, b"ok")
+          assert_eq(supervisor.metrics().accepted(), accepted + 1L)
         },
-      },
-    )
+        version~,
+        policy~,
+        max_connections=1,
+        tls={ ..client_tls, alpn: tls.alpn, server_name: None, },
+        options={
+          ..options,
+          timeouts: {
+            ..options.timeouts,
+            request_body_ms: if expected == ClientRequestBody {
+              Some(20)
+            } else {
+              None
+            },
+            response_headers_ms: if expected == ClientResponseHeaders {
+              Some(40)
+            } else {
+              None
+            },
+            response_body_ms: if expected == ClientResponseBody {
+              Some(40)
+            } else {
+              None
+            },
+            total_ms: Some(4000),
+          },
+        },
+      )
+    }
     supervisor.begin_shutdown().unwrap()
     server.wait()
   })
@@ -310,7 +328,9 @@ async test "H3 request headers cover local admission and an unlimited stage resu
   let origin = @types.Uri::parse("https://127.0.0.1:\{endpoint.port()}/first").unwrap()
   let supervisor = @server_api.ServerSupervisor::new().unwrap()
   @async.with_task_group(async fn(group) {
-    let server = group.spawn(async fn() { listener.serve(supervisor).unwrap() })
+    let server = group.spawn(async fn() {
+      listener.serve(supervisor).unwrap_or_error()
+    })
     let defaults = @client_api.RequestOptions::defaults()
     for
       (header_ms, total_ms, expected) in [
@@ -417,7 +437,9 @@ async test "H3 HEADERS blocked by peer credit consume the header budget" {
   let uri = @types.Uri::parse("https://127.0.0.1:\{peer.port()}/").unwrap()
   let supervisor = @server_api.ServerSupervisor::new().unwrap()
   @async.with_task_group(async fn(group) {
-    let server = group.spawn(async fn() { listener.serve(supervisor).unwrap() })
+    let server = group.spawn(async fn() {
+      listener.serve(supervisor).unwrap_or_error()
+    })
     let options = @client_api.RequestOptions::defaults()
     for
       (headers_ms, total_ms, expected) in [
