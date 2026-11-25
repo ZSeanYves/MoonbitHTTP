@@ -1,0 +1,174 @@
+----
+import {
+  "moonbitlang/async@0.22.10",
+  "moonbitlang/async@0.22.10/fs",
+  "moonbitlang/async@0.22.10/process",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/async@0.22.10/socket",
+}
+----
+
+///|
+async fn run(program : String, args : Array[String]) -> Unit {
+  let code = @process.run(program, args)
+  guard code == 0 else { fail("\{program} exited with \{code}") }
+}
+
+///|
+async fn change(path : String, old : String, new : String) -> Unit {
+  let source = @fs.read_file(path).text()
+  guard source.split(old).to_array().length() == 2 else {
+    fail("expected one instrumentation point in \{path}: \{old}")
+  }
+  @fs.write_file(path, source.replace(old~, new~))
+}
+
+///|
+/// Build a profiling-only Native server from an isolated git snapshot on macOS.
+async fn main {
+  guard @env.args() is [_, revision, directory] else {
+    fail("usage: http_server_profile.mbtx REVISION NEW_OUTPUT_DIRECTORY or --measure PROFILE_DIRECTORY")
+  }
+  let root = @env.current_dir().unwrap()
+  let output = if directory.has_prefix("/") { directory } else { root + "/" + directory }
+  if revision == "--measure" {
+    measure(output)
+    return
+  }
+  guard !@fs.exists(output) else { fail("output already exists: \{output}") }
+  @fs.mkdir(output, recursive=true)
+  let tmp = @fs.tmpdir(prefix="http-server-profile")
+  defer @async.protect_from_cancel(async fn() { @fs.rmdir(tmp, recursive=true) })
+  let source = tmp + "/source"
+  let sdk = tmp + "/sdk"
+  let installed = @env.get_env_var("MOON_HOME").unwrap_or(@env.get_env_var("HOME").unwrap() + "/.moon")
+  let inputs = root + "/repo-tools/tools/http_server_profile"
+  @fs.mkdir(source)
+  @fs.mkdir(sdk + "/lib", recursive=true)
+  for name in @fs.readdir(installed) {
+    if name == "bin" {
+      run("cp", ["-R", installed + "/bin", sdk + "/bin"])
+    } else if name != "lib" {
+      run("ln", ["-s", installed + "/" + name, sdk + "/" + name])
+    }
+  }
+  for name in @fs.readdir(installed + "/lib") {
+    if name != "runtime" { run("ln", ["-s", installed + "/lib/" + name, sdk + "/lib/" + name]) }
+  }
+  run("cp", ["-R", installed + "/lib/runtime", sdk + "/lib/runtime"])
+  let runtime = sdk + "/lib/runtime/runtime.c"
+  run("cp", [inputs + "/runtime-hooks.h", sdk + "/lib/runtime/"])
+  change(runtime, "MOONBIT_EXPORT void *libc_malloc", "#include \"runtime-hooks.h\"\n\nMOONBIT_EXPORT void *libc_malloc")
+  run("git", ["archive", "--format=tar", "--output=" + tmp + "/source.tar", revision])
+  run("tar", ["-xf", tmp + "/source.tar", "-C", source])
+  let fixture = "examples/cmd/smoke_server/"
+  for name in ["main.mbt", "moon.pkg", "workload.mbt"] {
+    run("cp", [root + "/" + fixture + name, source + "/" + fixture])
+  }
+  let service = source + "/runtime/service/"
+  run("cp", [inputs + "/counters.c", service + "r4_profile.c"])
+  change(service + "moon.pkg", "  \"is-main\": false,", "  \"native-stub\": [\"r4_profile.c\"],\n  \"is-main\": false,")
+  let body = service + "http2_body.mbt"
+  change(body, "      lock.acquire()", "      if !lock.try_acquire() {\n        let start = profile_clock()\n        lock.acquire()\n        profile_locked(start)\n      }")
+  change(body, "        write(\n", "        profile_write()\n        write(\n")
+  change(body, "    wait()", "    let start = profile_clock()\n    wait()\n    profile_flow(start)")
+  let bindings = @fs.read_file(inputs + "/wait-bindings.txt").text()
+  @fs.write_file(body, @fs.read_file(body).text() + bindings)
+  let build = @process.run(sdk + "/bin/moon", [
+    "build", "examples/cmd/smoke_server", "--release", "--target", "native", "--deny-warn", "--warn-list", "+73",
+  ], cwd=source[:], extra_env={ "MOON_HOME": sdk, "PATH": sdk + "/bin:" + @env.get_env_var("PATH").unwrap_or("") })
+  guard build == 0 else { fail("profile server build failed") }
+  run("cp", [source + "/_build/native/release/build/" + fixture + "smoke_server.exe", output + "/server"])
+  let (status, sha, _) = @process.collect_output("git", ["rev-parse", "--verify", revision + "^{commit}"])
+  guard status == 0 else { fail("cannot resolve revision") }
+  @fs.write_file(output + "/revision.txt", sha.text())
+  println("Profile server: \{output}/server")
+}
+
+///|
+async fn snapshot(path : String) -> Array[UInt64] {
+  let bytes = @fs.read_file(path).binary()
+  guard bytes.length() == 9 * 8 else { fail("invalid counter snapshot") }
+  let result = []
+  for slot in 0..<9 {
+    let mut value = 0UL
+    for offset in 0..<8 {
+      value = (value << 8) | bytes[8 * slot + 7 - offset].to_uint64()
+    }
+    result.push(value)
+  }
+  result
+}
+
+///|
+async fn resources(pid : Int) -> String {
+  let (code, out, _) = @process.collect_output("ps", ["-p", pid.to_string(), "-o", "rss=,utime=,stime="])
+  guard code == 0 else { fail("could not read server RSS and CPU") }
+  out.text().trim().to_owned()
+}
+
+///|
+async fn measure(output : String) -> Unit {
+  let results = output + "/windows"
+  guard !@fs.exists(results) else { fail("windows already exist: \{results}") }
+  @fs.mkdir(results)
+  let cert = "tests/fixtures/tls/localhost.cert.pem"
+  let key = "tests/fixtures/tls/localhost.key.pem"
+  let probe = results + "/probe"
+  run("go", ["build", "-o", probe, "repo-tools/tools/go_net_http_reference/main.go"])
+  let labels = ["allocation_calls", "allocation_bytes", "runtime_copy_calls", "runtime_copy_bytes", "data_lock_waits", "data_lock_wait_ns", "outbound_flow_waits", "outbound_flow_wait_ns", "data_writes"]
+  for protocol in ["h1", "h2"] {
+    for mode in ["echo", "profile"] {
+      let reservation = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+      let address = reservation.addr
+      reservation.close()
+      let name = "\{protocol}-\{mode}"
+      let counter_path = results + "/" + name + ".bin"
+      let args = ["--" + mode + "-" + protocol, address.port().to_string()]
+      if protocol == "h2" { args.append([cert, key]) }
+      @async.with_task_group(async fn(group) {
+        let server = @process.spawn(group, output + "/server", args,
+          extra_env={ "HTTP_PROFILE_COUNTERS": counter_path },
+          stdout=@process.redirect_to_file(results + "/" + name + ".log", create_mode=CreateNew),
+          no_wait=true)
+        defer server.cancel()
+        @async.with_timeout(10000, async fn() {
+          for ;; {
+            guard server.try_wait() is None else { fail("server exited") }
+            let ready = try { let tcp = @socket.Tcp::connect(address); tcp.close(); true } catch { _ => false }
+            if ready { break }
+            @async.sleep(25)
+          }
+        })
+        let jobs : Array[(String, Int, Int)] = []
+        if mode == "echo" {
+          jobs.append([("echo", 4, 1), ("echo", 4, 3)])
+        } else {
+          jobs.push(("json", 1, 1))
+          for workload in ["json", "upload", "download"] {
+            for workers in [1, 4, 16] { jobs.push((workload, workers, 1)) }
+          }
+        }
+        for index, job in jobs {
+          let (workload, workers, seconds) = job
+          let uri = (if protocol == "h2" { "https://" } else { "http://" }) + address.to_string() + "/" + workload
+          let start = snapshot(counter_path)
+          let before = resources(server.pid)
+          let (code, out, err) = @process.collect_output(probe, ["--mode", "probe", "--target", uri,
+            "--protocol", protocol, "--workload", workload, "--payload-bytes", "65536", "--concurrency", workers.to_string(),
+            "--duration-seconds", seconds.to_string(), "--cacert", cert])
+          let after = resources(server.pid)
+          let end = snapshot(counter_path)
+          guard code == 0 else { fail("\{name}/\{workload}: \{err.text()}\n\{out.text()}") }
+          let counters : Map[String, Json] = Map([])
+          for i, key in labels { counters[key] = Json::number((end[i] - start[i]).to_double()) }
+          guard end[1] > start[1] && end[3] > start[3] else { fail("runtime instrumentation inactive") }
+          let row : Json = { "warmup": index == 0, "workload": workload, "probe": @json.parse(out.text()), "server_rss_kib_user_system_start": before, "server_rss_kib_user_system_end": after, "counters": counters }
+          @fs.write_file(results + "/\{name}-\{index}.json", row, create_mode=CreateNew)
+        }
+      })
+    }
+  }
+  println("Profile windows: \{results}")
+}

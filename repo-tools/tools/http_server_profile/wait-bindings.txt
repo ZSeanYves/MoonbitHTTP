@@ -1,0 +1,12 @@
+
+///|
+extern "C" fn profile_clock() -> UInt64 = "r4_nanoseconds"
+
+///|
+extern "C" fn profile_locked(start : UInt64) -> Unit = "r4_locked"
+
+///|
+extern "C" fn profile_flow(start : UInt64) -> Unit = "r4_credited"
+
+///|
+extern "C" fn profile_write() -> Unit = "r4_wrote"
