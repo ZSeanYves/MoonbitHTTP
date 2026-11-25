@@ -412,7 +412,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, X] with_http2_client_
       discarded_capacity: 0,
     }
     let client : Http2ClientConnection = { shared, }
-    group.add_defer(fn() { shared.close_with(None) })
+    defer shared.close_with(None)
     shared.write_bytes(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
     let receive_window = config.h2_receive_window_bytes
     shared.write_bytes(
@@ -474,13 +474,7 @@ pub async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, X] with_http2_client_
       no_wait=true,
       allow_failure=true,
     )
-    defer {
-      // Close the connection before the task-group join. Upload producers are
-      // waiting children and otherwise prevent the group defer below from
-      // running when the caller returns after receiving a response.
-      shared.close_with(None)
-      reader_task.cancel()
-    }
+    defer reader_task.cancel()
     run(client)
   })
 }

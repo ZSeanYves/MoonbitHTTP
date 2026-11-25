@@ -98,6 +98,11 @@ async fn[S] OriginPool::drive(
 ) -> Unit {
   defer {
     entry.worker = None
+    // A completed worker can no longer serve an admitted or waiting caller.
+    // The client holds a change notification back into this pool.
+    if entry.state is Ready(_) {
+      entry.state = Rejected(self.closed_error)
+    }
     for index in 0..<self.sessions.length() {
       if physical_equal(self.sessions[index], entry) {
         ignore(self.sessions.remove(index))
@@ -106,6 +111,7 @@ async fn[S] OriginPool::drive(
     }
     self.changed.broadcast()
   }
+  let changed = self.changed
   let result = (self.open)(
     endpoint,
     async fn(client) {
@@ -120,7 +126,7 @@ async fn[S] OriginPool::drive(
         entry.retiring_for = Some(entry.origin)
       }
     },
-    () => self.changed.broadcast(),
+    () => changed.broadcast(),
   )
   match result {
     Err(error) => entry.state = Rejected(error)

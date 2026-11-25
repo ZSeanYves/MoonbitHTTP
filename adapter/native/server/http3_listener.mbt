@@ -427,6 +427,9 @@ fn NativeHttp3Listener::route(
     recent_ports: [],
     packets: None,
   }
+  // A queued connection can outlive its logical queue slot. Capture only
+  // the protocol handler so the admission queue never owns its listener.
+  let run_peer = self.run_peer
   let accepted = @server_api.AcceptedConnection::new(
     async fn() {
       try {
@@ -435,7 +438,7 @@ fn NativeHttp3Listener::route(
         if !peer.reserve_route(cid) {
           raise @quic.QuicError::InvalidPacket("server connection ID collision")
         }
-        (self.run_peer)(peer, source, destination, cid, remote)
+        run_peer(peer, source, destination, cid, remote)
         Ok(())
       } catch {
         err => Err(err)
