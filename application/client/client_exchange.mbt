@@ -150,6 +150,7 @@ fn ClientExchange::prepare_headers(
     headers.set(@types.HeaderName::parse("cookie").unwrap(), cookie)
   }
   if self.client.content_decoding &&
+    headers.get_string("range") is None &&
     headers.get_string("accept-encoding") is None {
     headers
     .append_string("accept-encoding", "gzip, deflate, br")
@@ -464,6 +465,7 @@ fn ClientExchange::decode_response(
   response : @types.Response[IncomingBody],
 ) -> @types.Response[IncomingBody] raise ClientError {
   if !self.client.content_decoding ||
+    response.status == 206 ||
     !@types.response_allows_body(self.request.http_method, response.status) {
     return response
   }

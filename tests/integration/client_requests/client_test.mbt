@@ -391,3 +391,93 @@ async test "client content coding: advertised gzip is decoded under the shared b
     now_millis=fn() { 0L },
   )
 }
+
+///|
+async test "range responses preserve the encoded representation across requests" {
+  let original = b"range downloads address encoded bytes"
+  let encoded = @gzip.compress(original)
+  let ranges = [(0, 10), (10, encoded.length())]
+  let mut index = 0
+  let exchange = byte_peer(request => {
+    let headers = @types.HeaderMap::new()
+    headers.append_string("content-encoding", "gzip").unwrap()
+    let (start, end) = ranges[index % 2]
+    assert_eq(
+      request.headers
+      .get_string("accept-encoding")
+      .map(h => h.to_string_lossy()),
+      if index == 1 {
+        Some("gzip")
+      } else {
+        None
+      },
+    )
+    let status = if index == 2 { 200 } else { 206 }
+    let bytes = if status == 200 {
+      encoded
+    } else {
+      encoded[start:end].to_owned()
+    }
+    if status == 206 {
+      headers
+      .append_string(
+        "content-range",
+        "bytes \{start}-\{end - 1}/\{encoded.length()}",
+      )
+      .unwrap()
+    }
+    index += 1
+    headers.append_string("content-length", bytes.length().to_string()).unwrap()
+    Ok({ status, version: Http11, headers, body: bytes, })
+  })
+  @client.with_client(
+    async fn(client) {
+      let parts : Array[Bytes] = []
+      for i in 0..<3 {
+        let (start, end) = ranges[i % 2]
+        let headers = @types.HeaderMap::new()
+        headers.append_string("range", "bytes=\{start}-\{end - 1}").unwrap()
+        if i == 1 {
+          headers.append_string("accept-encoding", "gzip").unwrap()
+        }
+        let response = send_bytes(
+          client,
+          pooled_request("http://example.test/file", headers),
+        )
+        if i == 2 {
+          assert_eq(response.body, original)
+        } else {
+          assert_eq(
+            response.headers
+            .get_string("content-encoding")
+            .unwrap()
+            .to_string_lossy(),
+            "gzip",
+          )
+          assert_eq(
+            response.headers
+            .get_string("content-range")
+            .unwrap()
+            .to_string_lossy(),
+            "bytes \{start}-\{end - 1}/\{encoded.length()}",
+          )
+          assert_eq(
+            response.headers
+            .get_string("content-length")
+            .unwrap()
+            .to_string_lossy(),
+            (end - start).to_string(),
+          )
+          parts.push(response.body)
+        }
+      }
+      assert_eq(parts[0] + parts[1], encoded)
+    },
+    version=Http11,
+    exchange~,
+    content_decoding=true,
+    wall_clock_seconds=() => 0L,
+    now_millis=() => 0L,
+    authorize_redirect=(_, _) => Ok(()),
+  )
+}

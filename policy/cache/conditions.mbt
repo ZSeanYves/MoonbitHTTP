@@ -43,6 +43,9 @@ pub fn etag_matches(
   if request_value.trim() == "*" {
     return ConditionMatches
   }
+  if !weak && stored_value.has_prefix("W/") {
+    return ConditionDoesNotMatch
+  }
   let right = if weak { cache_strip_weak(stored_value) } else { stored_value }
   let mut quoted = false
   let mut start = 0

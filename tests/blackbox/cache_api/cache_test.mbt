@@ -438,3 +438,27 @@ test "cache selects the most recent matching Vary response for lookup and revali
   }
   assert_eq(fallback.body(), b"default")
 }
+
+///|
+test "strong validators require both entity tags to be strong" {
+  let strong = "\"v1\""
+  let weak = "W/\"v1\""
+  for stored in [weak, strong] {
+    for candidate in [weak, strong] {
+      assert_eq(@cache.etag_matches(candidate, stored), ConditionMatches)
+      assert_eq(
+        @cache.etag_matches(candidate, stored, weak=false),
+        if candidate == strong && stored == strong {
+          ConditionMatches
+        } else {
+          ConditionDoesNotMatch
+        },
+      )
+    }
+    assert_eq(@cache.etag_matches("*", stored, weak=false), ConditionMatches)
+    assert_eq(
+      @cache.etag_matches("\"v2\"", stored, weak=false),
+      ConditionDoesNotMatch,
+    )
+  }
+}
