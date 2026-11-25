@@ -12,6 +12,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_client(
     alpn: ["http/1.1"],
   },
   max_connections~ : Int32 = 32,
+  max_connections_per_origin~ : Int32 = 1,
   cache_enabled~ : Bool = false,
   content_decoding~ : Bool = false,
   content_coding_limits~ : @content_coding.ContentCodingLimits = @content_coding.ContentCodingLimits::defaults(),
@@ -21,6 +22,11 @@ pub async fn[P : @transport.NetworkPolicy, X] with_client(
   }
   if version is (Http2 | Http3) && proxy.mode != Direct {
     raise @client_api.ClientError::ClientInvalidOptions("proxy requires HTTP/1")
+  }
+  if max_connections_per_origin != 1 && version != Http2 {
+    raise @client_api.ClientError::ClientInvalidOptions(
+      "per-origin expansion requires HTTP/2",
+    )
   }
   let resolver = @transport_native.NativeResolver::new()
   let clock = @transport_native.NativeClock::new()
@@ -91,6 +97,7 @@ pub async fn[P : @transport.NetworkPolicy, X] with_client(
         },
         options={
           max_connections,
+          max_connections_per_origin,
           tls,
           session: {
             ..defaults.session,

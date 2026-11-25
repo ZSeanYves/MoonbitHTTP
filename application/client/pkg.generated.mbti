@@ -250,6 +250,7 @@ pub async fn Http2Client::execute_stream(Self, @types.Request[Bytes]) -> Result[
 
 pub(all) struct Http2PoolOptions {
   max_connections : Int32
+  max_connections_per_origin : Int32
   session : @service.Http2ClientConfig
   tls : @transport.TlsOptions
   connect_options : @transport.ConnectOptions

@@ -14,6 +14,7 @@ struct H2PoolConnector {
   opened : @aqueue.Queue[H2PoolPeer]
   writing : @aqueue.Queue[Unit]
   release_write : @aqueue.Queue[Unit]
+  mut peer_stream_limit : Int32
   mut hold_settings : Bool
 }
 
@@ -23,6 +24,7 @@ fn H2PoolConnector::new() -> H2PoolConnector {
     peers: [],
     fail_initial_read: false,
     opened: Queue(kind=Unbounded),
+    peer_stream_limit: 1,
     hold_settings: false,
     writing: Queue(kind=Blocking(1)),
     release_write: Queue(kind=Blocking(1)),
@@ -50,7 +52,10 @@ impl @transport.StreamConnector for H2PoolConnector with fn connect(
   if !self.hold_settings {
     peer.replies.put(
       Bytes::from_array(
-        @http2.encode_settings_frame([{ id: 3, value: 1, }], false),
+        @http2.encode_settings_frame(
+          [{ id: 3, value: self.peer_stream_limit, }],
+          false,
+        ),
       ),
     )
   }
@@ -125,6 +130,8 @@ async fn[X] with_pool_peer(
   connector : H2PoolConnector,
   run : async (@client.Http2Client) -> X,
   max_connections~ : Int32 = 2,
+  max_connections_per_origin~ : Int32 = 1,
+  clock~ : @test_support.FixedClock = @test_support.FixedClock::new(0L, 0L),
 ) -> X {
   let ip = @types.IpAddress::parse("127.0.0.1").unwrap()
   @client.with_http2_pool(
@@ -132,9 +139,13 @@ async fn[X] with_pool_peer(
     @transport.StaticResolver::new([("first.test", [ip]), ("second.test", [ip])]),
     @transport.UnsupportedProvider::new(),
     @transport.AllowAllPolicy::new(),
-    @test_support.FixedClock::new(0L, 0L),
+    clock,
     run,
-    options={ ..@client.Http2PoolOptions::defaults(), max_connections, },
+    options={
+      ..@client.Http2PoolOptions::defaults(),
+      max_connections,
+      max_connections_per_origin,
+    },
   )
 }
 
@@ -430,6 +441,7 @@ async test "H2 request header timeout includes admission and releases only the w
         assert_eq(connector.peers.length(), 1)
       },
       max_connections=1,
+      max_connections_per_origin=2,
     )
   })
 }
@@ -541,4 +553,145 @@ async test "H2 timeout inside a HEADERS write retires the connection" {
     },
     max_connections=1,
   )
+}
+
+///|
+async test "H2 short requests reuse spare slots or share one saturated-origin expansion" {
+  for limit in [1, 32] {
+    let connector = H2PoolConnector::new()
+    connector.peer_stream_limit = limit
+    @async.with_timeout(3000, async fn() {
+      with_pool_peer(
+        connector,
+        async fn(client) {
+          let request = pooled_request(
+            "http://first.test/",
+            @types.HeaderMap::new(),
+          )
+          let held = client
+            .execute_stream({
+              ..request,
+              uri: request.uri.resolve_reference("/hold").unwrap(),
+            })
+            .unwrap()
+          @async.with_task_group(fn(group) {
+            for _ in 0..<8 {
+              group.spawn_bg(async fn() {
+                assert_eq(client.execute(request).unwrap().status, 200)
+              })
+            }
+          })
+          assert_eq(connector.peers.length(), if limit == 1 { 2 } else { 1 })
+          connector.peers[0].replies.put(
+            @http2.encode_data_frames(1, b"ok", true).unwrap(),
+          )
+          assert_eq(@body.collect(held.body).0, b"ok")
+        },
+        max_connections=4,
+        max_connections_per_origin=2,
+      )
+    })
+  }
+}
+
+///|
+async test "H2 expansion retains one request header deadline while waiting for SETTINGS" {
+  let connector = H2PoolConnector::new()
+  let clock = @test_support.FixedClock::new(0L, 0L)
+  @async.with_timeout(3000, async fn() {
+    with_pool_peer(
+      connector,
+      async fn(client) {
+        let request = pooled_request(
+          "http://first.test/",
+          @types.HeaderMap::new(),
+        )
+        let held = client
+          .execute_stream({
+            ..request,
+            uri: request.uri.resolve_reference("/hold").unwrap(),
+          })
+          .unwrap()
+        let first = connector.opened.get()
+        connector.hold_settings = true
+        @async.with_task_group(async fn(group) {
+          let upload : AdmissionUpload = {
+            inspected: Queue(kind=Unbounded),
+            cancellations: 0,
+          }
+          let pending = group.spawn(async fn() {
+            client.execute_body(request.map_body(_ => upload), timeouts={
+              ..@client.ClientTimeouts::defaults(),
+              request_headers_ms: Some(1000),
+            })
+          })
+          let second = connector.opened.get()
+          clock.advance(1000L).unwrap()
+          second.replies.put(
+            Bytes::from_array(@http2.encode_settings_frame([], false)),
+          )
+          assert_true(
+            pending.wait()
+            is Err(ClientTimeout(ClientRequestHeaders, 1000L, 1000L)),
+          )
+          assert_eq(upload.cancellations, 1)
+          assert_true(second.stream_ids.is_empty())
+          assert_eq(client.execute(request).unwrap().status, 200)
+        })
+        first.replies.put(@http2.encode_data_frames(1, b"ok", true).unwrap())
+        assert_eq(@body.collect(held.body).0, b"ok")
+      },
+      max_connections_per_origin=2,
+      clock~,
+    )
+  })
+}
+
+///|
+async test "cancelling the last H2 expansion waiter releases its socket and upload" {
+  let connector = H2PoolConnector::new()
+  @async.with_timeout(3000, async fn() {
+    with_pool_peer(
+      connector,
+      async fn(client) {
+        let request = pooled_request(
+          "http://first.test/",
+          @types.HeaderMap::new(),
+        )
+        let first = client
+          .execute_stream({
+            ..request,
+            uri: request.uri.resolve_reference("/hold").unwrap(),
+          })
+          .unwrap()
+        let peer = connector.opened.get()
+        connector.hold_settings = true
+        let upload : AdmissionUpload = {
+          inspected: Queue(kind=Unbounded),
+          cancellations: 0,
+        }
+        @async.with_task_group(async fn(group) {
+          let pending = group.spawn(
+            async fn() {
+              ignore(client.execute_body(request.map_body(_ => upload)))
+            },
+            allow_failure=true,
+          )
+          let second = connector.opened.get()
+          pending.cancel()
+          pending.wait() catch {
+            _ => ()
+          }
+          connector.hold_settings = false
+          assert_eq(client.execute(request).unwrap().status, 200)
+          assert_true(second.closed)
+        })
+        assert_eq(upload.cancellations, 1)
+        peer.replies.put(@http2.encode_data_frames(1, b"ok", true).unwrap())
+        assert_eq(@body.collect(first.body).0, b"ok")
+      },
+      max_connections=2,
+      max_connections_per_origin=2,
+    )
+  })
 }

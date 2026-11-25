@@ -32,3 +32,7 @@ Use `response.body.read_batch(64)` to request up to 64 frames in one read. It wa
 | Inspect a redirect or trailers | The default returns the original response. Explicit rejection raises a redirect error. Buffered H1 and H2 exchanges expose initial headers and trailers separately. | The same redirect policies apply. Streaming callers consume trailers through the body interface. |
 
 DNS and TCP connect have separate budgets on TCP paths. H3 has DNS and a QUIC/TLS handshake budget. H2/H3 wait for a ready pooled connection before starting the request-header stage. The total budget begins at the logical send and includes remaining response consumption. The Native H1 transport also honors `idle_ms` on socket reads and writes. A stage timeout carries the corresponding `ClientPhase` in `ClientTimeout`.
+
+## HTTP/2 pool limits
+
+`Http2PoolOptions.max_connections_per_origin` defaults to 1. Set it to 2 to let short requests use a second connection when every ready connection for their origin has exhausted its local or peer stream limit. Concurrent callers share outstanding dials. Opening, ready, and draining connections all count toward `max_connections`. An accepted stream can drain across GOAWAY while the pool replaces its retired connection. The Native client factory takes the same optional per-origin limit for HTTP/2.

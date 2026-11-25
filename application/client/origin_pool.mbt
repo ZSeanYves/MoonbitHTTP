@@ -9,6 +9,7 @@ priv enum OriginSessionState[S] {
 ///|
 priv struct OriginSession[S] {
   origin : String
+  expansion : Bool
   mut state : OriginSessionState[S]
   // A burst for one origin needs only one idle connection to make room.
   mut retiring_for : String?
@@ -20,6 +21,8 @@ priv struct OriginSession[S] {
 ///|
 priv struct OriginPool[S] {
   max_connections : Int32
+  max_connections_per_origin : Int32
+  has_capacity : (S) -> Bool
   sessions : Array[OriginSession[S]]
   changed : @cond_var.Cond
   spawn : (async () -> Unit) -> @async.Task[Unit]
@@ -44,8 +47,10 @@ async fn[S, X] with_origin_pool(
   accepts : (S) -> Bool,
   idle : (S) -> Bool,
   run : async (OriginPool[S]) -> X,
+  max_connections_per_origin~ : Int32 = 1,
+  has_capacity~ : (S) -> Bool = _ => true,
 ) -> X {
-  if max_connections <= 0 {
+  if max_connections <= 0 || max_connections_per_origin <= 0 {
     raise ClientInvalidOptions(
       protocol_name + " pool capacity must be positive",
     )
@@ -53,6 +58,8 @@ async fn[S, X] with_origin_pool(
   @async_support.with_group_result(async fn(group) {
     let pool : OriginPool[S] = {
       max_connections,
+      max_connections_per_origin,
+      has_capacity,
       open,
       accepts,
       idle,
@@ -129,24 +136,34 @@ async fn[S] OriginPool::drive(
 async fn[S] OriginPool::reserve(
   self : OriginPool[S],
   endpoint : ClientEndpoint,
+  expansion_wait : async (async () -> Unit) -> Unit,
 ) -> OriginSession[S]? {
   while !self.closed {
     let mut evict : OriginSession[S]? = None
     let mut replacement_pending = false
+    let mut origin_ready = 0
+    let mut opening : OriginSession[S]? = None
+    let mut saturated : OriginSession[S]? = None
     for entry in self.sessions {
       if entry.retiring_for is Some(origin) {
         replacement_pending = replacement_pending || origin == endpoint.origin
         continue
       }
       match entry.state {
-        Opening if entry.origin == endpoint.origin => {
-          entry.users += 1
-          return Some(entry)
-        }
+        Opening if entry.origin == endpoint.origin => opening = Some(entry)
         Ready(client) if (self.accepts)(client) => {
           if entry.origin == endpoint.origin {
-            entry.users += 1
-            return Some(entry)
+            origin_ready += 1
+            if self.max_connections_per_origin == 1 ||
+              (self.has_capacity)(client) {
+              entry.users += 1
+              return Some(entry)
+            }
+            if saturated is None ||
+              (saturated is Some(previous) && entry.users < previous.users) {
+              saturated = Some(entry)
+            }
+            continue
           }
           if entry.users == 0 && (self.idle)(client) && evict is None {
             evict = Some(entry)
@@ -155,9 +172,31 @@ async fn[S] OriginPool::reserve(
         _ => ()
       }
     }
+    if opening is Some(entry) {
+      entry.users += 1
+      return Some(entry)
+    }
+    if saturated is Some(_) &&
+      replacement_pending &&
+      origin_ready < self.max_connections_per_origin &&
+      self.sessions.length() >= self.max_connections {
+      // A cancelled opener is releasing its global slot. Do not strand its
+      // successor behind an unrelated long-lived stream on the old session.
+      expansion_wait(() => self.changed.wait())
+      continue
+    }
+    if saturated is Some(entry) &&
+      (
+        origin_ready >= self.max_connections_per_origin ||
+        self.sessions.length() >= self.max_connections
+      ) {
+      entry.users += 1
+      return Some(entry)
+    }
     if self.sessions.length() < self.max_connections {
       let entry : OriginSession[S] = {
         origin: endpoint.origin,
+        expansion: saturated is Some(_),
         state: Opening,
         users: 1,
         retiring_for: None,
@@ -191,6 +230,7 @@ async fn[S, B : @body.Body, X] OriginPool::exchange(
   request : @types.Request[B],
   send : async (S, @types.Request[B]) -> X,
   validate_origin~ : (ClientEndpoint) -> Unit raise = _ => (),
+  expansion_wait~ : async (async () -> Unit) -> Unit = work => work(),
 ) -> Result[X, ClientError] {
   let mut submitted = false
   defer (if !submitted { request.body.cancel(@body.BodyError::Cancelled) })
@@ -199,7 +239,7 @@ async fn[S, B : @body.Body, X] OriginPool::exchange(
     Err(error) => return Err(error)
   }
   validate_origin(endpoint)
-  guard self.reserve(endpoint) is Some(entry) else {
+  guard self.reserve(endpoint, expansion_wait) is Some(entry) else {
     return Err(self.closed_error)
   }
   defer {
@@ -211,6 +251,13 @@ async fn[S, B : @body.Body, X] OriginPool::exchange(
       }
       self.changed.broadcast()
     }
+  }
+  if entry.expansion && entry.state is Opening {
+    expansion_wait(async fn() {
+      while !self.closed && entry.state is Opening {
+        self.changed.wait()
+      }
+    })
   }
   while !self.closed {
     match entry.state {

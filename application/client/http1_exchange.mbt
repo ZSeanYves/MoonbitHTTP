@@ -2,6 +2,7 @@
 fn phase_timeouts(
   timeouts : ClientTimeouts?,
   now_millis : () -> Int64,
+  request_headers? : (Int32) -> (Int32, ClientError),
 ) -> ((@service.HttpClientPhase) -> (Int32, Error)?)? {
   timeouts.map(limits => {
     fn(phase : @service.HttpClientPhase) -> (Int32, Error)? {
@@ -12,6 +13,10 @@ fn phase_timeouts(
         ResponseBody => limits.response_body_ms
       }
       ms.map(ms => {
+        if phase == RequestHeaders && request_headers is Some(budget) {
+          let (remaining, error) = budget(ms)
+          return (remaining, error)
+        }
         (ms, client_phase_timeout(http_pool_phase(phase), now_millis(), ms))
       })
     }

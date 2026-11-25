@@ -113,6 +113,12 @@ fn H2Connection::has_stream_capacity(
 }
 
 ///|
+#internal(http2_pool)
+pub fn H2Connection::has_local_stream_capacity(self : H2Connection) -> Bool {
+  self.has_stream_capacity(false)
+}
+
+///|
 pub fn H2Connection::open_local_stream(
   self : H2Connection,
   end_stream~ : Bool = false,

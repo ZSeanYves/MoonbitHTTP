@@ -88,6 +88,9 @@ async fn[T] wait_client_phase(
   work : async () -> T,
 ) -> T {
   if timeout is Some(get) && get(phase) is Some((ms, reason)) {
+    if ms <= 0 {
+      raise reason
+    }
     @async.with_timeout(ms, work, error=reason)
   } else {
     work()
@@ -326,6 +329,16 @@ pub fn Http2ClientConnection::accepts_requests(
   self : Http2ClientConnection,
 ) -> Bool {
   self.shared.failure is None && !self.shared.draining
+}
+
+///|
+/// Whether a healthy session can admit a new stream without waiting.
+pub fn Http2ClientConnection::has_stream_capacity(
+  self : Http2ClientConnection,
+) -> Bool {
+  self.accepts_requests() &&
+  self.shared.streams.length() < self.shared.config.max_concurrent_streams &&
+  self.shared.runtime.has_local_stream_capacity()
 }
 
 ///|

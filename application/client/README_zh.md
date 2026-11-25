@@ -32,3 +32,7 @@ pub async fn get(client : @client.Client, uri : @types.Uri) -> Bytes {
 | 查看重定向和尾部字段 | 默认返回原响应，显式拒绝返回重定向错误。H1/H2 缓冲接口将头部和尾部字段分开交付。 | 重定向策略相同。流式调用方从正文接口读取尾部字段。 |
 
 TCP 路径分开计算 DNS 和 TCP 建连时限。H3 单独计算 DNS 和 QUIC/TLS 握手时限。H2/H3 等待连接池提供就绪会话后才启动请求头阶段。总预算从逻辑请求开始并覆盖剩余正文消费。Native H1 的套接字读写还使用 `idle_ms`。阶段超时通过 `ClientTimeout` 携带对应的 `ClientPhase`。
+
+## HTTP/2 连接池限额
+
+`Http2PoolOptions.max_connections_per_origin` 默认为 1。设为 2 后，当同源的就绪连接都达到本地或对端流上限时，短请求可使用第二条连接。并发调用者共享正在建立的连接。建连中、就绪和排空中的连接都计入全局 `max_connections`。收到 GOAWAY 后，已接纳的流仍可在旧连接排空期间完成，池可为新请求建立替代连接。Native 客户端工厂的 HTTP/2 模式接受同名参数。

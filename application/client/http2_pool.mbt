@@ -9,6 +9,7 @@ pub struct Http2Client {
 ///|
 pub(all) struct Http2PoolOptions {
   max_connections : Int32
+  max_connections_per_origin : Int32
   session : @service.Http2ClientConfig
   tls : @transport.TlsOptions
   connect_options : @transport.ConnectOptions
@@ -20,6 +21,7 @@ pub(all) struct Http2PoolOptions {
 pub fn Http2PoolOptions::defaults() -> Http2PoolOptions {
   {
     max_connections: 32,
+    max_connections_per_origin: 1,
     session: @service.Http2ClientConfig::defaults(),
     tls: @transport.TlsOptions::defaults(),
     connect_options: @transport.ConnectOptions::defaults(),
@@ -49,6 +51,7 @@ pub async fn[
 ) -> X {
   let {
     max_connections,
+    max_connections_per_origin,
     session: config,
     tls,
     connect_options,
@@ -93,6 +96,8 @@ pub async fn[
     },
     @service.Http2ClientConnection::accepts_requests,
     @service.Http2ClientConnection::is_idle,
+    max_connections_per_origin~,
+    has_capacity=@service.Http2ClientConnection::has_stream_capacity,
     pool => {
       run({
         pool,
