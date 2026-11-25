@@ -27,6 +27,7 @@ fn qpack_pending_section_cost(section : QpackPendingSection) -> Int32 {
 ///|
 pub struct QpackEncoder {
   limits : QpackLimits
+  priv mut peer_max_capacity : Int64
   priv mut entries : Array[QpackEncoderEntry]
   mut table_size : Int32
   mut capacity : Int32
@@ -42,13 +43,24 @@ pub struct QpackEncoder {
 pub fn QpackEncoder::new(
   limits~ : QpackLimits = QpackLimits::defaults(),
 ) -> Result[QpackEncoder, Http3Error] {
-  limits.validate().map(_ => QpackEncoder::with_valid_limits(limits))
+  limits
+  .validate()
+  .map(_ => {
+    QpackEncoder::with_valid_limits(
+      limits,
+      limits.max_table_capacity.to_int64(),
+    )
+  })
 }
 
 ///|
-fn QpackEncoder::with_valid_limits(limits : QpackLimits) -> QpackEncoder {
+fn QpackEncoder::with_valid_limits(
+  limits : QpackLimits,
+  peer_max_capacity : Int64,
+) -> QpackEncoder {
   {
     limits,
+    peer_max_capacity,
     entries: [],
     table_size: 0,
     capacity: 0,
@@ -151,13 +163,11 @@ pub fn QpackEncoder::set_capacity(
   self : QpackEncoder,
   capacity : Int32,
 ) -> Result[Bytes, Http3Error] {
-  if capacity < 0 || capacity > self.limits.max_table_capacity {
-    return Err(
-      Http3LimitExceeded(
-        "QPACK encoder table capacity",
-        self.limits.max_table_capacity,
-      ),
-    )
+  let maximum = self.peer_max_capacity
+    .min(self.limits.max_table_capacity.to_int64())
+    .to_int()
+  if capacity < 0 || capacity > maximum {
+    return Err(Http3LimitExceeded("QPACK encoder table capacity", maximum))
   }
   if !self.can_evict_to(capacity) {
     return Err(
@@ -395,7 +405,7 @@ pub fn QpackEncoder::encode_field_section(
   let encoded_insert_count = if required_insert_count == 0L {
     0L
   } else {
-    let max_entries = (self.limits.max_table_capacity / 32).to_int64()
+    let max_entries = self.peer_max_capacity / 32L
     if max_entries == 0L {
       return Err(
         Http3ConnectionError(

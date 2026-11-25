@@ -186,3 +186,53 @@ test "qpack: instruction truncation and terminal failures are preserved" {
     is Err(Http3ConnectionError(QpackDecoderStreamError, _)),
   )
 }
+
+///|
+test "QPACK insert counts wrap using the decoder advertised maximum" {
+  for
+    (local_capacity, peer) in [(256, 64), (64, 256), (64, 64), (0, 64), (64, 0)] {
+    let limits = @http3.QpackLimits::new(max_table_capacity=local_capacity).unwrap()
+    let decoder_limits = @http3.QpackLimits::new(max_table_capacity=peer).unwrap()
+    let connection = @http3.Http3Connection::new(H3Client, qpack_limits=limits).unwrap()
+    let decoder = @http3.QpackDecoder::new(limits=decoder_limits).unwrap()
+    let encoder = connection.qpack_encoder()
+    assert_true(encoder.set_capacity(1) is Err(_))
+    let actions = connection
+      .receive_control_frame(
+        H3SettingsFrame([
+          {
+            id: @http3.H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY,
+            value: peer.to_int64(),
+          },
+        ]),
+      )
+      .unwrap()
+    for action in actions {
+      if action is H3SendQpackEncoderInstruction(bytes) {
+        decoder.feed_encoder_stream(bytes).unwrap()
+      }
+    }
+    assert_eq(decoder.capacity(), peer.min(local_capacity))
+    if decoder.capacity() == 0 {
+      continue
+    }
+    for n in 0..<20 {
+      let field = qpack_test_field("x-count", n.to_string())
+      let (instruction, _) = encoder.insert(field).unwrap()
+      decoder.feed_encoder_stream(instruction).unwrap()
+      encoder
+      .feed_decoder_stream(@http3.qpack_insert_count_increment(1L).unwrap())
+      .unwrap()
+      let section = encoder.encode_field_section(0L, [field]).unwrap()
+      assert_eq(
+        decoder.decode_field_section(0L, section),
+        Ok(QpackDecoded([field], true)),
+      )
+      encoder
+      .feed_decoder_stream(@http3.qpack_section_acknowledgment(0L).unwrap())
+      .unwrap()
+    }
+    assert_eq(encoder.pending_bytes(), 0)
+    assert_eq(decoder.blocked_stream_count(), 0)
+  }
+}

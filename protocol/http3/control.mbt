@@ -245,6 +245,7 @@ pub fn Http3Connection::receive_control_frame(
       self.settings_received = true
       self.peer_settings = settings
       actions.push(H3PeerSettingsReceived(settings))
+      self.encoder.peer_max_capacity = settings.qpack_max_table_capacity
       let selected_capacity = settings.qpack_max_table_capacity
         .min(self.qpack_limits.max_table_capacity.to_int64())
         .to_int()

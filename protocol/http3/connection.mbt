@@ -58,7 +58,7 @@ pub fn Http3Connection::new(
     limits,
     qpack_limits,
     decoder: QpackDecoder::with_valid_limits(qpack_limits),
-    encoder: QpackEncoder::with_valid_limits(qpack_limits),
+    encoder: QpackEncoder::with_valid_limits(qpack_limits, 0L),
     streams: Map([]),
     blocked_sections: Map([]),
     remote_control_stream: None,
