@@ -1,0 +1,474 @@
+[
+  {
+    "revision": "3765516",
+    "protocol": "h1",
+    "probe": {
+      "elapsed_seconds": 4.003820541,
+      "latency_samples": 3642,
+      "status": "measured",
+      "protocol": "h1",
+      "payload_bytes": 65536,
+      "concurrency": 4,
+      "duration_seconds": 4,
+      "requests": 3642,
+      "errors": 0,
+      "throughput_per_second": 909.6311791962506,
+      "p50_ms": 4.3655,
+      "p95_ms": 4.60275,
+      "p99_ms": 5.035041,
+      "behavior_oracle": "HTTP version, HTTP 200 and exact POST echo verified for every successful request"
+    },
+    "leaf_samples": [
+      {
+        "symbol": "__psynch_cvwait",
+        "thread_samples": 1779
+      },
+      {
+        "symbol": "__sigwait",
+        "thread_samples": 1779
+      },
+      {
+        "symbol": "kevent",
+        "thread_samples": 733
+      },
+      {
+        "symbol": "moonbit_drop_object",
+        "thread_samples": 181
+      },
+      {
+        "symbol": "<deduplicated_symbol>",
+        "thread_samples": 101
+      },
+      {
+        "symbol": "read",
+        "thread_samples": 87
+      },
+      {
+        "symbol": "mi_malloc",
+        "thread_samples": 78
+      },
+      {
+        "symbol": "scan_regular_object",
+        "thread_samples": 70
+      },
+      {
+        "symbol": "_platform_memmove",
+        "thread_samples": 37
+      },
+      {
+        "symbol": "write",
+        "thread_samples": 37
+      },
+      {
+        "symbol": "mach_absolute_time",
+        "thread_samples": 26
+      },
+      {
+        "symbol": "main",
+        "thread_samples": 19
+      },
+      {
+        "symbol": "_M0FP49ZSeanYves4http7runtime7service39serve__http1__connection__inner_2einnerN16_2aasync__driverS20928GRPC25async2io12MemoryReaderRPC25async6socket3TcpRP49ZSeanYves4http4core4body8FullBodyE",
+        "thread_samples": 18
+      },
+      {
+        "symbol": "_platform_memset",
+        "thread_samples": 18
+      },
+      {
+        "symbol": "_M0MPC25async6aqueue5Queue3getGRP49ZSeanYves4http4core4body5FrameEC35953",
+        "thread_samples": 17
+      },
+      {
+        "symbol": "OUTLINED_FUNCTION_9",
+        "thread_samples": 16
+      },
+      {
+        "symbol": "_M0FPC35async8internal9coroutine15pause__nocancelN4contS7155",
+        "thread_samples": 16
+      },
+      {
+        "symbol": "_M0MPC15async9TaskGroup16spawn__coroutineN6workerS9451",
+        "thread_samples": 16
+      },
+      {
+        "symbol": "_tlv_get_addr",
+        "thread_samples": 15
+      },
+      {
+        "symbol": "_M0FPC15async17with__task__groupC37422",
+        "thread_samples": 14
+      },
+      {
+        "symbol": "_M0MPC111sorted__set9SortedSet4iterGRPC35async8internal11event__loop5TimerEC33927l628",
+        "thread_samples": 12
+      },
+      {
+        "symbol": "mi_find_page",
+        "thread_samples": 12
+      },
+      {
+        "symbol": "_M0IPC25async2io15MemoryPipeWritePC25async2io16BinaryWriterImpl16raw__write__impl",
+        "thread_samples": 11
+      },
+      {
+        "symbol": "OUTLINED_FUNCTION_18",
+        "thread_samples": 10
+      }
+    ]
+  },
+  {
+    "revision": "3765516",
+    "protocol": "h2",
+    "probe": {
+      "elapsed_seconds": 4.003704416,
+      "latency_samples": 3570,
+      "status": "measured",
+      "protocol": "h2",
+      "payload_bytes": 65536,
+      "concurrency": 4,
+      "duration_seconds": 4,
+      "requests": 3570,
+      "errors": 0,
+      "throughput_per_second": 891.6742169409941,
+      "p50_ms": 4.368292,
+      "p95_ms": 6.30175,
+      "p99_ms": 7.349542,
+      "behavior_oracle": "HTTP version, HTTP 200 and exact POST echo verified for every successful request"
+    },
+    "leaf_samples": [
+      {
+        "symbol": "__psynch_cvwait",
+        "thread_samples": 1821
+      },
+      {
+        "symbol": "__sigwait",
+        "thread_samples": 1821
+      },
+      {
+        "symbol": "kevent",
+        "thread_samples": 1061
+      },
+      {
+        "symbol": "moonbit_drop_object",
+        "thread_samples": 90
+      },
+      {
+        "symbol": "_M0IP49ZSeanYves4http7runtime7service8StreamIoPC25async2io16BinaryReaderImpl15raw__read__implN16_2aasync__driverS15496",
+        "thread_samples": 66
+      },
+      {
+        "symbol": "_platform_memmove",
+        "thread_samples": 50
+      },
+      {
+        "symbol": "<deduplicated_symbol>",
+        "thread_samples": 47
+      },
+      {
+        "symbol": "mi_malloc",
+        "thread_samples": 47
+      },
+      {
+        "symbol": "_M0FP49ZSeanYves4http8protocol5http213append__frame",
+        "thread_samples": 38
+      },
+      {
+        "symbol": "write",
+        "thread_samples": 35
+      },
+      {
+        "symbol": "scan_regular_object",
+        "thread_samples": 32
+      },
+      {
+        "symbol": "mach_absolute_time",
+        "thread_samples": 20
+      },
+      {
+        "symbol": "_platform_memset",
+        "thread_samples": 19
+      },
+      {
+        "symbol": "OUTLINED_FUNCTION_9",
+        "thread_samples": 13
+      },
+      {
+        "symbol": "read",
+        "thread_samples": 13
+      },
+      {
+        "symbol": "_M0FP49ZSeanYves4http7runtime7service39serve__http2__connection__inner_2einnerN16_2aasync__driverS18461GRP49ZSeanYves4http7runtime7service8StreamIoRP49ZSeanYves4http7runtime7service8StreamIoRP49ZSeanYves4http4core4body8FullBodyE",
+        "thread_samples": 12
+      },
+      {
+        "symbol": "_M0FPC35async8internal9coroutine10reschedule",
+        "thread_samples": 12
+      },
+      {
+        "symbol": "unroll8_eor3_aes_gcm_dec_128_kernel",
+        "thread_samples": 10
+      },
+      {
+        "symbol": "main",
+        "thread_samples": 8
+      },
+      {
+        "symbol": "unroll8_eor3_aes_gcm_enc_128_kernel",
+        "thread_samples": 8
+      },
+      {
+        "symbol": "_M0MPC15async9TaskGroup16spawn__coroutineN6workerS9451",
+        "thread_samples": 7
+      },
+      {
+        "symbol": "ERR_clear_error",
+        "thread_samples": 6
+      },
+      {
+        "symbol": "OUTLINED_FUNCTION_18",
+        "thread_samples": 6
+      },
+      {
+        "symbol": "_M0FPC15async17with__task__groupC37422",
+        "thread_samples": 6
+      }
+    ]
+  },
+  {
+    "revision": "47ff8c2",
+    "protocol": "h1",
+    "probe": {
+      "elapsed_seconds": 4.00077775,
+      "latency_samples": 22128,
+      "status": "measured",
+      "protocol": "h1",
+      "payload_bytes": 65536,
+      "concurrency": 4,
+      "duration_seconds": 4,
+      "requests": 22128,
+      "errors": 0,
+      "throughput_per_second": 5530.924580851811,
+      "p50_ms": 0.715917,
+      "p95_ms": 0.807833,
+      "p99_ms": 0.895625,
+      "behavior_oracle": "HTTP version, HTTP 200 and exact POST echo verified for every successful request"
+    },
+    "leaf_samples": [
+      {
+        "symbol": "__psynch_cvwait",
+        "thread_samples": 1783
+      },
+      {
+        "symbol": "__sigwait",
+        "thread_samples": 1783
+      },
+      {
+        "symbol": "kevent",
+        "thread_samples": 738
+      },
+      {
+        "symbol": "moonbit_drop_object",
+        "thread_samples": 161
+      },
+      {
+        "symbol": "<deduplicated_symbol>",
+        "thread_samples": 119
+      },
+      {
+        "symbol": "read",
+        "thread_samples": 115
+      },
+      {
+        "symbol": "_platform_memmove",
+        "thread_samples": 95
+      },
+      {
+        "symbol": "mi_malloc",
+        "thread_samples": 91
+      },
+      {
+        "symbol": "write",
+        "thread_samples": 71
+      },
+      {
+        "symbol": "scan_regular_object",
+        "thread_samples": 40
+      },
+      {
+        "symbol": "_platform_memset",
+        "thread_samples": 28
+      },
+      {
+        "symbol": "_M0MPC15async9TaskGroup16spawn__coroutineN6workerS9616",
+        "thread_samples": 17
+      },
+      {
+        "symbol": "_tlv_get_addr",
+        "thread_samples": 17
+      },
+      {
+        "symbol": "OUTLINED_FUNCTION_9",
+        "thread_samples": 16
+      },
+      {
+        "symbol": "_M0FP49ZSeanYves4http7runtime7service39serve__http1__connection__inner_2einnerN16_2aasync__driverS25253GRPC25async6socket3TcpRPC25async6socket3TcpRP49ZSeanYves4http4core4body8FullBodyE",
+        "thread_samples": 14
+      },
+      {
+        "symbol": "_M0FPC35async8internal9coroutine10reschedule",
+        "thread_samples": 14
+      },
+      {
+        "symbol": "OUTLINED_FUNCTION_18",
+        "thread_samples": 13
+      },
+      {
+        "symbol": "mi_find_page",
+        "thread_samples": 12
+      },
+      {
+        "symbol": "_M0MPC35async8internal9coroutine9Coroutine4wake",
+        "thread_samples": 11
+      },
+      {
+        "symbol": "__bzero",
+        "thread_samples": 9
+      },
+      {
+        "symbol": "_M0FP49ZSeanYves4http7runtime7service17io__with__timeoutGOzE",
+        "thread_samples": 8
+      },
+      {
+        "symbol": "_M0MP49ZSeanYves4http8protocol5http114RequestDecoder10next__impl",
+        "thread_samples": 8
+      },
+      {
+        "symbol": "_M0MPC13set3Set3addGRPC35async8internal9coroutine9CoroutineE",
+        "thread_samples": 7
+      },
+      {
+        "symbol": "mach_absolute_time",
+        "thread_samples": 6
+      }
+    ]
+  },
+  {
+    "revision": "47ff8c2",
+    "protocol": "h2",
+    "probe": {
+      "elapsed_seconds": 4.002682375,
+      "latency_samples": 5521,
+      "status": "measured",
+      "protocol": "h2",
+      "payload_bytes": 65536,
+      "concurrency": 4,
+      "duration_seconds": 4,
+      "requests": 5521,
+      "errors": 0,
+      "throughput_per_second": 1379.3250332534817,
+      "p50_ms": 2.873833,
+      "p95_ms": 3.084875,
+      "p99_ms": 3.362666,
+      "behavior_oracle": "HTTP version, HTTP 200 and exact POST echo verified for every successful request"
+    },
+    "leaf_samples": [
+      {
+        "symbol": "__psynch_cvwait",
+        "thread_samples": 1790
+      },
+      {
+        "symbol": "__sigwait",
+        "thread_samples": 1790
+      },
+      {
+        "symbol": "kevent",
+        "thread_samples": 1114
+      },
+      {
+        "symbol": "moonbit_drop_object",
+        "thread_samples": 97
+      },
+      {
+        "symbol": "<deduplicated_symbol>",
+        "thread_samples": 70
+      },
+      {
+        "symbol": "mi_malloc",
+        "thread_samples": 51
+      },
+      {
+        "symbol": "_platform_memmove",
+        "thread_samples": 46
+      },
+      {
+        "symbol": "scan_regular_object",
+        "thread_samples": 43
+      },
+      {
+        "symbol": "_platform_memset",
+        "thread_samples": 37
+      },
+      {
+        "symbol": "write",
+        "thread_samples": 24
+      },
+      {
+        "symbol": "mach_absolute_time",
+        "thread_samples": 14
+      },
+      {
+        "symbol": "_M0FP49ZSeanYves4http7runtime7service39serve__http2__connection__inner_2einnerN16_2aasync__driverS19012GRP49ZSeanYves4http7runtime7service8StreamIoRP49ZSeanYves4http7runtime7service8StreamIoRP49ZSeanYves4http4core4body8FullBodyE",
+        "thread_samples": 12
+      },
+      {
+        "symbol": "main",
+        "thread_samples": 12
+      },
+      {
+        "symbol": "_M0FPC15async17with__task__groupC42663",
+        "thread_samples": 9
+      },
+      {
+        "symbol": "_M0FPC35async8internal9coroutine10reschedule",
+        "thread_samples": 9
+      },
+      {
+        "symbol": "OUTLINED_FUNCTION_18",
+        "thread_samples": 8
+      },
+      {
+        "symbol": "OUTLINED_FUNCTION_9",
+        "thread_samples": 8
+      },
+      {
+        "symbol": "unroll8_eor3_aes_gcm_dec_128_kernel",
+        "thread_samples": 8
+      },
+      {
+        "symbol": "_tlv_get_addr",
+        "thread_samples": 7
+      },
+      {
+        "symbol": "read",
+        "thread_samples": 7
+      },
+      {
+        "symbol": "DYLD-STUB$$__commpage_gettimeofday",
+        "thread_samples": 5
+      },
+      {
+        "symbol": "_M0MPC13set3Set3addGRPC35async8internal9coroutine9CoroutineE",
+        "thread_samples": 5
+      },
+      {
+        "symbol": "_M0MPC15array5Array7reallocGyE",
+        "thread_samples": 5
+      },
+      {
+        "symbol": "_M0MPC15async9TaskGroup16spawn__coroutineN6workerS9616",
+        "thread_samples": 5
+      }
+    ]
+  }
+]
