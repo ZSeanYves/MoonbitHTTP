@@ -135,7 +135,7 @@ async fn bind_test_listener(
     let endpoint = @types.Endpoint::new("udp", "127.0.0.1", port).unwrap()
     match bind(endpoint) {
       Ok(listener) => return (endpoint, listener)
-      Err(AcceptFailed(_)) if attempt < 7 => continue
+      Err(ListenerIo(SystemFailure(Bind, _, _))) if attempt < 7 => continue
       Err(error) => raise error
     }
   }

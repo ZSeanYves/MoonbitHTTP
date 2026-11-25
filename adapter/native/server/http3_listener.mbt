@@ -192,7 +192,7 @@ pub async fn[P : @transport.NetworkPolicy] NativeHttp3Listener::bind(
     ) {
     Ok(value) => value
     Err(Policy(error)) => return Err(Policy(error))
-    Err(error) => return Err(AcceptFailed("\{Repr(error)}"))
+    Err(error) => return Err(ListenerIo(error))
   }
   let clock = @transport_native.NativeClock::new()
   let shutdown = @service.ServerShutdown::new()

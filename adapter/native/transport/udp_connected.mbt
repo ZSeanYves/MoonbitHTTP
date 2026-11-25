@@ -47,7 +47,7 @@ pub async fn[P : @transport_api.NetworkPolicy] UdpSocket::connect(
   // UdpClient takes the remote address and creates its ephemeral local socket.
   // Passing a wildcard local address here would connect to port zero first.
   let udp = @socket.UdpClient::UdpClient(remote) catch {
-    error => return Err(native_transport_error(Connect, error))
+    error => return Err(translate_io_error(Connect, error))
   }
   Ok({ socket: udp, endpoint, max_datagram_size, closed: false, })
 }
@@ -68,7 +68,7 @@ pub impl @transport_api.DatagramSocket for UdpSocket with fn send(
     return Err(InvalidDatagramSize)
   }
   self.socket.send(payload) catch {
-    error => return Err(native_transport_error(Send, error))
+    error => return Err(translate_io_error(Send, error))
   }
   Ok(())
 }
@@ -87,7 +87,7 @@ pub impl @transport_api.DatagramSocket for UdpSocket with fn receive(
   // Detect oversized datagrams instead of accepting a silently truncated one.
   let buffer = FixedArray::make(max_bytes + 1, b'\x00')
   let count = self.socket.recv_into(buffer.mut_view()) catch {
-    error => return Err(native_transport_error(Receive, error))
+    error => return Err(translate_io_error(Receive, error))
   }
   if count < 0 || count > max_bytes {
     return Err(InvalidDatagramSize)

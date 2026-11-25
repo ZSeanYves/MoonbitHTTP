@@ -6,6 +6,7 @@ using @types {type Endpoint, type EndpointError, type IpAddress}
 pub(all) enum TransportOperation {
   Resolve
   Connect
+  Bind
   Accept
   Send
   Receive

@@ -42,7 +42,7 @@ pub impl @transport_api.StreamConnector for TcpConnector with fn connect(
     tcp.enable_keepalive() catch {
       error => {
         tcp.close()
-        return Err(native_transport_error(Connect, error))
+        return Err(translate_io_error(Connect, error))
       }
     }
   }

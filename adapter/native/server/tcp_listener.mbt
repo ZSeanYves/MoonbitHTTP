@@ -46,7 +46,8 @@ pub async fn[P : @transport.NetworkPolicy] NativeTcpListener::bind(
     Err(error) => return Err(Policy(error))
   }
   let server = @socket.TcpServer(address, dual_stack~, reuse_addr~) catch {
-    _ => return Err(AcceptFailed("native TCP listener bind failed"))
+    error =>
+      return Err(ListenerIo(@transport_native.translate_io_error(Bind, error)))
   }
   Ok({
     server,
@@ -144,11 +145,11 @@ pub impl @server_api.Listener for NativeTcpListener with fn accept(self) {
     return Ok(None)
   }
   let (tcp, peer) = self.server.accept() catch {
-    _ =>
+    error =>
       return if self.closed {
         Ok(None)
       } else {
-        Err(AcceptFailed("native TCP accept failed"))
+        Err(ListenerIo(@transport_native.translate_io_error(Accept, error)))
       }
   }
   let endpoint = match peer_endpoint(peer) {
@@ -169,13 +170,14 @@ pub impl @server_api.Listener for NativeTcpListener with fn accept(self) {
     endpoint,
     async fn(max_bytes) {
       let bytes = @async_support.read_some(tcp, max_bytes) catch {
-        _ => return Err(Failed(Receive, "native TCP read failed"))
+        error =>
+          return Err(@transport_native.translate_io_error(Receive, error))
       }
       Ok(bytes)
     },
     async fn(bytes) {
       tcp.write(bytes) catch {
-        _ => return Err(Failed(Send, "native TCP write failed"))
+        error => return Err(@transport_native.translate_io_error(Send, error))
       }
       Ok(())
     },

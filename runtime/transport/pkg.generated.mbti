@@ -291,6 +291,7 @@ pub fn TlsVersion::to_repr(Self) -> @debug.Repr
 pub(all) enum TransportOperation {
   Resolve
   Connect
+  Bind
   Accept
   Send
   Receive

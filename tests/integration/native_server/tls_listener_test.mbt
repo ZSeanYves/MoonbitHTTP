@@ -291,3 +291,34 @@ async test "TLS HTTP/2 supervisor drains accepted streams and refuses new reques
     assert_eq(supervisor.metrics().handler_errors(), 0L)
   })
 }
+
+///|
+async test "occupied TCP bind preserves the host error and operation" {
+  let occupied = @socket.TcpServer(
+    Addr(@socket.IpAddr::v4(0x7f000001U), 0),
+    reuse_addr=false,
+  )
+  defer occupied.close()
+  let endpoint = @types.Endpoint::new(
+    "tcp",
+    "127.0.0.1",
+    occupied.addr.port.to_int(),
+  ).unwrap()
+  match
+    @server.NativeTcpListener::bind(
+      endpoint,
+      @transport.AllowAllPolicy::new(),
+      _ => Ok(()),
+      reuse_addr=false,
+    ) {
+    Err(ListenerIo(SystemFailure(Bind, code, detail))) => {
+      assert_true(code != 0)
+      assert_false(detail.is_empty())
+    }
+    Err(other) => fail("unexpected bind error: \{Repr(other)}")
+    Ok(listener) => {
+      listener.close()
+      fail("bound an already occupied port")
+    }
+  }
+}

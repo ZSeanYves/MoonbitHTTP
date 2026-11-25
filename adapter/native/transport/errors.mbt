@@ -1,7 +1,7 @@
 ///|
 /// Preserve host error identity before it crosses the transport boundary.
 /// A deadline wrapper may raise any I/O error, not only TimeoutError.
-fn native_transport_error(
+pub fn translate_io_error(
   operation : @transport_api.TransportOperation,
   error : Error,
 ) -> @transport_api.TransportError {
@@ -26,6 +26,6 @@ async fn[A] native_io(
       None => action()
     },
   ) catch {
-    error => Err(native_transport_error(operation, error))
+    error => Err(translate_io_error(operation, error))
   }
 }

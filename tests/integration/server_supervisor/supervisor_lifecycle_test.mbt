@@ -323,6 +323,10 @@ async test "server supervisor: fatal accept errors cancel peers and retain the e
       fail_accept=true,
     )
     assert_eq(supervisor.serve(listener), Err(AcceptErrorLimitExceeded))
+    assert_eq(
+      supervisor.last_accept_error(),
+      Some(AcceptFailed("test accept failed")),
+    )
     assert_eq(closes, 1)
     assert_eq(listener.close_calls, 1)
     assert_eq(supervisor.active_connections(), 0)
@@ -375,6 +379,10 @@ async test "exhausted accept budget emits the full shutdown sequence once" {
   ).unwrap()
   let listener = LifecycleListener::new([], fail_accept=true)
   assert_eq(supervisor.serve(listener), Err(AcceptErrorLimitExceeded))
+  assert_eq(
+    supervisor.last_accept_error(),
+    Some(AcceptFailed("test accept failed")),
+  )
   supervisor.begin_shutdown().unwrap()
   supervisor.finish_shutdown().unwrap()
   assert_eq(events, [

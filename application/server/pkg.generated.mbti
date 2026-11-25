@@ -16,6 +16,7 @@ pub(all) suberror ServerError {
   AlreadyRunning
   NotRunning
   ConnectionLimit
+  ListenerIo(@transport.TransportError)
   AcceptFailed(String)
   AcceptErrorLimitExceeded
   HandlerFailed(String)
@@ -113,10 +114,12 @@ pub struct ServerSupervisor {
   mut drain_listener : (() -> Unit)?
   mut close_listener : (() -> Unit)?
   mut cancel_accept : (() -> Unit)?
+  // private fields
 }
 pub fn ServerSupervisor::active_connections(Self) -> Int32
 pub fn ServerSupervisor::begin_shutdown(Self) -> Result[Unit, ServerError]
 pub fn ServerSupervisor::finish_shutdown(Self) -> Result[Unit, ServerError]
+pub fn ServerSupervisor::last_accept_error(Self) -> ServerError?
 pub fn ServerSupervisor::metrics(Self) -> ServerMetrics
 pub fn ServerSupervisor::new(config? : ServerConfig) -> Result[Self, ServerError]
 pub fn ServerSupervisor::record_accept_error(Self) -> Result[Unit, ServerError]

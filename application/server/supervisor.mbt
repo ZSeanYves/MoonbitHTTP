@@ -3,6 +3,7 @@ pub struct ServerSupervisor {
   config : ServerConfig
   mut state : ServerState
   mut active : Int32
+  priv mut last_accept_failure : ServerError?
   mut accept_errors : Int32
   mut next_connection_id : Int32
   metrics : ServerMetrics
@@ -23,6 +24,7 @@ pub fn ServerSupervisor::new(
         state: Starting,
         active: 0,
         accept_errors: 0,
+        last_accept_failure: None,
         next_connection_id: 0,
         metrics: ServerMetrics::new(),
         connections_changed: Cond(),
@@ -101,6 +103,14 @@ pub fn ServerSupervisor::release(
     None => self.metrics.completed += 1L
   }
   (self.config.observer)(ConnectionFinished(connection_id))
+}
+
+///|
+/// Most recent listener failure, including the failure that exhausted the budget.
+pub fn ServerSupervisor::last_accept_error(
+  self : ServerSupervisor,
+) -> ServerError? {
+  self.last_accept_failure
 }
 
 ///|
@@ -233,7 +243,8 @@ pub async fn[L : Listener] ServerSupervisor::serve(
         // it must not consume the fatal accept-error budget. Otherwise a
         // remote can open denied connections until the listener drains.
         Err(Policy(_)) => continue
-        Err(_) =>
+        Err(cause) => {
+          self.last_accept_failure = Some(cause)
           match self.record_accept_error() {
             Ok(_) => continue
             Err(limit_error) => {
@@ -241,6 +252,7 @@ pub async fn[L : Listener] ServerSupervisor::serve(
               break
             }
           }
+        }
       }
       guard accepted is Some(connection) else {
         self.begin_shutdown() |> ignore

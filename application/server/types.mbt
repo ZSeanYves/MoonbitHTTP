@@ -14,6 +14,7 @@ pub(all) suberror ServerError {
   AlreadyRunning
   NotRunning
   ConnectionLimit
+  ListenerIo(@transport.TransportError)
   AcceptFailed(String)
   AcceptErrorLimitExceeded
   HandlerFailed(String)

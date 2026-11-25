@@ -29,7 +29,7 @@ pub async fn[P : @transport_api.NetworkPolicy] UdpServerSocket::bind(
     None => return Err(Failed(Resolve, "UDP requires a numeric endpoint"))
   }
   let socket = @socket.UdpServer(local_addr, dual_stack~) catch {
-    error => return Err(native_transport_error(Connect, error))
+    error => return Err(translate_io_error(Bind, error))
   }
   Ok({
     socket,
@@ -63,7 +63,7 @@ pub impl @transport_api.DatagramSocket for UdpServerSocket with fn send(
     None => return Err(Failed(Resolve, "UDP requires a numeric endpoint"))
   }
   self.socket.send(payload, remote) catch {
-    error => return Err(native_transport_error(Send, error))
+    error => return Err(translate_io_error(Send, error))
   }
   Ok(())
 }
@@ -82,7 +82,7 @@ pub impl @transport_api.DatagramSocket for UdpServerSocket with fn receive(
   // One sentinel byte distinguishes a complete datagram from silent truncation.
   let buffer = FixedArray::make(max_bytes + 1, b'\x00')
   let (count, peer) = self.socket.recv_into(buffer.mut_view()) catch {
-    error => return Err(native_transport_error(Receive, error))
+    error => return Err(translate_io_error(Receive, error))
   }
   if count < 0 || count > max_bytes {
     return Err(InvalidDatagramSize)
