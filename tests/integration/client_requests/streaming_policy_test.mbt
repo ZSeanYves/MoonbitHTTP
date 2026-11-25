@@ -523,3 +523,59 @@ async test "an unread no-store response releases the only pending cache slot" {
     },
   )
 }
+
+///|
+async test "reading a response requires demand and a second reader cannot cancel the first" {
+  let mut reads = 0
+  let started = @async.Cond()
+  let release = @async.Cond()
+  @client.with_client(
+    async fn(client) {
+      let response = client.send(
+        client.request(
+          Get,
+          test_uri("http://example.test/"),
+          @client.Upload::bytes(b""),
+        ),
+      )
+      assert_eq(reads, 0)
+      @async.with_task_group(async fn(group) {
+        let first = group.spawn(() => response.body.next_frame())
+        started.wait()
+        try ignore(response.body.next_frame()) catch {
+          @client.ClientError::ClientProtocol(_) => ()
+          e => raise e
+        } noraise {
+          _ => fail("accepted two readers")
+        }
+        release.signal()
+        assert_true(first.wait() is Some(Data(b"x")))
+      })
+      @async.pause()
+      assert_eq(reads, 1)
+      assert_true(response.body.next_frame() is None)
+    },
+    version=Http11,
+    wall_clock_seconds=() => 0L,
+    now_millis=() => 0L,
+    authorize_redirect=(_, _) => Ok(()),
+    exchange=req => {
+      let body = @body.BodyStream::from_pull(async fn() {
+        reads += 1
+        if reads == 1 {
+          started.signal()
+          release.wait()
+          Some(Data(b"x"))
+        } else {
+          None
+        }
+      })
+      {
+        status: 200,
+        version: req.version,
+        headers: @types.HeaderMap::new(),
+        body: @client.IncomingBody::wrap(body),
+      }
+    },
+  )
+}

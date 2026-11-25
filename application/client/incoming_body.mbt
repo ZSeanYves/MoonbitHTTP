@@ -1,6 +1,7 @@
 ///|
 /// A readable, cancellable body. Consuming trailers or EOF completes its ownership scope.
 pub struct IncomingBody {
+  priv mut reading : Bool
   priv hint : @body.SizeHint
   priv mut state : IncomingState
 }
@@ -19,7 +20,7 @@ fn IncomingBody::new(
   stop : (Error) -> Unit,
   done~ : () -> Unit = () => (),
 ) -> IncomingBody {
-  { hint, state: Readable(read, stop, done), }
+  { hint, reading: false, state: Readable(read, stop, done), }
 }
 
 ///|
@@ -49,6 +50,13 @@ pub impl @body.Body for IncomingBody with fn next_frame(self) {
     Failed(reason) => raise reason
     Finished => return None
     Readable(read, _, done) => (read, done)
+  }
+  guard !self.reading else {
+    raise ClientProtocol("concurrent reads of one response body")
+  }
+  self.reading = true
+  defer {
+    self.reading = false
   }
   errdefer self.cancel(@body.BodyError::Cancelled)
   let frame = read() catch {
