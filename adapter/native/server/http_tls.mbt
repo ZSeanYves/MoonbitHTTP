@@ -52,7 +52,7 @@ pub async fn[
   handle_request : async (RequestContext, @types.Request[@body.BodyStream]) -> @types.Response[
     B,
   ],
-  config~ : @service.ServerConfig = @service.ServerConfig::defaults(),
+  config~ : @service.ServerConfig = native_tls_server_config(),
   handshake_timeout_ms~ : Int32 = 10000,
   shutdown_timeout_ms~ : Int32 = 1000,
   dual_stack~ : Bool = true,

@@ -291,7 +291,7 @@ jobs:
       - name: Export window measurements
         run: |
           mkdir -p _build/public-evidence
-          jq '{revision,go_version,moon_server_sha256,go_binary_sha256,payload_bytes,concurrency,windows:[.windows[] | {server,window,protocol,result:(.result | {elapsed_seconds,requests,latency_samples,errors,throughput_per_second,p50_ms,p95_ms,p99_ms})}]}' _build/evidence/performance/go-net-http-reference/*/result.json > _build/public-evidence/windows.json
+          jq '{revision,go_version,moon_server_sha256,go_binary_sha256,payload_bytes,concurrency,windows:[.windows[] | {server,window,protocol,server_rss_kib_cpu_time_start,server_rss_kib_cpu_time_end,result:(.result | {elapsed_seconds,requests,latency_samples,errors,throughput_per_second,p50_ms,p95_ms,p99_ms})}]}' _build/evidence/performance/go-net-http-reference/*/result.json > _build/public-evidence/windows.json
           jq -c '.windows[]' _build/public-evidence/windows.json >> "$GITHUB_STEP_SUMMARY"
 
       - name: Retain performance windows
