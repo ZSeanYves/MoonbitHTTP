@@ -14,13 +14,17 @@ struct H2PoolConnector {
   opened : @aqueue.Queue[H2PoolPeer]
   writing : @aqueue.Queue[Unit]
   release_write : @aqueue.Queue[Unit]
+  on_request_path : (Bytes) -> Unit
   mut peer_stream_limit : Int32
   mut hold_settings : Bool
 }
 
 ///|
-fn H2PoolConnector::new() -> H2PoolConnector {
+fn H2PoolConnector::new(
+  on_request_path~ : (Bytes) -> Unit = _ => (),
+) -> H2PoolConnector {
   {
+    on_request_path,
     peers: [],
     fail_initial_read: false,
     opened: Queue(kind=Unbounded),
@@ -90,6 +94,7 @@ impl @transport.StreamConnector for H2PoolConnector with fn connect(
             match field.name {
               ":authority" => peer.authorities.push(field.value)
               ":path" => {
+                (self.on_request_path)(field.value)
                 hold = field.value == b"/hold"
                 if field.value == b"/hold-write" {
                   self.writing.put(())
@@ -556,45 +561,6 @@ async test "H2 timeout inside a HEADERS write retires the connection" {
 }
 
 ///|
-async test "H2 short requests reuse spare slots or share one saturated-origin expansion" {
-  for limit in [1, 32] {
-    let connector = H2PoolConnector::new()
-    connector.peer_stream_limit = limit
-    @async.with_timeout(3000, async fn() {
-      with_pool_peer(
-        connector,
-        async fn(client) {
-          let request = pooled_request(
-            "http://first.test/",
-            @types.HeaderMap::new(),
-          )
-          let held = client
-            .execute_stream({
-              ..request,
-              uri: request.uri.resolve_reference("/hold").unwrap(),
-            })
-            .unwrap()
-          @async.with_task_group(fn(group) {
-            for _ in 0..<8 {
-              group.spawn_bg(async fn() {
-                assert_eq(client.execute(request).unwrap().status, 200)
-              })
-            }
-          })
-          assert_eq(connector.peers.length(), if limit == 1 { 2 } else { 1 })
-          connector.peers[0].replies.put(
-            @http2.encode_data_frames(1, b"ok", true).unwrap(),
-          )
-          assert_eq(@body.collect(held.body).0, b"ok")
-        },
-        max_connections=4,
-        max_connections_per_origin=2,
-      )
-    })
-  }
-}
-
-///|
 async test "H2 expansion retains one request header deadline while waiting for SETTINGS" {
   let connector = H2PoolConnector::new()
   let clock = @test_support.FixedClock::new(0L, 0L)
@@ -694,4 +660,70 @@ async test "cancelling the last H2 expansion waiter releases its socket and uplo
       max_connections_per_origin=2,
     )
   })
+}
+
+///|
+async test "H2 origin capacity: mixed short requests report header queue and completion latency" {
+  for peer_limit in [1, 32] {
+    for origin_limit in [1, 2] {
+      let sent : Map[Bytes, Int64] = Map([])
+      let connector = H2PoolConnector::new(on_request_path=path => {
+        sent[path] = @async.now()
+      })
+      connector.peer_stream_limit = peer_limit
+      with_pool_peer(
+        connector,
+        async fn(client) {
+          let headers = @types.HeaderMap::new()
+          let held = client
+            .execute_stream(pooled_request("http://first.test/hold", headers))
+            .unwrap()
+          let short_ms : Array[Int64] = []
+          let queue_ms : Array[Int64] = []
+          let started : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+          @async.with_task_group(async fn(group) {
+            for i in 0..<24 {
+              let path = "/short/" + i.to_string()
+              group.spawn_bg(async fn() {
+                let request = pooled_request(
+                  "http://first.test" + path,
+                  headers,
+                )
+                let start = @async.now()
+                started.put(())
+                assert_eq(client.execute(request).unwrap().status, 200)
+                short_ms.push(@async.now() - start)
+                queue_ms.push(sent[@utf8.encode(path)] - start)
+              })
+            }
+            for _ in 0..<24 {
+              started.get()
+            }
+            @async.sleep(40)
+            connector.peers[0].replies.put(
+              @http2.encode_data_frames(1, b"done", true).unwrap(),
+            )
+            assert_eq(@body.collect(held.body).0, b"done")
+          })
+          assert_eq(
+            connector.peers.length(),
+            if origin_limit == 2 && peer_limit == 1 {
+              2
+            } else {
+              1
+            },
+          )
+          queue_ms.sort()
+          short_ms.sort()
+          // Nearest rank over all 24 closed-loop clients.
+          let q = queue_ms.map(n => n.to_string()).join(",")
+          let t = short_ms.map(n => n.to_string()).join(",")
+          println(
+            "h2-capacity peer=\{peer_limit} per_origin=\{origin_limit} connections=\{connector.peers.length()} short_n=\{short_ms.length()} queue_p95_ms=\{queue_ms[22]} short_p95_ms=\{short_ms[22]} queue_ms=[\{q}] short_ms=[\{t}]",
+          )
+        },
+        max_connections_per_origin=origin_limit,
+      )
+    }
+  }
 }
