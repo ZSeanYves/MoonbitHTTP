@@ -173,12 +173,14 @@ async test "native TLS supervisor survives stalled peer and serves existing and 
     let provider = @tls_native.NativeTlsProvider::new(allow_system_roots=false)
     let endpoint = unused_tcp_endpoint()
     let supervisor = @server_api.ServerSupervisor::new().unwrap()
+    let authenticated : @aqueue.Queue[Unit] = Queue(kind=Blocking(1))
     let listener = @server.NativeTcpListener::bind_tls(
       endpoint,
       @transport.AllowAllPolicy::new(),
       provider,
       server_options,
       async fn(secure) {
+        ignore(authenticated.try_put(()))
         let bytes = secure.read(1).unwrap().unwrap()
         secure.write(bytes).unwrap()
         Ok(())
@@ -187,18 +189,21 @@ async test "native TLS supervisor survives stalled peer and serves existing and 
     ).unwrap()
     @async.with_task_group(async fn(group) {
       let serving = group.spawn(async fn() { supervisor.serve(listener) })
-      let stalled = @transport_native.TcpConnector::new()
-        .connect(endpoint, @transport.ConnectOptions::defaults())
-        .unwrap()
-      defer stalled.close()
       let stream = @transport_native.TcpConnector::new()
         .connect(endpoint, @transport.ConnectOptions::defaults())
         .unwrap()
       let healthy = provider.client_handshake(stream, client_options).unwrap()
       defer healthy.close()
+      // Establish the existing peer on both ends before starting the stalled
+      // handshake. TLS 1.3 clients can finish one flight before the server.
+      authenticated.get()
+      let stalled = @transport_native.TcpConnector::new()
+        .connect(endpoint, @transport.ConnectOptions::defaults())
+        .unwrap()
+      defer stalled.close()
       assert_eq(stalled.read(1).unwrap(), None)
       assert_eq(supervisor.state(), Running)
-      healthy.write(b"a").unwrap()
+      healthy.write(b"a").unwrap_or_error()
       assert_eq(healthy.read(1).unwrap(), Some(b"a"))
       let stream = @transport_native.TcpConnector::new()
         .connect(endpoint, @transport.ConnectOptions::defaults())

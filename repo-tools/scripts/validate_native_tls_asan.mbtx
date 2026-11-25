@@ -50,7 +50,10 @@ async fn main {
     let original = @fs.read_file(path).text()
     let (prefix, suffix) = original.split_once("options(").unwrap()
     let link = "link: { \"native\": { \"cc-flags\": \"-g -fsanitize=address -fno-omit-frame-pointer\", \"stub-cc-flags\": \"-DMOON_HTTP_TLS_AUDIT_HANDLES -g -fsanitize=address -fno-omit-frame-pointer\", \"cc-link-flags\": \"-fsanitize=address\" } },"
-    @fs.write_file(path, prefix.to_owned() + "options(\n  " + link + "\n" + suffix.to_owned())
+    // Run timed scenarios independently under instrumentation. The default
+    // driver puts ten unrelated async tests on the same scheduler, including
+    // their TLS handshakes. Each test retains its own concurrent peer tasks.
+    @fs.write_file(path, prefix.to_owned() + "options(\n  \"max-concurrent-tests\": 1,\n  " + link + "\n" + suffix.to_owned())
   }
   let options = if linux { "detect_leaks=1:fast_unwind_on_malloc=0" } else { "detect_leaks=0:fast_unwind_on_malloc=0" }
   for repetition in 1..=3 {
