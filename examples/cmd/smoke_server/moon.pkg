@@ -1,5 +1,6 @@
 import {
   "moonbitlang/core/env",
+  "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/string",
   "moonbitlang/core/async/fs",
   "ZSeanYves/http/runtime/transport",

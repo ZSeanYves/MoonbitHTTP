@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -76,6 +77,31 @@ func percentile(values []float64, p float64) float64 {
 	return values[index]
 }
 
+// The default workload is the same fixed-length POST used by the release gate.
+var workload = flag.String("workload", "echo", "echo, json, upload, or download")
+
+type chunkReader struct {
+	input *bytes.Reader
+}
+
+func (reader chunkReader) Read(dst []byte) (int, error) {
+	if len(dst) > 4096 {
+		dst = dst[:4096]
+	}
+	return reader.input.Read(dst)
+}
+
+func requestForWorkload(target string, payload []byte) (*http.Request, error) {
+	switch *workload {
+	case "json", "download":
+		return http.NewRequest(http.MethodGet, target, nil)
+	case "upload":
+		return http.NewRequest(http.MethodPost, target, chunkReader{bytes.NewReader(payload)})
+	default:
+		return http.NewRequest(http.MethodPost, target, bytes.NewReader(payload))
+	}
+}
+
 func probe(protocol, target string, payloadBytes, concurrency, durationSec int, roots *x509.CertPool) summary {
 	major, maxConnections := 1, concurrency
 	if protocol == "h2" {
@@ -89,6 +115,22 @@ func probe(protocol, target string, payloadBytes, concurrency, durationSec int, 
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 10 * time.Second}
 	payload := bytes.Repeat([]byte{'x'}, payloadBytes)
+	expected := payload
+	oracle := "HTTP version, HTTP 200 and exact POST echo verified for every successful request"
+	switch *workload {
+	case "json":
+		expected = []byte(`{"ok":true}`)
+		oracle = "HTTP version, status and exact JSON response"
+	case "upload":
+		expected = []byte(strconv.Itoa(len(payload)))
+		oracle = "4 KiB upload chunks verified by handler; client verifies protocol, status and received count"
+	case "download":
+		expected = bytes.Repeat([]byte{'x'}, 64*1024)
+		oracle = "protocol, status and exact 64 KiB response from 16 streamed server chunks"
+	case "echo":
+	default:
+		log.Fatalf("unknown workload %q", *workload)
+	}
 	windowStart := time.Now()
 	deadline := windowStart.Add(time.Duration(durationSec) * time.Second)
 	var latencies []float64
@@ -108,7 +150,7 @@ func probe(protocol, target string, payloadBytes, concurrency, durationSec int, 
 			}()
 			for time.Now().Before(deadline) {
 				started := time.Now()
-				req, err := http.NewRequest(http.MethodPost, target, bytes.NewReader(payload))
+				req, err := requestForWorkload(target, payload)
 				if err == nil {
 					req.Header.Set("content-type", "application/octet-stream")
 					var resp *http.Response
@@ -117,7 +159,7 @@ func probe(protocol, target string, payloadBytes, concurrency, durationSec int, 
 						var got []byte
 						got, err = io.ReadAll(resp.Body)
 						_ = resp.Body.Close()
-						if resp.ProtoMajor != major || resp.StatusCode != http.StatusOK || !bytes.Equal(got, payload) {
+						if resp.ProtoMajor != major || resp.StatusCode != http.StatusOK || !bytes.Equal(got, expected) {
 							err = fmt.Errorf("oracle mismatch: protocol=%s status=%d bytes=%d", resp.Proto, resp.StatusCode, len(got))
 						}
 					}
@@ -144,7 +186,7 @@ func probe(protocol, target string, payloadBytes, concurrency, durationSec int, 
 		PayloadBytes: payloadBytes, Concurrency: concurrency, DurationSec: durationSec,
 		Requests: requests, Errors: errors, Throughput: float64(requests) / elapsed,
 		P50Ms: percentile(latencies, .50), P95Ms: percentile(latencies, .95), P99Ms: percentile(latencies, .99),
-		Oracle: "HTTP version, HTTP 200 and exact POST echo verified for every successful request",
+		Oracle: oracle,
 	}
 }
 

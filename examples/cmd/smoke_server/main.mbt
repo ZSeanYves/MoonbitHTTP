@@ -30,6 +30,50 @@ async fn buffered_echo(
 }
 
 ///|
+async fn[B : @body.Body] serve_tls(
+  port : Int32,
+  cert : String,
+  key : String,
+  handler : async (@types.Request[@body.BodyStream]) -> @types.Response[B],
+) -> Unit {
+  let endpoint = @types.Endpoint::new("tcp", "127.0.0.1", port).unwrap()
+  let tls = {
+    ..@transport.TlsOptions::defaults(),
+    alpn: ["h2"],
+    verify_peer: false,
+    server_certificate: Some(@fs.read_binary(cert)),
+    server_private_key: Some(@fs.read_binary(key)),
+  }
+  let listener = match
+    @native_server.NativeTcpListener::bind_http_tls(
+      endpoint,
+      @transport.AllowAllPolicy::new(),
+      @tls_native.NativeTlsProvider::new(),
+      tls,
+      handler,
+    ) {
+    Ok(value) => value
+    Err(error) => raise error
+  }
+  let config = @server_api.ServerConfig::defaults().with_error_responder(error => {
+    match error {
+      @service.StreamIoError::StreamIoError(cause) =>
+        println("connection transport error: \{Repr(cause)}")
+      @http2.H2ProtocolError::ConnectionError(code, detail) =>
+        println("HTTP/2 connection error: \{Repr(code)} \{detail}")
+      @http2.H2ProtocolError::StreamError(id, code, detail) =>
+        println("HTTP/2 stream \{id} error: \{Repr(code)} \{detail}")
+      cause => println("connection error: \{cause}")
+    }
+  })
+  let supervisor = @server_api.ServerSupervisor::new(config~).unwrap()
+  match supervisor.serve(listener) {
+    Ok(_) => ()
+    Err(error) => raise error
+  }
+}
+
+///|
 async fn main {
   match @env.args() {
     [_] =>
@@ -49,47 +93,12 @@ async fn main {
       })
     [_, "--echo-h1", port] =>
       serve_cleartext(@string.parse_int(port), buffered_echo)
-    [_, "--echo-h2", port, cert, key] => {
-      let endpoint = @types.Endpoint::new(
-        "tcp",
-        "127.0.0.1",
-        @string.parse_int(port),
-      ).unwrap()
-      let tls = {
-        ..@transport.TlsOptions::defaults(),
-        alpn: ["h2"],
-        verify_peer: false,
-        server_certificate: Some(@fs.read_binary(cert)),
-        server_private_key: Some(@fs.read_binary(key)),
-      }
-      let listener = match
-        @native_server.NativeTcpListener::bind_http_tls(
-          endpoint,
-          @transport.AllowAllPolicy::new(),
-          @tls_native.NativeTlsProvider::new(),
-          tls,
-          buffered_echo,
-        ) {
-        Ok(value) => value
-        Err(error) => raise error
-      }
-      let config = @server_api.ServerConfig::defaults().with_error_responder(error => {
-        match error {
-          @service.StreamIoError::StreamIoError(cause) =>
-            println("connection transport error: \{Repr(cause)}")
-          @http2.H2ProtocolError::ConnectionError(code, detail) =>
-            println("HTTP/2 connection error: \{Repr(code)} \{detail}")
-          @http2.H2ProtocolError::StreamError(id, code, detail) =>
-            println("HTTP/2 stream \{id} error: \{Repr(code)} \{detail}")
-          cause => println("connection error: \{cause}")
-        }
-      })
-      let supervisor = @server_api.ServerSupervisor::new(config~).unwrap()
-      match supervisor.serve(listener) {
-        Ok(_) => ()
-        Err(error) => raise error
-      }
-    }
+    [_, "--echo-h2", port, cert, key] =>
+      serve_tls(@string.parse_int(port), cert, key, buffered_echo)
+    [_, "--profile-h1", port] =>
+      serve_cleartext(@string.parse_int(port), workload)
+    [_, "--profile-h2", port, cert, key] =>
+      serve_tls(@string.parse_int(port), cert, key, workload)
     _ => fail("usage: smoke_server [--echo-h1 PORT | --echo-h2 PORT CERT KEY]")
   }
 }
