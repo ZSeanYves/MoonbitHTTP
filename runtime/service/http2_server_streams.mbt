@@ -1,6 +1,9 @@
 ///|
 /// Owns stream admission slots, queued request data and connection receive credit.
 priv struct H2ServerStreams {
+  config : ServerConfig
+  finished : @cond_var.Cond
+  mut last_accepted : Int32
   mut input_ended : Bool
   mut discarded_capacity : Int32
   pending : Map[Int32, H2PendingRequest]
@@ -229,5 +232,87 @@ fn H2ServerStreams::drain_blocked(
     } else {
       self.blocked.remove(stream_id)
     }
+  }
+}
+
+///|
+async fn H2ServerStreams::receive_headers(
+  self : H2ServerStreams,
+  stream_id : Int32,
+  fields : Array[@http2.HpackHeader],
+  end_stream : Bool,
+  draining : Bool,
+  dispatch : (Int32) -> Unit,
+) -> Unit {
+  if self.pending.get(stream_id) is Some(request) {
+    if request.request_ended {
+      // A request trailers block already carried END_STREAM.  A second
+      // HEADERS block on the same stream is a protocol error, even if
+      // the handler has not finished its response yet.
+      self.reset_stream(stream_id, ProtocolError)
+      return
+    }
+    if !end_stream {
+      self.reset_stream(stream_id, ProtocolError)
+      return
+    }
+    let trailers = @types.HeaderMap::new()
+    for field in fields {
+      if field.name.has_prefix(":") ||
+        !@http_fields.Trailers.allows(field.name, field.value) ||
+        !append_regular_header(trailers, field.name, field.value) {
+        self.reset_stream(stream_id, ProtocolError)
+        return
+      }
+    }
+    if !request.has_expected_length() {
+      self.reset_stream(stream_id, ProtocolError)
+      return
+    }
+    request.request_ended = true
+    if !request.credit.retired {
+      // Keep reading connection control frames while this stream waits
+      // for its consumer. Trailers must remain behind earlier DATA.
+      if self.blocked.get(stream_id) is Some(queue) {
+        queue.push_back(BlockedTrailers(trailers))
+      } else if !request.body.try_push(Trailers(trailers)) {
+        self.blocked.set(stream_id, Deque([BlockedTrailers(trailers)]))
+      }
+    } else if request.response_finished {
+      request.body.finish()
+      self.pending.remove(stream_id)
+      self.blocked.remove(stream_id)
+    }
+    dispatch(stream_id)
+    return
+  }
+  if draining ||
+    self.pending.length() >= self.config.limits.max_concurrent_requests ||
+    self.handlers.length() >= self.config.limits.max_concurrent_requests {
+    self.reset_stream(stream_id, RefusedStream)
+    return
+  }
+  let (body, credit) = self.make_body(
+    self.config.body_queue_capacity,
+    stream_id,
+  )
+  let request = match decode_h2_request(stream_id, fields, body~, credit~) {
+    Ok(value) => value
+    Err(StreamError(error_stream, code, _)) => {
+      self.reset_stream(error_stream, code)
+      return
+    }
+    Err(error) => raise error
+  }
+  self.last_accepted = self.last_accepted.max(stream_id)
+  self.pending.set(stream_id, request)
+  request.request_ended = end_stream
+  if end_stream && !request.has_expected_length() {
+    self.reset_stream(stream_id, ProtocolError)
+    return
+  }
+  dispatch(stream_id)
+  if end_stream {
+    request.body.finish()
   }
 }

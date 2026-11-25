@@ -117,6 +117,13 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
   let window_signal = @cond_var.Cond()
   let blocked_signal : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
   let streams : H2ServerStreams = {
+    config,
+    finished: Cond(),
+    last_accepted: if upgraded_request is Some(_) {
+      1
+    } else {
+      0
+    },
     input_ended: false,
     discarded_capacity: 0,
     pending,
@@ -133,8 +140,6 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
   let mut confirming_drain = false
   let mut drain_confirmed = false
   let drain_payload = b"draining".to_array()
-  let finished = @cond_var.Cond()
-  let mut last_accepted = if upgraded_request is Some(_) { 1 } else { 0 }
   @async.with_task_group(async fn(group) {
     group.add_defer(fn() {
       let error = @http2.H2ProtocolError::ConnectionError(
@@ -168,7 +173,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
           write_h2_frame(
             write_lock,
             writer,
-            @http2.encode_goaway(last_accepted, NoError).unwrap_or_error(),
+            @http2.encode_goaway(streams.last_accepted, NoError).unwrap_or_error(),
             config.write_timeout_ms,
           )
           while !handlers.is_empty() ||
@@ -177,12 +182,12 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
                   !upgrade_dispatched &&
                   !streams.input_ended
                 ) {
-            finished.wait()
+            streams.finished.wait()
           }
           // Let the peer receive the last END_STREAM before closing a socket
           // which may still contain incoming flow-control frames.
           confirming_drain = true
-          if last_accepted > 0 && !streams.input_ended {
+          if streams.last_accepted > 0 && !streams.input_ended {
             // This acknowledgement protects the last response in transit.
             // It must not hold a fully drained connection for the handler deadline.
             let linger_ms = config.h2_eof_drain_timeout_ms.min(1000)
@@ -195,7 +200,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
                   config.write_timeout_ms,
                 )
                 while !drain_confirmed && !streams.input_ended {
-                  finished.wait()
+                  streams.finished.wait()
                 }
               }),
             )
@@ -206,83 +211,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
         no_wait=true,
       )
     }
-    let dispatch = fn(stream_id : Int32) {
-      guard pending.get(stream_id) is Some(value) else { return }
-      if value.dispatched {
-        return
-      }
-      value.dispatched = true
-      let request : @types.Request[@body.BodyStream] = {
-        http_method: value.http_method,
-        uri: value.uri,
-        version: Http2,
-        headers: value.headers,
-        body: value.body,
-      }
-      let handler : H2HandlerTask = { task: None, }
-      handlers.set(stream_id, handler)
-      handler.task = Some(
-        group.spawn(async fn() {
-          defer {
-            handlers.remove(stream_id)
-            finished.broadcast()
-          }
-          // This cleanup runs inside the handler; it must not join itself.
-          errdefer (if pending.contains(stream_id) {
-            streams.reset_stream_with_error(
-              stream_id,
-              Cancel,
-              @http2.H2ProtocolError::StreamError(
-                stream_id,
-                Cancel,
-                "handler terminated",
-              ),
-            ) catch {
-              _ => ()
-            }
-          })
-          if expectation_response(request.headers, () => {
-              !value.request_ended &&
-              value.body_bytes == 0 &&
-              value.expected_body_bytes != Some(0)
-            })
-            is Some(status) {
-            let rejected = status == 417
-            let head : @types.Response[Unit] = {
-              version: Http2,
-              status,
-              headers: @types.HeaderMap::new(),
-              body: (),
-            }
-            write_h2_header_block(
-              write_lock,
-              writer,
-              () => {
-                @http2.encode_response_headers(
-                  encoder, stream_id, head, rejected,
-                )
-              },
-              config.write_timeout_ms,
-            )
-            if rejected {
-              streams.finish_response(stream_id)
-              return
-            }
-          }
-          let response = service(request)
-          with_outgoing_body_scope(response.body, async fn() {
-            streams.send_response(
-              writer,
-              encoder,
-              config.write_timeout_ms,
-              stream_id,
-              request.http_method,
-              response,
-            )
-          })
-        }),
-      )
-    }
+    let dispatch = id => streams.dispatch(id, group, writer, encoder, service)
     let complete_headers = async fn(
       stream_id : Int32,
       block : Array[Byte],
@@ -297,77 +226,13 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
         streams.reset_stream(stream_id, code)
         return
       }
-      if pending.get(stream_id) is Some(request) {
-        if request.request_ended {
-          // A request trailers block already carried END_STREAM.  A second
-          // HEADERS block on the same stream is a protocol error, even if
-          // the handler has not finished its response yet.
-          streams.reset_stream(stream_id, ProtocolError)
-          return
-        }
-        if !end_stream {
-          streams.reset_stream(stream_id, ProtocolError)
-          return
-        }
-        let trailers = @types.HeaderMap::new()
-        for field in fields {
-          if field.name.has_prefix(":") ||
-            !@http_fields.Trailers.allows(field.name, field.value) ||
-            !append_regular_header(trailers, field.name, field.value) {
-            streams.reset_stream(stream_id, ProtocolError)
-            return
-          }
-        }
-        if !request.has_expected_length() {
-          streams.reset_stream(stream_id, ProtocolError)
-          return
-        }
-        request.request_ended = true
-        if !request.credit.retired {
-          // Keep reading connection control frames while this stream waits
-          // for its consumer. Trailers must remain behind earlier DATA.
-          if blocked.get(stream_id) is Some(queue) {
-            queue.push_back(BlockedTrailers(trailers))
-          } else if !request.body.try_push(Trailers(trailers)) {
-            blocked.set(stream_id, Deque([BlockedTrailers(trailers)]))
-          }
-        } else if request.response_finished {
-          request.body.finish()
-          pending.remove(stream_id)
-          blocked.remove(stream_id)
-        }
-        dispatch(stream_id)
-        return
-      }
-      if (shutdown is Some(signal) && signal.has_started()) ||
-        pending.length() >= config.limits.max_concurrent_requests ||
-        handlers.length() >= config.limits.max_concurrent_requests {
-        streams.reset_stream(stream_id, RefusedStream)
-        return
-      }
-      let (body, credit) = streams.make_body(
-        config.body_queue_capacity,
+      streams.receive_headers(
         stream_id,
+        fields,
+        end_stream,
+        shutdown is Some(signal) && signal.has_started(),
+        dispatch,
       )
-      let request = match decode_h2_request(stream_id, fields, body~, credit~) {
-        Ok(value) => value
-        Err(StreamError(error_stream, code, _)) => {
-          streams.reset_stream(error_stream, code)
-          return
-        }
-        Err(error) => raise error
-      }
-      last_accepted = last_accepted.max(stream_id)
-      pending.set(stream_id, request)
-      request.request_ended = end_stream
-      if end_stream && !request.has_expected_length() {
-        streams.reset_stream(stream_id, ProtocolError)
-        return
-      }
-      dispatch(stream_id)
-      if end_stream {
-        request.body.finish()
-      }
     }
     group.spawn_bg(
       async fn() {
@@ -444,7 +309,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
           (frame.header.flags & @http2.H2_FLAGS_ACK) != 0 &&
           frame.payload == drain_payload {
           drain_confirmed = true
-          finished.broadcast()
+          streams.finished.broadcast()
         }
         for action in actions {
           match action {
@@ -478,7 +343,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
                 header_block.push(byte)
               }
               if (frame.header.flags & @http2.H2_FLAGS_END_HEADERS) != 0 {
-                complete_headers(stream_id, header_block.copy(), end_stream)
+                complete_headers(stream_id, header_block, end_stream)
                 header_stream = 0
               }
             }
@@ -495,7 +360,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
                 header_block.push(byte)
               }
               if end_headers {
-                complete_headers(stream_id, header_block.copy(), false)
+                complete_headers(stream_id, header_block, false)
                 header_stream = 0
               }
             }
@@ -510,11 +375,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
                 header_block.push(byte)
               }
               if end_headers {
-                complete_headers(
-                  stream_id,
-                  header_block.copy(),
-                  header_end_stream,
-                )
+                complete_headers(stream_id, header_block, header_end_stream)
                 header_stream = 0
               }
             }
@@ -638,7 +499,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
           !upgrade_dispatched {
           upgrade_dispatched = true
           dispatch(1)
-          finished.broadcast()
+          streams.finished.broadcast()
         }
       }
     }
@@ -654,7 +515,7 @@ async fn[R : @aio.BinaryReader, W : @aio.BinaryWriter, B : @body.Body] serve_htt
     // EOF makes further WINDOW_UPDATE impossible. Responses with available
     // credit may still finish after a read-side close, but no sender may wait.
     streams.input_ended = true
-    finished.broadcast()
+    streams.finished.broadcast()
     window_signal.broadcast()
     for value in pending.values() {
       value.body.fail(
