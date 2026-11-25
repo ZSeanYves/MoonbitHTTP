@@ -210,11 +210,16 @@ fn ContentDecoder::step_identity(
 }
 
 ///|
-fn ContentDecoder::step_gzip(
+fn ContentDecoder::step_flate(
   self : ContentDecoder,
-  decoder : @gzip.Decoder,
   input : BytesView,
   end : Bool,
+  step : (BytesView, MutArrayView[Byte], Bool) -> (
+    @flate.Status,
+    Int32,
+    Int32,
+    Bool,
+  ) raise ContentCodingError,
 ) -> Result[DecodeStep, ContentCodingError] {
   let offered = match self.offered_length(input.length()) {
     Ok(value) => value
@@ -226,58 +231,15 @@ fn ContentDecoder::step_gzip(
     self.limits.output_chunk_bytes,
   )
   let output = FixedArray::make(capacity.max(1), b'\x00')
-  let status = decoder.step(
+  let (status, consumed, produced, trailing) = step(
     input[:offered],
     output.mut_view(),
-    end=end && offered == input.length(),
+    end && offered == input.length(),
   ) catch {
-    GzipError(Truncated, _) => return self.fail(TruncatedEncodedBody(Gzip))
-    _ => return self.fail(InvalidEncodedBody(Gzip))
+    error => return self.fail(error)
   }
-  let consumed = decoder.last_consumed()
-  let produced = decoder.last_produced()
-  if status == Done &&
-    (consumed < input.length() || !decoder.unused_input().is_empty()) {
-    return self.fail(TrailingEncodedData(Gzip))
-  }
-  self.record_output(
-    consumed,
-    Bytes::from_array(output[:produced]),
-    flate_decode_status(status),
-  )
-}
-
-///|
-fn ContentDecoder::step_zlib(
-  self : ContentDecoder,
-  decoder : @zlib.Decoder,
-  input : BytesView,
-  end : Bool,
-) -> Result[DecodeStep, ContentCodingError] {
-  let offered = match self.offered_length(input.length()) {
-    Ok(value) => value
-    Err(error) => return self.fail(error)
-  }
-  let remaining_output = self.limits.max_decoded_bytes - self.decoded_bytes
-  let capacity = decode_output_capacity(
-    remaining_output,
-    self.limits.output_chunk_bytes,
-  )
-  let output = FixedArray::make(capacity.max(1), b'\x00')
-  let status = decoder.step(
-    input[:offered],
-    output.mut_view(),
-    end=end && offered == input.length(),
-  ) catch {
-    ZlibError(Truncated, _) => return self.fail(TruncatedEncodedBody(Deflate))
-    ZlibError(TrailingData, _) => return self.fail(TrailingEncodedData(Deflate))
-    _ => return self.fail(InvalidEncodedBody(Deflate))
-  }
-  let consumed = decoder.last_consumed()
-  let produced = decoder.last_produced()
-  if status == Done &&
-    (consumed < input.length() || !decoder.unused_input().is_empty()) {
-    return self.fail(TrailingEncodedData(Deflate))
+  if status == Done && (consumed < input.length() || trailing) {
+    return self.fail(TrailingEncodedData(self.coding))
   }
   self.record_output(
     consumed,
@@ -360,8 +322,33 @@ pub fn ContentDecoder::step(
   }
   match self.backend {
     IdentityDecoder => self.step_identity(input, end)
-    GzipDecoder(decoder) => self.step_gzip(decoder, input, end)
-    ZlibDecoder(decoder) => self.step_zlib(decoder, input, end)
+    GzipDecoder(decoder) =>
+      self.step_flate(input, end, (data, out, end_of_input) => {
+        let status = decoder.step(data, out, end=end_of_input) catch {
+          GzipError(Truncated, _) => raise TruncatedEncodedBody(Gzip)
+          _ => raise InvalidEncodedBody(Gzip)
+        }
+        (
+          status,
+          decoder.last_consumed(),
+          decoder.last_produced(),
+          status == Done && !decoder.unused_input().is_empty(),
+        )
+      })
+    ZlibDecoder(decoder) =>
+      self.step_flate(input, end, (data, out, end_of_input) => {
+        let status = decoder.step(data, out, end=end_of_input) catch {
+          ZlibError(Truncated, _) => raise TruncatedEncodedBody(Deflate)
+          ZlibError(TrailingData, _) => raise TrailingEncodedData(Deflate)
+          _ => raise InvalidEncodedBody(Deflate)
+        }
+        (
+          status,
+          decoder.last_consumed(),
+          decoder.last_produced(),
+          status == Done && !decoder.unused_input().is_empty(),
+        )
+      })
     BrotliDecoder(decoder, sink) => self.step_brotli(decoder, sink, input, end)
   }
 }

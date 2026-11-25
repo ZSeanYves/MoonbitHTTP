@@ -89,22 +89,13 @@ fn cache_add_saturating(left : Int64, right : Int64) -> Int64 {
 }
 
 ///|
-fn cache_clone_headers(source : @types.HeaderMap) -> @types.HeaderMap {
-  let output = @types.HeaderMap::new()
-  for field in source.fields() {
-    output.append(field.name, field.value)
-  }
-  output
-}
-
-///|
 fn cache_clone_response(
   source : @types.Response[Unit],
 ) -> @types.Response[Unit] {
   {
     status: source.status,
     version: source.version,
-    headers: cache_clone_headers(source.headers),
+    headers: source.headers.copy(),
     body: (),
   }
 }
@@ -310,7 +301,7 @@ fn cache_entry_hit(
   stale : Int64,
   allow_error_fallback : Bool,
 ) -> CacheHit {
-  let headers = cache_clone_headers(entry.response.headers)
+  let headers = entry.response.headers.copy()
   let age_value = @types.HeaderValue::from_string(age.max(0L).to_string()).unwrap()
   match @types.HeaderName::parse("age") {
     Ok(name) => headers.set(name, age_value)
@@ -562,7 +553,7 @@ fn HttpCache::prepare_entry(
     length > self.config.limits.max_entry_bytes - metadata_size {
     raise EntryTooLarge(length)
   }
-  CacheEntry::{
+  {
     key,
     vary,
     vary_signature,

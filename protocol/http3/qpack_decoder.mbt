@@ -456,21 +456,9 @@ pub fn QpackDecoder::decode_field_section(
           )
       }
       let (value, value_used) = match
-        qpack_decode_string(
-          encoded[offset + name_used:],
-          7,
-          0x80,
-          self.limits.max_decoded_field_section_bytes,
-        ) {
+        self.literal_value(encoded[offset + name_used:]) {
         Ok(result) => result
-        Err(error) =>
-          return Err(
-            qpack_parse_error(
-              error,
-              QpackDecompressionFailed,
-              "literal field value",
-            ),
-          )
+        Err(error) => return Err(error)
       }
       field = { name: name_field.name, value, sensitive: (first & 0x20) != 0, }
       used = name_used + value_used
@@ -505,21 +493,9 @@ pub fn QpackDecoder::decode_field_section(
           )
       }
       let (value, value_used) = match
-        qpack_decode_string(
-          encoded[offset + name_used:],
-          7,
-          0x80,
-          self.limits.max_decoded_field_section_bytes,
-        ) {
+        self.literal_value(encoded[offset + name_used:]) {
         Ok(result) => result
-        Err(error) =>
-          return Err(
-            qpack_parse_error(
-              error,
-              QpackDecompressionFailed,
-              "literal field value",
-            ),
-          )
+        Err(error) => return Err(error)
       }
       field = { name, value, sensitive, }
       used = name_used + value_used
@@ -574,21 +550,9 @@ pub fn QpackDecoder::decode_field_section(
           )
       }
       let (value, value_used) = match
-        qpack_decode_string(
-          encoded[offset + name_used:],
-          7,
-          0x80,
-          self.limits.max_decoded_field_section_bytes,
-        ) {
+        self.literal_value(encoded[offset + name_used:]) {
         Ok(result) => result
-        Err(error) =>
-          return Err(
-            qpack_parse_error(
-              error,
-              QpackDecompressionFailed,
-              "literal field value",
-            ),
-          )
+        Err(error) => return Err(error)
       }
       field = { name: name_field.name, value, sensitive: (first & 0x08) != 0, }
       used = name_used + value_used
@@ -616,4 +580,19 @@ pub fn QpackDecoder::decode_field_section(
   }
   self.blocked.remove(stream_id)
   Ok(QpackDecoded(fields, required_insert_count != 0L))
+}
+
+///|
+fn QpackDecoder::literal_value(
+  self : QpackDecoder,
+  encoded : BytesView,
+) -> Result[(Bytes, Int32), Http3Error] {
+  qpack_decode_string(
+    encoded,
+    7,
+    0x80,
+    self.limits.max_decoded_field_section_bytes,
+  ).map_err(error => {
+    qpack_parse_error(error, QpackDecompressionFailed, "literal field value")
+  })
 }

@@ -33,7 +33,9 @@ pub struct HeaderMap {
 }
 
 ///|
-fn is_token_byte(b : Byte) -> Bool {
+/// A byte permitted by the HTTP token grammar (tchar).
+#internal(http_syntax)
+pub fn is_token_byte(b : Byte) -> Bool {
   let n = b.to_int()
   (n >= 48 && n <= 57) ||
   (n >= 65 && n <= 90) ||

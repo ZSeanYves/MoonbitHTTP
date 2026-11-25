@@ -3,35 +3,19 @@ fn cache_merge_304_headers(
   stored : @types.HeaderMap,
   not_modified : @types.HeaderMap,
 ) -> @types.HeaderMap {
-  let output = cache_clone_headers(stored)
-  let names : Array[@types.HeaderName] = []
+  let output = stored.copy()
+  let replaced : Map[String, Unit] = Map([])
   for field in not_modified.fields() {
-    if field.name.value == "content-length" ||
-      field.name.value == "content-encoding" ||
-      field.name.value == "transfer-encoding" ||
-      field.name.value == "trailer" {
+    if field.name.value
+      is ("content-length"
+      | "content-encoding"
+      | "transfer-encoding"
+      | "trailer") {
       continue
     }
-    let mut seen = false
-    for name in names {
-      if name == field.name {
-        seen = true
-        break
-      }
-    }
-    if !seen {
-      names.push(field.name)
-    }
-  }
-  for name in names {
-    output.remove(name)
-  }
-  for field in not_modified.fields() {
-    if field.name.value == "content-length" ||
-      field.name.value == "content-encoding" ||
-      field.name.value == "transfer-encoding" ||
-      field.name.value == "trailer" {
-      continue
+    if !replaced.contains(field.name.value) {
+      output.remove(field.name)
+      replaced.set(field.name.value, ())
     }
     output.append(field.name, field.value)
   }

@@ -6,6 +6,8 @@ import {
 }
 
 // Values
+pub fn is_token_byte(Byte) -> Bool
+
 pub fn response_allows_body(Method, Int32) -> Bool
 
 pub fn status_allows_body(Int32) -> Bool

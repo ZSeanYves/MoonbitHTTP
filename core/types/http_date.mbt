@@ -154,30 +154,16 @@ fn date_components_to_seconds(
   minute : Int32,
   second : Int32,
 ) -> Result[Int64, HttpDateError] {
-  if year < 1601 ||
-    year > 9999 ||
-    month < 1 ||
-    month > 12 ||
-    day < 1 ||
-    day > date_days_in_month(year, month) ||
-    hour < 0 ||
-    hour > 23 ||
-    minute < 0 ||
-    minute > 59 ||
-    second < 0 ||
-    second > 59 {
-    return Err(HttpDateOutOfRange)
+  let date = match
+    HttpDate::from_components(year, month, day, hour, minute, second) {
+    Ok(date) => date
+    Err(error) => return Err(error)
   }
-  let days = days_from_civil(year, month, day)
+  let days = date_floor_div(date.unix_seconds, 86400L)
   if weekday != date_floor_mod(days + 4L, 7L).to_int() {
     return Err(InvalidHttpDate)
   }
-  Ok(
-    days * 86400L +
-    hour.to_int64() * 3600L +
-    minute.to_int64() * 60L +
-    second.to_int64(),
-  )
+  Ok(date.unix_seconds)
 }
 
 ///|

@@ -4,29 +4,6 @@ fn digest_is_ows(byte : Byte) -> Bool {
 }
 
 ///|
-fn digest_is_token(byte : Byte) -> Bool {
-  let value = byte.to_int()
-  (value >= 48 && value <= 57) ||
-  (value >= 65 && value <= 90) ||
-  (value >= 97 && value <= 122) ||
-  byte == b'!' ||
-  byte == b'#' ||
-  byte == b'$' ||
-  byte == b'%' ||
-  byte == b'&' ||
-  byte == b'\'' ||
-  byte == b'*' ||
-  byte == b'+' ||
-  byte == b'-' ||
-  byte == b'.' ||
-  byte == b'^' ||
-  byte == b'_' ||
-  byte == b'`' ||
-  byte == b'|' ||
-  byte == b'~'
-}
-
-///|
 fn digest_lower_ascii(input : BytesView) -> String? {
   let output = FixedArray::make(input.length(), b'0')
   for index in 0..<input.length() {
@@ -72,7 +49,7 @@ fn digest_parse_parameters(
       break
     }
     let name_start = cursor
-    while cursor < input.length() && digest_is_token(input[cursor]) {
+    while cursor < input.length() && @types.is_token_byte(input[cursor]) {
       cursor += 1
     }
     if cursor == name_start {
@@ -128,7 +105,7 @@ fn digest_parse_parameters(
       }
     } else {
       let value_start = cursor
-      while cursor < input.length() && digest_is_token(input[cursor]) {
+      while cursor < input.length() && @types.is_token_byte(input[cursor]) {
         cursor += 1
       }
       if cursor == value_start ||
@@ -211,7 +188,7 @@ pub fn DigestChallenge::parse(
     cursor += 1
   }
   let scheme_start = cursor
-  while cursor < input.length() && digest_is_token(input[cursor]) {
+  while cursor < input.length() && @types.is_token_byte(input[cursor]) {
     cursor += 1
   }
   let scheme = match digest_lower_ascii(input[scheme_start:cursor]) {

@@ -1,34 +1,11 @@
 ///|
-fn content_coding_token_byte(byte : Byte) -> Bool {
-  let value = byte.to_int()
-  (value >= 48 && value <= 57) ||
-  (value >= 65 && value <= 90) ||
-  (value >= 97 && value <= 122) ||
-  byte == b'!' ||
-  byte == b'#' ||
-  byte == b'$' ||
-  byte == b'%' ||
-  byte == b'&' ||
-  byte == b'\'' ||
-  byte == b'*' ||
-  byte == b'+' ||
-  byte == b'-' ||
-  byte == b'.' ||
-  byte == b'^' ||
-  byte == b'_' ||
-  byte == b'`' ||
-  byte == b'|' ||
-  byte == b'~'
-}
-
-///|
 fn content_coding_from_token(
   token : BytesView,
 ) -> Result[ContentCoding, ContentCodingError] {
   let lowered = FixedArray::make(token.length(), b'0')
   for index in 0..<token.length() {
     let byte = token[index]
-    if !content_coding_token_byte(byte) {
+    if !@types.is_token_byte(byte) {
       return Err(InvalidContentEncoding)
     }
     lowered[index] = if byte >= b'A' && byte <= b'Z' {

@@ -5,7 +5,7 @@ pub fn conditional_request_headers(
   request_headers : @types.HeaderMap,
   hit : CacheHit,
 ) -> @types.HeaderMap {
-  let output = cache_clone_headers(request_headers)
+  let output = request_headers.copy()
   if output.get_string("if-none-match") is None {
     match hit.etag {
       Some(value) => ignore(output.append_string("if-none-match", value))

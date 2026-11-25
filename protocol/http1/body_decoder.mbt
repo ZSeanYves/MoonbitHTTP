@@ -47,29 +47,6 @@ fn BodyDecoder::finish_input(self : BodyDecoder) -> Unit {
 }
 
 ///|
-fn http1_is_tchar(byte : Byte) -> Bool {
-  let value = byte.to_int()
-  (value >= 48 && value <= 57) ||
-  (value >= 65 && value <= 90) ||
-  (value >= 97 && value <= 122) ||
-  byte == b'!' ||
-  byte == b'#' ||
-  byte == b'$' ||
-  byte == b'%' ||
-  byte == b'&' ||
-  byte == b'\'' ||
-  byte == b'*' ||
-  byte == b'+' ||
-  byte == b'-' ||
-  byte == b'.' ||
-  byte == b'^' ||
-  byte == b'_' ||
-  byte == b'`' ||
-  byte == b'|' ||
-  byte == b'~'
-}
-
-///|
 /// RFC 9112 chunk extensions are intentionally parsed rather than ignored.
 /// This prevents malformed extension bytes from becoming a second framing
 /// interpretation in a downstream proxy.
@@ -92,7 +69,7 @@ fn parse_chunk_extension(
       index += 1
     }
     let name_start = index
-    while index < input.length() && http1_is_tchar(input[index]) {
+    while index < input.length() && @types.is_token_byte(input[index]) {
       index += 1
     }
     if index == name_start {
@@ -136,7 +113,7 @@ fn parse_chunk_extension(
         }
       } else {
         let value_start = index
-        while index < input.length() && http1_is_tchar(input[index]) {
+        while index < input.length() && @types.is_token_byte(input[index]) {
           index += 1
         }
         if index == value_start {
