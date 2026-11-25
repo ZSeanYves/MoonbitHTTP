@@ -159,3 +159,27 @@ test "uri: a question mark in the fragment does not start a query" {
     assert_true(uri.validate() is Ok(_))
   }
 }
+
+///|
+test "Content-Length compares canonical decimal members before numeric bounds" {
+  for
+    (value, expected) in [
+      ("0000, 0", Ok(Some(0UL))),
+      ("2147483647", Ok(Some(2147483647UL))),
+      ("2147483648", Ok(Some(2147483648UL))),
+      ("18446744073709551615", Ok(Some(18446744073709551615UL))),
+      (
+        "18446744073709551616, 018446744073709551616",
+        Err(@types.HeaderError::ContentLengthOverflow),
+      ),
+      (
+        "18446744073709551616, 18446744073709551617",
+        Err(ConflictingContentLength),
+      ),
+      ("18446744073709551616, 10x", Err(InvalidContentLength)),
+    ] {
+    let headers = @types.HeaderMap::new()
+    headers.append_string("content-length", value).unwrap()
+    assert_eq(headers.content_length(), expected)
+  }
+}

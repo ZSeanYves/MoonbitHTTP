@@ -206,14 +206,28 @@ async test "service HTTP/2 validates response length and body-forbidden semantic
     ProtocolError,
   )
   for (http_method, status) in [(@types.Method::Head, 200), (Get, 304)] {
-    security_h2_response(
-      security_h2_response_head(status, Some("1000"), true),
-      async fn(client) {
-        let response = client.send(security_request(http_method))
-        assert_true(response.body.next_frame() is None)
-      },
-      max_body_bytes=4,
-    )
+    for
+      (decimal, numeric) in [
+        ("4294967296", Ok(Some(4294967296UL))),
+        ("18446744073709551616", Err(@types.HeaderError::ContentLengthOverflow)),
+      ] {
+      security_h2_response(
+        security_h2_response_head(status, Some(decimal), true),
+        async fn(client) {
+          let response = client.send(security_request(http_method))
+          assert_true(response.body.next_frame() is None)
+          assert_eq(response.headers.content_length(), numeric)
+          assert_eq(
+            response.headers
+            .get_string("content-length")
+            .unwrap()
+            .to_string_lossy(),
+            decimal,
+          )
+        },
+        max_body_bytes=4,
+      )
+    }
   }
 }
 

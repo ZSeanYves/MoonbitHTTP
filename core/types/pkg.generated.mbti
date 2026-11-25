@@ -150,9 +150,10 @@ pub struct HeaderMap {
 }
 pub fn HeaderMap::append(Self, HeaderName, HeaderValue) -> Unit
 pub fn HeaderMap::append_string(Self, String, String) -> Result[Unit, HeaderError]
+pub fn HeaderMap::body_content_length(Self) -> Result[Int32?, HeaderError]
 pub fn HeaderMap::contains(Self, HeaderName) -> Bool
 pub fn HeaderMap::contains_list_token(Self, String, String) -> Bool
-pub fn HeaderMap::content_length(Self) -> Result[Int32?, HeaderError]
+pub fn HeaderMap::content_length(Self) -> Result[UInt64?, HeaderError]
 pub fn HeaderMap::copy(Self) -> Self
 pub fn HeaderMap::fields(Self) -> Array[HeaderField]
 pub fn HeaderMap::get(Self, HeaderName) -> HeaderValue?
@@ -164,6 +165,7 @@ pub fn HeaderMap::length(Self) -> Int32
 pub fn HeaderMap::new() -> Self
 pub fn HeaderMap::remove(Self, HeaderName) -> Unit
 pub fn HeaderMap::set(Self, HeaderName, HeaderValue) -> Unit
+pub fn HeaderMap::validate_content_length(Self) -> Result[Unit, HeaderError]
 
 #derive(Compare, Eq, Hash, @debug.Debug)
 pub struct HeaderName {

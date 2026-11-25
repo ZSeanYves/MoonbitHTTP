@@ -552,8 +552,8 @@ fn HttpCache::prepare_entry(
     raise EntryTooLarge(metadata_size)
   }
   if declared is Some(length) &&
-    length > self.config.limits.max_entry_bytes - metadata_size {
-    raise EntryTooLarge(length)
+    length > (self.config.limits.max_entry_bytes - metadata_size).to_uint64() {
+    raise EntryTooLarge(length.min(2147483647UL).to_int())
   }
   {
     key,
@@ -601,7 +601,10 @@ fn HttpCache::store_entry(
       !@types.response_allows_body(request.http_method, head.response.status) &&
       body_size != 0
     ) ||
-    (head.response.headers.content_length() is Ok(Some(n)) && n != body_size) {
+    (
+      head.response.headers.content_length() is Ok(Some(n)) &&
+      n != body_size.to_uint64()
+    ) {
     return Err(InvalidResponse)
   }
   let metadata_size = head.size + trailers.map(cache_metadata_size).unwrap_or(0)

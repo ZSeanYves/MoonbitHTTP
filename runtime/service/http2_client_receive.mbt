@@ -120,21 +120,14 @@ async fn Http2ClientState::deliver_headers(
       }
       return
     }
-    let content_length = match headers.content_length() {
-      Ok(value) => value
-      Err(_) => {
-        self.reset_stream(
-          stream_id,
-          ProtocolError,
-          "invalid response content-length",
-        )
-        return
-      }
-    }
     let tunnel = stream.request_method == Connect &&
       status >= 200 &&
       status < 300
-    if (status == 204 || tunnel) && content_length is Some(_) {
+    stream.response_body_allowed = stream.request_method != Head &&
+      status != 204 &&
+      status != 304
+    if (status == 204 || tunnel) &&
+      headers.get_string("content-length") is Some(_) {
       self.reset_stream(
         stream_id,
         ProtocolError,
@@ -142,20 +135,39 @@ async fn Http2ClientState::deliver_headers(
       )
       return
     }
-    stream.response_body_allowed = stream.request_method != Head &&
-      status != 204 &&
-      status != 304
-    stream.expected_response_bytes = if stream.response_body_allowed && !tunnel {
-      content_length
-    } else {
-      None
-    }
-    if stream.expected_response_bytes is Some(length) &&
-      length > self.config.limits.max_body_bytes {
+    if stream.response_body_allowed && !tunnel {
+      match headers.body_content_length() {
+        Ok(Some(length)) if length > self.config.limits.max_body_bytes => {
+          self.reset_stream(
+            stream_id,
+            EnhanceYourCalm,
+            "response body exceeds configured limit",
+          )
+          return
+        }
+        Ok(length) => stream.expected_response_bytes = length
+        Err(ContentLengthOverflow) => {
+          self.reset_stream(
+            stream_id,
+            EnhanceYourCalm,
+            "response body exceeds configured limit",
+          )
+          return
+        }
+        Err(_) => {
+          self.reset_stream(
+            stream_id,
+            ProtocolError,
+            "invalid response content-length",
+          )
+          return
+        }
+      }
+    } else if headers.validate_content_length() is Err(_) {
       self.reset_stream(
         stream_id,
-        EnhanceYourCalm,
-        "response body exceeds configured limit",
+        ProtocolError,
+        "invalid response content-length",
       )
       return
     }

@@ -26,6 +26,7 @@ fn response_framing_rule(
 priv enum FramingFields {
   Unspecified
   Length(Int32)
+  LargeLength
   Transfer(Array[@types.HeaderValue])
 }
 
@@ -34,19 +35,22 @@ fn framing_fields(
   headers : @types.HeaderMap,
   version : @types.Version,
 ) -> Result[FramingFields, Http1Error] {
-  let length = match headers.content_length() {
-    Ok(value) => value
+  let length : FramingFields = match headers.body_content_length() {
+    Ok(Some(size)) => Length(size)
+    Ok(None) => Unspecified
+    Err(ContentLengthOverflow) => LargeLength
     Err(_) =>
       return Err(InvalidFraming("invalid or conflicting content-length"))
   }
-  match (headers.get_all_string("transfer-encoding"), length) {
-    ([], None) => Ok(Unspecified)
-    ([], Some(size)) => Ok(Length(size))
-    (_, Some(_)) =>
-      Err(InvalidFraming("transfer-encoding and content-length conflict"))
-    (_, None) if version == Http10 =>
-      Err(InvalidFraming("HTTP/1.0 does not support Transfer-Encoding"))
-    (values, None) => Ok(Transfer(values))
+  let transfer = headers.get_all_string("transfer-encoding")
+  if transfer.is_empty() {
+    Ok(length)
+  } else if !(length is Unspecified) {
+    Err(InvalidFraming("transfer-encoding and content-length conflict"))
+  } else if version == Http10 {
+    Err(InvalidFraming("HTTP/1.0 does not support Transfer-Encoding"))
+  } else {
+    Ok(Transfer(transfer))
   }
 }
 
@@ -58,6 +62,8 @@ fn FramingFields::body_framing(
   match self {
     Unspecified => Ok(implicit)
     Length(size) => Ok(ContentLength(size))
+    LargeLength =>
+      Err(InvalidFraming("content-length exceeds supported payload length"))
     Transfer([value]) if value
       .to_string_lossy()
       .trim(chars=" \t")

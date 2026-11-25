@@ -218,6 +218,8 @@ test "http1 conformance: HEAD and 304 round-trip representation metadata without
     for
       (name, value) in [
         ("content-length", "42"),
+        ("content-length", "4294967296"),
+        ("content-length", "18446744073709551616"),
         ("transfer-encoding", "gzip, chunked"),
       ] {
       let headers = @types.HeaderMap::new()

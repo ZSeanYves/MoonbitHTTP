@@ -229,7 +229,7 @@ fn decode_h2_request(
       return Err(StreamError(stream_id, ProtocolError, "invalid :authority"))
   }
   join_request_cookies(headers)
-  let expected_body_bytes = match headers.content_length() {
+  let expected_body_bytes = match headers.body_content_length() {
     Ok(value) => value
     Err(_) =>
       return Err(

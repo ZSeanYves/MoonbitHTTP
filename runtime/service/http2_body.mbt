@@ -5,7 +5,7 @@ fn h2_outgoing_length(
   headers : @types.HeaderMap,
   hint : Int32?,
 ) -> Int32? raise @http2.H2ProtocolError {
-  let declared = match headers.content_length() {
+  let declared = match headers.body_content_length() {
     Ok(value) => value
     Err(_) =>
       raise StreamError(stream_id, ProtocolError, "invalid content-length")

@@ -253,31 +253,12 @@ pub fn HeaderMap::fields(self : HeaderMap) -> Array[HeaderField] {
 }
 
 ///|
-fn parse_decimal_bytes(value : BytesView) -> Result[Int32, HeaderError] {
-  if value.is_empty() {
-    return Err(InvalidContentLength)
-  }
-  let mut result = 0
-  for byte in value {
-    if byte < b'0' || byte > b'9' {
-      return Err(InvalidContentLength)
-    }
-    let digit = byte.to_int() - 48
-    if result > (0x7fffffff - digit) / 10 {
-      return Err(ContentLengthOverflow)
-    }
-    result = result * 10 + digit
-  }
-  Ok(result)
-}
-
-///|
-/// Parses all Content-Length field lines and comma-separated members. Repeated
-/// values are accepted only when their decimal values are identical.
-pub fn HeaderMap::content_length(
+/// Return the canonical decimal digits. Validate all field lines and comma
+/// members before imposing a numeric bound, including on HEAD/304 metadata.
+fn HeaderMap::content_length_digits(
   self : HeaderMap,
-) -> Result[Int32?, HeaderError] {
-  let mut expected : Int32? = None
+) -> Result[BytesView?, HeaderError] {
+  let mut expected : BytesView? = None
   for value in self.get_all_string("content-length") {
     let bytes = value.bytes
     let mut start = 0
@@ -296,13 +277,22 @@ pub fn HeaderMap::content_length(
             (bytes[item_end - 1] == b' ' || bytes[item_end - 1] == b'\t') {
         item_end -= 1
       }
-      let parsed = match parse_decimal_bytes(bytes[item_start:item_end]) {
-        Ok(value) => value
-        Err(error) => return Err(error)
+      if item_start == item_end {
+        return Err(InvalidContentLength)
+      }
+      while item_start + 1 < item_end && bytes[item_start] == b'0' {
+        item_start += 1
+      }
+      let digits = bytes[item_start:item_end]
+      for digit in digits {
+        if digit < b'0' || digit > b'9' {
+          return Err(InvalidContentLength)
+        }
       }
       match expected {
-        Some(value) if value != parsed => return Err(ConflictingContentLength)
-        None => expected = Some(parsed)
+        Some(previous) if previous != digits =>
+          return Err(ConflictingContentLength)
+        None => expected = Some(digits)
         _ => ()
       }
       if end == bytes.length() {
@@ -312,6 +302,51 @@ pub fn HeaderMap::content_length(
     }
   }
   Ok(expected)
+}
+
+///|
+/// Numeric representation length, including for HEAD and 304. A syntactically
+/// valid value beyond UInt64 returns ContentLengthOverflow; the original
+/// decimal remains available through get_string("content-length").
+pub fn HeaderMap::content_length(
+  self : HeaderMap,
+) -> Result[UInt64?, HeaderError] {
+  let digits = match self.content_length_digits() {
+    Ok(Some(digits)) => digits
+    Ok(None) => return Ok(None)
+    Err(error) => return Err(error)
+  }
+  let mut result : UInt64 = 0
+  for byte in digits {
+    let digit = (byte.to_int() - 48).to_uint64()
+    if result > (18446744073709551615UL - digit) / 10 {
+      return Err(ContentLengthOverflow)
+    }
+    result = result * 10 + digit
+  }
+  Ok(Some(result))
+}
+
+///|
+/// Validate representation metadata without converting its length to a machine integer.
+#internal(http_framing)
+pub fn HeaderMap::validate_content_length(
+  self : HeaderMap,
+) -> Result[Unit, HeaderError] {
+  self.content_length_digits().map(_ => ())
+}
+
+///|
+/// Checked conversion for bounded payload I/O.
+#internal(http_framing)
+pub fn HeaderMap::body_content_length(
+  self : HeaderMap,
+) -> Result[Int32?, HeaderError] {
+  match self.content_length() {
+    Ok(Some(size)) if size > 2147483647UL => Err(ContentLengthOverflow)
+    Ok(size) => Ok(size.map(n => n.to_int()))
+    Err(error) => Err(error)
+  }
 }
 
 ///|

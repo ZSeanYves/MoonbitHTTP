@@ -40,7 +40,7 @@ pub fn HttpCache::revalidate(
     request.headers.get_string("if-range") is Some(_) {
     return Err(InvalidRequest)
   }
-  if not_modified.headers.content_length() is Err(_) {
+  if not_modified.headers.validate_content_length() is Err(_) {
     return Err(InvalidResponse)
   }
   let key = match cache_base_key(request) {

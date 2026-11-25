@@ -30,7 +30,18 @@ async fn[W : @aio.BinaryWriter, B : @body.Body] H2ServerStreams::send_response(
   } else {
     response.body.size_hint().exact_size()
   }
-  let expected = h2_outgoing_length(stream_id, response.headers, hint)
+  let expected = if suppressed {
+    if response.headers.validate_content_length() is Err(_) {
+      raise @http2.H2ProtocolError::StreamError(
+        stream_id,
+        ProtocolError,
+        "invalid content-length",
+      )
+    }
+    None
+  } else {
+    h2_outgoing_length(stream_id, response.headers, hint)
+  }
   let end_on_headers = suppressed || hint == Some(0)
   write_h2_header_block(
     self.write_lock,
