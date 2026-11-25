@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: moonbithttp-${{ github.workflow }}-${{ github.ref }}
+  group: moonbithttp-${{ github.workflow }}-${{ github.ref == 'refs/heads/codex/http-quality-round-four' && github.sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -232,12 +232,13 @@ jobs:
         run: moon run repo-tools/tools/http3_interoperability.mbtx --reverse --impair --duration-seconds 60 --concurrent-requests 8
 
       - name: Verify HTTP/3 pool recovery after a quic-go server restart
+        if: ${{ !cancelled() }}
         run: |
           go -C repo-tools/tools/quic_go_reset_reference build -mod=readonly -o "$PWD/_build/quic-go-reset-reference" .
           moon run repo-tools/tools/http3_interoperability.mbtx --peer-restart "$PWD/_build/quic-go-reset-reference"
 
       - name: Exercise the original key-update deadline twenty times
-        if: matrix.run == 1
+        if: ${{ !cancelled() && matrix.run == 1 }}
         run: moon run repo-tools/tools/http3_interoperability.mbtx -- --key-update-runs 20 --impairment combined
 
       - name: Compare aioquic with the previous read key retained
@@ -247,7 +248,7 @@ jobs:
           PYTHONPATH="$PWD/_build/interop-aioquic/old-read-key-control" moon run repo-tools/tools/http3_interoperability.mbtx -- --key-update-runs 20 --impairment combined
 
       - name: Isolate the direct, loss and reorder profiles
-        if: matrix.run == 2
+        if: ${{ !cancelled() && matrix.run == 2 }}
         run: |
           for profile in direct drop reorder; do
             moon run repo-tools/tools/http3_interoperability.mbtx -- --key-update-runs 2 --impairment "$profile"
@@ -256,7 +257,7 @@ jobs:
       - name: Summarize local peer observations
         if: always()
         run: |
-          find _build/evidence/http3-interoperability -name '*.public.json' -exec jq -c '{case,verified,client,elapsed_us,alpn_negotiated,key_update_requested,response_received}' {} \; >> "$GITHUB_STEP_SUMMARY"
+          find _build/evidence/http3-interoperability -name '*.public.json' -exec jq -c 'if has("requested") or has("aioquic_revision") then . else {case,verified,client,elapsed_us,alpn_negotiated,key_update_requested,response_received} end' {} \; >> "$GITHUB_STEP_SUMMARY"
 
       - name: Retain loopback events
         if: always()

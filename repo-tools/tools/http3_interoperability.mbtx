@@ -1096,14 +1096,16 @@ async fn main {
   }
   ignore(record(directory, "python-version", python, ["--version"]))
   let openssl = record(directory, "openssl-version", "openssl", ["version"])
-  ignore(record(directory, "moon-version", "moon", ["version", "--all"]))
+  let moon = record(directory, "moon-version", "moon", ["version"])
+  let platform = record(directory, "kernel-version", "uname", ["-sr"])
   let server_hash = file_hash(server_path)
   let source_hash = file_hash(client)
   let crypto_module = record(directory, "peer-crypto-module", python, ["-c", "from aioquic.quic import crypto;print(crypto.__file__)"])
   let crypto_hash = file_hash(crypto_module.trim().to_owned())
   let versions : Json = { "revision": revision.trim().to_owned(), "aioquic_revision": upstream.trim().to_owned(),
     "openssl": openssl.trim().to_owned(), "server_sha256": server_hash, "client_source_sha256": source_hash,
-    "aioquic_crypto_sha256": crypto_hash }
+    "aioquic_crypto_sha256": crypto_hash, "moon": moon.trim().to_owned(),
+    "platform": platform.trim().to_owned(), "impairment": impairment }
   @fs.write_file(directory + "/versions.public.json", versions, create_mode=CreateNew)
   ignore(record(directory, "aioquic-example-integrity", "git", [
     "-C", source, "diff", "--exit-code", "HEAD", "--", "examples",
@@ -1150,11 +1152,29 @@ async fn main {
     }
     let proxy_summaries : Array[Json] = []
     if key_update_runs > 0 {
+      let failures : Array[Int] = []
       for attempt in 0..<key_update_runs {
         request_case(directory, "key-update-" + attempt.to_string(), python, client, ["/"],
           ["--key-update"], Some("MoonbitHTTP HTTP/3 smoke\n"), impairment != "direct",
-          proxy_summaries, include_headers=true, drop=impairment != "reorder", reorder=impairment != "drop")
+          proxy_summaries, include_headers=true, drop=impairment != "reorder", reorder=impairment != "drop") catch {
+          error if @async.is_being_cancelled() => raise error
+          error => {
+            @fs.write_file(directory + "/key-update-\{attempt}.failure", error.to_string(), create_mode=CreateNew)
+            println("Failed key-update-\{attempt}")
+            failures.push(attempt)
+          }
+        }
       }
+      let previous_exit = server.try_wait()
+      if previous_exit is None {
+        ignore(@process.run("kill", ["-TERM", server.pid.to_string()]))
+      }
+      let exit = server.wait()
+      let result : Json = { "requested": key_update_runs, "passed": key_update_runs - failures.length(),
+        "failed_attempts": failures, "impairment": impairment, "aioquic_crypto_sha256": crypto_hash,
+        "server_exited_early": previous_exit is Some(_), "server_exit": exit }
+      @fs.write_file(directory + "/attempts.public.json", result, create_mode=CreateNew)
+      guard failures.is_empty() && previous_exit is None else { fail("key-update series failed; see attempts.public.json") }
       return
     }
     request_case(
