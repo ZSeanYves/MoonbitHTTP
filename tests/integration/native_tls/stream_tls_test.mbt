@@ -36,6 +36,7 @@ fn test_tcp_stream(
 async fn handshake_pair(
   client_options : @transport.TlsOptions,
   server_options : @transport.TlsOptions,
+  allow_system_roots~ : Bool = false,
 ) -> (
   Result[@transport.SecureConnection, @transport.TlsError],
   Result[@transport.SecureConnection, @transport.TlsError],
@@ -47,7 +48,7 @@ async fn handshake_pair(
     "127.0.0.1",
     listener.addr.port.to_int(),
   ).unwrap()
-  let provider = @tls_native.NativeTlsProvider::new(allow_system_roots=false)
+  let provider = @tls_native.NativeTlsProvider::new(allow_system_roots~)
   @async.with_timeout(5000, async fn() {
     @async_support.with_group_result(async fn(group) {
       let server_task = group.spawn(async fn() {
@@ -709,4 +710,52 @@ async test "native TLS: abrupt EOF closes the connection and prevents reuse" {
   assert_true(client.is_closed())
   assert_eq(client.read(32), Err(Closed))
   assert_eq(client.write(b"after close"), Err(Closed))
+}
+
+///|
+async test "OpenSSL default trust is configurable and explicit anchors replace it" {
+  let directory = @fs.tmpdir(prefix="moon-http-ca")
+  defer @fs.remove(directory, recursive=true)
+  let pem = directory + "/test-root.pem"
+  let ca = fixture("localhost.cert.pem")
+  @fs.write_binary(pem, ca)
+  let file_before = @env.get_env_var("SSL_CERT_FILE")
+  let dir_before = @env.get_env_var("SSL_CERT_DIR")
+  defer (for
+    pair in [("SSL_CERT_FILE", file_before), ("SSL_CERT_DIR", dir_before)] {
+    let (name, saved) = pair
+    match saved {
+      Some(value) => @env.set_env_var(name, value)
+      None => @env.unset_env_var(name)
+    }
+  })
+  @env.set_env_var("SSL_CERT_FILE", pem)
+  @env.set_env_var("SSL_CERT_DIR", directory)
+  let (client, server) = fixture_options()
+  async fn verify(roots : Bytes?, trusted : Bool) -> Unit {
+    let (client_result, peer) = handshake_pair(
+      { ..client, trust_anchors: roots, },
+      server,
+      allow_system_roots=true,
+    )
+    if peer is Ok(connection) {
+      connection.close()
+    }
+    match client_result {
+      Ok(connection) => {
+        defer connection.close()
+        assert_true(trusted && connection.is_authenticated())
+      }
+      Err(NativeFailure(Handshake, _, verification, _)) => {
+        assert_false(trusted)
+        assert_true(verification != 0L)
+      }
+      Err(other) => fail("unanticipated TLS failure: \{Repr(other)}")
+    }
+  }
+  verify(None, true)
+  verify(Some(fixture("other.cert.pem")), false)
+  @fs.remove(pem)
+  verify(None, false)
+  verify(Some(ca), true)
 }

@@ -2,7 +2,7 @@
 
 [中文](README_zh.md) · [Project README](../../../README.md)
 
-Native only. `NativeTlsProvider` runs TLS over an existing byte stream with OpenSSL 3.x. `NativeQuicTlsProvider` handles QUIC handshakes with OpenSSL 3.5 or later in the 3.x series. Pass the peer identity, ALPN, trust anchors and any credentials in `TlsOptions` at handshake time. The stream provider constructor controls use of system trust roots.
+Native only. `NativeTlsProvider` runs TLS over an existing byte stream with OpenSSL 3.x. `NativeQuicTlsProvider` handles QUIC handshakes with OpenSSL 3.5 or later in the 3.x series. Pass the peer identity, ALPN, trust anchors and any credentials in `TlsOptions` at handshake time. The stream provider constructor controls use of OpenSSL’s default trust paths.
 
 In `moon.pkg`
 
@@ -29,6 +29,12 @@ pub async fn secure(
   )
 }
 ```
+
+## Trust sources
+
+With peer verification enabled, an explicit nonempty PEM in `trust_anchors` replaces OpenSSL’s default roots. With `trust_anchors=None` and `allow_system_roots=true`, the provider calls `SSL_CTX_set_default_verify_paths` on the OpenSSL library loaded by the process. The library distribution and its configuration determine the CA file, hashed CA directory and any platform store integration. Set `SSL_CERT_FILE` to a PEM bundle or configure `SSL_CERT_DIR` as an OpenSSL hashed directory before starting the process. Each connection uses a fresh verification context.
+
+On Linux use the paths for the selected distribution or pinned build. On macOS check the selected Homebrew OpenSSL prefix. On Windows check the distribution selected through `OPENSSL_ROOT_DIR`. To make an enterprise CA portable across installations, pass its PEM explicitly. Importing a root into Keychain or the Windows certificate store alone depends on the selected OpenSSL distribution. Use its matching `openssl version -a` to inspect build defaults.
 
 ## Peer verification and shutdown
 
