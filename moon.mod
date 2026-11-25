@@ -1,6 +1,6 @@
 name = "ZSeanYves/http"
 
-version = "0.8.0"
+version = "0.8.2"
 
 // Protocol parsers, state machines and transport capabilities return failures
 // as values so callers can inspect them before choosing a recovery action.
