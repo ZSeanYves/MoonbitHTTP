@@ -40,6 +40,7 @@ fn h3_request(
         }
     }
   }
+  join_request_cookies(headers)
   headers.append_string("host", authority).unwrap_or_error()
   let uri = @types.Uri::parse_request_target(
     if meth == Connect {

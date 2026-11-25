@@ -125,3 +125,37 @@ test "service h2 rejects malformed IP-literal authority" {
     decode_h2_request(5, invalid) is Err(StreamError(5, ProtocolError, _)),
   )
 }
+
+///|
+test "split Cookie reaches H2 and H3 applications as a single value" {
+  for values in [[b"theme=light", b"lang=en"], [b"theme=light; lang=en"]] {
+    let fields : Array[@http2.HpackHeader] = [
+      { name: ":method", value: b"GET", },
+      { name: ":scheme", value: b"https", },
+      { name: ":authority", value: b"example.test", },
+      { name: ":path", value: b"/", },
+    ]
+    for value in values {
+      fields.push({ name: "cookie", value, })
+    }
+    let h2 = decode_h2_request(1, fields).unwrap()
+    let h3 = h3_request(
+      0L,
+      fields.map(h => @http3.QpackField::new(h.name, h.value).unwrap()),
+      @body.BodyStream::new().unwrap(),
+    )
+    for headers in [h2.headers, h3.headers] {
+      assert_eq(headers.get_all_string("cookie").length(), 1)
+      assert_eq(
+        headers.get_string("cookie").unwrap().bytes,
+        b"theme=light; lang=en",
+      )
+    }
+  }
+  let response = decode_http2_response_head(1, [
+    { name: ":status", value: b"200", },
+    { name: "set-cookie", value: b"a=1", },
+    { name: "set-cookie", value: b"b=2", },
+  ]).unwrap()
+  assert_eq(response.1.get_all_string("set-cookie").length(), 2)
+}

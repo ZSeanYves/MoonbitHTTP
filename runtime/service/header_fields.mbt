@@ -24,6 +24,25 @@ fn append_regular_header(
 }
 
 ///|
+/// HTTP/2 and HTTP/3 permit a sender to split Cookie for compression. Restore
+/// its HTTP semantics at the application boundary, preserving opaque values.
+fn join_request_cookies(headers : @types.HeaderMap) -> Unit {
+  let cookies = headers.get_all_string("cookie")
+  guard cookies.length() > 1 else { return }
+  let joined = @buffer.Buffer()
+  for i, cookie in cookies {
+    if i > 0 {
+      joined.write_bytes(b"; ")
+    }
+    joined.write_bytes(cookie.bytes)
+  }
+  headers.set(
+    @types.HeaderName::parse("cookie").unwrap(),
+    @types.HeaderValue::from_bytes(joined.to_bytes()).unwrap(),
+  )
+}
+
+///|
 /// Decide from the received fields before opening the application's upload.
 /// Query framing only when a peer actually requests a continue response.
 fn expectation_response(

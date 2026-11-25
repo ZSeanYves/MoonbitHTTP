@@ -6,6 +6,7 @@ import {
   "moonbitlang/core/async/io" @aio,
   "moonbitlang/core/async/aqueue",
   "moonbitlang/core/debug",
+  "moonbitlang/core/buffer",
   "moonbitlang/core/deque",
   "moonbitlang/core/string",
   "moonbitlang/core/encoding/utf8",
