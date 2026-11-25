@@ -2,7 +2,7 @@ name: moonbit-ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/http-quality-round-four]
   pull_request:
   workflow_dispatch:
 
