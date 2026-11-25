@@ -52,16 +52,21 @@ async fn compare_window(directory : String, go_binary : String, moon_server : St
     })
     let probe = ["--mode", "probe", "--target", url, "--protocol", protocol, "--payload-bytes", "65536", "--concurrency", "4", "--cacert", cert]
     ignore(recorded(directory, name + ".warmup", go_binary, probe + ["--duration-seconds", "1"]))
+    let usage_args = ["-p", server.pid.to_string(), "-o", "rss=,time="]
+    let before = recorded(directory, name + ".resources-start", "ps", usage_args)
     let value = @json.parse(recorded(directory, name, go_binary, probe + ["--duration-seconds", "10"]))
+    let after = recorded(directory, name + ".resources-end", "ps", usage_args)
     guard server.try_wait() is None else { fail("\{name}: server exited during the probe") }
-    let row : Json = { "server": arm, "window": index, "protocol": protocol, "result": value }
+    let row : Json = { "server": arm, "window": index, "protocol": protocol, "result": value,
+      "server_rss_kib_cpu_time_start": before.trim().to_owned(),
+      "server_rss_kib_cpu_time_end": after.trim().to_owned() }
     println("Passed \{name}")
     row
   })
 }
 
 ///|
-async fn compare(directory : String, binary : String) -> Unit {
+async fn compare(directory : String, binary : String, gate : Bool) -> Unit {
   ignore(recorded(directory, "build-moon-server", "moon", ["build", "examples/cmd/smoke_server", "--release", "--target", "native", "--deny-warn", "--warn-list", "+73"], timeout_ms=300000))
   let moon_server = "_build/native/release/build/examples/cmd/smoke_server/smoke_server.exe"
   let version = recorded(directory, "go-version", "go", ["version"])
@@ -70,7 +75,50 @@ async fn compare(directory : String, binary : String) -> Unit {
   let revision = recorded(directory, "revision", "git", ["rev-parse", "HEAD"])
   let status = recorded(directory, "source-status", "git", ["status", "--porcelain", "--untracked-files=normal"])
   let windows : Array[Json] = []
+  let ratios : Array[Json] = []
+  let mut passed = true
+  let mut baseline_hash = ""
+  let baseline = "37655164e23695acf8e9706a8284cb95bf06fd62"
+  let root = directory + "/baseline"
+  let baseline_server = root + "/" + moon_server
+  if gate {
+    @fs.mkdir(root)
+    let archive = directory + "/baseline.tar"
+    ignore(recorded(directory, "archive", "git", ["archive", "-o", archive, baseline]))
+    ignore(recorded(directory, "extract", "tar", ["-xf", archive, "-C", root]))
+    let (code, _, err) = @process.collect_output("moon", ["build", "examples/cmd/smoke_server", "--release", "--target", "native", "--deny-warn", "--warn-list", "+73"], cwd=root)
+    guard code == 0 else { fail("baseline build failed: " + err.text()) }
+    baseline_hash = @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file(baseline_server).binary()))
+  }
   for protocol in ["h1", "h2"] {
+    if gate {
+      let throughput_ratios : Array[Double] = []
+      let p95_ratios : Array[Double] = []
+      for pair in 0..<5 {
+        let order = if pair % 2 == 0 { ["Baseline", "Candidate"] } else { ["Candidate", "Baseline"] }
+        let measurements : Map[String, (Double, Double)] = Map([])
+        for arm in order {
+          let row = compare_window(directory, binary, if arm == "Baseline" { baseline_server } else { moon_server }, arm, protocol, pair)
+          guard row is { "result": { "requests": Number(requests, ..), "latency_samples": Number(samples, ..), "errors": Number(errors, ..),
+            "throughput_per_second": Number(throughput, ..), "p95_ms": Number(latency, ..), .. }, .. } &&
+            requests == samples && requests > 0.0 && errors == 0.0 && latency > 0.0 else { fail("incomplete benchmark window") }
+          measurements[arm] = (throughput, latency)
+          windows.push(row)
+        }
+        let (bt, bl) = measurements.get("Baseline").unwrap()
+        let (ct, cl) = measurements.get("Candidate").unwrap()
+        throughput_ratios.push(ct / bt)
+        p95_ratios.push(cl / bl)
+        windows.push(compare_window(directory, binary, moon_server, "Go", protocol, pair))
+      }
+      throughput_ratios.sort()
+      p95_ratios.sort()
+      let ok = throughput_ratios[2] >= 1.25 && p95_ratios[2] <= 1.05
+      passed = passed && ok
+      ratios.push({ "protocol": protocol, "median_throughput_ratio": throughput_ratios[2],
+        "median_p95_ratio": p95_ratios[2], "passed": ok })
+      continue
+    }
     for index, arm in ["Go", "MoonBit", "MoonBit", "Go"] {
       windows.push(compare_window(directory, binary, moon_server, arm, protocol, index))
     }
@@ -82,8 +130,11 @@ async fn compare(directory : String, binary : String) -> Unit {
     "moon_server_sha256": @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file(moon_server).binary())),
     "payload_bytes": 65536, "concurrency": 4, "warmup_seconds": 1, "duration_seconds": 10,
     "windows": windows, "scope": "loopback server comparison on this host",
+    "baseline_revision": if gate { baseline } else { "" }, "baseline_server_sha256": baseline_hash,
+    "paired_medians": ratios,
   }
   @fs.write_file(directory + "/result.json", result, create_mode=CreateNew)
+  guard passed else { fail("end-to-end performance gate failed; evidence: " + directory) }
   println("Paired Go/MoonBit HTTP/1.1 and HTTP/2 windows passed. Evidence: \{directory}")
 }
 
@@ -91,8 +142,8 @@ async fn compare(directory : String, binary : String) -> Unit {
 async fn main {
   let paired = match @env.args() {
     [_] => false
-    [_, "--compare"] => true
-    _ => fail("usage: go_net_http_reference.mbtx [--compare]")
+    [_, "--compare"] | [_, "--candidate-gate"] => true
+    _ => fail("usage: go_net_http_reference.mbtx [--compare | --candidate-gate]")
   }
   let temporary = @fs.tmpdir(prefix="moonbithttp-go-reference")
   let unique = temporary.split("/").to_array().last().unwrap().to_owned()
@@ -118,7 +169,7 @@ async fn main {
   let build = @process.run("go", ["build", "-o", binary, "repo-tools/tools/go_net_http_reference/main.go"])
   guard build == 0 else { fail("Go reference build failed; evidence: \{directory}") }
   if paired {
-    compare(directory, binary)
+    compare(directory, binary, @env.args() is [_, "--candidate-gate"])
     return
   }
   let reference = @async.with_timeout(180000, async fn() {
