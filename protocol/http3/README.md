@@ -31,4 +31,16 @@ The standalone decoder returns whole frames. A session can emit several data eve
 
 ## Migrating driver diagnostics to 0.9
 
-Use `driver.blocked_bytes()` and `driver.blocked_stream_count()` for retained input. Read the connection, failure, and local control and QPACK stream IDs using their existing methods. The internal fields `decoders`, `kinds`, `prefixes`, `blocked_frames`, and `pending_fin` have been removed from the public interface. On `QpackDecoder`, use `capacity()`, `table_size()`, `total_inserts()`, and `blocked_stream_count()`. Track configuration at construction and use the errors returned by stream operations. The `blocked` map and `encoder_buffer` queue are private.
+| 0.8 driver fields | 0.9 observation |
+|---|---|
+| `connection`, `failure` | Call `connection()` or `failure()`. |
+| `local_control_stream`, `local_qpack_encoder_stream`, `local_qpack_decoder_stream` | Call the method with the same name to read the stream ID. |
+| `blocked_bytes`, `blocked_frames` | Use `blocked_bytes()` or `blocked_stream_count()` for retained input. |
+| `decoders`, `kinds`, `prefixes`, `pending_fin` | Observe driver actions such as message completion through the session. These per-stream containers are private. |
+
+| 0.8 decoder fields | 0.9 observation |
+|---|---|
+| `capacity`, `table_size`, `total_inserts` | Call the method with the same name. |
+| `blocked` | Use `blocked_stream_count()` for the count and `ready_blocked_streams()` for ready stream IDs. |
+| `encoder_buffer`, `failure` | Use the results of `feed_encoder_stream`, `finish_encoder_stream` and `decode_field_section`. |
+| `limits` | Retain the configuration passed to `QpackDecoder::new`. |

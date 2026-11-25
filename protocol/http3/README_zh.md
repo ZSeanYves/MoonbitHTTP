@@ -31,4 +31,16 @@ test "decode a DATA frame" {
 
 ## 迁移到 0.9 的驱动诊断接口
 
-通过 `driver.blocked_bytes()` 和 `driver.blocked_stream_count()` 查询等待解码的数据量及流数。连接、失败原因、本地控制流和 QPACK 流 ID 可通过已有同名方法读取。公开接口已移除 `decoders`、`kinds`、`prefixes`、`blocked_frames` 和 `pending_fin`。在 `QpackDecoder` 上使用 `capacity()`、`table_size()`、`total_inserts()` 和 `blocked_stream_count()`。调用者可保留构造时的配置，并从流操作的返回值读取错误。表 `blocked` 和队列 `encoder_buffer` 已私有化。
+| 0.8 驱动字段 | 0.9 读取方式 |
+|---|---|
+| `connection`、`failure` | 调用 `connection()` 或 `failure()`。 |
+| `local_control_stream`、`local_qpack_encoder_stream`、`local_qpack_decoder_stream` | 调用同名方法读取流 ID。 |
+| `blocked_bytes`、`blocked_frames` | 用 `blocked_bytes()` 和 `blocked_stream_count()` 查询保留的字节数和流数量。 |
+| `decoders`、`kinds`、`prefixes`、`pending_fin` | 通过会话返回的事件观察消息完成等状态。这些逐流容器由驱动管理。 |
+
+| 0.8 解码器字段 | 0.9 读取方式 |
+|---|---|
+| `capacity`、`table_size`、`total_inserts` | 调用同名方法。 |
+| `blocked` | `blocked_stream_count()` 返回数量，`ready_blocked_streams()` 返回可以恢复的流 ID。 |
+| `encoder_buffer`、`failure` | 检查 `feed_encoder_stream`、`finish_encoder_stream`、`decode_field_section` 的结果。 |
+| `limits` | 在构造 `QpackDecoder` 时保留传入配置。 |
