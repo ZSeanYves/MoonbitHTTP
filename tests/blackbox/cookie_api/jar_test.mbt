@@ -407,3 +407,22 @@ test "cookie jar: session cleanup preserves only persistent cookies" {
   jar.clear()
   assert_eq(jar.size(now_seconds=1L), 0)
 }
+
+///|
+test "IP origins only accept host-only cookies" {
+  for host in ["127.0.0.1", "127.000.00.1", "[2001:db8::1]", "[v1.example]"] {
+    let jar = @cookie.CookieJar::new(enabled=true).unwrap()
+    let origin = @types.Uri::parse("https://" + host + "/").unwrap()
+    assert_eq(jar.store_string("id=first", origin, 0L), Ok(CookieStored))
+    assert_eq(
+      jar.store_string("id=second; Domain=" + host, origin, 0L),
+      Ok(CookieIgnored(InvalidCookieDomain)),
+    )
+    assert_eq(
+      jar.cookie_header(origin, 1L).unwrap().unwrap().to_string_lossy(),
+      "id=first",
+    )
+    let other = @types.Uri::parse("https://v1.example/").unwrap()
+    assert_true(jar.cookie_header(other, 1L).unwrap() is None)
+  }
+}

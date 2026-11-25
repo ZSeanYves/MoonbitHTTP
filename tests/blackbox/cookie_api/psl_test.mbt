@@ -59,3 +59,22 @@ test "psl: public suffixes and IP literals cannot become registrable sites" {
   )
   assert_eq(@cookie.normalize_domain("bad..example"), Err(InvalidDomain))
 }
+
+///|
+test "PSL queries agree on normalized IP addresses and trailing root dots" {
+  for
+    (host, reason) in [
+      ("127.0.0.1", @cookie.IpAddressHasNoPublicSuffix),
+      ("１２７。０。０。１", IpAddressHasNoPublicSuffix),
+      ("127.000.00.1", IpAddressHasNoPublicSuffix),
+      ("[2001:DB8::1]", IpAddressHasNoPublicSuffix),
+      ("2001:DB8::1", IpAddressHasNoPublicSuffix),
+      ("example.com.", InvalidDomain),
+      ("127.0.0.1.", InvalidDomain),
+    ] {
+    assert_eq(@cookie.normalize_domain(host), Err(reason))
+    assert_eq(@cookie.public_suffix(host), Err(reason))
+    assert_eq(@cookie.is_public_suffix(host), Err(reason))
+    assert_eq(@cookie.registrable_domain(host), Err(reason))
+  }
+}

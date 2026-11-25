@@ -28,21 +28,9 @@ pub fn CookieJar::set_enabled(self : CookieJar, enabled : Bool) -> Unit {
 }
 
 ///|
-fn cookie_ascii_lower_text(value : String) -> String {
-  let bytes = @utf8.encode(value)
-  let lowered = FixedArray::make(bytes.length(), b'0')
-  for index in 0..<bytes.length() {
-    lowered[index] = cookie_ascii_lower_byte(bytes[index])
-  }
-  @utf8.decode(lowered.unsafe_reinterpret_as_bytes()) catch {
-    _ => ""
-  }
-}
-
-///|
 fn cookie_request_parts(
   uri : @types.Uri,
-) -> Result[(String, Bool, Bytes), CookieError] {
+) -> Result[(CookieHost, Bool, Bytes), CookieError] {
   if uri.form != AbsoluteForm {
     return Err(InvalidCookieRequestUri)
   }
@@ -55,25 +43,30 @@ fn cookie_request_parts(
     Some("http") => false
     _ => return Err(InvalidCookieRequestUri)
   }
-  let raw_host = authority.host
-  let host = if psl_is_ip_literal(raw_host) {
-    cookie_ascii_lower_text(raw_host)
+  let raw_host = if authority.ip_literal {
+    "[" + authority.host + "]"
   } else {
-    match normalize_domain(raw_host) {
-      Ok(value) => value
-      Err(_) => return Err(InvalidCookieRequestUri)
-    }
+    authority.host
   }
-  if host.is_empty() {
-    return Err(InvalidCookieRequestUri)
+  let host = match classify_cookie_host(raw_host) {
+    Ok(value) => value
+    Err(_) => return Err(InvalidCookieRequestUri)
   }
   let path = if uri.path.is_empty() { b"/" } else { @utf8.encode(uri.path) }
   Ok((host, secure, path))
 }
 
 ///|
-fn cookie_domain_matches(host : String, domain : String) -> Bool {
-  host == domain || (!psl_is_ip_literal(host) && host.has_suffix("." + domain))
+fn cookie_domain_matches(
+  host : String,
+  domain : String,
+  ip_literal? : Bool,
+) -> Bool {
+  host == domain ||
+  (
+    host.has_suffix("." + domain) &&
+    !ip_literal.unwrap_or_else(() => host.contains(":") || cookie_is_ipv4(host))
+  )
 }
 
 ///|
@@ -315,27 +308,27 @@ pub fn CookieJar::store(
   }
   let mut host_only = parsed.domain is None
   let domain = match parsed.domain {
-    None => request_host
+    None => request_host.name
     Some(raw_domain) => {
-      if psl_is_ip_literal(request_host) {
+      if request_host.ip_literal {
         return Ok(CookieIgnored(InvalidCookieDomain))
       }
       let normalized = match normalize_domain(raw_domain) {
         Ok(value) => value
         Err(_) => return Ok(CookieIgnored(InvalidCookieDomain))
       }
-      let public = match is_public_suffix(normalized) {
-        Ok(value) => value
-        Err(_) => return Ok(CookieIgnored(InvalidCookieDomain))
-      }
-      if public {
-        if normalized == request_host {
+      if is_normalized_public_suffix(normalized) {
+        if normalized == request_host.name {
           host_only = true
-          request_host
+          request_host.name
         } else {
           return Ok(CookieIgnored(CookiePublicSuffix))
         }
-      } else if !cookie_domain_matches(request_host, normalized) {
+      } else if !cookie_domain_matches(
+          request_host.name,
+          normalized,
+          ip_literal=false,
+        ) {
         return Ok(CookieIgnored(CookieDomainMismatch))
       } else {
         normalized
@@ -423,15 +416,19 @@ pub fn CookieJar::store_string(
 ///|
 fn cookie_retrieval_allowed(
   cookie : Cookie,
-  request_host : String,
+  request_host : CookieHost,
   secure_origin : Bool,
   request_path : BytesView,
   context : CookieContext,
 ) -> Bool {
   let domain_allowed = if cookie.host_only {
-    cookie.domain == request_host
+    cookie.domain == request_host.name
   } else {
-    cookie_domain_matches(request_host, cookie.domain) &&
+    cookie_domain_matches(
+      request_host.name,
+      cookie.domain,
+      ip_literal=request_host.ip_literal,
+    ) &&
     is_public_suffix(cookie.domain) == Ok(false)
   }
   if !domain_allowed ||

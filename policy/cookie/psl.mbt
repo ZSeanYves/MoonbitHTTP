@@ -7,48 +7,63 @@ pub(all) suberror DomainError {
 }
 
 ///|
-fn psl_is_ipv4(value : String) -> Bool {
-  let parts : Array[StringView] = value.split(".").collect()
-  if parts.length() != 4 {
+priv struct CookieHost {
+  name : String
+  ip_literal : Bool
+}
+
+///|
+/// Cookie matching also treats four decimal octets with leading zeroes as an address.
+fn cookie_is_ipv4(host : String) -> Bool {
+  if host.length() < 7 || host.length() > 15 {
     return false
   }
-  for part in parts {
-    if part.is_empty() || part.length() > 3 {
-      return false
-    }
-    let mut octet = 0
-    for character in part {
-      if character < '0' || character > '9' {
-        return false
+  let mut dots = 0
+  let mut digits = 0
+  let mut octet = 0
+  for c in host {
+    match c {
+      '0'..<='9' => {
+        digits += 1
+        octet = octet * 10 + (c.to_int() - '0'.to_int())
+        if digits > 3 || octet > 255 {
+          return false
+        }
       }
-      octet = octet * 10 + character.to_int() - 48
-    }
-    if octet > 255 {
-      return false
+      '.' if digits > 0 && dots < 3 => {
+        dots += 1
+        digits = 0
+        octet = 0
+      }
+      _ => return false
     }
   }
-  true
+  dots == 3 && digits > 0
 }
 
 ///|
-fn psl_is_ip_literal(value : String) -> Bool {
-  value.contains(":") || psl_is_ipv4(value) || @crater_psl.is_ip_literal(value)
-}
-
-///|
-pub fn normalize_domain(host : String) -> Result[String, DomainError] {
-  let unbracketed = if host.has_prefix("[") &&
-    host.has_suffix("]") &&
-    host.length() > 2 {
-    host[1:host.length() - 1].to_owned()
-  } else {
-    host
+fn classify_cookie_host(host : String) -> Result[CookieHost, DomainError] {
+  if host.has_prefix("[") {
+    guard host.has_suffix("]") &&
+      @types.Authority::parse(host)
+      is Ok({ ip_literal: true, host: address, userinfo: None, port: None, .. }) else {
+      return Err(InvalidDomain)
+    }
+    // IPvFuture syntax can otherwise collide with an ordinary DNS name.
+    let name = if address.has_prefix("v") {
+      "[" + address + "]"
+    } else {
+      address
+    }
+    return Ok({ name, ip_literal: true, })
   }
-  if psl_is_ip_literal(unbracketed) {
-    return Err(IpAddressHasNoPublicSuffix)
+  if host.contains(":") {
+    return @types.IpAddress::parse(host)
+      .map(addr => { name: addr.value(), ip_literal: true, })
+      .map_err(_ => InvalidDomain)
   }
-  let ascii = @idna.to_ascii(
-    unbracketed,
+  let name = @idna.to_ascii(
+    host,
     use_std3_ascii_rules=true,
     check_hyphens=true,
     check_bidi=true,
@@ -57,13 +72,19 @@ pub fn normalize_domain(host : String) -> Result[String, DomainError] {
   ) catch {
     _ => return Err(InvalidDomain)
   }
-  let normalized = @crater_psl.normalize_host(ascii)
-  if normalized.is_empty() ||
-    normalized.has_prefix(".") ||
-    normalized.contains("..") {
+  if name.is_empty() || name.has_suffix(".") {
     return Err(InvalidDomain)
   }
-  Ok(normalized)
+  Ok({ name, ip_literal: cookie_is_ipv4(name), })
+}
+
+///|
+pub fn normalize_domain(host : String) -> Result[String, DomainError] {
+  match classify_cookie_host(host) {
+    Ok({ ip_literal: true, .. }) => Err(IpAddressHasNoPublicSuffix)
+    Ok(host) => Ok(host.name)
+    Err(error) => Err(error)
+  }
 }
 
 ///|
@@ -85,76 +106,43 @@ fn psl_contains(rules : Array[String], value : String) -> Bool {
 }
 
 ///|
-fn psl_split_labels(value : String) -> Array[String] {
-  let labels : Array[String] = []
-  for label in value.split(".") {
-    labels.push(label.to_owned())
-  }
-  labels
-}
-
-///|
-fn psl_join_labels(labels : Array[String], start : Int32) -> String {
-  let output = StringBuilder()
-  for index in start..<labels.length() {
-    if index > start {
-      output.write_char('.')
-    }
-    output.write_string(labels[index])
-  }
-  output.to_string()
-}
-
-///|
-fn psl_suffix_length(normalized : String) -> Int32 {
-  let labels = psl_split_labels(normalized)
+fn psl_suffix_length(labels : Array[StringView]) -> Int32 {
   let mut best = 1
-  let mut exception = 0
   for start in 0..<labels.length() {
-    let candidate = psl_join_labels(labels, start)
-    let candidate_labels = labels.length() - start
-    if psl_contains(psl_exact_rules, candidate) && candidate_labels > best {
-      best = candidate_labels
+    let candidate = labels[start:].join(".")
+    let count = labels.length() - start
+    if psl_contains(psl_exception_rules, candidate) {
+      return count - 1
     }
-    if psl_contains(psl_exception_rules, candidate) &&
-      candidate_labels > exception {
-      exception = candidate_labels
+    if count > best && psl_contains(psl_exact_rules, candidate) {
+      best = count
     }
-    if start + 1 < labels.length() {
-      let wildcard_base = psl_join_labels(labels, start + 1)
-      if psl_contains(psl_wildcard_rules, wildcard_base) &&
-        candidate_labels > best {
-        best = candidate_labels
-      }
+    if start > 0 &&
+      count + 1 > best &&
+      psl_contains(psl_wildcard_rules, candidate) {
+      best = count + 1
     }
   }
-  if exception > 0 {
-    exception - 1
-  } else {
-    best
-  }
+  best
 }
 
 ///|
 pub fn public_suffix(host : String) -> Result[String, DomainError] {
-  let normalized = match normalize_domain(host) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  let labels = psl_split_labels(normalized)
-  Ok(psl_join_labels(labels, labels.length() - psl_suffix_length(normalized)))
+  normalize_domain(host).map(name => {
+    let labels = name.split(".").to_array()
+    labels[labels.length() - psl_suffix_length(labels):].join(".")
+  })
+}
+
+///|
+fn is_normalized_public_suffix(name : String) -> Bool {
+  let labels = name.split(".").to_array()
+  labels.length() == psl_suffix_length(labels)
 }
 
 ///|
 pub fn is_public_suffix(host : String) -> Result[Bool, DomainError] {
-  let normalized = match normalize_domain(host) {
-    Ok(value) => value
-    Err(error) => return Err(error)
-  }
-  match public_suffix(normalized) {
-    Ok(value) => Ok(value == normalized)
-    Err(error) => Err(error)
-  }
+  normalize_domain(host).map(is_normalized_public_suffix)
 }
 
 ///|
@@ -163,10 +151,10 @@ pub fn registrable_domain(host : String) -> Result[String, DomainError] {
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let labels = psl_split_labels(normalized)
-  let suffix_length = psl_suffix_length(normalized)
-  if labels.length() <= suffix_length {
+  let labels = normalized.split(".").to_array()
+  let length = psl_suffix_length(labels)
+  if length == labels.length() {
     return Err(PublicSuffixHasNoRegistrableDomain)
   }
-  Ok(psl_join_labels(labels, labels.length() - suffix_length - 1))
+  Ok(labels[labels.length() - length - 1:].join("."))
 }
