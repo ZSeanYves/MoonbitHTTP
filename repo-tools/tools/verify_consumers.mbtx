@@ -1,0 +1,140 @@
+----
+import {
+  "moonbitlang/async@0.22.10",
+  "moonbitlang/async@0.22.10/fs",
+  "moonbitlang/async@0.22.10/process",
+  "moonbitlang/async@0.22.10/socket",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/x@0.5.9/crypto",
+}
+----
+
+///|
+async fn run(cwd : String, program : String, args : Array[String]) -> String {
+  let (code, stdout, stderr) = @async.with_timeout(300000, () => @process.collect_output(program,args,cwd=cwd[:]))
+  guard code == 0 else { fail("\{program} \{args.join(" ")}: \{stdout.text()}\n\{stderr.text()}") }
+  stdout.text()
+}
+
+///|
+fn sample(doc : String) -> String raise {
+  let start = "```moonbit\npub async fn get("
+  guard doc.split_once(start) is Some((_, code)) && code.split_once("\n```") is Some((rest,_)) else { fail("documented GET sample is missing") }
+  "///|\npub async fn get(" + rest.to_owned() + "\n"
+}
+
+///|
+async fn reserve_port() -> Int {
+  let server = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
+  defer server.close()
+  server.addr.port().to_int()
+}
+
+///|
+async fn consumer(dir : String, stable : Bool, root : String, port : Int, published : Bool) -> String {
+  @fs.mkdir(dir,recursive=true)
+  let version = if stable { "0.8.2" } else { "0.9.0" }
+  let docdir = if stable { root } else { root + "/adapter/native/client" }
+  let get = sample(@fs.read_file(docdir + "/README.md").text())
+  guard get == sample(@fs.read_file(docdir + "/README_zh.md").text()) else { fail("Chinese and English GET samples differ") }
+  @fs.write_file(dir + "/moon.mod", "name = \"consumer/probe\"\nversion = \"0.1.0\"\n" +
+    (if published { "" } else { "import { \"ZSeanYves/http@0.9.0\" }\n" }), create_mode=CreateNew)
+  if published { ignore(run(dir,"moon",["add","--no-update","ZSeanYves/http@" + version])) }
+  let imports = [
+    "ZSeanYves/http/adapter/native/client\" @native_client",
+    "ZSeanYves/http/core/types\"",
+    "ZSeanYves/http/runtime/transport\"",
+    "moonbitlang/core/async\"",
+    "moonbitlang/core/async/fs\"",
+    "ZSeanYves/http/adapter/native/tls\" @native_tls",
+  ]
+  if stable {
+    imports.push("ZSeanYves/http/adapter/native/transport\" @native_transport")
+  } else {
+    imports.append(["ZSeanYves/http/adapter/native/server\"",
+      "ZSeanYves/http/application/server\" @server_api", "ZSeanYves/http/application/client\"", "ZSeanYves/http/core/body\""])
+  }
+  @fs.write_file(dir+"/moon.pkg", "import {\n" + imports.map(item => "\"" + item).join(",\n") +
+    "\n} for \"test\"\nsupported_targets = \"+native\"\noptions(\"allow-experimental-packages\": [\"moonbitlang/core/async\",\"moonbitlang/core/async/fs\"])\n",
+    create_mode=CreateNew)
+  let cert = root + "/tests/fixtures/tls/localhost.cert.pem"
+  let constants = "///|\nlet cert_path = " + Json::string(cert).stringify() + "\n"
+  let get_test =
+    $|///|
+    $|async test "documented HTTPS GET authenticates the local peer" {
+    $|  let uri = @types.Uri::parse("https://127.0.0.1:\{port}/").unwrap()
+    $|  assert_false(get(uri, trust_anchors=@fs.read_binary(cert_path)).is_empty())
+    $|}
+  let rest = if stable { "" } else {
+    "///|\nlet key_path = " + Json::string(root + "/tests/fixtures/tls/localhost.key.pem").stringify() +
+    "\n///|\nlet tcp_port = " + reserve_port().to_string() +
+    "\n///|\nlet udp_port = " + reserve_port().to_string() + "\n" +
+    @fs.read_file(root + "/repo-tools/tools/consumer/candidate_test.mbt.in").text()
+  }
+  @fs.write_file(dir+"/consumer_test.mbt",get+constants+get_test+"\n"+rest,create_mode=CreateNew)
+  let tree = run(dir,"moon", ["tree","--json"])
+  guard tree.contains("ZSeanYves/http") && tree.contains(version) else { fail("consumer failed to resolve ZSeanYves/http@"+version) }
+  let result = run(dir,"moon",["test", ".", "--target","native"])
+  let count = if stable { 1 } else { 2 }
+  guard result.contains("Total tests: \{count}, passed: \{count}, failed: 0.") else { fail("missing external consumer execution: " + result) }
+  println("Consumer \{version}: \{result}")
+  tree
+}
+
+///|
+async fn main {
+  let args = @env.args()
+  let published = match args {
+    [_] => false
+    [_, "--published-candidate"] => true
+    _ => fail("usage: verify_consumers.mbtx [--published-candidate]")
+  }
+  let root = run(".", "git", ["rev-parse","--show-toplevel"]).trim().to_owned()
+  let sha = run(root,"git",["rev-parse","HEAD"]).trim().to_owned()
+  let temp = @fs.tmpdir(prefix="moonbithttp-fresh-consumers")
+  defer @fs.rmdir(temp,recursive=true)
+  let archive = root + "/_build/publish/ZSeanYves-http-0.9.0.zip"
+  let frozen_digest = @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file(archive).binary()))
+  guard @json.parse(@fs.read_file(root + "/_build/evidence/release/" + sha + "/evidence.json").text()) is
+    {"git_revision": String(frozen_sha), "sha256": String(digest), ..} && sha == frozen_sha && digest == frozen_digest
+    else { fail("candidate archive or revision differs from frozen evidence") }
+  let pair = temp + "/candidate"
+  let pkg = pair + "/package"
+  let app = pair + "/consumer"
+  @fs.mkdir(pkg,recursive=true)
+  ignore(run(temp,"unzip",["-q",archive,"-d",pkg]))
+  if !published {
+    // The two modules share only the extracted archive and this workspace declaration.
+    @fs.write_file(pair + "/moon.work", "members = [\"./package\", \"./consumer\"]\n", create_mode=CreateNew)
+  }
+  let cert = root + "/tests/fixtures/tls/localhost.cert.pem"
+  let key = root + "/tests/fixtures/tls/localhost.key.pem"
+  let port = reserve_port()
+  let address = "127.0.0.1:" + port.to_string()
+  @async.with_task_group(async fn(group) {
+    let server = @process.spawn(group, "openssl", ["s_server", "-quiet", "-www", "-accept",address, "-cert",cert,"-key",key],
+      stdout=@process.redirect_to_file(temp+"/openssl.stdout",create_mode=CreateNew),stderr=@process.redirect_to_file(temp+"/openssl.log",create_mode=CreateNew),no_wait=true)
+    defer server.cancel()
+    @async.with_timeout(10000, async fn() {
+      while true {
+        guard server.try_wait() is None else { fail("OpenSSL fixture exited") }
+        let ready = try { let socket = @socket.Tcp::connect(@socket.Addr::parse(address)); socket.close(); true } catch { _ => false }
+        if ready { break }
+        @async.sleep(20)
+      }
+    })
+    let stable_tree = consumer(temp+"/stable",true,root,port,true)
+    let candidate_tree = consumer(app,false,root,port,published)
+    if published {
+      let registry_home = @env.get_env_var("MOON_HOME").unwrap_or(@env.get_env_var("HOME").unwrap() + "/.moon")
+      let release = @fs.read_file(registry_home+"/registry/cache/ZSeanYves/http/0.9.0.zip").binary()
+      guard @crypto.bytes_to_hex_string(@crypto.sha256(release)) == frozen_digest else { fail("published archive differs from frozen archive") }
+    }
+    let report : Json = {"git_revision":sha,"sha256":frozen_digest,"stable_registry_version":"0.8.2",
+      "candidate_version":"0.9.0", "candidate_source": if published { "registry" } else { "frozen-archive" },
+      "stable_dependencies":@json.parse(stable_tree),"candidate_dependencies":@json.parse(candidate_tree)}
+    let prefix = if published { "published" } else { "frozen" }
+    @fs.write_file(root+"/_build/evidence/release/"+sha+"/"+prefix+"-consumers.json",report,create_mode=CreateOrTruncate)
+  })
+}

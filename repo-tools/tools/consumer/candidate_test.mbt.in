@@ -1,0 +1,51 @@
+///|
+async test "candidate package selects multiplexed protocols and owns request bodies" {
+  let tls = {
+    ..@transport.TlsOptions::defaults(),
+    verify_peer: false,
+    server_certificate: Some(@fs.read_binary(cert_path)),
+    server_private_key: Some(@fs.read_binary(key_path)),
+  }
+  let policy = @transport.AllowAllPolicy::new()
+  for version in [@types.Version::Http2, Http3] {
+    let alpn = if version == Http2 { ["h2"] } else { ["h3"] }
+    let server_tls = { ..tls, alpn }
+    let supervisor = @server_api.ServerSupervisor::new().unwrap()
+    let handler = async fn(req : @types.Request[@body.BodyStream]) -> @types.Response[@body.FullBody] {
+      let (received, _) = @body.collect(req.body, max_bytes=1024)
+      {status: 200, version: req.version, headers: @types.HeaderMap::new(), body: @body.FullBody::new(received)}
+    }
+    let (origin, serve, close) = if version == Http2 {
+      let listener = @server.NativeTcpListener::bind_http_tls(
+        @types.Endpoint::new("tcp", "127.0.0.1", tcp_port).unwrap(),
+        policy, @native_tls.NativeTlsProvider::new(), server_tls, handler,
+      ).unwrap_or_error()
+      (tcp_port, async fn(){supervisor.serve(listener).unwrap_or_error()}, () => listener.close())
+    } else {
+      let listener = @server.NativeHttp3Listener::bind_http(
+        @types.Endpoint::new("udp", "127.0.0.1", udp_port).unwrap(),
+        policy, server_tls, handler,
+      ).unwrap_or_error()
+      (udp_port, async fn(){listener.serve(supervisor).unwrap_or_error()}, () => listener.close())
+    }
+    defer close()
+    let uri = @types.Uri::parse("https://127.0.0.1:\{origin}/echo").unwrap()
+    @async.with_task_group(async fn(group) {
+      let worker = group.spawn(serve)
+      @native_client.with_client(async fn(client) {
+        let chunks = [b"part two", b"part one "]
+        let upload = @body.BodyStream::from_pull(() => chunks.pop().map(b => Data(b)))
+        let reply = client.send(client.request(Post, uri, @client.Upload::once(upload)))
+        assert_eq(reply.version, version)
+        assert_eq(@body.collect(reply.body, max_bytes=1024).0, b"part one part two")
+        let abandoned = client.send(client.request(Get, uri, @client.Upload::bytes(b"")))
+        abandoned.body.cancel(@body.BodyError::Cancelled)
+        let next = client.send(client.request(Get, uri, @client.Upload::bytes(b"")))
+        assert_eq(next.status, 200)
+        assert_eq(@body.collect(next.body).0, b"")
+      }, version~, policy~, tls={ ..@transport.TlsOptions::defaults(), alpn, trust_anchors: tls.server_certificate })
+      supervisor.begin_shutdown().unwrap_or_error()
+      worker.wait()
+    })
+  }
+}

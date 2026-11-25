@@ -2,16 +2,19 @@
 
 [English](README.md) · [项目说明](../../../README_zh.md)
 
+本页对应源码候选 0.9.0。[正式版 0.8.2 的 HTTPS GET](../../../README_zh.md)
+
 在 `with_client` 中显式选择 HTTP 版本和网络策略。工厂提供 DNS、TCP 或 UDP、TLS 及本机时钟。回调中可重复或并发使用同一个客户端。
 
 ```moonbit
-pub async fn get(uri : @types.Uri) -> Bytes {
+pub async fn get(uri : @types.Uri, trust_anchors? : Bytes) -> Bytes {
   @native_client.with_client(
     async fn(client) {
       let response = client.send(client.request(Get, uri, @client.Upload::bytes(b"")))
       @body.collect(response.body, max_bytes=1024 * 1024).0
     },
     version=Http11,
+    tls={ ..@transport.TlsOptions::defaults(), alpn: ["http/1.1"], trust_anchors },
     policy=@transport.AllowAllPolicy::new(),
   )
 }

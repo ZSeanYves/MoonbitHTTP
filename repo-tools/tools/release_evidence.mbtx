@@ -22,4 +22,8 @@ async fn main {
   guard status == 0 else {
     fail("distribution verification failed with exit \{status}")
   }
+  if option == "--release-evidence" {
+    let consumer_status = @process.run("moon", ["run","repo-tools/tools/verify_consumers.mbtx"])
+    guard consumer_status == 0 else { fail("external consumer verification failed with exit \{consumer_status}") }
+  }
 }

@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 candidate
+
+The bilingual root guides distinguish the published 0.8.2 API from the frozen candidate. The release evidence records the candidate's Git revision, module version, archive digest and file manifest.
+
+- Buffered H1/H2 responses retain trailers separately. The default redirect policy returns the original response. Content-Length queries accept unsigned 64-bit values.
+- Request/response phase deadlines apply to H3. H1 drains the admitted request at shutdown. Range downloads retain encoded 206 bytes and cache fills preserve newer representations.
+- H3 and QPACK expose read-only observations for blocked data. Context-aware native listeners report verified mTLS identities and H2 can expand its per-origin pool at an explicit limit.
 
 ### Breaking changes
 

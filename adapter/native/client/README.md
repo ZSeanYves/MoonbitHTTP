@@ -2,16 +2,19 @@
 
 [中文](README_zh.md) · [Project README](../../../README.md)
 
+This guide covers the 0.9.0 source candidate. [HTTPS GET with published 0.8.2](../../../README.md)
+
 Select an HTTP version and network policy in `with_client`. The factory supplies DNS, TCP or UDP, TLS and the system clock. Reuse the client for multiple or concurrent requests within the callback.
 
 ```moonbit
-pub async fn get(uri : @types.Uri) -> Bytes {
+pub async fn get(uri : @types.Uri, trust_anchors? : Bytes) -> Bytes {
   @native_client.with_client(
     async fn(client) {
       let response = client.send(client.request(Get, uri, @client.Upload::bytes(b"")))
       @body.collect(response.body, max_bytes=1024 * 1024).0
     },
     version=Http11,
+    tls={ ..@transport.TlsOptions::defaults(), alpn: ["http/1.1"], trust_anchors },
     policy=@transport.AllowAllPolicy::new(),
   )
 }

@@ -23,5 +23,11 @@ async fn main {
     require_test(target, "tests/integration/http_service", "HTTP/1 final response interrupts a pending upload")
     require_test(target, "tests/integration/http_service", "H2 admission resumes on SETTINGS, resets an abandoned request and wakes on GOAWAY")
   }
+  for target in ["native", "wasm", "js"] {
+    require_test(target, "tests/blackbox/callback_api", "callback adapter: callback transport implements official IO traits")
+  }
+  for target in ["native", "wasm", "wasm-gc", "js"] {
+    require_test(target, "tests/blackbox/quic_api", "quic packet protection: short header round trip and key phase")
+  }
   require_test("wasm-gc", "tests/blackbox/quic_api", "QUIC driver honors the negotiated idle timeout")
 }
