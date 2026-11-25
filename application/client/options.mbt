@@ -109,15 +109,15 @@ pub fn ClientTimeouts::validate(
 
 ///|
 #derive(Eq, Debug)
-pub(all) struct RedirectPolicy {
-  enabled : Bool
-  max_redirects : Int32
-  allow_https_downgrade : Bool
+pub(all) enum RedirectPolicy {
+  ReturnResponse
+  RejectRedirect
+  FollowRedirects(Int32, allow_https_downgrade~ : Bool)
 }
 
 ///|
 pub fn RedirectPolicy::disabled() -> RedirectPolicy {
-  { enabled: false, max_redirects: 0, allow_https_downgrade: false, }
+  RejectRedirect
 }
 
 ///|
@@ -128,7 +128,7 @@ pub fn RedirectPolicy::limited(
   if max_redirects < 1 {
     Err(RedirectLimitExceeded(max_redirects))
   } else {
-    Ok({ enabled: true, max_redirects, allow_https_downgrade, })
+    Ok(FollowRedirects(max_redirects, allow_https_downgrade~))
   }
 }
 
@@ -241,7 +241,7 @@ pub fn RequestOptions::defaults() -> RequestOptions {
   {
     limits: @types.Limits::defaults(),
     timeouts: ClientTimeouts::defaults(),
-    redirect: RedirectPolicy::disabled(),
+    redirect: ReturnResponse,
     retry: RetryPolicy::disabled(),
   }
 }
@@ -262,10 +262,8 @@ pub fn RequestOptions::validate(
     Ok(_) => ()
     Err(error) => return Err(ClientRetry(error))
   }
-  if self.redirect.enabled && self.redirect.max_redirects < 1 {
-    return Err(
-      ClientRedirect(RedirectLimitExceeded(self.redirect.max_redirects)),
-    )
+  if self.redirect is FollowRedirects(limit, ..) && limit < 1 {
+    return Err(ClientRedirect(RedirectLimitExceeded(limit)))
   }
   Ok(())
 }

@@ -88,6 +88,14 @@ pub fn BodyReplayability::equal(Self, Self) -> Bool
 pub fn BodyReplayability::not_equal(Self, Self) -> Bool
 pub fn BodyReplayability::to_repr(Self) -> @debug.Repr
 
+pub struct BufferedResponse {
+  status : Int32
+  version : @types.Version
+  headers : @types.HeaderMap
+  body : Bytes
+  trailers : @types.HeaderMap?
+}
+
 pub struct Client {
   // private fields
 }
@@ -224,7 +232,7 @@ pub struct Http1PooledRoundTripper {
 }
 pub fn Http1PooledRoundTripper::close(Self) -> Unit
 pub fn Http1PooledRoundTripper::connection_count(Self) -> Int32
-pub async fn Http1PooledRoundTripper::execute(Self, @types.Request[Bytes]) -> Result[@types.Response[Bytes], ClientError]
+pub async fn Http1PooledRoundTripper::execute(Self, @types.Request[Bytes]) -> Result[BufferedResponse, ClientError]
 pub async fn[B : @body.Body] Http1PooledRoundTripper::execute_body(Self, @types.Request[B]) -> Result[@types.Response[@body.BodyStream], ClientError]
 pub async fn Http1PooledRoundTripper::execute_stream(Self, @types.Request[Bytes]) -> Result[@types.Response[@body.BodyStream], ClientError]
 pub fn[C : @transport.StreamConnector, R : @transport.NameResolver, T : @transport.TlsProvider, P : @transport.NetworkPolicy, K : @transport.Clock] Http1PooledRoundTripper::from_capabilities(C, R, T, P, K, options? : RequestOptions, proxy? : ProxyConfig, origin_tls? : @transport.TlsOptions, proxy_tls? : @transport.TlsOptions, origin_tls_identity? : String, proxy_tls_identity? : String, connect_options? : @transport.ConnectOptions, resolve_options? : @transport.ResolveOptions, pool_limits? : PoolLimits) -> Result[Self, ClientError]
@@ -236,7 +244,7 @@ pub struct Http2Client {
 }
 pub fn Http2Client::close(Self) -> Unit
 pub fn Http2Client::connection_count(Self) -> Int32
-pub async fn Http2Client::execute(Self, @types.Request[Bytes]) -> Result[@types.Response[Bytes], ClientError]
+pub async fn Http2Client::execute(Self, @types.Request[Bytes]) -> Result[BufferedResponse, ClientError]
 pub async fn[B : @body.Body] Http2Client::execute_body(Self, @types.Request[B], timeouts? : ClientTimeouts) -> Result[@types.Response[@body.BodyStream], ClientError]
 pub async fn Http2Client::execute_stream(Self, @types.Request[Bytes]) -> Result[@types.Response[@body.BodyStream], ClientError]
 
@@ -351,10 +359,10 @@ pub(all) struct RedirectDecision {
 }
 
 #derive(Eq, @debug.Debug)
-pub(all) struct RedirectPolicy {
-  enabled : Bool
-  max_redirects : Int32
-  allow_https_downgrade : Bool
+pub(all) enum RedirectPolicy {
+  ReturnResponse
+  RejectRedirect
+  FollowRedirects(Int32, allow_https_downgrade~ : Bool)
 }
 pub fn RedirectPolicy::disabled() -> Self
 pub fn RedirectPolicy::equal(Self, Self) -> Bool

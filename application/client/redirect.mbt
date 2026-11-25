@@ -44,8 +44,8 @@ fn RedirectTracker::from_endpoint(
   endpoint : Result[ClientEndpoint, ClientError],
   policy : RedirectPolicy,
 ) -> Result[RedirectTracker, RedirectError] {
-  if policy.enabled && policy.max_redirects < 1 {
-    return Err(RedirectLimitExceeded(policy.max_redirects))
+  if policy is FollowRedirects(limit, ..) && limit < 1 {
+    return Err(RedirectLimitExceeded(limit))
   }
   guard endpoint is Ok(endpoint) else { return Err(InvalidRedirectLocation) }
   let key = match redirect_key(initial, endpoint) {
@@ -131,11 +131,11 @@ fn RedirectTracker::resolve(
   headers : @types.HeaderMap,
   body_replayability : BodyReplayability,
 ) -> Result[(RedirectDecision, ClientEndpoint), RedirectError] {
-  if !self.policy.enabled {
+  guard self.policy is FollowRedirects(limit, allow_https_downgrade~) else {
     return Err(RedirectDisabled)
   }
-  if self.followed >= self.policy.max_redirects {
-    return Err(RedirectLimitExceeded(self.policy.max_redirects))
+  if self.followed >= limit {
+    return Err(RedirectLimitExceeded(limit))
   }
   let (next_method, drop_body) = match redirect_method(status, http_method) {
     Ok(value) => value
@@ -155,9 +155,7 @@ fn RedirectTracker::resolve(
     Ok(value) => value
     Err(_) => return Err(InvalidRedirectLocation)
   }
-  if current_endpoint.secure &&
-    !next_endpoint.secure &&
-    !self.policy.allow_https_downgrade {
+  if current_endpoint.secure && !next_endpoint.secure && !allow_https_downgrade {
     return Err(RedirectDowngradeDenied)
   }
   let key = match redirect_key(uri, next_endpoint) {

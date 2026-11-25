@@ -356,7 +356,8 @@ fn ClientExchange::handle_response(
       return Some(SendAgain)
     }
   }
-  if response.status is (301 | 302 | 303 | 307 | 308) {
+  if response.status is (301 | 302 | 303 | 307 | 308) &&
+    self.client.options.redirect != ReturnResponse {
     guard response.headers.get_string("location") is Some(location) else {
       return None
     }

@@ -17,22 +17,27 @@ pub fn response_from_cache(
 }
 
 ///|
+/// A buffered response keeps trailing fields separate from the original head.
+pub struct BufferedResponse {
+  status : Int32
+  version : @types.Version
+  headers : @types.HeaderMap
+  body : Bytes
+  trailers : @types.HeaderMap?
+}
+
+///|
 async fn collect_client_response(
   response : @types.Response[@body.BodyStream],
   limit : Int32,
-) -> @types.Response[Bytes] {
+) -> BufferedResponse {
   let (body, trailers) = @body.collect(response.body, max_bytes=limit)
-  match trailers {
-    Some(values) =>
-      for field in values.fields() {
-        response.headers.append(field.name, field.value)
-      }
-    None => ()
-  }
+
   {
     status: response.status,
     version: response.version,
     headers: response.headers,
     body,
+    trailers,
   }
 }

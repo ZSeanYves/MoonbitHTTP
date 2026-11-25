@@ -59,7 +59,7 @@ test "client options: defaults are finite and unsafe opt-ins are rejected" {
   assert_eq(options.timeouts.resolve_ms, Some(10000))
   assert_eq(options.timeouts.connect_ms, Some(10000))
   assert_eq(options.timeouts.total_ms, Some(120000))
-  assert_eq(options.redirect, @client.RedirectPolicy::disabled())
+  assert_eq(options.redirect, ReturnResponse)
   assert_eq(options.retry, @client.RetryPolicy::disabled())
   assert_eq(options.validate(), Ok(()))
   let no_total_timeout = {

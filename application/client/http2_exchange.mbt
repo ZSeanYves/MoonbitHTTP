@@ -67,7 +67,7 @@ pub async fn Http2Client::execute_stream(
 pub async fn Http2Client::execute(
   self : Http2Client,
   request : @types.Request[Bytes],
-) -> Result[@types.Response[Bytes], ClientError] {
+) -> Result[BufferedResponse, ClientError] {
   let response = match self.execute_stream(request) {
     Ok(value) => value
     Err(error) => return Err(error)

@@ -481,3 +481,56 @@ async test "range responses preserve the encoded representation across requests"
     authorize_redirect=(_, _) => Ok(()),
   )
 }
+
+///|
+async test "default redirect policy returns the response and explicit rejection raises" {
+  for reject in [false, true] {
+    let mut calls = 0
+    let opts = @client.RequestOptions::defaults()
+    let options = if reject {
+      { ..opts, redirect: RejectRedirect, }
+    } else {
+      opts
+    }
+    @client.with_client(
+      async fn(client) {
+        let req = client.request(
+          Get,
+          test_uri("https://origin.test/begin"),
+          @client.Upload::bytes(b""),
+        )
+        try {
+          let res = client.send(req)
+          assert_false(reject)
+          assert_eq(res.status, 302)
+          assert_eq(
+            res.headers.get_string("location").unwrap().to_string_lossy(),
+            "/end",
+          )
+          assert_eq(@body.collect(res.body).0, b"moved")
+        } catch {
+          @client.ClientError::ClientRedirect(RedirectDisabled) =>
+            assert_true(reject)
+          error => raise error
+        }
+      },
+      version=Http11,
+      options~,
+      wall_clock_seconds=() => 0L,
+      now_millis=() => 0L,
+      authorize_redirect=(_, _) => Ok(()),
+      exchange=req => {
+        calls += 1
+        let headers = @types.HeaderMap::new()
+        headers.append_string("location", "/end").unwrap()
+        {
+          status: 302,
+          version: req.version,
+          headers,
+          body: incoming(b"moved"),
+        }
+      },
+    )
+    assert_eq(calls, 1)
+  }
+}

@@ -1,7 +1,7 @@
 ///|
 async test "client http1 round trip: informational, chunked body, and trailers" {
   let endpoint = @types.Endpoint::new("http", "192.0.2.1", 80).unwrap()
-  let response_bytes = b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTrailer: X-Checksum\r\n\r\n3\r\nabc\r\n0\r\nX-Checksum: ok\r\n\r\n"
+  let response_bytes = b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTrailer: X-Checksum\r\nX-Checksum: pending\r\n\r\n3\r\nabc\r\n0\r\nX-Checksum: ok\r\n\r\n"
   let mut read_index = 0
   let writes : Array[Bytes] = []
   let connection = @transport.StreamConnection::new(
@@ -42,6 +42,14 @@ async test "client http1 round trip: informational, chunked body, and trailers" 
   assert_eq(response.body, b"abc")
   assert_eq(
     response.headers.get_string("x-checksum").unwrap().to_string_lossy(),
+    "pending",
+  )
+  assert_eq(
+    response.trailers
+    .unwrap()
+    .get_string("x-checksum")
+    .unwrap()
+    .to_string_lossy(),
     "ok",
   )
   assert_true(writes.length() >= 1)
