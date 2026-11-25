@@ -372,6 +372,17 @@ fn HttpCache::cache_remove_at(self : HttpCache, index : Int32) -> Unit {
 }
 
 ///|
+fn cache_precedes(first : CacheEntry, second : CacheEntry) -> Bool {
+  if first.date_seconds != second.date_seconds &&
+    first.response.headers.get_string("date") is Some(_) &&
+    second.response.headers.get_string("date") is Some(_) {
+    first.date_seconds < second.date_seconds
+  } else {
+    first.order < second.order
+  }
+}
+
+///|
 fn HttpCache::matching_entry(
   self : HttpCache,
   key : String,
@@ -389,7 +400,7 @@ fn HttpCache::matching_entry(
         if entry.vary.is_empty() {
           continue
         }
-      } else if entry.date_seconds < previous.date_seconds {
+      } else if cache_precedes(entry, previous) {
         continue
       }
     }
@@ -577,7 +588,7 @@ fn HttpCache::prepare_entry(
     last_modified: cache_header_text(response.headers, "last-modified"),
     size: metadata_size,
     last_used: 0L,
-    order: 0L,
+    order: self.cache_tick(),
   }
 }
 
@@ -614,25 +625,25 @@ fn HttpCache::store_entry(
   if body_size > self.config.limits.max_entry_bytes - metadata_size {
     return Ok(CacheNotStored(EntryTooLarge(body_size)))
   }
-  let order = self.cache_tick()
+  let mut replaced = false
+  for index, current in self.entries {
+    if current.key == head.key && current.vary_signature == head.vary_signature {
+      if cache_precedes(head, current) {
+        return Ok(
+          CacheNotStored(NotCacheable("a newer representation is stored")),
+        )
+      }
+      self.cache_remove_at(index)
+      replaced = true
+      break
+    }
+  }
   let entry = {
     ..head,
     body: make_body(),
     trailers: trailers.map(h => h.copy()),
     size: metadata_size + body_size,
-    order,
-    last_used: order,
-  }
-  let mut replaced = false
-  let mut index = 0
-  while index < self.entries.length() {
-    if cache_entry_matches(self.entries[index], entry.key, request.headers) &&
-      self.entries[index].vary_signature == entry.vary_signature {
-      self.cache_remove_at(index)
-      replaced = true
-      break
-    }
-    index += 1
+    last_used: self.cache_tick(),
   }
   self.total_bytes += entry.size
   self.entries.push(entry)

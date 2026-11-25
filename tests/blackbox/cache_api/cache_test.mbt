@@ -462,3 +462,48 @@ test "strong validators require both entity tags to be strong" {
     )
   }
 }
+
+///|
+test "streaming replacement follows Date and head arrival independent of body completion" {
+  for dates in [(Some(2L), Some(1L)), (Some(1L), Some(1L)), (None, None)] {
+    for finish_first in [true, false] {
+      let cache = @cache.HttpCache::new().unwrap()
+      let request = cache_test_request(Get, "/ordered")
+      let finishes : Array[(@types.HeaderMap?) -> Unit] = []
+      for i, date in [dates.0, dates.1] {
+        let headers = @types.HeaderMap::new()
+        headers.append_string("cache-control", "max-age=100").unwrap()
+        if date is Some(t) {
+          headers
+          .append_string(
+            "date",
+            @types.HttpDate::from_unix_seconds(t).unwrap().format().unwrap(),
+          )
+          .unwrap()
+        }
+        let fill = cache.begin_fill(request).unwrap()
+        finishes.push(
+          fill
+          .prepare({ status: 200, version: Http11, headers, body: (), }, 2L)
+          .unwrap(),
+        )
+        fill.append(if i == 0 { b"first" } else { b"second" })
+      }
+      let i = if finish_first { 0 } else { 1 }
+      finishes[i](None)
+      finishes[1 - i](None)
+      guard cache.lookup(request, 3L).unwrap() is CacheFresh(hit) else {
+        fail("missing cached representation")
+      }
+      assert_eq(
+        hit.body(),
+        if dates.0 == Some(2L) {
+          b"first"
+        } else {
+          b"second"
+        },
+      )
+      assert_eq(cache.len(), 1)
+    }
+  }
+}
