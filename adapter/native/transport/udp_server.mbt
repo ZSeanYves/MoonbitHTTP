@@ -11,6 +11,22 @@ pub struct UdpServerSocket {
 }
 
 ///|
+#borrow(fd)
+extern "C" fn suppress_udp_port_unreachable(fd : @async_types.Fd) -> Int32 = "moon_http_udp_suppress_port_unreachable"
+
+///|
+fn configure_shared_udp(
+  socket : @socket.UdpServer,
+) -> Result[Unit, @transport_api.TransportError] {
+  let code = suppress_udp_port_unreachable(socket.fd())
+  if code == 0 {
+    Ok(())
+  } else {
+    Err(SystemFailure(Bind, code, "WSAIoctl(SIO_UDP_CONNRESET)"))
+  }
+}
+
+///|
 pub async fn[P : @transport_api.NetworkPolicy] UdpServerSocket::bind(
   endpoint : @types.Endpoint,
   policy : P,
@@ -30,6 +46,10 @@ pub async fn[P : @transport_api.NetworkPolicy] UdpServerSocket::bind(
   }
   let socket = @socket.UdpServer(local_addr, dual_stack~) catch {
     error => return Err(translate_io_error(Bind, error))
+  }
+  if configure_shared_udp(socket) is Err(error) {
+    socket.close()
+    return Err(error)
   }
   Ok({
     socket,

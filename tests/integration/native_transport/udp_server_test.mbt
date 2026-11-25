@@ -82,3 +82,25 @@ async test "native UDP: server and connected socket reject oversized datagrams" 
     assert_true(client.receive(4) is Err(InvalidDatagramSize))
   })
 }
+
+///|
+async test "shared UDP listener still receives from a live peer after a previous peer leaves" {
+  let endpoint = unused_udp_endpoint()
+  let policy = @transport_api.AllowAllPolicy::new()
+  let server = @transport.UdpServerSocket::bind(endpoint, policy).unwrap()
+  defer server.close()
+  let live = @transport.UdpSocket::connect(endpoint, policy).unwrap()
+  defer live.close()
+  let departed = @transport.UdpSocket::connect(endpoint, policy).unwrap()
+  @async.with_timeout(5000, async fn() {
+    departed.send(endpoint, b"leaving").unwrap()
+    let previous = server.receive(64).unwrap().endpoint()
+    departed.close()
+    server.send(previous, b"late reply").unwrap()
+    live.send(endpoint, b"still here").unwrap()
+    let next = server.receive(64).unwrap()
+    assert_eq(next.payload(), b"still here")
+    server.send(next.endpoint(), b"received").unwrap()
+    assert_eq(live.receive(64).unwrap().payload(), b"received")
+  })
+}

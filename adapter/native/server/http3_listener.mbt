@@ -489,7 +489,7 @@ pub async fn NativeHttp3Listener::serve(
               if @async.is_being_cancelled() {
                 return
               } else {
-                raise error
+                raise @server_api.ServerError::ListenerIo(error)
               }
           }
         }
@@ -498,6 +498,7 @@ pub async fn NativeHttp3Listener::serve(
     )
     supervisor.serve(self.admissions)
   }) catch {
+    @server_api.ServerError::ListenerIo(cause) => Err(ListenerIo(cause))
     error => Err(AcceptFailed(error.to_string()))
   }
 }

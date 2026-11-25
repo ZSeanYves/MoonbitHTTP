@@ -3,6 +3,7 @@ import {
   "ZSeanYves/http/core/types",
   "moonbitlang/core/async",
   "moonbitlang/core/async/socket",
+  "moonbitlang/core/async/types" @async_types,
   "moonbitlang/core/async/os_error",
   "moonbitlang/core/bench",
   "moonbitlang/core/env",
@@ -13,11 +14,12 @@ import {
 supported_targets = "+native"
 
 options(
-  "native-stub": [ "resolver_stub.c" ],
+  "native-stub": [ "resolver_stub.c", "udp_options.c" ],
   "allow-experimental-packages": [
     "moonbitlang/core/async",
     "moonbitlang/core/async/os_error",
     "moonbitlang/core/async/socket",
+    "moonbitlang/core/async/types",
   ],
   "is-main": false,
 )
