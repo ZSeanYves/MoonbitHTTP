@@ -21,3 +21,5 @@ moon run repo-tools/tools/http3_idle_capacity.mbtx
 ```
 
 Each run writes the server and probe hashes, poll counts, process CPU, RSS, OS-specific wakeup counter, latency samples and recovery time under `_build/evidence/performance/h3-idle`. The baseline command checks out `3765516`, applies the counting-only patch to its original 25 ms loop, and builds the same server fixture.
+
+To reuse the listener setup in an application, bind a `NativeHttp3Listener` to your own endpoint and handler. [Native server guide](../../../adapter/native/server/README.md)

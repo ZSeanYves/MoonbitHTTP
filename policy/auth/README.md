@@ -4,6 +4,8 @@
 
 Parse authentication challenges and build Authorization header values for Basic, Bearer and Digest authentication. Pass the returned `HeaderValue` to the request headers for the intended origin. A Digest session tracks the challenge and nonce count between requests.
 
+For a Digest challenge with `stale=true`, `DigestSession::replace_stale_challenge` updates the session before the next authorization is generated.
+
 In `moon.pkg`
 
 ```moonbit

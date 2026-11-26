@@ -7,3 +7,5 @@ Native 测试使用的签名 OCSP 响应和证书吊销列表生成工具。TLS 
 ```sh
 moon test tests/integration/native_tls --target native
 ```
+
+选择证书及其配套状态响应时，可查阅仓库中的[测试证书清单](../../fixtures/tls/README.md)。

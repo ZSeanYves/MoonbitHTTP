@@ -4,6 +4,8 @@
 
 Test helpers used within this checkout. Exercise streaming code with `RecordingWriter` and injected read or write errors, datagram code with an in-memory socket, and time-dependent code with `FixedClock`. The module archive excludes test packages.
 
+`FixedClock::new` takes the monotonic time in milliseconds and the wall time in Unix seconds, in that order.
+
 In `moon.pkg`
 
 ```moonbit

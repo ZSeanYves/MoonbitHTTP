@@ -10,3 +10,5 @@ moon run examples/cmd/streaming_client --target native -- h1 upload http://127.0
 ```
 
 参数为 `h1|h2|h3 get|upload ABSOLUTE_URI [CA_PEM]`。所选协议应与目标服务匹配。访问使用私有 CA 的 HTTPS 源站时可传入信任锚文件。GET 的时限为 30 秒；上传持续产生数据块，直到一秒期限到达或响应提前结束。收集的响应正文上限为 1 MiB。
+
+运行 `h3` 模式时，先启动 UDP 示例服务，再向客户端传入配套的 CA 文件。[HTTP/3 服务与客户端命令](../h3_smoke_server/README_zh.md)

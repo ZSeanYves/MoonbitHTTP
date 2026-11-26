@@ -2,9 +2,20 @@
 
 [中文](README_zh.md) · [Project README](../../../README.md)
 
-This guide covers the 0.9.0 source candidate. [HTTPS GET with published 0.8.2](../../../README.md)
-
 Select an HTTP version and network policy in `with_client`. The factory supplies DNS, TCP or UDP, TLS and the system clock. Reuse the client for multiple or concurrent requests within the callback.
+
+Add these imports to `moon.pkg`.
+
+```moonbit
+import {
+  "ZSeanYves/http/adapter/native/client" @native_client,
+  "ZSeanYves/http/application/client",
+  "ZSeanYves/http/core/body",
+  "ZSeanYves/http/core/types",
+  "ZSeanYves/http/runtime/transport",
+}
+supported_targets = "+native"
+```
 
 ```moonbit
 pub async fn get(uri : @types.Uri, trust_anchors? : Bytes) -> Bytes {
@@ -20,6 +31,6 @@ pub async fn get(uri : @types.Uri, trust_anchors? : Bytes) -> Bytes {
 }
 ```
 
-The example imports `adapter/native/client` as `native_client`, `application/client`, `core/types`, `core/body` and `runtime/transport`. The example policy allows all network access. Supply your application's policy where appropriate. HTTP/1 supports forward and CONNECT proxies. HTTP/2 uses h2 ALPN over TLS or prior knowledge on cleartext connections. HTTP/3 requires an authenticated HTTPS origin. Exiting the callback releases unread responses and the pool.
+The example policy allows all network access. Supply your application's policy where appropriate. HTTP/1 supports forward proxies and CONNECT tunnels. HTTP/2 uses h2 ALPN over TLS or prior knowledge on cleartext connections. HTTP/3 requires an authenticated HTTPS origin. Exiting the callback releases unread responses and the pool.
 
 Use `with_http2_pool`, `with_http3_pool` or `with_http3_client_connection` for protocol-specific tuning and direct exchanges.

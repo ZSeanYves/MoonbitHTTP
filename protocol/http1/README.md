@@ -4,6 +4,8 @@
 
 Incrementally decode and encode HTTP/1.0 and HTTP/1.1 messages on a byte stream. Chunked transfer and trailers require HTTP/1.1. Feed received bytes to a request or response decoder, then call `next()` until it returns `Ok(None)`. Handle headers, body data, trailers and message end separately. Call `finish_input()` at transport EOF so truncated messages are reported.
 
+Construct `ResponseDecoder` with the original request method. For HEAD, `Content-Length` describes the representation and the message ends after its headers.
+
 In `moon.pkg`
 
 ```moonbit

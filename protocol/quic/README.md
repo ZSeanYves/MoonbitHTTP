@@ -26,3 +26,5 @@ test "reassemble out-of-order CRYPTO data" {
 ## Flow control and recovery
 
 Call `consume_stream_data(stream_id, count)` once for bytes accepted by the application. A custom transport must send the frames returned by `take_credit_updates()` reliably and call `acknowledge_stream_frame(frame)` on delivery. Keep the unwritten suffix after a partial write. Use `stop_sending` to abandon input. When the peer sends `SendStopped`, discard queued output for that stream. [Connection ID support](CID-SUPPORT.md)
+
+When scheduling a datagram driver, use `next_poll_deadline()` for its next absolute monotonic deadline. Recompute it after a datagram or a write changes the driver state.

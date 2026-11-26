@@ -4,6 +4,8 @@
 
 Reassemble TLS handshake messages carried by QUIC CRYPTO frames and derive packet protection keys. Native packet protection uses OpenSSL 3.x. Wasm, Wasm-GC and JavaScript use `mizchi/experimental_crypto`. To authenticate a peer and complete the handshake, supply a `QuicTlsProvider` from `runtime/transport`.
 
+For a Native QUIC handshake with peer certificate verification, construct a `NativeQuicTlsProvider`. [OpenSSL adapter and trust configuration](../../adapter/native/tls/README.md)
+
 In `moon.pkg`
 
 ```moonbit

@@ -4,6 +4,8 @@
 
 在传入的连接 I/O 上运行 HTTP/1.0、HTTP/1.1、HTTP/2 和 HTTP/3。驱动处理分帧、正文背压和取消。`serve_http1_connection` 接收读取端、写入端及应用的请求处理函数。HTTP/3 需要 QUIC 会话和数据报事件源。应用负责监听端及连接排空时机。
 
+流式处理时，从正文读取尾部字段。使用[应用客户端](../../application/client/README_zh.md)的 H1 或 H2 缓冲 `execute` 时，初始字段在 `headers`，尾部字段在 `trailers`。
+
 在 `moon.pkg` 中导入
 
 ```moonbit

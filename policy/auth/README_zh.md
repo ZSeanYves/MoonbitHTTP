@@ -4,6 +4,8 @@
 
 解析认证质询，并为 Basic、Bearer 和 Digest 生成 Authorization 字段值。调用方将返回的 `HeaderValue` 加入发往指定源站的请求。使用 Digest 时可通过会话跟踪质询与 nonce 计数。
 
+收到 `stale=true` 的 Digest 质询时，先调用 `DigestSession::replace_stale_challenge` 更新会话，再生成下一次请求的凭据。
+
 在 `moon.pkg` 中导入
 
 ```moonbit

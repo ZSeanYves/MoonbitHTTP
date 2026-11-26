@@ -4,6 +4,18 @@
 
 Send logical requests with `Client::send`. A scoped client shares authentication, cookies and cache across requests. Portable hosts supply a single-exchange function, wall and monotonic clocks and redirect authorization to `with_client`. Native applications can use the [native factory](../../adapter/native/client/README.md).
 
+Add these imports to `moon.pkg`.
+
+```moonbit
+import {
+  "ZSeanYves/http/application/client",
+  "ZSeanYves/http/core/body",
+  "ZSeanYves/http/core/types",
+}
+
+supported_targets = "js+native+wasm+wasm-gc"
+```
+
 ```moonbit
 pub async fn get(client : @client.Client, uri : @types.Uri) -> Bytes {
   let request = client.request(Get, uri, @client.Upload::bytes(b""))
@@ -13,9 +25,11 @@ pub async fn get(client : @client.Client, uri : @types.Uri) -> Bytes {
 }
 ```
 
-The example imports `application/client`, `core/types` and `core/body`. Use `Upload::once(body)` for a single-use stream or `Upload::reopen(factory)` to produce the same entity on each actual send. Reading frames preserves backpressure and trailers. Cancel the response body when stopping early.
+Use `Upload::once(body)` for a single-use stream or `Upload::reopen(factory)` to produce the same entity on each actual send. Reading frames preserves backpressure and trailers. Cancel the response body when stopping early.
 
 Redirects, retries, authentication and caching share one client. Cache entries commit after complete consumption. Decoding and integrity failures terminate the body. Digest `auth-int` responses are buffered up to the configured body limit and verified before delivery. The total deadline extends through response consumption.
+
+For a range download, leave `Accept-Encoding` unset or choose it explicitly. A 206 response carries the selected representation’s bytes and `Content-Range`, so offsets still apply when assembling multiple ranges.
 
 For direct protocol control, the H1 and H2 pool methods `execute_body` and the H3 pool method `Http3Client::send` execute a single exchange.
 

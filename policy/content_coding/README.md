@@ -31,9 +31,9 @@ test "decode a deflate response" {
 }
 ```
 
-## Migrating from decoder fields
+## Incremental decoding
 
-Replace reads of `decoder.encoded_bytes`, `decoder.decoded_bytes` and `decoder.finished` with the methods below. Keep the coding and limits passed to `new` if you need to report them.
+`step` returns the output from one call. Read `encoded_bytes()` and `decoded_bytes()` for cumulative byte counts, and `is_finished()` for completion.
 
 ```moonbit
 test "read decoder progress" {
@@ -46,6 +46,6 @@ test "read decoder progress" {
 }
 ```
 
-For stacked codings, the `ContentDecoderChain` queues and their indices are now private. Call `poll()` to get the next action. On `ContentDecodeNeedInput`, call `feed` with the next fragment, using `end=true` on the last one. Consume each `ContentDecoded(bytes)` and poll again. Stop on `ContentDecodeDone` or handle the returned error.
+For stacked codings, use `ContentDecoderChain`. Call `poll()` to get the next action. On `ContentDecodeNeedInput`, call `feed` with the next fragment, using `end=true` on the last one. Consume each `ContentDecoded(bytes)` and poll again. Stop on `ContentDecodeDone` or handle the returned error.
 
-`DecoderBackend` and `BrotliSink` are now package-private. Select the encoding with `ContentCoding` at construction. For a streaming response from `decode_response`, use `response.body.next_frame()` to read data and trailers, or `response.body.cancel(reason)` to stop early.
+Select the encoding with `ContentCoding` at construction. For a streaming response from `decode_response`, use `response.body.next_frame()` to read data and trailers, or `response.body.cancel(reason)` to stop early.

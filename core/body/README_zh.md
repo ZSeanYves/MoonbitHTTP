@@ -4,6 +4,8 @@
 
 `Body` 由消费方按需读取数据帧和尾部字段。已知内容可用 `EmptyBody` 或 `FullBody`，按需生产数据可用 `BodyStream::from_pull`。通常逐帧消费；需要完整正文时可用 `collect` 指定字节上限。提前放弃读取时应取消流。 下方异步示例在 Native、Wasm 和 JavaScript 上运行，Wasm-GC 仅验证编译。
 
+`collect` 返回 `(bytes, trailers)`。正文超过 `max_bytes` 时，它会取消正文并抛出 `BodyLimitExceeded`。
+
 在 `moon.pkg` 中导入
 
 ```moonbit

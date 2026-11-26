@@ -13,3 +13,5 @@ curl --data-binary 'hello' http://127.0.0.1:18080/echo
 ```
 
 需要缓冲正文的互操作用例时，在 `--` 后传入 `--echo-h1 PORT` 或 `--echo-h2 PORT CERT KEY`。后者使用传入的 PEM 文件提供 HTTP/2 over TLS。两种模式收集的请求正文上限均为 1 MiB。
+
+要用 MoonBit 发送流式 POST，可对 `/echo` 运行 `h1 upload` 示例。[流式客户端](../streaming_client/README_zh.md)

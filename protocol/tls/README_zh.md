@@ -4,6 +4,8 @@
 
 重组 QUIC CRYPTO 帧承载的 TLS 握手消息，并派生包保护密钥。Native 的包保护使用 OpenSSL 3.x，Wasm、Wasm-GC 和 JavaScript 使用 `mizchi/experimental_crypto`。完成握手及对端认证需要接入 `runtime/transport` 定义的 `QuicTlsProvider`。
 
+在 Native 上进行带证书验证的 QUIC 握手时，可构造 `NativeQuicTlsProvider`。[OpenSSL 适配器与信任配置](../../adapter/native/tls/README_zh.md)
+
 在 `moon.pkg` 中导入
 
 ```moonbit

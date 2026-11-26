@@ -17,10 +17,10 @@ A streaming HTTP library for MoonBit with support for HTTP/1.0, HTTP/1.1, HTTP/2
 
 ## Installation and usage
 
-To install version `0.8.2` in your MoonBit project, run
+This guide covers source version `0.9.1`. To install the published module from Mooncakes, run
 
 ```sh
-moon add ZSeanYves/http@0.8.2
+moon add ZSeanYves/http
 ```
 
 The following example runs on all four backends. Import the `protocol/http1` package for tests in `moon.pkg`.
@@ -45,61 +45,33 @@ test "decode a request" {
 }
 ```
 
-### First HTTPS GET with the published 0.8.2 package
+### Send an HTTPS GET on Native
 
-Use these imports in a Native package's `moon.pkg` and call `get(uri)`. Pass `trust_anchors` to select a PEM trust bundle.
+Add these imports to the Native package’s `moon.pkg`. The example uses HTTP/1.1, accepts an optional PEM trust bundle, and collects at most 1 MiB of response data.
 
 ```moonbit
 import {
   "ZSeanYves/http/adapter/native/client" @native_client,
-  "ZSeanYves/http/adapter/native/tls" @native_tls,
-  "ZSeanYves/http/adapter/native/transport" @native_transport,
+  "ZSeanYves/http/application/client",
+  "ZSeanYves/http/core/body",
   "ZSeanYves/http/core/types",
   "ZSeanYves/http/runtime/transport",
 }
+supported_targets = "+native"
 ```
 
 ```moonbit
 pub async fn get(uri : @types.Uri, trust_anchors? : Bytes) -> Bytes {
-  let client = @native_client.new_http1_client(
-    @native_transport.NativeResolver::new(),
-    @transport.AllowAllPolicy::new(),
-    @native_transport.NativeClock::new(),
-    @native_tls.NativeTlsProvider::new(),
-    origin_tls={ ..@transport.TlsOptions::defaults(), alpn: ["http/1.1"], trust_anchors },
-  ).unwrap_or_error()
-  defer client.close()
-  let response = client.send({
-    http_method: Get, uri, version: Http11, headers: @types.HeaderMap::new(), body: b"",
-  }).unwrap_or_error()
-  guard response.status == 200 else { fail("unexpected HTTP status") }
-  response.body
+  @native_client.with_client(
+    async fn(client) {
+      let response = client.send(client.request(Get, uri, @client.Upload::bytes(b"")))
+      @body.collect(response.body, max_bytes=1024 * 1024).0
+    },
+    version=Http11,
+    tls={ ..@transport.TlsOptions::defaults(), alpn: ["http/1.1"], trust_anchors },
+    policy=@transport.AllowAllPolicy::new(),
+  )
 }
 ```
 
-### Development API in the 0.9.0 candidate
-
-Identify the candidate by its Git SHA and frozen package digest. The distribution gate records both in `_build/evidence/release/<Git SHA>/evidence.json`. Open the relative guides at that same revision. [Native client](adapter/native/client/README.md) · [Native server](adapter/native/server/README.md) · [Changelog](CHANGELOG.md)
-
-Application entry points are `adapter/native/client`, `adapter/native/server`, `application/{client,server}`, `core/{body,types}` and `policy/{auth,cache,content_coding,cookie}`. For a custom transport or protocol implementation, use `runtime/{transport,service,detection}`, `adapter/callback`, `adapter/native/{tls,transport}`, `core/codec` and `protocol/{http1,http2,http3,quic,tls}`. Portable QUIC packet protection outside Native uses experimental cryptography.
-
-| Capability | Native | Wasm and JS | Wasm-GC |
-|---|---|---|---|
-| Protocol codecs and QUIC packet protection | [Executed](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) | [Executed](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) | [Synchronous vectors executed](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) |
-| Application and stream services | [TCP/UDP, DNS and TLS with four HTTP versions on loopback](https://github.com/ZSeanYves/http/blob/e91603e/tests/integration/native_server/scoped_client_test.mbt) | [Async service execution](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) and [host byte-stream callback execution](https://github.com/ZSeanYves/http/blob/e91603e/tests/blackbox/callback_api/transport_test.mbt) | Async service compilation only |
-| HTTP/3 deployment | [Authenticated QUIC with OpenSSL 3.5 or later within 3.x](https://github.com/ZSeanYves/http/blob/e91603e/tests/integration/native_server/scoped_client_test.mbt) | Supply host datagrams and QUIC TLS. [Portable packet protection vectors](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx) | Same host requirements and [synchronous QUIC vectors](https://github.com/ZSeanYves/http/blob/e91603e/repo-tools/tools/check_runtime_tests.mbtx). Async service compilation only |
-
-## Migrating to this branch
-
-- Observe server events with `ServerEvent` and query the current state with `ServerState`. The former `ServerPhase` enum has been removed.
-- Pass `ReplayableBody` for an empty body in redirect and retry decisions. Use `NonReplayableBody` for one-shot uploads.
-- `RedirectTracker` keeps its per-method loop detection private. Callers that need a redirect history can record the URI returned by each successful `follow`.
-- The low-level HTTP/3 client and service connection functions accept `Some(milliseconds)` or `None` for `handshake_timeout_ms`. Omitting it keeps the 10-second default. The scoped client uses `ClientTimeouts.tls_ms`.
-
-- `HeaderMap::content_length()` returns `UInt64?`. Bodyless HEAD/304 responses also preserve the raw decimal field for larger representation metadata.
-- Buffered H1/H2 `execute` returns `BufferedResponse`. Read trailing fields from `trailers` and initial fields from `headers`. The default `ReturnResponse` delivers 3xx. Select `RejectRedirect` or `RedirectPolicy::limited()` for explicit rejection or following.
-- The H3 driver's `connection`, `failure` and local stream IDs are accessed through methods. Its `decoders`, `kinds`, `prefixes`, `blocked_frames` and `pending_fin` are private. Observe `blocked_bytes()` and `blocked_stream_count()`. QPACK owns its `blocked` map and `encoder_buffer`. Read `table_size()`, `capacity()`, and `total_inserts()`. Decoder operations return errors and limits are supplied at construction.
-- Context-aware Native TLS listener bindings expose the verified client certificate identity. H2 defaults to one connection per origin. Set `max_connections_per_origin` to allow expansion at saturation.
-- Range requests preserve encoded 206 representations. The cache orders completed fills by representation version and refreshes SWR hits in the background. H3 applies request and response stage deadlines and H1 drains admitted requests at shutdown.
-
-Validate a frozen checkout with `moon run repo-tools/tools/release_evidence.mbtx`. After publication, run `moon run repo-tools/tools/verify_consumers.mbtx -- --published-candidate` from the frozen release commit to compare registry and archive digests and rerun both consumers in fresh projects.
+[Reuse a client and its pool](adapter/native/client/README.md) · [Serve requests and shut down](adapter/native/server/README.md) · [Read streaming bodies](core/body/README.md)

@@ -21,3 +21,5 @@ moon run repo-tools/tools/http3_idle_capacity.mbtx
 ```
 
 每次运行在 `_build/evidence/performance/h3-idle` 下保存服务端与探针的摘要、轮询次数、进程 CPU、RSS、操作系统提供的唤醒计数、各次请求延迟及恢复时间。基线命令检出 `3765516`，在原有 25 ms 循环增加计数，再编译同一个示例服务。
+
+在应用中复用此监听方式时，将 `NativeHttp3Listener` 绑定到自己的端点和请求处理函数。[Native 服务端指南](../../../adapter/native/server/README_zh.md)

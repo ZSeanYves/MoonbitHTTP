@@ -26,3 +26,5 @@ test "reassemble out-of-order CRYPTO data" {
 ## 流量控制与恢复
 
 应用每消费一段字节，调用一次 `consume_stream_data(stream_id, count)`。自定义传输需要可靠发送 `take_credit_updates()` 返回的帧，并在确认送达后调用 `acknowledge_stream_frame(frame)`。部分写入时保留尚未发送的后缀。放弃读取时调用 `stop_sending`，收到对端的 `SendStopped` 后丢弃该流待发送的数据。[连接 ID 支持范围](CID-SUPPORT.md)
+
+调度数据报驱动时，用 `next_poll_deadline()` 获得单调时钟上的下一个绝对期限。收包或写入改变驱动状态后，重新查询期限。

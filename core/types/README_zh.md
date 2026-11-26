@@ -4,6 +4,8 @@
 
 构造HTTP/1.0、HTTP/1.1、HTTP/2 和 HTTP/3共用的请求和响应。`Request[B]` 和 `Response[B]` 的正文类型由调用方选择。`Uri` 解析请求目标，`HeaderMap` 保留重复字段，按名称查找时忽略大小写。字段值以字节保存，显示时可以使用 `to_string_lossy()`。
 
+`HeaderMap::content_length()` 在字段缺失时返回 `Ok(None)`，在数值可用 `UInt64` 表示时返回 `Ok(Some(length))`。更大的合法十进制值返回 `Err(ContentLengthOverflow)`，仍可从原始字段读取。
+
 在 `moon.pkg` 中导入
 
 ```moonbit

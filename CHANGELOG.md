@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.9.0 candidate
+## 0.9.1
 
-The bilingual root guides distinguish the published 0.8.2 API from the frozen candidate. The release evidence records the candidate's Git revision, module version, archive digest and file manifest.
+- Updated the English and Chinese package guides and the Native HTTPS quick start. The public API is unchanged from 0.9.0.
+
+## 0.9.0
 
 - Buffered H1/H2 responses retain trailers separately. The default redirect policy returns the original response. Content-Length queries accept unsigned 64-bit values.
 - Request/response phase deadlines apply to H3. H1 drains the admitted request at shutdown. Range downloads retain encoded 206 bytes and cache fills preserve newer representations.

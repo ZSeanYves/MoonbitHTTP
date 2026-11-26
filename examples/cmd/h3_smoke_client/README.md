@@ -10,3 +10,5 @@ moon run repo-tools/tools/http3_interoperability.mbtx --reverse
 ```
 
 The runner also accepts `--peer-restart PATH_TO_QUIC_GO_SERVER` to check recovery after a server restart, or `--peer-soak UDP_ADDRESS HTTPS_AUTHORITY CA_FILE SECONDS WORKERS` for a separately deployed peer.
+
+In `--peer-soak` mode the workers reuse one authenticated connection. Add `--mixed` to interleave short and large exchanges on it.

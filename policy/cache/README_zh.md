@@ -4,6 +4,8 @@
 
 `HttpCache` 提供有容量限制的内存响应缓存。向 `store` 传入请求头、响应头、正文字节和当前 Unix 时间（秒）。`lookup` 根据新鲜度和 `Vary` 匹配缓存；对过期条目，可使用命中结果中的校验字段发起条件请求，收到 304 后调用 `revalidate`。
 
+`CacheStaleWhileRevalidate` 表示可以先返回已有响应，再进行验证。使用[应用客户端](../../application/client/README_zh.md)时，同一变体的并发命中共用一次后台验证。
+
 在 `moon.pkg` 中导入
 
 ```moonbit

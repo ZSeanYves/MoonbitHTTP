@@ -4,6 +4,8 @@
 
 Use `ServerSupervisor` with a `Listener` to accept connections, enforce concurrency limits and coordinate shutdown. The application supplies the listener and request handler. `begin_shutdown` stops admission and starts draining existing connections under the configured grace period.
 
+Use `last_accept_error()` to inspect the latest admission failure. Native socket errors retain the operation and system error code in `ListenerIo`.
+
 In `moon.pkg`
 
 ```moonbit

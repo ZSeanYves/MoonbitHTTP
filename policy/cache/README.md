@@ -4,6 +4,8 @@
 
 Use `HttpCache` for a bounded in-memory response cache. Give `store` the request and response heads, body bytes and current Unix time in seconds. `lookup` accounts for freshness and `Vary`. For stale entries, use the validators from the hit to make a conditional request and apply a 304 response with `revalidate`.
 
+`CacheStaleWhileRevalidate` identifies a hit that can be served while it is being refreshed. The scoped [application client](../../application/client/README.md) starts one background revalidation per matching variant.
+
 In `moon.pkg`
 
 ```moonbit

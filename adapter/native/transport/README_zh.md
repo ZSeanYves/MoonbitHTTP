@@ -4,6 +4,8 @@
 
 仅支持 Native。`TcpConnector` 连接数字 IP 端点，调用方负责在域名解析前和连接各候选地址前检查网络策略。UDP 套接字接口直接接收策略。`NativeResolver` 按系统顺序返回解析结果，对数字 IP 跳过 DNS。`NativeClock` 提供单调时钟和系统时间。
 
+发送 HTTPS 请求时，`with_client` 会一并提供解析器、时钟和连接器。[Native 客户端](../client/README_zh.md)
+
 在 `moon.pkg` 中导入
 
 ```moonbit

@@ -4,6 +4,8 @@
 
 Run HTTP/1.0, HTTP/1.1, HTTP/2 and HTTP/3 on supplied connection I/O. Stream drivers handle framing, body backpressure and cancellation. `serve_http1_connection` accepts a reader, a writer and your request handler. For HTTP/3, supply a QUIC session and its datagram event source. The application owns the listener and chooses when to drain connections.
 
+Streaming handlers read trailers from the body. With the [application client](../../application/client/README.md), buffered H1 and H2 `execute` calls return initial fields in `headers` and trailing fields in `trailers`.
+
 In `moon.pkg`
 
 ```moonbit

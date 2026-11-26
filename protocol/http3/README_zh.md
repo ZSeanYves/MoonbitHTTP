@@ -29,18 +29,6 @@ test "decode a DATA frame" {
 
 独立解码器返回完整帧，会话则可能为一个帧产生多次数据事件。按需读取正文时先用 `defer_body_credit`，再按实际读取或丢弃的字节数调用 `consume_body`。以 `H3MessageFinished` 判定消息完成，QPACK 阻塞时该事件可能晚于 FIN。服务端可用 `send_goaway(first_rejected)` 开始排空，边界以下已接收的请求可继续完成。
 
-## 迁移到 0.9 的驱动诊断接口
+## 诊断 QPACK 阻塞
 
-| 0.8 驱动字段 | 0.9 读取方式 |
-|---|---|
-| `connection`、`failure` | 调用 `connection()` 或 `failure()`。 |
-| `local_control_stream`、`local_qpack_encoder_stream`、`local_qpack_decoder_stream` | 调用同名方法读取流 ID。 |
-| `blocked_bytes`、`blocked_frames` | 用 `blocked_bytes()` 和 `blocked_stream_count()` 查询保留的字节数和流数量。 |
-| `decoders`、`kinds`、`prefixes`、`pending_fin` | 通过会话返回的事件观察消息完成等状态。这些逐流容器由驱动管理。 |
-
-| 0.8 解码器字段 | 0.9 读取方式 |
-|---|---|
-| `capacity`、`table_size`、`total_inserts` | 调用同名方法。 |
-| `blocked` | `blocked_stream_count()` 返回数量，`ready_blocked_streams()` 返回可以恢复的流 ID。 |
-| `encoder_buffer`、`failure` | 检查 `feed_encoder_stream`、`finish_encoder_stream`、`decode_field_section` 的结果。 |
-| `limits` | 在构造 `QpackDecoder` 时保留传入配置。 |
+`Http3Driver::blocked_stream_count()` 返回阻塞流的数量，`blocked_bytes()` 返回驱动为这些流保留的字节数。处理编码器流的指令后，用 `QpackDecoder::ready_blocked_streams()` 查询哪些流可以恢复解码。要观察动态表，分别用 `capacity()`、`table_size()` 和 `total_inserts()` 查询容量、已用字节和累计插入次数。

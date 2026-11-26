@@ -4,6 +4,8 @@
 
 Native only. `NativeTlsProvider` runs TLS over an existing byte stream with OpenSSL 3.x. `NativeQuicTlsProvider` handles QUIC handshakes with OpenSSL 3.5 or later in the 3.x series. Pass the peer identity, ALPN, trust anchors and any credentials in `TlsOptions` at handshake time. The stream provider constructor controls use of OpenSSL’s default trust paths.
 
+For an HTTPS request with a private CA, the Native client guide shows where to pass the PEM when opening the client. [HTTPS client example](../client/README.md)
+
 In `moon.pkg`
 
 ```moonbit
@@ -21,12 +23,12 @@ Add this function to a `.mbt` file in the importing package.
 pub async fn secure(
   stream : @transport.StreamConnection,
   host : String,
-) -> Result[@transport.SecureConnection, @transport.TlsError] {
+) -> @transport.SecureConnection {
   let tls = @native_tls.NativeTlsProvider::new()
   tls.client_handshake(
     stream,
     @transport.TlsOptions::defaults().for_server_name(host),
-  )
+  ).unwrap_or_error()
 }
 ```
 

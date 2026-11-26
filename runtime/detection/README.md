@@ -4,6 +4,8 @@
 
 Select HTTP/1 or HTTP/2 from negotiated ALPN or incremental cleartext input. `Detector` retains every byte supplied to `feed`. Once decided, stop feeding it and pass `buffered()` to the chosen protocol driver, including bytes received after the preface. `is_h2c_upgrade` recognizes upgrade headers. The service driver validates the upgrade settings.
 
+To handle both cleartext protocols on the same connection entry point, use `serve_http1_or_h2c_connection`. [Service driver](../service/README.md)
+
 In `moon.pkg`
 
 ```moonbit

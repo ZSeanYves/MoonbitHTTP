@@ -4,6 +4,8 @@
 
 Native only. `TcpConnector` opens connections to numeric endpoints. Its caller checks the network policy before resolving names and connecting to each candidate. UDP socket APIs take the policy directly. `NativeResolver` resolves hostnames in system order and accepts numeric IP literals without DNS. `NativeClock` supplies monotonic and wall-clock time.
 
+For outbound HTTPS, `with_client` supplies the resolver, clock and connector together. [Native client](../client/README.md)
+
 In `moon.pkg`
 
 ```moonbit

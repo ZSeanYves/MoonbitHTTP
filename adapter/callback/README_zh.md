@@ -4,6 +4,8 @@
 
 将宿主提供的异步读写回调包装为 MoonBit 二进制流。回调接收缓冲区、偏移和长度，返回实际传输字节数。读取返回零表示 EOF，写入必须取得进展。可用关闭回调释放宿主资源。HTTP/3 还需要单独提供数据报和 QUIC TLS 能力。 下方异步示例在 Native、Wasm 和 JavaScript 上运行，Wasm-GC 仅验证编译。
 
+宿主流需要释放资源时，传入 `close_callback`。即使多次调用 `close()`，该回调也只执行一次。
+
 在 `moon.pkg` 中导入
 
 ```moonbit

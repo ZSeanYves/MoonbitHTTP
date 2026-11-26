@@ -4,6 +4,8 @@
 
 仓库测试共用的辅助包。流式测试可使用 `RecordingWriter` 并注入读写错误；数据报测试可使用内存套接字；时间相关测试使用 `FixedClock`。发布归档排除测试包。
 
+`FixedClock::new` 的首个参数是单调时间（毫秒），第二个参数是 Unix 时间（秒）。
+
 在 `moon.pkg` 中导入
 
 ```moonbit

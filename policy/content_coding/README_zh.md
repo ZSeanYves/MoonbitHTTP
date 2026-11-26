@@ -31,9 +31,9 @@ test "decode a deflate response" {
 }
 ```
 
-## 从解码器字段迁移
+## 增量解码
 
-原先读取 `decoder.encoded_bytes`、`decoder.decoded_bytes` 和 `decoder.finished` 的地方改用下面三个方法。需要展示编码或限制时，可保留传给 `new` 的参数。
+`step` 返回本次产生的输出。用 `encoded_bytes()` 和 `decoded_bytes()` 查询累计字节数，用 `is_finished()` 判断解码是否结束。
 
 ```moonbit
 test "read decoder progress" {
@@ -46,6 +46,6 @@ test "read decoder progress" {
 }
 ```
 
-处理多层编码时，`ContentDecoderChain` 的队列和索引已改为包内字段。调用 `poll()` 获取下一步。收到 `ContentDecodeNeedInput` 时用 `feed` 提交下一段输入，最后一段传 `end=true`。收到 `ContentDecoded(bytes)` 时消费这段输出并继续轮询，收到 `ContentDecodeDone` 时结束，发生错误时处理返回的错误值。
+处理多层编码时，使用 `ContentDecoderChain`。调用 `poll()` 获取下一步。收到 `ContentDecodeNeedInput` 时用 `feed` 提交下一段输入，最后一段传 `end=true`。收到 `ContentDecoded(bytes)` 时消费这段输出并继续轮询，收到 `ContentDecodeDone` 时结束，发生错误时处理返回的错误值。
 
-`DecoderBackend` 和 `BrotliSink` 已从公开接口移除。构造时通过 `ContentCoding` 选择编码。对 `decode_response` 返回的流式响应，用 `response.body.next_frame()` 读取数据帧和尾部字段，提前停止时调用 `response.body.cancel(reason)`。
+构造时通过 `ContentCoding` 选择编码。对 `decode_response` 返回的流式响应，用 `response.body.next_frame()` 读取数据帧和尾部字段，提前停止时调用 `response.body.cancel(reason)`。

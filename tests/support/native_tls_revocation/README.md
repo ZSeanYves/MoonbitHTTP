@@ -7,3 +7,5 @@ Native test fixture builders for signed OCSP responses and certificate revocatio
 ```sh
 moon test tests/integration/native_tls --target native
 ```
+
+The fixture inventory identifies which certificate and status response belong together. [TLS fixtures](../../fixtures/tls/README.md)

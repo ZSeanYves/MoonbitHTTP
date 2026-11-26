@@ -4,6 +4,8 @@
 
 Decode and encode HTTP/2 frames and HPACK header blocks, and track multiplexed streams and flow control with `H2Connection`. Use separate HPACK contexts for each direction and keep each context for the life of the connection. The peer decodes blocks in the order they were encoded.
 
+On the receive side, a smaller HPACK table limit takes effect when the peer acknowledges the corresponding SETTINGS. Keep the decoder across field blocks so that it can read in-flight headers under the preceding limit.
+
 In `moon.pkg`
 
 ```moonbit

@@ -4,6 +4,8 @@
 
 Enable `CookieJar` explicitly to store Set-Cookie values and select cookies for outgoing requests. Supply the request URI and Unix time in seconds for each operation. The jar checks domain, path, expiry and Secure attributes. Supply `CookieContext` when SameSite decisions depend on the request context.
 
+Cookies from an IP origin must omit `Domain`. The jar can return such a cookie to the same host. Public suffix queries on IPv4 and IPv6 literals return `IpAddressHasNoPublicSuffix`.
+
 In `moon.pkg`
 
 ```moonbit

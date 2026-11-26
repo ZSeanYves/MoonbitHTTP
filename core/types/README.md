@@ -4,6 +4,8 @@
 
 Construct requests and responses shared by HTTP/1.0, HTTP/1.1, HTTP/2 and HTTP/3. `Request[B]` and `Response[B]` carry the body type you choose. `Uri` parses request targets, and `HeaderMap` preserves repeated fields and matches names case-insensitively. Header values are bytes. Use `to_string_lossy()` for display.
 
+`HeaderMap::content_length()` returns `Ok(None)` for an absent field and `Ok(Some(length))` for a length that fits in `UInt64`. A larger valid decimal returns `Err(ContentLengthOverflow)`. The original field is still available.
+
 In `moon.pkg`
 
 ```moonbit

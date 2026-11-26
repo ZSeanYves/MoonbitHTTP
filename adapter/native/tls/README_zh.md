@@ -4,6 +4,8 @@
 
 仅支持 Native。`NativeTlsProvider` 使用 OpenSSL 3.x 在已有字节流上进行 TLS 握手。QUIC 握手使用 `NativeQuicTlsProvider`，需要 OpenSSL 3.5 或更高的 3.x 版本。握手时通过 `TlsOptions` 传入对端身份、ALPN、信任锚和所需凭据。流式 TLS 提供方的构造参数控制是否启用 OpenSSL 默认信任路径。
 
+用私有 CA 访问 HTTPS 时，可在创建客户端时传入 PEM。[客户端示例](../client/README_zh.md)
+
 在 `moon.pkg` 中导入
 
 ```moonbit
@@ -21,12 +23,12 @@ supported_targets = "+native"
 pub async fn secure(
   stream : @transport.StreamConnection,
   host : String,
-) -> Result[@transport.SecureConnection, @transport.TlsError] {
+) -> @transport.SecureConnection {
   let tls = @native_tls.NativeTlsProvider::new()
   tls.client_handshake(
     stream,
     @transport.TlsOptions::defaults().for_server_name(host),
-  )
+  ).unwrap_or_error()
 }
 ```
 

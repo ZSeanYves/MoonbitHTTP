@@ -4,6 +4,8 @@
 
 按片段接收输入时可使用有容量限制的字节缓冲区。HPACK 和 QPACK 的字符串字面量共用此包的 Huffman 编解码器。缓冲区会区分输入不完整与超出大小限制。
 
+分段接收一行时，`Buffer::read_line` 在等待 CRLF 期间返回 `NeedMore`。行长度超出限制时返回 `LimitExceeded`，调用方可据此区分两种情况。
+
 在 `moon.pkg` 中导入
 
 ```moonbit

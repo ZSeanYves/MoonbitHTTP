@@ -4,6 +4,8 @@
 
 需要保存 Set-Cookie 并为后续请求选择 Cookie 时，显式启用 `CookieJar`。每次操作传入请求 URI 和当前 Unix 时间（秒）。Cookie 匹配考虑域名、路径、过期时间和 Secure 属性；涉及 SameSite 时使用 `CookieContext` 提供请求上下文。
 
+IP 来源设置 Cookie 时须省略 `Domain`，之后 Cookie 可取回并发给同一主机。对 IPv4 或 IPv6 字面量查询公共后缀会返回 `IpAddressHasNoPublicSuffix`。
+
 在 `moon.pkg` 中导入
 
 ```moonbit
